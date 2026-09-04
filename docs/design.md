@@ -38,7 +38,7 @@ Skills reach their scripts through `${CLAUDE_PLUGIN_ROOT}`; a relative path does
 
 ### 3.1 Why two tiers
 
-The host exposes the exact context fill in one place only: the JSON it writes to the status line command's stdin (`context_window.used_percentage`, the 5-hour and 7-day quotas, and `session_id`). Hooks do not carry it, and a plugin cannot declare a status line. A session can also compute its fill from its own transcript: the last `usage` block's input plus cache tokens is the context sent on the last turn, within half a point of the host's figure. The transcript needs the window size, which the status line payload also carries as `context_window.total`.
+The host exposes the exact context fill in one place only: the JSON it writes to the status line command's stdin (`context_window.used_percentage`, `context_window.context_window_size`, a `current_usage` token breakdown, the 5-hour and 7-day quotas, `session_id` and `transcript_path` — field names read from a captured payload, not from documentation). Hooks do not carry it, and a plugin cannot declare a status line. A session can also compute its fill from its own transcript: the last `usage` block's input plus cache tokens is the context sent on the last turn, within half a point of the host's figure. The transcript needs the window size, which the payload carries as `context_window_size`.
 
 So the gauge has a harness-exact tier fed by a status-line tap, and a computed tier from the transcript that needs no wiring at all. An idle session stops rendering its status line, so its tap file ages; the gauge then falls back to the transcript and says so.
 
@@ -51,10 +51,11 @@ The file is `${CLAUDE_CONFIG_DIR:-~/.claude}/claude-orchestrator/ctx/<session-id
 ```json
 {"session_id": "...", "context_percent": 36.4, "context_used": 91000, "context_total": 250000,
  "five_hour_percent": 3, "five_hour_resets_at": 1788560000,
- "seven_day_percent": 1, "seven_day_resets_at": 1788900000, "updated_epoch": 1788553115}
+ "seven_day_percent": 1, "seven_day_resets_at": 1788900000,
+ "transcript_path": "/path/to/session.jsonl", "updated_epoch": 1788553115}
 ```
 
-One `jq` call parses the payload; missing fields become `null`. The file is written to a temporary name then renamed, so a reader never sees a partial file. Invalid or empty stdin writes nothing and still runs the wrapped command. On the first render of a session (no file yet) the tap deletes files older than one day, so ended sessions do not accumulate.
+`context_used` is the sum of `current_usage`'s input, cache-creation and cache-read tokens; `context_total` is `context_window_size`; `transcript_path` lets the gauge open the transcript without guessing its location. One `jq` call parses the payload; missing fields become `null`. The file is written to a temporary name then renamed, so a reader never sees a partial file. Invalid or empty stdin writes nothing and still runs the wrapped command. On the first render of a session (no file yet) the tap deletes files older than one day, so ended sessions do not accumulate.
 
 ### 3.3 The gauge
 
@@ -69,7 +70,7 @@ seven_day_percent=1
 source=tap            # or transcript
 ```
 
-The session id defaults to `CLAUDE_CODE_SESSION_ID`, which the host sets in every session's environment. The tap file is used when younger than `--max-age` (default 120 s). Otherwise the transcript `<config>/projects/*/<session-id>.jsonl` is scanned backwards for the last `usage` block. The window for that computation comes, in order, from the stale tap file's `context_total`, `--window`, or the default 200000, and `context_window_source=` names which. No tap file and no transcript is an error with exit 1.
+The session id defaults to `CLAUDE_CODE_SESSION_ID`, which the host sets in every session's environment. The tap file is used when younger than `--max-age` (default 120 s). Otherwise the transcript — the path recorded in the tap file when there is one, else `<config>/projects/*/<session-id>.jsonl` — is scanned backwards for the last `usage` block. The window for that computation comes, in order, from the stale tap file's `context_total`, `--window`, or the default 200000, and `context_window_source=` names which. No tap file and no transcript is an error with exit 1.
 
 ### 3.4 Install and uninstall
 

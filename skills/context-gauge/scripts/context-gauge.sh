@@ -34,11 +34,14 @@ session_id="${session_id:-${CLAUDE_CODE_SESSION_ID:-}}"
 
 tap_file="$STATE_DIR/ctx/$session_id.json"
 window_source=""
+transcript=""
 if [ -f "$tap_file" ]; then
-  IFS=$'\x1f' read -r updated pct used total h5 d7 <<<"$(jq -r '
+  IFS=$'\x1f' read -r updated pct used total h5 d7 tp <<<"$(jq -r '
     [ (.updated_epoch // 0), (.context_percent // null), (.context_used // null),
-      (.context_total // null), (.five_hour_percent // null), (.seven_day_percent // null) ]
+      (.context_total // null), (.five_hour_percent // null), (.seven_day_percent // null),
+      (.transcript_path // "") ]
     | map(tostring) | join("\u001f")' "$tap_file" 2>/dev/null)"
+  [ -f "${tp:-}" ] && transcript="$tp"
   age=$(( $(date +%s) - ${updated:-0} ))
   if [ "$age" -lt "$max_age" ] && [ "${pct:-null}" != "null" ]; then
     echo "context_percent=$pct"
@@ -58,7 +61,9 @@ if [ -z "$window_source" ]; then
   if [ -n "$window" ]; then window_source="flag"; else window=200000; window_source="default"; fi
 fi
 
-transcript=$(ls "$TRANSCRIPTS_DIR"/*/"$session_id".jsonl 2>/dev/null | head -1)
+# The tap file names the transcript when the host sent transcript_path; otherwise
+# the transcript is looked up by session id under the projects directory.
+[ -n "$transcript" ] || transcript=$(ls "$TRANSCRIPTS_DIR"/*/"$session_id".jsonl 2>/dev/null | head -1)
 [ -n "$transcript" ] || die "no tap file and no transcript for session $session_id"
 
 tail -c 300000 "$transcript" | python3 -c '

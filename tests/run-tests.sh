@@ -46,14 +46,20 @@ check "no product name in prose" "" "$hits"
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"
-PAYLOAD='{"session_id":"s-1","context_window":{"used_percentage":36.4,"used":91000,"total":250000},"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1788560000},"seven_day":{"used_percentage":1,"resets_at":1788900000}}}'
+# The payload shape is the one the host actually sends: context_window carries
+# used_percentage, context_window_size and a current_usage breakdown.
+PAYLOAD='{"session_id":"s-1","transcript_path":"/t/s-1.jsonl","context_window":{"used_percentage":36.4,"context_window_size":250000,"current_usage":{"input_tokens":1000,"cache_creation_input_tokens":2000,"cache_read_input_tokens":88000}},"rate_limits":{"five_hour":{"used_percentage":3,"resets_at":1788560000},"seven_day":{"used_percentage":1,"resets_at":1788900000}}}'
 STATE="$WORK/state"
 
 out=$(printf '%s' "$PAYLOAD" | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
 check "no wrapped command: one-line render" "ctx: 36% │ 5h: 3% │ 7d: 1%" "$out"
 check "file written with every field" \
-  '{"session_id":"s-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":1788560000,"seven_day_percent":1,"seven_day_resets_at":1788900000}' \
+  '{"session_id":"s-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":1788560000,"seven_day_percent":1,"seven_day_resets_at":1788900000,"transcript_path":"/t/s-1.jsonl"}' \
   "$(jq -c 'del(.updated_epoch)' "$STATE/ctx/s-1.json")"
+out=$(printf '{"session_id":"s-early","context_window":{"used_percentage":0}}' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
+check "early payload without usage or transcript: nulls, no crash" \
+  '{"session_id":"s-early","context_percent":0,"context_used":null,"context_total":null,"five_hour_percent":null,"five_hour_resets_at":null,"seven_day_percent":null,"seven_day_resets_at":null,"transcript_path":null}' \
+  "$(jq -c 'del(.updated_epoch)' "$STATE/ctx/s-early.json")"
 age=$(( $(date +%s) - $(jq '.updated_epoch' "$STATE/ctx/s-1.json") ))
 check "updated_epoch is now" "recent" "$([ "$age" -lt 5 ] && echo recent || echo "$age s old")"
 
@@ -70,7 +76,7 @@ check "wrapped command's exit status returned" "3" "$code"
 
 out=$(printf 'not json' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP" "$WORK/echo.sh")
 check "invalid stdin still reaches the wrapped command" "not json" "$out"
-check "invalid stdin writes no file" "1" "$(ls "$STATE/ctx" | wc -l | tr -d ' ')"
+check "invalid stdin writes no file" "2" "$(ls "$STATE/ctx" | wc -l | tr -d ' ')"
 out=$(printf '' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
 check "empty stdin renders a placeholder" "ctx: ~ │ 5h: ~ │ 7d: ~" "$out"
 
@@ -84,9 +90,19 @@ GAUGE="$ROOT/skills/context-gauge/scripts/context-gauge.sh"
 GSTATE="$WORK/gstate"
 mkdir -p "$GSTATE/ctx" "$WORK/projects/p1"
 cp "$ROOT/tests/fixtures/transcript.jsonl" "$WORK/projects/p1/g-1.jsonl"
-printf '{"session_id":"g-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":null,"seven_day_percent":1,"seven_day_resets_at":null,"updated_epoch":%s}\n' \
+printf '{"session_id":"g-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":null,"seven_day_percent":1,"seven_day_resets_at":null,"transcript_path":null,"updated_epoch":%s}\n' \
   "$(date +%s)" > "$GSTATE/ctx/g-1.json"
 gauge() { ORCHESTRATOR_STATE_DIR="$GSTATE" ORCHESTRATOR_TRANSCRIPTS_DIR="$WORK/projects" bash "$GAUGE" "$@"; }
+
+# g-2 has no transcript under the projects directory: only the path recorded in
+# its stale tap file can lead to it.
+printf '{"session_id":"g-2","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":null,"five_hour_resets_at":null,"seven_day_percent":null,"seven_day_resets_at":null,"transcript_path":"%s","updated_epoch":0}\n' \
+  "$WORK/projects/p1/g-1.jsonl" > "$GSTATE/ctx/g-2.json"
+check "stale tap file: transcript found through its recorded path" "context_percent=36.0
+context_tokens=90000
+context_window=250000
+context_window_source=tap-file
+source=transcript" "$(gauge g-2)"
 
 check "fresh tap file wins" "context_percent=36.4
 context_tokens=91000
