@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Wires the context tap in front of the current status line and creates the state directory.
+#
+# Idempotent: a command already starting with the tap copy is left alone. The previous
+# statusLine object is saved for uninstall, and settings.json is backed up before any change.
+#
+#   ./install.sh              install / update
+#   ./install.sh --dry-run    print what would happen, change nothing
+
+set -euo pipefail
+
+SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+CONFIG_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+STATE_DIR="$CONFIG_DIR/claude-orchestrator"
+TAP_SRC="$SRC/skills/context-gauge/scripts/statusline-tap.sh"
+TAP_DEST="$STATE_DIR/statusline-tap.sh"
+PREVIOUS="$STATE_DIR/statusline.previous.json"
+SETTINGS="$CONFIG_DIR/settings.json"
+BACKUP_DIR="$CONFIG_DIR/backups/claude-orchestrator-$(date +%Y%m%d-%H%M%S)"
+
+DRY=0
+[ "${1:-}" = "--dry-run" ] && DRY=1
+
+say()  { printf '  %s\n' "$*"; }
+step() { printf '\n%s\n' "$*"; }
+run()  { if [ "$DRY" = "1" ]; then printf '  [dry-run] %s\n' "$*"; else eval "$@"; fi; }
+
+# --- prerequisites ----------------------------------------------------------
+
+step "Prerequisites"
+
+command -v jq >/dev/null 2>&1 || {
+  echo "  jq is required (the tap parses the status line payload with it)." >&2
+  echo "  macOS: brew install jq — Debian/Ubuntu: sudo apt install jq" >&2
+  exit 1
+}
+say "jq $(jq --version 2>/dev/null | sed 's/^jq-//')"
+
+if command -v python3 >/dev/null 2>&1; then
+  say "python3 $(python3 --version 2>&1 | cut -d' ' -f2)"
+else
+  say "python3 not found: the gauge's transcript tier will be unavailable"
+fi
+
+# --- state directory and tap ------------------------------------------------
+
+step "State directory"
+
+run "mkdir -p '$STATE_DIR/ctx'"
+if [ -f "$TAP_DEST" ] && cmp -s "$TAP_SRC" "$TAP_DEST"; then
+  say "tap already up to date: $TAP_DEST"
+else
+  # A copy at a stable path: the plugin's own path changes with every version,
+  # and settings.json must keep pointing at a tap that exists.
+  run "install -m 755 '$TAP_SRC' '$TAP_DEST'"
+  say "tap installed: $TAP_DEST"
+fi
+
+# --- settings.json ----------------------------------------------------------
+
+step "settings.json"
+
+if [ ! -f "$SETTINGS" ]; then
+  if [ "$DRY" = "1" ]; then say "[dry-run] create $SETTINGS"
+  else printf '{}\n' > "$SETTINGS"; chmod 600 "$SETTINGS"; fi
+fi
+if [ -f "$SETTINGS" ]; then
+  jq empty "$SETTINGS" 2>/dev/null || { echo "  $SETTINGS is not valid JSON, aborting." >&2; exit 1; }
+  current=$(jq -r '.statusLine.command // ""' "$SETTINGS")
+else
+  current=""
+fi
+
+case "$current" in
+  "$TAP_DEST"|"$TAP_DEST "*)
+    say "already wired: $current"
+    ;;
+  *)
+    if [ -n "$current" ]; then new="$TAP_DEST $current"; else new="$TAP_DEST"; fi
+    if [ "$DRY" = "1" ]; then
+      say "[dry-run] statusLine.command → $new"
+    else
+      mkdir -p "$BACKUP_DIR"
+      cp "$SETTINGS" "$BACKUP_DIR/settings.json.before"
+      jq -c '.statusLine // null' "$SETTINGS" > "$PREVIOUS"
+      tmp=$(mktemp)
+      jq --arg cmd "$new" \
+        '.statusLine = ((.statusLine // {padding: 0}) + {type: "command", command: $cmd})' \
+        "$SETTINGS" > "$tmp"
+      chmod 600 "$tmp"; mv "$tmp" "$SETTINGS"
+      say "statusLine.command → $new"
+      say "previous statusLine saved: $PREVIOUS"
+    fi
+    ;;
+esac
+
+# --- verification -----------------------------------------------------------
+
+step "Verification"
+
+if [ "$DRY" = "1" ]; then
+  say "[dry-run] probe not executed"
+else
+  probe='{"session_id":"install-probe","context_window":{"used_percentage":12,"used":24000,"total":200000}}'
+  rendered=$(printf '%s' "$probe" | bash "$TAP_DEST") || { echo "  the tap failed to run" >&2; exit 1; }
+  [ -f "$STATE_DIR/ctx/install-probe.json" ] || { echo "  the tap wrote no file" >&2; exit 1; }
+  rm -f "$STATE_DIR/ctx/install-probe.json"
+  say "tap renders: $rendered"
+fi
+
+step "Done."
+say "Restart your session for the tap to take effect."
+exit 0

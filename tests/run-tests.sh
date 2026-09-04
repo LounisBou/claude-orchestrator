@@ -114,6 +114,42 @@ check "session id from the environment, default window" "context_window_source=d
 check_status "nothing readable exits 1" 1 gauge nope
 check_status "no session id exits 1" 1 env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$GSTATE" bash "$GAUGE"
 
+echo "== install =="
+
+H="$WORK/home"
+mkdir -p "$H/.claude"
+TAPDEST="$H/.claude/claude-orchestrator/statusline-tap.sh"
+printf '{"statusLine":{"type":"command","command":"/x/bar.sh","padding":0},"other":1}\n' > "$H/.claude/settings.json"
+env HOME="$H" bash "$ROOT/install.sh" >/dev/null 2>&1
+check "existing command wrapped" "$TAPDEST /x/bar.sh" "$(jq -r '.statusLine.command' "$H/.claude/settings.json")"
+check "other settings untouched" "1" "$(jq '.other' "$H/.claude/settings.json")"
+check "previous statusLine saved" '{"type":"command","command":"/x/bar.sh","padding":0}' \
+  "$(jq -c . "$H/.claude/claude-orchestrator/statusline.previous.json")"
+check "tap copied and executable" "yes" "$([ -x "$TAPDEST" ] && echo yes || echo no)"
+before=$(cat "$H/.claude/settings.json")
+env HOME="$H" bash "$ROOT/install.sh" >/dev/null 2>&1
+check "second run is a no-op" "$before" "$(cat "$H/.claude/settings.json")"
+env HOME="$H" bash "$ROOT/uninstall.sh" >/dev/null 2>&1
+check "uninstall restores the previous object" '{"type":"command","command":"/x/bar.sh","padding":0}' \
+  "$(jq -c '.statusLine' "$H/.claude/settings.json")"
+check "uninstall removes the state directory" "gone" "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)"
+
+H2="$WORK/home2"
+mkdir -p "$H2/.claude"
+printf '{}\n' > "$H2/.claude/settings.json"
+env HOME="$H2" bash "$ROOT/install.sh" >/dev/null 2>&1
+check "no statusLine: tap alone" "$H2/.claude/claude-orchestrator/statusline-tap.sh" \
+  "$(jq -r '.statusLine.command' "$H2/.claude/settings.json")"
+env HOME="$H2" bash "$ROOT/uninstall.sh" >/dev/null 2>&1
+check "uninstall deletes the key it created" "null" "$(jq '.statusLine' "$H2/.claude/settings.json")"
+
+H3="$WORK/home3"
+mkdir -p "$H3/.claude"
+printf '{"statusLine":{"type":"command","command":"/x/bar.sh"}}\n' > "$H3/.claude/settings.json"
+env HOME="$H3" bash "$ROOT/install.sh" --dry-run >/dev/null 2>&1
+check "dry-run changes nothing" "/x/bar.sh" "$(jq -r '.statusLine.command' "$H3/.claude/settings.json")"
+check "dry-run creates no state directory" "none" "$([ -d "$H3/.claude/claude-orchestrator" ] && echo created || echo none)"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
