@@ -40,7 +40,7 @@ echo "== repository policy =="
 # The product name appears only in load-bearing identifiers: host paths, host
 # environment variables, the plugin name and the manifest directory.
 hits=$(grep -rniI 'claude' "$ROOT" --exclude-dir=.git --exclude=plan.md --exclude=CLAUDE.md \
-  | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|claude-orchestrator|\.claude-plugin|/\.claude/' || true)
+  | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI:-claude|claude-orchestrator|\.claude-plugin|/\.claude/' || true)
 check "no product name in prose" "" "$hits"
 
 echo "== tap =="
@@ -149,6 +149,15 @@ printf '{"statusLine":{"type":"command","command":"/x/bar.sh"}}\n' > "$H3/.claud
 env HOME="$H3" bash "$ROOT/install.sh" --dry-run >/dev/null 2>&1
 check "dry-run changes nothing" "/x/bar.sh" "$(jq -r '.statusLine.command' "$H3/.claude/settings.json")"
 check "dry-run creates no state directory" "none" "$([ -d "$H3/.claude/claude-orchestrator" ] && echo created || echo none)"
+
+echo "== iterm script (argument validation, no automation) =="
+
+ITERM="$ROOT/skills/iterm-agents/scripts/iterm-agent.sh"
+check_status "close without --tty fails" 1 bash "$ITERM" close --expect-title x
+check_status "move with identical ttys fails" 1 bash "$ITERM" move --tty /dev/ttys000 --left-of /dev/ttys000
+check_status "spawn without --dir fails" 1 bash "$ITERM" spawn --title x
+check_status "unknown subcommand fails" 1 bash "$ITERM" bogus
+check "close error names the option" "ERROR: close: --tty is required" "$(bash "$ITERM" close 2>&1)"
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
