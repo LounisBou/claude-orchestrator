@@ -1,0 +1,116 @@
+# claude-orchestrator
+
+One session supervises implementer sessions instead of writing code itself:
+it writes their briefs, reviews every delivery on the artifact rather than on
+the report, rotates saturated agents, and hands over to a successor before its
+own judgment degrades. This plugin packages that method, the terminal tab
+tooling it needs on macOS, the briefs as templates, and a context gauge any
+session can read without depending on a particular status bar.
+
+## What you get
+
+| Piece | What it does |
+|---|---|
+| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, review on evidence, context rotation, the orchestrator's own succession, shared-machine discipline. |
+| skill `iterm-agents` | `list`, `spawn`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. tty-exact close with a title guard; spawn-before-close on rotate. |
+| skill `context-gauge` | A session's own context fill as a measured figure, from the status line payload when fresh, from the transcript otherwise. |
+| `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, with the sections the rulebook makes mandatory. |
+| `/claude-orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
+| `/claude-orchestrator:uninstall` | Restores the previous status line. |
+| `/claude-orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
+| `/claude-orchestrator:succeed` | Runs the orchestrator succession. |
+
+## Install
+
+```
+/plugin marketplace add LounisBou/claude-orchestrator
+/plugin install claude-orchestrator@claude-orchestrator
+/claude-orchestrator:install
+```
+
+The last step wraps your status line with the tap (see below) and needs a
+session restart. Skip it if you only want the method and the tab tooling: the
+gauge then answers from the transcript alone.
+
+## Requirements
+
+- `bash` 3.2 (the version macOS ships), `jq`
+- `python3` for the gauge's transcript tier
+- for `iterm-agents` only: macOS, iTerm2, and two one-time approvals —
+  Automation ("wants to control iTerm2") for spawn/close, Accessibility for
+  `move`, which drives the Window > Tab > Move Tab menu through System Events
+
+## How the gauge works
+
+The host exposes the exact context fill in one place: the JSON it sends to the
+status line command on stdin (`context_window.used_percentage`, the 5-hour and
+7-day quotas, and `session_id`). Hooks do not carry it, and a plugin cannot
+declare a status line. So the installer prepends a tap to whatever status line
+you already run:
+
+```
+statusLine.command = "~/.claude/claude-orchestrator/statusline-tap.sh <your previous command>"
+```
+
+The tap records the payload to `~/.claude/claude-orchestrator/ctx/<session-id>.json`
+and hands it on untouched. It wraps, it never patches. Without a previous
+command it prints a one-line `ctx: N% │ 5h: N% │ 7d: N%`.
+
+The gauge reads that file when it is younger than two minutes and answers
+`source=tap`. An idle session stops rendering its status line, so the file
+ages; the gauge then scans the session's own transcript for the last `usage`
+block (input plus cache tokens is the context sent on the last turn, within
+half a point of the host's figure) and answers `source=transcript`. The window
+size for that computation comes from the stale tap file, else `--window`, else
+200000, and `context_window_source=` says which.
+
+```bash
+${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh
+# context_percent=36.4
+# context_tokens=91000
+# context_window=250000
+# five_hour_percent=3
+# seven_day_percent=1
+# source=tap
+```
+
+The session id defaults to `CLAUDE_CODE_SESSION_ID`, set by the host in every
+session. Measured beats estimated: in observed runs, agents' self-estimates ran
+13 points above the gauge.
+
+## The method in five lines
+
+1. You orchestrate; you never implement. Implementers run in separate sessions, one agent, one phase, one draft PR stacked on the previous phase's branch head. Merges are never awaited.
+2. Every brief is a file the fresh session can open, with contracts verbatim, a non-goals list ending in "STOP and ask", state-verification commands, and the gauge invocation.
+3. Review on evidence: diff it yourself, re-run the one command that decides the verdict, treat every claim — cleanup claims included — as a claim.
+4. Context is a gate at ~60%: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
+5. Succession is the orchestrator's to trigger, at a quiet moment, with a standing pointer-based brief; the successor verifies the state on the artifacts, re-identifies itself to the agents, confirms the takeover, then closes the predecessor's tab.
+
+## Tab layout
+
+The orchestrator's tab sits immediately left of its implementer's tab. `spawn`
+appends at the right end of the window, which suits an agent rotation; an
+orchestrator spawning its successor passes `--left-of <agent tty>`, and `move`
+repairs the layout after the fact.
+
+## Tests
+
+```bash
+./tests/run-tests.sh
+```
+
+No network, no terminal automation, an isolated HOME per case: the tap (file
+contents, byte-for-byte passthrough, exit status, invalid input, pruning), the
+gauge (both tiers, window resolution, environment default, error paths), the
+installer (wrapping, idempotence, restore, dry-run), the iTerm script's
+argument validation, and a check that no product name survives in prose.
+
+## Uninstall
+
+```
+/claude-orchestrator:uninstall     # or ./uninstall.sh
+```
+
+## License
+
+MIT
