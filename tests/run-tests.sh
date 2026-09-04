@@ -126,6 +126,8 @@ source=transcript" "$(gauge g-1 --window 200000)"
 
 check "session id from the environment, default window" "context_window_source=default" \
   "$(CLAUDE_CODE_SESSION_ID=g-1 gauge | grep context_window_source)"
+check "assumed window carries a warning line" "1" "$(CLAUDE_CODE_SESSION_ID=g-1 gauge | grep -c '^warning=window assumed')"
+check "known window carries no warning" "0" "$(gauge g-1 --window 200000 | grep -c '^warning=')"
 
 check_status "nothing readable exits 1" 1 gauge nope
 check_status "no session id exits 1" 1 env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$GSTATE" bash "$GAUGE"
