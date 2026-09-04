@@ -78,6 +78,42 @@ touch -t 202001010000 "$STATE/ctx/old.json"
 printf '%s' "$PAYLOAD" | sed 's/s-1/s-2/' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP" >/dev/null
 check "stale files pruned on a session's first render" "gone" "$([ -f "$STATE/ctx/old.json" ] && echo kept || echo gone)"
 
+echo "== gauge =="
+
+GAUGE="$ROOT/skills/context-gauge/scripts/context-gauge.sh"
+GSTATE="$WORK/gstate"
+mkdir -p "$GSTATE/ctx" "$WORK/projects/p1"
+cp "$ROOT/tests/fixtures/transcript.jsonl" "$WORK/projects/p1/g-1.jsonl"
+printf '{"session_id":"g-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":null,"seven_day_percent":1,"seven_day_resets_at":null,"updated_epoch":%s}\n' \
+  "$(date +%s)" > "$GSTATE/ctx/g-1.json"
+gauge() { ORCHESTRATOR_STATE_DIR="$GSTATE" ORCHESTRATOR_TRANSCRIPTS_DIR="$WORK/projects" bash "$GAUGE" "$@"; }
+
+check "fresh tap file wins" "context_percent=36.4
+context_tokens=91000
+context_window=250000
+five_hour_percent=3
+seven_day_percent=1
+source=tap" "$(gauge g-1)"
+
+check "stale tap file: transcript with the file's window" "context_percent=36.0
+context_tokens=90000
+context_window=250000
+context_window_source=tap-file
+source=transcript" "$(gauge g-1 --max-age 0)"
+
+rm "$GSTATE/ctx/g-1.json"
+check "no tap file: --window" "context_percent=45.0
+context_tokens=90000
+context_window=200000
+context_window_source=flag
+source=transcript" "$(gauge g-1 --window 200000)"
+
+check "session id from the environment, default window" "context_window_source=default" \
+  "$(CLAUDE_CODE_SESSION_ID=g-1 gauge | grep context_window_source)"
+
+check_status "nothing readable exits 1" 1 gauge nope
+check_status "no session id exits 1" 1 env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$GSTATE" bash "$GAUGE"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

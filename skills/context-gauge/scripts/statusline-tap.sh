@@ -26,7 +26,7 @@ record() {
       (.rate_limits.five_hour.resets_at // null),
       (.rate_limits.seven_day.used_percentage // null),
       (.rate_limits.seven_day.resets_at // null) ]
-    | map(tostring) | join("")' 2>/dev/null) || return 0
+    | map(tostring) | join("\u001f")' 2>/dev/null) || return 0
   # The separator is 0x1F rather than a tab: tabs are IFS whitespace, and two
   # empty fields in a row would collapse and shift every field after them.
   IFS=$'\x1f' read -r sid ctx used total h5 h5r d7 d7r <<<"$fields"
