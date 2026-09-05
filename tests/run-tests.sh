@@ -50,6 +50,13 @@ hits=$(grep -rnIE '/Users/|/home/[a-z]|\[[0-9a-f]{6}\]|docs/reference/|BUGS\.md|
   | grep -vE '\[a1b2c3\]' || true)
 check "nothing project- or machine-specific in the plugin" "" "$hits"
 
+# The namespace is the plugin's name, `orchestrator`: commands and skills are
+# reached as /orchestrator:* and orchestrator:*. The former prefix must not
+# come back in prose, or half the references resolve and half do not.
+hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run-tests.sh || true)
+check "the old command namespace is gone" "" "$hits"
+check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.claude-plugin/plugin.json")"
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"

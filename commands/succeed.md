@@ -4,7 +4,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agen
 ---
 
 Execute the orchestrator succession described in
-`claude-orchestrator:orchestrator`. Load that skill first.
+`orchestrator:orchestrator`. Load that skill first.
 
 Preconditions, verify each before acting:
 

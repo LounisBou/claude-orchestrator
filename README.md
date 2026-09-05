@@ -15,17 +15,19 @@ session can read without depending on a particular status bar.
 | skill `iterm-agents` | `list`, `spawn`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. tty-exact close with a title guard; spawn-before-close on rotate. |
 | skill `context-gauge` | A session's own context fill as a measured figure, from the status line payload when fresh, from the transcript otherwise. |
 | `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, with the sections the rulebook makes mandatory. |
-| `/claude-orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
-| `/claude-orchestrator:uninstall` | Restores the previous status line. |
-| `/claude-orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
-| `/claude-orchestrator:succeed` | Runs the orchestrator succession. |
+| `/orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
+| `/orchestrator:uninstall` | Restores the previous status line. |
+| `/orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
+| `/orchestrator:succeed` | Runs the orchestrator succession. |
+| `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
+| `/orchestrator:progress` | Where the build stands: done, in flight, remaining, decisions pending, and the orchestrator's own context. |
 
 ## Install
 
 ```
 /plugin marketplace add LounisBou/claude-orchestrator
-/plugin install claude-orchestrator@claude-orchestrator
-/claude-orchestrator:install
+/plugin install orchestrator@claude-orchestrator
+/orchestrator:install
 ```
 
 The last step wraps your status line with the tap (see below) and needs a
@@ -108,7 +110,7 @@ argument validation, and a check that no product name survives in prose.
 ## Uninstall
 
 ```
-/claude-orchestrator:uninstall     # or ./uninstall.sh
+/orchestrator:uninstall     # or ./uninstall.sh
 ```
 
 ## License

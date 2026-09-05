@@ -9,7 +9,7 @@ description: Use when a session must know its own context fill as a measured fig
 
 `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh` prints a session's context fill as `key=value` lines. It reads two tiers and always says which one answered:
 
-- `source=tap` — the exact figure the host gave the status line on its last render, recorded by the tap that `/claude-orchestrator:install` wires in front of the status line. Used when younger than 120 s (`--max-age`).
+- `source=tap` — the exact figure the host gave the status line on its last render, recorded by the tap that `/orchestrator:install` wires in front of the status line. Used when younger than 120 s (`--max-age`).
 - `source=transcript` — computed from the session's own transcript: the last `usage` block's input plus cache tokens is the context sent on the last turn. Within half a point of the tap in observed runs. Needs the window size: the stale tap file's `context_total`, else `--window`, else 200000 — `context_window_source=` names which one was used.
 
 ## Reading your own gauge

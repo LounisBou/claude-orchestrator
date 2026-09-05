@@ -32,7 +32,7 @@ docs/design.md                       this document
 README.md, LICENSE
 ```
 
-Skills reach their scripts through `${CLAUDE_PLUGIN_ROOT}`; a relative path does not resolve from a skill. Skills are invoked as `claude-orchestrator:<skill>`.
+Skills reach their scripts through `${CLAUDE_PLUGIN_ROOT}`; a relative path does not resolve from a skill. Skills are invoked as `orchestrator:<skill>`.
 
 ## 3. Context gauge
 
@@ -121,7 +121,7 @@ Version in `plugin.json`, tag `claude-orchestrator--v<version>` pushed with the 
 ```
 /plugin marketplace add LounisBou/claude-orchestrator
 /plugin install claude-orchestrator@claude-orchestrator
-/claude-orchestrator:install
+/orchestrator:install
 ```
 
 ## 9. Out of scope

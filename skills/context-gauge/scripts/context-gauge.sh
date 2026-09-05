@@ -85,7 +85,7 @@ for line in reversed(data.strip().split("\n")):
         print(f"context_window_source={source}")
         print("source=transcript")
         if source == "default":
-            print("warning=window assumed; pass --window or wire the tap (/claude-orchestrator:install) for the real size")
+            print("warning=window assumed; pass --window or wire the tap (/orchestrator:install) for the real size")
         sys.exit(0)
 print("ERROR: no usage block found in the transcript tail", file=sys.stderr)
 sys.exit(1)
