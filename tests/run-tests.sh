@@ -43,6 +43,13 @@ hits=$(grep -rniI 'claude' "$ROOT" --exclude-dir=.git --exclude=plan.md --exclud
   | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI:-claude|claude-orchestrator|\.claude-plugin|/\.claude/' || true)
 check "no product name in prose" "" "$hits"
 
+# Nothing tied to one machine or one project enters the generic plugin: no
+# absolute home path, no real session reference (the documented example is
+# the six-hex placeholder a1b2c3), no path into a downstream project's tree.
+hits=$(grep -rnIE '/Users/|/home/[a-z]|\[[0-9a-f]{6}\]|docs/reference/|BUGS\.md|IMPLEMENTATION\.md' "$ROOT" --exclude-dir=.git --exclude=plan.md --exclude=run-tests.sh \
+  | grep -vE '\[a1b2c3\]' || true)
+check "nothing project- or machine-specific in the plugin" "" "$hits"
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"
