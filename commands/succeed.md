@@ -25,5 +25,9 @@ Then:
 4. Never close your own tab: the successor closes it once you are idle — its brief says so
    (template step 4), and you do not run this command without that step in the brief.
 5. Do not ask the user whether to succeed. At the gate you succeed, then you tell them.
+6. Ten minutes after « takeover confirmed », if `iterm-agent.sh list` still shows your own
+   tty and nothing of yours runs, close it yourself: `iterm-agent.sh close --tty $(tty)
+   --expect-title <your title>`. A predecessor alive after the takeover answers agents that
+   address it by habit; the successor closes it first, and you are the fallback.
 
 $ARGUMENTS

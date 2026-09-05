@@ -63,6 +63,20 @@ check "spawn types a permission mode" "1" "$(grep -c -- '--permission-mode \$(pr
 check "spawn and rotate default to the operator's mode" "2" "$(grep -c 'mode=\"auto\"' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
 
+echo "== context gate hook =="
+# A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
+# prints nothing, and with no tap file it says « unmeasured » exactly once.
+GH="$(mktemp -d)"; mkdir -p "$GH/claude-orchestrator/ctx"
+now=$(date +%s)
+printf '{"session_id":"g-hi","context_percent":70,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-hi.json"
+printf '{"session_id":"g-lo","context_percent":30,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-lo.json"
+gate() { printf '{"session_id":"%s"}' "$1" | CLAUDE_CONFIG_DIR="$GH" bash "$ROOT/hooks/context-gate.sh"; }
+check "past the gate the hook orders the succession" "1" "$(gate g-hi | grep -c 'SUCCEEDS at the next quiet boundary')"
+check "under the gate the hook is silent" "" "$(gate g-lo)"
+check "unmeasured says so once" "1" "$(gate g-none | grep -c 'unmeasured'; )"
+check "unmeasured stays silent the second time" "" "$(gate g-none)"
+rm -rf "$GH"
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"

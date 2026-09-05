@@ -19,6 +19,7 @@ session can read without depending on a particular status bar.
 | `/orchestrator:uninstall` | Restores the previous status line. |
 | `/orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
 | `/orchestrator:succeed` | Runs the orchestrator succession. |
+| hook `UserPromptSubmit` | The context gate enforced by the harness: at or past 60 % (`ORCHESTRATOR_CONTEXT_GATE`), every prompt carries the line that orders the succession or the stop; unmeasured, it says so once. |
 | `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
 | `/orchestrator:progress` | Where the build stands: done, in flight, remaining, decisions pending, and the orchestrator's own context. |
 
