@@ -63,6 +63,40 @@ check "spawn types a permission mode" "1" "$(grep -c -- '--permission-mode \$(pr
 check "spawn and rotate default to the operator's mode" "2" "$(grep -c 'mode=\"auto\"' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
 
+echo "== iterm-agents spawn (dry run) =="
+# The prompt is never typed into the shell: a 3 000-character prompt with non-ASCII
+# bytes, quotes and a backslash goes to a file byte for byte, the typed command stays
+# short and reads that file, and none of it depends on the locale — the first launch
+# with an inline prompt was truncated by AppleScript and never ran, and a `sed`
+# under LC_ALL=C died on an em dash.
+AGENT="$ROOT/skills/iterm-agents/scripts/iterm-agent.sh"
+ISTATE="$WORK/istate"
+long=$(printf 'x%.0s' $(seq 1 3000))
+prompt="Read « this » — é \"quoted\" back\\slash $long"
+out=$(LC_ALL=C ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "B-1 — é" --prompt "$prompt" 2>&1)
+code=$?
+check "dry-run spawn under LC_ALL=C exits 0" "0" "$code"
+cmd=${out#*shellcmd=}; cmd=${cmd%%$'\n'*}
+file=${out#*prompt_file=}; file=${file%%$'\n'*}
+check "a long prompt is not typed into the shell" "short" "$([ "${#cmd}" -lt 500 ] && echo short || echo "${#cmd} chars typed")"
+check "the typed command reads the prompt from its file" "1" "$(printf '%s' "$cmd" | grep -c '"\$(cat ')"
+check "the prompt file holds the prompt byte for byte" "$prompt" "$(cat "$file")"
+check "the prompt file lives under the state directory" "yes" "$([ "${file#"$ISTATE"/prompts/}" != "$file" ] && echo yes || echo "$file")"
+check "the typed command carries the decision mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto')"
+check "the typed command carries the model" "1" "$(printf '%s' "$cmd" | grep -c -- '--model opus')"
+check "the typed command changes into the working directory" "1" "$(printf '%s' "$cmd" | grep -c "^cd $WORK && ")"
+aq=${out#*applescript=}; aq=${aq%%$'\n'*}
+check "the double quotes are escaped for AppleScript" "1" "$(printf '%s' "$aq" | grep -c '\\"\$(cat ')"
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --prompt-file "$file" 2>&1)
+check "--prompt-file reuses the given file" "1" "$(printf '%s' "$out" | grep -c "prompt_file=$file")"
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" 2>&1)
+cmd=${out#*shellcmd=}; cmd=${cmd%%$'\n'*}
+check "no prompt: nothing appended after the mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto$')"
+check_status "--prompt and --prompt-file together are refused" 1 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --prompt x --prompt-file "$file"
+check_status "verify on a tty nobody has exits 1" 1 bash "$AGENT" verify --tty /dev/ttys999
+check "spawn verifies by default and rotate inherits it" "1" "$(grep -c 'if \[ "\$verify" = 1 \]' "$AGENT")"
+check "quoting uses no sed" "0" "$(sed -n '/^applescript_quote()/,/^}/p' "$AGENT" | grep -c sed)"
+
 echo "== context gate hook =="
 # A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
 # prints nothing, and with no tap file it says « unmeasured » exactly once.

@@ -7,7 +7,7 @@ description: Use when this session must supervise implementer agents running in 
 
 ## Overview
 
-You orchestrate; you never implement. Implementer agents run in **separate sessions** (launched by the user, one at a time), each delivering one stacked PR. You own the plan, write every agent prompt, verify every delivery **on the artifact, never on the agent's report**, and answer for the result.
+You orchestrate; you never implement. Implementer agents run in **separate sessions — launched by YOU** (through `orchestrator:iterm-agents` where the platform allows it), one writer per repository at a time, each delivering one stacked PR. You own the plan, write every agent prompt, launch and verify every agent, read its context at every report, stand it down and replace it when it passes the gate, verify every delivery **on the artifact, never on the agent's report**, and answer for the result. **You are the guarantor of the agents' whole lifecycle**, and the section « The agents' lifecycle is yours » says what that obliges.
 
 **Two sentences that govern everything below.** « Written » and « green » are not « done »: a rule that exists, a gate that passed and a report that says so are three claims, and a claim is checked on the repository, the process table or the running artifact. And « repaired » without a reading is not repaired: an item closes when the measurement that found it is taken again and reads clean.
 
@@ -25,7 +25,7 @@ A validated spec and a phase plan containing, per phase: scope, files, **exact i
 
 ## Agent prompt recipe
 
-Write it to a file the user hands to the fresh session ("Read and execute <path>"). Start from `${CLAUDE_PLUGIN_ROOT}/templates/agent-phase-brief.md`; a rotation resume brief starts from `agent-rotation-brief.md`, your own succession brief from `orchestrator-succession-brief.md`. **The path must be one the fresh session can open on the machine it runs on, and it must survive until the phase is reviewed** — never only in your context, never only in a container's temporary directory. Observed: an agent launched against a brief that existed nowhere it could reach, because the six previous briefs had been carried by hand and the seventh was not. Whether the file is committed follows the repository's own policy on workflow artifacts (see standing rules); state that policy in the prompt, do not let the agent pick.
+Write it to a file, then SPAWN the fresh session yourself with the one-line prompt "Read and execute <path>" (see « The agents' lifecycle is yours »). Start from `${CLAUDE_PLUGIN_ROOT}/templates/agent-phase-brief.md`; a rotation resume brief starts from `agent-rotation-brief.md`, your own succession brief from `orchestrator-succession-brief.md`. **The path must be one the fresh session can open on the machine it runs on, and it must survive until the phase is reviewed** — never only in your context, never only in a container's temporary directory. Observed: an agent launched against a brief that existed nowhere it could reach, because the six previous briefs had been carried by hand and the seventh was not. Whether the file is committed follows the repository's own policy on workflow artifacts (see standing rules); state that policy in the prompt, do not let the agent pick.
 
 Its parts, in order:
 
@@ -79,6 +79,16 @@ For each delivery, run yourself (read-only):
 
 Verdict message back: findings list (fix items), approved decisions (say so explicitly), and answers to every question the agent flagged. Approve or dispatch N-bis; never silently accept. A stale figure during a repair round is not a finding.
 
+## The agents' lifecycle is yours
+
+**You launch, you verify, you control, you terminate, you replace — and nothing of it waits for the user.** Observed on the first day a steward inherited this skill: it wrote two briefs and ended two reports by handing the user an invocation to paste, and left an agent at 83 % context running until the user said so. The user's ruling: launching the agents is what the orchestrator's skills exist for, and not doing it is a critical error.
+
+1. **Launch.** The brief is on disk where the session can open it; you spawn the session in the same move — `iterm-agent.sh spawn --dir <the checkout the wave writes in> --left-of <next sibling tty> --prompt "Read and execute <brief path>. Your orchestrator is <your exact ListAgents name and reference>; handshake first, silence rule 15 min."` One writer per repository: the `--dir` is a checkout nobody else is writing in. The prompt names the brief and your address and nothing else the brief already says; the script keeps it in a file and types a short command, so length is not the constraint — clarity is.
+2. **Verify the spawn on the artifact.** The script refuses to report a tty without the host CLI running on it, but you still read the result: `iterm-agent.sh list` shows the tab, `iterm-agent.sh verify --tty <tty>` the process, `ListAgents` the peer session within a few seconds. Then the handshake arrives, or it does not: an agent that has not shaken hands within minutes is inspected (`verify`, the tab's contents), not waited for.
+3. **Control.** Every report carries the agent's measured context; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent asking beyond its scope is relayed to the user, never answered from your own judgment.
+4. **Terminate.** An agent whose wave is merged or whose unit is done and stood down is closed by you — stand it down, wait for its acknowledgment, `list`, `close --tty --expect-title`, verify with `ps`. An idle agent left running answers messages addressed to it by habit and holds the memory a replacement needs.
+5. **Replace.** At the gate you write the resume brief and rotate — `rotate` spawns the replacement FIRST and verifies it is running before the old tab is closed. Your own replacement is the succession below; your successor closes your tab, and you close nothing of your own.
+
 ## Context rotation
 
 Agents report context % in every report. Two gates on the same ~60% threshold:
@@ -88,7 +98,7 @@ Agents report context % in every report. Two gates on the same ~60% threshold:
 
 Rotation = you write a **resume prompt** (template `agent-rotation-brief.md`) for a fresh session: phase state, branch state, remaining scope, decisions already taken (marked non-reopenable), same protocol. Below the threshold, prefer REUSING the same agent session across phases, because it keeps the interfaces it built in mind and a continuation prompt costs a fraction of a cold start. The same rule applies to you: hand over with a resume brief before degrading, and write into it the traps this session paid for, not only the state.
 
-**Execute the rotation yourself when the platform allows it** (macOS + iTerm2): once the pre-dispatch gate trips and the resume brief is written, use the `orchestrator:iterm-agents` skill — stand the old agent down and wait for its acknowledgment, close its tab (tty + title guard), spawn the fresh session with the brief path as its startup prompt, and verify the replacement in BOTH the tab list and ListAgents before calling the rotation done. The user's go is needed only the first time the tooling is used on a machine (macOS Automation approval), not per rotation. Where no such tooling exists, hand the user the brief path and the one-line launch instruction instead.
+**Execute the rotation yourself when the platform allows it** (macOS + iTerm2): once the pre-dispatch gate trips and the resume brief is written, use the `orchestrator:iterm-agents` skill — stand the old agent down and wait for its acknowledgment, `rotate` (it spawns the fresh session with the brief path as its startup prompt, verifies the host CLI is running on the new tty, and only then closes the old tab, tty + title guard), and verify the replacement in BOTH the tab list and ListAgents before calling the rotation done. The user's go is needed only the first time the tooling is used on a machine (macOS Automation approval), not per rotation. Only where no such tooling exists do you hand the user the brief path and the one-line launch instruction — that is the fallback, never the default.
 
 ## Your own context (the orchestrator is not exempt)
 
@@ -138,6 +148,9 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "I'll offer the user the choice: hand over now or continue" | The gate is not a choice. Spawn at the quiet boundary; the user learns it happened. |
 | "The successor will pick a permission mode" | It inherits the operator's decision mode from the spawn, or it stalls unattended. |
 | "The agent can find me with ListAgents" | A prefix shared by three sessions is a coin toss, and it cost seven hours once. Name the address, shake hands, subscribe to idle. |
+| "The operator has always launched the agents; I'll hand him the invocation" | Launching is yours. Spawn, verify, shake hands — then tell the user it happened. |
+| "The spawn printed a tty, so the agent is running" | A typed command can be truncated or die on a byte; the tty is a claim. `verify`, `list`, `ListAgents`, then the handshake. |
+| "The agent is at 83 % but it has stopped, no harm leaving it" | An idle agent answers by habit and holds memory. Stand it down, close its tab, spawn the replacement. |
 
 ## Red flags: STOP
 
@@ -152,5 +165,6 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - A durable artifact breaking the repository's policy on workflow references: fix before approval, add the grep to your review.
 - A heavy run about to start at a tool's default fan-out, or beside another heavy run.
 - A directive that names a decision already reversed: remove it in the same move.
+- A brief written and its agent not spawned; a spawn not verified on the artifact; an agent past the gate still running; an idle stood-down agent whose tab you have not closed.
 - Your context at the gate and no successor spawned; a successor spawned without `--permission-mode auto`; a « takeover confirmed » with the predecessor's tab still open.
 - An agent prompt that says « find the orchestrator » instead of naming its session; an orchestrator restarted without re-announcing its address; a message sent without an idle subscription behind it.

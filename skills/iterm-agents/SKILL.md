@@ -1,13 +1,13 @@
 ---
 name: iterm-agents
-description: Use when a session on macOS must manage iTerm2 tabs running agent sessions — spawn a fresh agent tab with a startup prompt, close a stood-down agent's tab, list sessions, place a tab next to another, or replace a context-saturated agent with a fresh one (rotation).
+description: Use when a session on macOS must manage iTerm2 tabs running agent sessions — spawn a fresh agent tab with a startup prompt and verify it is running, close a stood-down agent's tab, list sessions, place a tab next to another, or replace a context-saturated agent with a fresh one (rotation).
 ---
 
 # iTerm agent tabs
 
 ## Overview
 
-`${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh` drives iTerm2 via AppleScript so an orchestrator can spawn, close, move and rotate implementer sessions without the user touching the keyboard. Closing a tab KILLS its session — treat close as destructive and follow the safety order below.
+`${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh` drives iTerm2 via AppleScript so an orchestrator can spawn, verify, close, move and rotate implementer sessions without the user touching the keyboard. Closing a tab KILLS its session — treat close as destructive and follow the safety order below. **Spawning is the orchestrator's act, not the user's**: the brief is written, the session is spawned in the same move, and the spawn is verified on the process, never on the script's word.
 
 ## Quick reference
 
@@ -17,10 +17,16 @@ SCRIPT=${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh
 $SCRIPT list
     # w1/t3 | /dev/ttys000 | ✳ agent-brief prompt (node)
 
-$SCRIPT spawn --dir <workdir> --model <model> \
-    --title <t> --prompt "Read and execute <brief-path>" [--left-of <tty>]
-    # prints the new session's tty; the prompt is passed as the CLI's
-    # initial-prompt argument (no fragile keystroke replay into a booting TUI)
+$SCRIPT spawn --dir <workdir> [--model opus] [--permission-mode auto] \
+    --title <t> --prompt "Read and execute <brief-path>. Your orchestrator is <name [ref]>." [--left-of <tty>]
+    # writes the prompt to a file under the plugin's state directory, types a SHORT
+    # command that reads it as the host CLI's initial-prompt argument, WAITS until
+    # the host CLI is running on the new tty (30 s, ORCHESTRATOR_SPAWN_TIMEOUT), and
+    # prints the tty on its last line. Fails loudly, with the tab's last lines, when
+    # the command did not run. `--prompt-file <path>` uses a file you already wrote.
+
+$SCRIPT verify --tty /dev/ttysNNN
+    # succeeds with the pid when the host CLI runs on that tty; exit 1 otherwise
 
 $SCRIPT close --tty /dev/ttysNNN --expect-title <substring>
     # tty-exact; refuses if the session's current title does not contain the substring
@@ -29,34 +35,46 @@ $SCRIPT move --tty /dev/ttysNNN --left-of /dev/ttysMMM
     # places a tab immediately left of another (same window); idempotent, verified after the move
 
 $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
-    [--model <model>] [--title <t>] [--prompt <text>] [--left-of <tty>]
-    # spawns the replacement FIRST, then closes the old tab
+    [--model <model>] [--title <t>] [--prompt <text> | --prompt-file <path>] [--left-of <tty>]
+    # spawns the replacement FIRST and verifies it is running, then closes the old tab
 ```
+
+`ORCHESTRATOR_DRY_RUN=1` makes `spawn` print the command it would type, its AppleScript form and the prompt file, touching no terminal — the test suite's door, and yours when a prompt looks wrong.
 
 ## Tab layout convention
 
-**The orchestrator's tab sits immediately LEFT of its implementer agent's tab.** A plain `spawn` appends at the right end of the window, which is fine for an agent rotation (the new agent lands right of the orchestrator) but wrong for an orchestrator succession (the successor would land right of the agent). So an orchestrator spawning its successor passes `--left-of <agent tty>`; when in doubt, `move` fixes the layout after the fact.
+**The orchestrator's tab sits immediately LEFT of its implementer agent's tab.** A plain `spawn` appends at the right end of the window, which is fine for an agent rotation (the new agent lands right of the orchestrator) but wrong for an orchestrator succession (the successor would land right of the agent). So an orchestrator spawning its successor passes `--left-of <agent tty>`; an orchestrator spawning an agent passes `--left-of <the next sibling's tty>` so the agent lands right after it; when in doubt, `move` fixes the layout after the fact.
+
+## Safety order for a launch
+
+1. The brief exists at a path the fresh session can open on this machine.
+2. `spawn` with the one-line prompt naming the brief's path and the orchestrator's exact `ListAgents` name and reference — nothing the brief already says.
+3. Read the result: the script has already waited for the host CLI on the new tty, but the artifact decides — `list` (the tab), `verify --tty` (the process), `ListAgents` (the peer session, a few seconds later).
+4. Wait for the handshake. An agent that has not messaged within minutes is inspected, not waited for: `verify`, then the tab's contents (`osascript` … `contents of session`).
 
 ## Safety order for a live rotation
 
 1. The old agent must have STOOD DOWN (message it; wait for its acknowledgment) — never close a tab whose session may still be writing.
 2. `list` to confirm the tty↔title map right before closing; titles are the guard.
-3. Close with `--expect-title` matching the title the session sets itself (see caveats).
-4. Spawn the fresh agent with its brief path as prompt.
-5. Verify with `list` (tab present, title reflects the brief) AND `ListAgents` (new peer session visible, old one gone) before reporting the rotation done.
+3. `rotate` — or `spawn` then `close` — so the replacement is running before the old one is gone; close with `--expect-title` matching the title the session sets itself (see caveats).
+4. Verify with `list` (tab present, title reflects the brief) AND `ListAgents` (new peer session visible, old one gone) before reporting the rotation done.
 
 ## Caveats (all observed)
 
+- **A prompt typed by AppleScript is truncated.** The first launch this tooling made with a long inline prompt left the tab on a half-typed command line that never ran, while the script printed a tty and success. The prompt goes to a file now and the typed line stays short whatever its length; the verification is what turns « printed a tty » into « the agent is running ».
+- **`sed` dies on a non-ASCII byte under a C locale** (« RE error: illegal byte sequence ») — an em dash in a title aborted a launch. Quoting is done with the shell's own substitutions now, and a test feeds the script « — » and « é » under `LC_ALL=C`.
 - **Dynamic titles override manual ones**: the shell and the session rewrite the tab title, so a `--title` set at spawn is transient. For `--expect-title`, match the title the session displays (it reflects its current task or prompt), read from `list` seconds before closing.
 - **tty numbers are recycled**: a freshly closed `/dev/ttys000` can be reassigned to the next spawned tab. Never reuse a stored tty across a close — re-`list` every time.
 - **First run needs macOS Automation approval** ("… wants to control iTerm2") — one user click, once. `move` additionally needs Accessibility access for the process running the script, because it drives the Window > Tab > Move Tab menu through System Events.
 - **`move` needs iTerm2 frontmost**: the AppleScript dictionary cannot reorder tabs, so the menu is clicked while iTerm2 is the active app. The script activates iTerm2, moves, then re-activates the previously frontmost app — expect a sub-second focus flicker per move.
-- The spawned session takes a few seconds to appear in `ListAgents`; `list` shows the tab immediately.
-- The script quotes prompts for AppleScript, but keep briefs in FILES and pass a one-line "Read and execute <path>" prompt — a long inline prompt is fragile everywhere.
+- The spawned session takes a few seconds to appear in `ListAgents`; `list` shows the tab immediately, `verify` the process as soon as the CLI has started.
 - **Verify a close with `list` + `ps`, not with the script's exit code**: the artifact, not the message, says whether the session is dead.
+- Prompt files accumulate under the state directory's `prompts/`; they are small and they are the record of what each session was launched with. Delete a wave's when its review is closed, like any other artifact you produced.
 
 ## Common mistakes
 
+- Handing the user a brief path and an invocation to paste: the orchestrator spawns.
+- Trusting the printed tty: a command can fail to run; `verify`, `list`, `ListAgents`, then the handshake.
 - Closing by title alone or by tab position: only `--tty` + `--expect-title` is unambiguous.
 - Rotating before the old agent acknowledged stand-down: risks killing an uncommitted write.
 - Storing a tty and using it after any close happened in between (recycling).

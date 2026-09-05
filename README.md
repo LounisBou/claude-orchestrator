@@ -11,8 +11,8 @@ session can read without depending on a particular status bar.
 
 | Piece | What it does |
 |---|---|
-| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, review on evidence, context rotation, the orchestrator's own succession, shared-machine discipline. |
-| skill `iterm-agents` | `list`, `spawn`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. tty-exact close with a title guard; spawn-before-close on rotate. |
+| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, the agents' lifecycle (the orchestrator launches, verifies, controls, terminates and replaces them), review on evidence, context rotation, the orchestrator's own succession, shared-machine discipline. |
+| skill `iterm-agents` | `list`, `spawn`, `verify`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. The prompt goes to a file and the typed command stays short; spawn waits for the host CLI on the new tty and fails loudly otherwise; tty-exact close with a title guard; spawn-and-verify before close on rotate. |
 | skill `context-gauge` | A session's own context fill as a measured figure, from the status line payload when fresh, from the transcript otherwise. |
 | `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, with the sections the rulebook makes mandatory. |
 | `/orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
