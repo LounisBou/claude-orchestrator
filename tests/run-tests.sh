@@ -57,6 +57,12 @@ hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run
 check "the old command namespace is gone" "" "$hits"
 check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.claude-plugin/plugin.json")"
 
+# A spawned session inherits a decision mode: the command line the script types
+# carries --permission-mode, defaulting to auto, on spawn and on rotate.
+check "spawn types a permission mode" "1" "$(grep -c -- '--permission-mode \$(printf' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "spawn and rotate default to the operator's mode" "2" "$(grep -c 'mode=\"auto\"' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"

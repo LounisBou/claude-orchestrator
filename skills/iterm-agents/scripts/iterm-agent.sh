@@ -5,10 +5,10 @@
 #
 # Usage:
 #   iterm-agent.sh list
-#   iterm-agent.sh spawn --dir <path> [--model opus] [--title <t>] [--prompt <text>] [--left-of /dev/ttysNNN]
+#   iterm-agent.sh spawn --dir <path> [--model opus] [--permission-mode auto] [--title <t>] [--prompt <text>] [--left-of /dev/ttysNNN]
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>]
 #   iterm-agent.sh move --tty /dev/ttysNNN --left-of /dev/ttysMMM
-#   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--title <t>] [--prompt <text>] [--expect-title <substring>] [--left-of /dev/ttysMMM]
+#   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--permission-mode auto] [--title <t>] [--prompt <text>] [--expect-title <substring>] [--left-of /dev/ttysMMM]
 #
 # Safety model:
 #   - `close` targets a tty (unique per session). If --expect-title is given, the
@@ -56,11 +56,15 @@ cmd_list() {
 }
 
 cmd_spawn() {
-    local dir="" model="opus" title="agent" prompt="" left_of=""
+    # The decision mode defaults to the operator's own: a successor or a replacement agent
+    # spawned into a stricter mode stops at its first permission prompt in a tab nobody is
+    # watching, and the build stalls exactly where the rotation was meant to keep it moving.
+    local dir="" model="opus" mode="auto" title="agent" prompt="" left_of=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
             --model) model="$2"; shift 2 ;;
+            --permission-mode) mode="$2"; shift 2 ;;
             --title) title="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
             --left-of) left_of="$2"; shift 2 ;;
@@ -72,7 +76,7 @@ cmd_spawn() {
 
     # The tab title is set through the shell escape sequence before the session starts,
     # so `close --expect-title` has something stable to check.
-    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI --model $(printf '%q' "$model")"
+    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI --model $(printf '%q' "$model") --permission-mode $(printf '%q' "$mode")"
     if [ -n "$prompt" ]; then
         shellcmd="$shellcmd $(printf '%q' "$prompt")"
     fi
@@ -220,11 +224,12 @@ cmd_close() {
 }
 
 cmd_rotate() {
-    local dir="" model="opus" title="agent" prompt="" old_tty="" expect_title="" left_of=""
+    local dir="" model="opus" mode="auto" title="agent" prompt="" old_tty="" expect_title="" left_of=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
             --model) model="$2"; shift 2 ;;
+            --permission-mode) mode="$2"; shift 2 ;;
             --title) title="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
             --old-tty) old_tty="$2"; shift 2 ;;
@@ -236,7 +241,7 @@ cmd_rotate() {
     [ -n "$old_tty" ] || die "rotate: --old-tty is required"
 
     local new_tty
-    new_tty=$(cmd_spawn --dir "$dir" --model "$model" --title "$title" ${prompt:+--prompt "$prompt"} ${left_of:+--left-of "$left_of"})
+    new_tty=$(cmd_spawn --dir "$dir" --model "$model" --permission-mode "$mode" --title "$title" ${prompt:+--prompt "$prompt"} ${left_of:+--left-of "$left_of"})
     echo "spawned replacement on $new_tty"
 
     local close_args=(--tty "$old_tty")
