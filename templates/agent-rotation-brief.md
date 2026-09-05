@@ -23,4 +23,4 @@ The phase brief `{{PHASE_BRIEF}}` stays binding in full — reading list, enviro
 
 ## 5. Protocol
 
-Unchanged from the phase brief: report to the orchestrator `{{ORCHESTRATOR_NAME_PATTERN}}` on start (with your measured context from `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh`), on each push, on any blocker, and at the end. STOP-and-ask for anything outside §3.
+Unchanged from the phase brief: your orchestrator is the session **`{{ORCHESTRATOR_NAME}}`** (exact `ListAgents` name and reference) and no other; message it first (the handshake), apply the silence rule (fifteen minutes without answer → fresh `ListAgents`, re-send to the matching NAME, else tell the user). Report to it on start (with your measured context from `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh`), on each push, on any blocker, and at the end. STOP-and-ask for anything outside §3.

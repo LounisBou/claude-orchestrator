@@ -6,7 +6,7 @@ You are the SUCCESSOR ORCHESTRATOR. Your predecessor (a session named like `{{PR
 
 1. Read: the rulebook · the project state file `{{STATE_FILE}}` (STATUS LIVES THERE — phases, PRs, decisions marked non-reopenable, agent gotchas) · the spec `{{SPEC}}` · the plan `{{PLAN}}` · the runbook `{{RUNBOOK}}` · the briefs directory `{{BRIEFS_DIR}}`.
 2. VERIFY the state on the artifacts, believing nothing: branches and heads against origin, the PR chain, worktree cleanliness.
-3. Run `ListAgents`. Message every live implementer (names like `{{AGENT_NAME_PATTERN}}`): identify yourself as the new orchestrator, ask for a one-line status and a measured context (`claude-orchestrator:context-gauge`). Their standing protocol carries over unchanged.
+3. Run `ListAgents`. Message every live implementer (names like `{{AGENT_NAME_PATTERN}}`): identify yourself as the new orchestrator BY YOUR EXACT `ListAgents` NAME AND REFERENCE — copy it from the listing, the agents will address it verbatim — ask for a one-line status and a measured context (`claude-orchestrator:context-gauge`), and subscribe to each one's idle notice (`notify_when_idle: true`). Their standing protocol carries over unchanged, with the new address in place of the old.
 4. Message the predecessor "takeover confirmed". Close its tab with `claude-orchestrator:iterm-agents` (`list` first; close by tty with `--expect-title`) only once it reports idle — never while it may still be writing.
 5. Announce the takeover to the user in one short message: state inherited, agents re-identified, predecessor terminated, next pending step.
 

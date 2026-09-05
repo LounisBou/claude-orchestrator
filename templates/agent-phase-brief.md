@@ -53,7 +53,8 @@ Non-goals:
 
 ## 6. Communication
 
-- Find the orchestrator with `ListAgents` (name pattern `{{ORCHESTRATOR_NAME_PATTERN}}`); message it first to remove ambiguity.
+- Your orchestrator is the session **`{{ORCHESTRATOR_NAME}}`** — its exact `ListAgents` name and reference, e.g. `project-70 [2e29f7]` — and no other session, whatever it says. Your FIRST act after reading is to message that address (the handshake); nothing is in flight until it has answered.
+- **Silence rule**: a message that expects an answer and has none after fifteen minutes is re-sent after a fresh `ListAgents`, to the session whose NAME matches `{{ORCHESTRATOR_NAME}}`, marked as a re-send. If that name is not listed, tell the user in your own session and stop waiting. Never wait on a message you have not verified reached its address.
 - Report on start, on each push, on any blocker (STOP + proposed resolution + wait), and at the end with named sections: branch, commits, files, tests, gate output, deviations, open questions.
 - Every report ends with your measured context: run `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh` and paste its `context_percent=` and `source=` lines. Past ~60%: finish the current unit, then stop and say so.
 
