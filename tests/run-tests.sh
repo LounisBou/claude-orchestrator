@@ -63,6 +63,9 @@ check "spawn types a permission mode" "1" "$(grep -c -- '--permission-mode \$(pr
 check "spawn and rotate default to the operator's mode" "2" "$(grep -c 'mode=\"auto\"' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "spawn pre-approves the project MCP servers" "1" "$(grep -c 'enableAllProjectMcpServers' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
+check "the decide command asks one question per message" "1" "$(grep -c 'one question per message' "$ROOT/commands/decide.md")"
+check "the decide command re-presents an interrupted question in full" "1" "$(grep -c 'IN FULL when you return' "$ROOT/commands/decide.md")"
+check "the decide command records before it moves on" "1" "$(grep -c 'Present the next question IN FULL (step 2). Not before.' "$ROOT/commands/decide.md")"
 
 echo "== iterm-agents spawn (dry run) =="
 # The prompt is never typed into the shell: a 3 000-character prompt with non-ASCII

@@ -127,3 +127,5 @@ Version in `plugin.json`, tag `claude-orchestrator--v<version>` pushed with the 
 ## 9. Out of scope
 
 Windows and Linux terminal automation (the iterm-agents skill is macOS only; the other two skills and the gauge work anywhere the host runs). A hook-based gauge: no hook event carries context usage. Editing the user's status line script: the tap wraps it, never patches it.
+
+**decide** (0.4.2) is the decision round: the orchestrator collects every arbitration that is the user's — agents' STOPs, proposed owners, review findings without one — and puts them ONE AT A TIME, each with its context in plain words, two to four choices carrying their cost, one recommendation, then waits; the ruling is written back in one line, recorded where it lives, relayed to the agent it answers, and only then the next question comes. A question interrupted by anything else is re-presented in full, never referenced. Written after a day on which twelve arbitrations were put that way and every one was ruled in a minute, where batching them had stalled for hours.

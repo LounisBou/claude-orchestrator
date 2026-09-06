@@ -22,6 +22,7 @@ session can read without depending on a particular status bar.
 | hook `UserPromptSubmit` | The context gate enforced by the harness: at or past 60 % (`ORCHESTRATOR_CONTEXT_GATE`), every prompt carries the line that orders the succession or the stop; unmeasured, it says so once. |
 | `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
 | `/orchestrator:progress` | Where the build stands: done, in flight, remaining, decisions pending, and the orchestrator's own context. |
+| `/orchestrator:decide` | Runs a decision round with the user: every open question one at a time — context, choices with their cost, one recommendation — each ruling recorded and relayed before the next; a question is re-presented in full after any interruption. |
 
 ## Install
 
