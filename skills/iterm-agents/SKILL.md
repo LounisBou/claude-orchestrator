@@ -50,7 +50,12 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
 1. The brief exists at a path the fresh session can open on this machine.
 2. `spawn` with the one-line prompt naming the brief's path and the orchestrator's exact `ListAgents` name and reference — nothing the brief already says.
 3. Read the result: the script has already waited for the host CLI on the new tty, but the artifact decides — `list` (the tab), `verify --tty` (the process), `ListAgents` (the peer session, a few seconds later).
-4. Wait for the handshake. An agent that has not messaged within minutes is inspected, not waited for: `verify`, then the tab's contents (`osascript` … `contents of session`).
+4. **No startup dialog may stand between the launch and the brief.** The typed command pre-approves the project's MCP servers (`--settings '{"enableAllProjectMcpServers":true}'`), because a fresh session parked on « enable these MCP servers? » never reads its brief and nobody sits at that keyboard. Any other startup question the launch cannot pre-answer (a trust prompt, a migration notice) is read in the tab's contents and answered by the orchestrator through the tab — a session stuck on a dialog is not launched, whatever the script printed.
+5. Wait for the handshake. An agent that has not messaged within minutes is inspected, not waited for: `verify`, then the tab's contents (`osascript` … `contents of session`).
+
+## Tab hygiene
+
+**A finished agent's tab is closed, not left open.** The approval that closes a phase stands the agent down and closes its tab in the same move (`list`, `close --tty --expect-title`, `ps`). There is no « standing by » tab: a later fixup goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable. The only tabs open at any time are the orchestrator's and its running implementers'.
 
 ## Safety order for a live rotation
 

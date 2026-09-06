@@ -245,7 +245,11 @@ cmd_spawn() {
     # The tab title is set through the shell escape sequence before the session starts,
     # so `close --expect-title` has something stable to check. The prompt is never
     # part of the typed line: the shell reads it from the file at launch.
-    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI --model $(printf '%q' "$model") --permission-mode $(printf '%q' "$mode")"
+    # Project MCP servers are pre-approved on the command line: a fresh session that
+    # stops on the "enable these MCP servers?" dialog never reads its brief, and
+    # nobody is at that keyboard to answer.
+    local settings='{"enableAllProjectMcpServers":true}'
+    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI --model $(printf '%q' "$model") --permission-mode $(printf '%q' "$mode") --settings $(printf '%q' "$settings")"
     if [ -n "$prompt_file" ]; then
         shellcmd="$shellcmd \"\$(cat $(printf '%q' "$prompt_file"))\""
     fi

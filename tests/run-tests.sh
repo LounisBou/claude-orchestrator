@@ -61,6 +61,7 @@ check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.c
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
 check "spawn types a permission mode" "1" "$(grep -c -- '--permission-mode \$(printf' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "spawn and rotate default to the operator's mode" "2" "$(grep -c 'mode=\"auto\"' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "spawn pre-approves the project MCP servers" "1" "$(grep -c 'enableAllProjectMcpServers' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
 
 echo "== iterm-agents spawn (dry run) =="
@@ -91,7 +92,7 @@ out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spaw
 check "--prompt-file reuses the given file" "1" "$(printf '%s' "$out" | grep -c "prompt_file=$file")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" 2>&1)
 cmd=${out#*shellcmd=}; cmd=${cmd%%$'\n'*}
-check "no prompt: nothing appended after the mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto$')"
+check "no prompt: nothing appended after the settings" "1" "$(printf '%s' "$cmd" | grep -c -- 'enableAllProjectMcpServers.*}$')"
 check_status "--prompt and --prompt-file together are refused" 1 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --prompt x --prompt-file "$file"
 check_status "verify on a tty nobody has exits 1" 1 bash "$AGENT" verify --tty /dev/ttys999
 check "spawn verifies by default and rotate inherits it" "1" "$(grep -c 'if \[ "\$verify" = 1 \]' "$AGENT")"
