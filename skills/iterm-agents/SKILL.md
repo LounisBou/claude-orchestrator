@@ -62,6 +62,12 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
 ## Caveats (all observed)
 
 - **A prompt typed by AppleScript is truncated.** The first launch this tooling made with a long inline prompt left the tab on a half-typed command line that never ran, while the script printed a tty and success. The prompt goes to a file now and the typed line stays short whatever its length; the verification is what turns « printed a tty » into « the agent is running ».
+- **A fresh tab's shell may be ASKING something when the command arrives.** oh-my-zsh's « Would you
+  like to update? [Y/n] » took the first keystroke of a typed `cd …`, the rest ran as `d …`, and the
+  CLI never started — twice, on two consecutive launches, caught both times by the verification. `spawn`
+  now reads the tab before typing (`prompt-state`: `question` / `ready` / `busy`), answers a waiting
+  yes/no with « n », types once the shell is at a prompt, and re-types ONCE if the CLI has not started
+  while the shell sits idle. `ORCHESTRATOR_SHELL_TIMEOUT` (8 s) bounds the wait.
 - **`sed` dies on a non-ASCII byte under a C locale** (« RE error: illegal byte sequence ») — an em dash in a title aborted a launch. Quoting is done with the shell's own substitutions now, and a test feeds the script « — » and « é » under `LC_ALL=C`.
 - **Dynamic titles override manual ones**: the shell and the session rewrite the tab title, so a `--title` set at spawn is transient. For `--expect-title`, match the title the session displays (it reflects its current task or prompt), read from `list` seconds before closing.
 - **tty numbers are recycled**: a freshly closed `/dev/ttys000` can be reassigned to the next spawned tab. Never reuse a stored tty across a close — re-`list` every time.

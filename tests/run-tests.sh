@@ -97,6 +97,16 @@ check_status "verify on a tty nobody has exits 1" 1 bash "$AGENT" verify --tty /
 check "spawn verifies by default and rotate inherits it" "1" "$(grep -c 'if \[ "\$verify" = 1 \]' "$AGENT")"
 check "quoting uses no sed" "0" "$(sed -n '/^applescript_quote()/,/^}/p' "$AGENT" | grep -c sed)"
 
+# The shell of a fresh tab is read before anything is typed into it: a startup question
+# waiting for a keystroke ate the first character of a command twice in one night.
+check "a yes/no startup question is recognised" "question" "$(printf '[oh-my-zsh] Would you like to update? [Y/n]  \n' | bash "$AGENT" prompt-state)"
+check "a prompt-first theme reads as ready" "ready" "$(printf 'Last login: today\n➜  ~ \n' | bash "$AGENT" prompt-state)"
+check "a prompt-last shell reads as ready" "ready" "$(printf 'host:~ user$ \n' | bash "$AGENT" prompt-state)"
+check "output still scrolling reads as busy" "busy" "$(printf 'building the bundle…\n' | bash "$AGENT" prompt-state)"
+# Twice: once before the first typing, once before the single retry.
+check "the command is typed only after the shell is ready" "2" "$(grep -c 'await_shell_ready "\$new_tty"$' "$AGENT")"
+check "a mangled first attempt is re-typed once" "1" "$(grep -c 'typing the command once more' "$AGENT")"
+
 echo "== context gate hook =="
 # A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
 # prints nothing, and with no tap file it says « unmeasured » exactly once.

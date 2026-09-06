@@ -8,6 +8,7 @@
 #   iterm-agent.sh spawn --dir <path> [--model opus] [--permission-mode auto] [--title <t>]
 #                        [--prompt <text> | --prompt-file <path>] [--left-of /dev/ttysNNN] [--no-verify]
 #   iterm-agent.sh verify --tty /dev/ttysNNN
+#   iterm-agent.sh prompt-state            (reads a tab's contents on stdin; prints question|ready|busy)
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>]
 #   iterm-agent.sh move --tty /dev/ttysNNN --left-of /dev/ttysMMM
 #   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--permission-mode auto]
@@ -24,6 +25,10 @@
 #     by AppleScript is truncated past a few hundred characters and the command
 #     never runs — observed once, with the tab left on a half-typed line and the
 #     script reporting success.
+#   - `spawn` opens the tab, WAITS for its shell to be at a prompt — answering a startup
+#     question such as oh-my-zsh's « Would you like to update? [Y/n] » with « n », because that
+#     question ate the first keystroke of a typed command and `cd` ran as `d` — types the
+#     command, and re-types it ONCE if the CLI has not started while the shell sits at a prompt.
 #   - `spawn` then VERIFIES: it waits until the host CLI is running on the new tty
 #     (ORCHESTRATOR_SPAWN_TIMEOUT seconds, 30 by default) and fails loudly, with
 #     the tab's last lines, if it is not. The printed tty is a claim; the process
@@ -82,6 +87,76 @@ cli_pid_on_tty() {
     cli=$(basename "$HOST_CLI")
     ps -t "$tty" -o pid= -o comm= 2>/dev/null | awk -v cli="$cli" '
         { name = $2; sub(".*/", "", name); if (name == cli) { print $1; exit } }'
+}
+
+shell_prompt_state() {
+    # Classifies a tab's contents (stdin): `question` when a startup prompt is waiting for a
+    # keystroke — oh-my-zsh's « Would you like to update? [Y/n] » ate the first character of a
+    # typed command twice in one night, turning `cd` into `d` and running nothing —, `ready` when
+    # the last non-empty line ends in a shell prompt, `busy` otherwise.
+    local last
+    last=$(grep -v '^[[:space:]]*$' | tail -1 | sed 's/[[:space:]]*$//')
+    case "$last" in
+        *"[Y/n]"|*"[y/N]"|*"[Y/n]:"|*"[y/N]:"|*"(y/n)"|*"(Y/n)"|*"[yes/no]") echo question ;;
+        # A prompt symbol at the END (`$`, `%`, `#`, `>`) or, for the themes that put it first
+        # and follow it with the directory, at the START (`➜`, `❯`, `→`).
+        *"$"|*"%"|*"#"|*">"|"➜"*|"❯"*|"→"*) echo ready ;;
+        *) echo busy ;;
+    esac
+}
+
+tab_contents() {
+    # The whole screen of the session on a tty (one AppleScript read).
+    local qtty
+    qtty=$(applescript_quote "$1")
+    osa "
+    tell application \"iTerm2\"
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if (tty of s) is \"$qtty\" then return contents of s
+                end repeat
+            end repeat
+        end repeat
+        return \"\"
+    end tell" 2>/dev/null || true
+}
+
+write_to_tty() {
+    # Types one line into the session on a tty.
+    local qtty qtext
+    qtty=$(applescript_quote "$1")
+    qtext=$(applescript_quote "$2")
+    osa "
+    tell application \"iTerm2\"
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if (tty of s) is \"$qtty\" then
+                        tell s to write text \"$qtext\"
+                        return \"ok\"
+                    end if
+                end repeat
+            end repeat
+        end repeat
+        error \"No session found on $qtty.\"
+    end tell" >/dev/null
+}
+
+await_shell_ready() {
+    # Waits for the new tab's shell to be at a prompt; answers a waiting yes/no question with
+    # « n » so the command typed next is read whole. Bounded by ORCHESTRATOR_SHELL_TIMEOUT (8 s).
+    local tty="$1" waited=0 limit="${ORCHESTRATOR_SHELL_TIMEOUT:-8}" state
+    while [ "$waited" -lt "$limit" ]; do
+        state=$(tab_contents "$tty" | shell_prompt_state)
+        case "$state" in
+            ready) return 0 ;;
+            question) write_to_tty "$tty" "n"; sleep 1 ;;
+            *) sleep 1 ;;
+        esac
+        waited=$((waited + 1))
+    done
+    return 0
 }
 
 tab_tail() {
@@ -183,23 +258,36 @@ cmd_spawn() {
         printf 'prompt_file=%s\n' "$prompt_file"
         return 0
     fi
+    # THE TAB FIRST, THE COMMAND SECOND, AND ONLY ONCE THE SHELL IS AT A PROMPT. A command
+    # typed into a shell still starting is read by whatever is asking at that moment: a
+    # startup question took the first keystroke and the rest ran as a different word.
     new_tty=$(osa "
     tell application \"iTerm2\"
         tell current window
             set newTab to (create tab with default profile)
             tell current session of newTab
-                write text \"$qcmd\"
                 return tty
             end tell
         end tell
     end tell")
     [ -n "$new_tty" ] || die "spawn: iTerm2 returned no tty for the new tab"
+    await_shell_ready "$new_tty"
+    write_to_tty "$new_tty" "$shellcmd"
 
     if [ "$verify" = 1 ]; then
-        local waited=0 pid=""
+        local waited=0 pid="" retried=0
         while [ "$waited" -lt "$SPAWN_TIMEOUT" ]; do
             pid=$(cli_pid_on_tty "$new_tty")
             [ -n "$pid" ] && break
+            # ONE RETRY, when the shell is back at a prompt with nothing running: the typed
+            # line was eaten or mangled. A second failure is reported, not retried again.
+            if [ "$retried" = 0 ] && [ "$waited" -ge 4 ] && \
+               [ "$(tab_contents "$new_tty" | shell_prompt_state)" = ready ]; then
+                echo "spawn: $HOST_CLI not running on $new_tty after ${waited}s and the shell is at a prompt — typing the command once more" >&2
+                await_shell_ready "$new_tty"
+                write_to_tty "$new_tty" "$shellcmd"
+                retried=1
+            fi
             sleep 1
             waited=$((waited + 1))
         done
@@ -376,6 +464,7 @@ case "${1:-}" in
     list)   shift; cmd_list "$@" ;;
     spawn)  shift; cmd_spawn "$@" ;;
     verify) shift; cmd_verify "$@" ;;
+    prompt-state) shift; shell_prompt_state ;;
     close)  shift; cmd_close "$@" ;;
     move)   shift; cmd_move "$@" ;;
     rotate) shift; cmd_rotate "$@" ;;
