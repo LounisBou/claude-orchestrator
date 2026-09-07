@@ -11,10 +11,10 @@ session can read without depending on a particular status bar.
 
 | Piece | What it does |
 |---|---|
-| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, the agents' lifecycle (the orchestrator launches, verifies, controls, terminates and replaces them), review on evidence, context rotation, the orchestrator's own succession, shared-machine discipline. |
+| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, the agents' lifecycle (the orchestrator launches, verifies, controls, terminates and replaces them), review on evidence, review rounds run in disposable sessions, context rotation, the orchestrator's own succession, shared-machine discipline. |
 | skill `iterm-agents` | `list`, `spawn`, `verify`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. The prompt goes to a file and the typed command stays short; spawn waits for the host CLI on the new tty and fails loudly otherwise; tty-exact close with a title guard; spawn-and-verify before close on rotate. |
 | skill `context-gauge` | A session's own context fill as a measured figure, from the status line payload when fresh, from the transcript otherwise. |
-| `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, with the sections the rulebook makes mandatory. |
+| `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, review-agent brief, comments-agent brief, with the sections the rulebook makes mandatory. |
 | `/orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
 | `/orchestrator:uninstall` | Restores the previous status line. |
 | `/orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
@@ -86,7 +86,7 @@ session. Measured beats estimated: in observed runs, agents' self-estimates ran
 
 1. You orchestrate; you never implement. Implementers run in separate sessions, one agent, one phase, one draft PR stacked on the previous phase's branch head. Merges are never awaited.
 2. Every brief is a file the fresh session can open, with contracts verbatim, a non-goals list ending in "STOP and ask", state-verification commands, and the gauge invocation.
-3. Review on evidence: diff it yourself, re-run the one command that decides the verdict, treat every claim — cleanup claims included — as a claim.
+3. Review on evidence: diff it yourself, re-run the one command that decides the verdict, treat every claim — cleanup claims included — as a claim. Heavy reading goes to a review session spawned for the round (it fans out read-only readers and reports once); the verdict stays with you, and the session is closed when the round is judged.
 4. Context is a gate at ~60%: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
 5. Succession is the orchestrator's to trigger, at a quiet moment, with a standing pointer-based brief; the successor verifies the state on the artifacts, re-identifies itself to the agents, confirms the takeover, then closes the predecessor's tab.
 

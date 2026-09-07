@@ -67,6 +67,12 @@ check "the decide command asks one question per message" "1" "$(grep -c 'one que
 check "the decide command re-presents an interrupted question in full" "1" "$(grep -c 'IN FULL when you return' "$ROOT/commands/decide.md")"
 check "the decide command records before it moves on" "1" "$(grep -c 'Present the next question IN FULL (step 2). Not before.' "$ROOT/commands/decide.md")"
 
+# Review rounds run in sessions spawned for the round and closed when it is judged:
+# the rulebook names the mode, both briefs exist, and neither lets its session push.
+check "the rulebook runs review rounds in disposable sessions" "1" "$(grep -c '^## Review rounds run in disposable sessions' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the review brief forbids writing" "1" "$(grep -c 'You write nothing and post nothing' "$ROOT/templates/agent-review-brief.md")"
+check "the comments brief forbids pushing" "1" "$(grep -c 'Never push' "$ROOT/templates/agent-comments-brief.md")"
+
 echo "== iterm-agents spawn (dry run) =="
 # The prompt is never typed into the shell: a 3 000-character prompt with non-ASCII
 # bytes, quotes and a backslash goes to a file byte for byte, the typed command stays
