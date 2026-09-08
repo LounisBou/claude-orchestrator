@@ -355,8 +355,12 @@ cmd_move() {
     local qtarget qanchor
     qtarget=$(applescript_quote "$target_tty")
     qanchor=$(applescript_quote "$anchor_tty")
-    local offset=-1 word="left"
-    if [ "$side" = "right" ]; then offset=1; word="right"; fi
+    # Moves needed, per side. Crossing the anchor shifts it by one, so the count is
+    # not symmetric: coming from the right, "left of" must cross and "right of" must
+    # stop one short; coming from the left it is the mirror. Wrong arithmetic here
+    # moves zero tabs and the verification below catches it — it did, once.
+    local offset=-1 word="left" gt_adjust=0 lt_adjust=-1
+    if [ "$side" = "right" ]; then offset=1; word="right"; gt_adjust=-1; lt_adjust=0; fi
     osa "
     on positions()
         tell application \"iTerm2\"
@@ -408,11 +412,11 @@ cmd_move() {
     end tell
     delay 0.3
     if targetPos > anchorPos then
-        repeat (targetPos - anchorPos - (($offset) + 1)) times
+        repeat (targetPos - anchorPos + ($gt_adjust)) times
             moveOnce(\"Left\")
         end repeat
     else
-        repeat (anchorPos - targetPos + (($offset) - 1)) times
+        repeat (anchorPos - targetPos + ($lt_adjust)) times
             moveOnce(\"Right\")
         end repeat
     end if

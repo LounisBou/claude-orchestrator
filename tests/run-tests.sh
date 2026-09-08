@@ -81,6 +81,11 @@ check "move accepts a right anchor" "1" "$(grep -c -- '--right-of) anchor_tty=' 
 check "an anchor is required" "1" "$(grep -c 'move: --left-of or --right-of is required' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "self resolves the caller's own tty" "1" "$(grep -c '^resolve_self_tty()' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "spawn refuses two anchors" "1" "$(grep -c 'mutually exclusive' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+# Crossing the anchor shifts it by one, so the move count differs per side. The first
+# --right-of implementation computed zero moves and the AppleScript verification caught
+# it live: the counts are pinned here so the asymmetry cannot be "simplified" away.
+check "the move count is asymmetric per side" "1" "$(grep -c 'gt_adjust=-1; lt_adjust=0' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "the left side keeps its own counts" "1" "$(grep -c 'gt_adjust=0 lt_adjust=-1' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --prompt' "$ROOT/skills/orchestrator/SKILL.md")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
