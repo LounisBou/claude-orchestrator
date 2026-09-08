@@ -11,7 +11,7 @@ session can read without depending on a particular status bar.
 
 | Piece | What it does |
 |---|---|
-| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, the agents' lifecycle (the orchestrator launches, verifies, controls, terminates and replaces them), review on evidence, review rounds run in disposable sessions, context rotation, the orchestrator's own succession, shared-machine discipline. |
+| skill `orchestrator` | The rulebook: phase and PR rules, the agent prompt recipe, the agents' lifecycle (the orchestrator launches, verifies, controls, terminates and replaces them), review on evidence, review rounds run in disposable sessions, what a round costs and the three ways to shorten it, context rotation, the orchestrator's own succession, shared-machine discipline. |
 | skill `iterm-agents` | `list`, `spawn`, `verify`, `close`, `move`, `rotate` iTerm2 tabs running agent sessions. Placement anchors on a tty or on `self`, the caller's own tab. The prompt goes to a file and the typed command stays short; spawn waits for the host CLI on the new tty and fails loudly otherwise; tty-exact close with a title guard; spawn-and-verify before close on rotate. |
 | skill `context-gauge` | A session's own context fill as a measured figure, from the status line payload when fresh, from the transcript otherwise. |
 | `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, review-agent brief, comments-agent brief, with the sections the rulebook makes mandatory. |

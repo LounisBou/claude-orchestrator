@@ -86,6 +86,15 @@ check "spawn refuses two anchors" "1" "$(grep -c 'mutually exclusive' "$ROOT/ski
 # it live: the counts are pinned here so the asymmetry cannot be "simplified" away.
 check "the move count is asymmetric per side" "1" "$(grep -c 'gt_adjust=-1; lt_adjust=0' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "the left side keeps its own counts" "1" "$(grep -c 'gt_adjust=0 lt_adjust=-1' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+
+# A round's wall clock is the cold start, the gate and the round trips — never bought
+# back by shortening the verification. The three levers and their counterweight are
+# pinned so a later edit cannot quietly drop the gate rule while keeping the speed one.
+check "the rulebook prices a round" "1" "$(grep -c '^### The cost of a round' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the gate overlaps the writing" "1" "$(grep -c 'starts the moment that commit lands' "$ROOT/skills/orchestrator/SKILL.md")"
+check "decided items skip the assessment" "1" "$(grep -c 'DECIDED findings list' "$ROOT/skills/orchestrator/SKILL.md")"
+check "speed is not bought from the gate" "1" "$(grep -c 'never gated by a scoped run' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the comments brief carries a decided list" "1" "$(grep -c 'DECIDED_ITEMS' "$ROOT/templates/agent-comments-brief.md")"
 check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --prompt' "$ROOT/skills/orchestrator/SKILL.md")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac

@@ -88,6 +88,16 @@ Reading a delivery costs context, and judgment must stay in one place. So the he
 
 The gauge, the handshake, the silence rule and the STOP-and-ask clause apply to these sessions as to any other.
 
+### The cost of a round
+
+A round's wall clock is rarely the work. It is the cold start, the verification gate and the decision round trips, in that order — and the gate is the one you must never buy speed with. Three levers, all generic:
+
+- **Batch by round, not by artifact.** The disposable unit is the ROUND, not the pull request, the file or the thread. Several small artifacts that share one working directory belong in one round: one cold start, one gate, one report. Split when they need different working directories (the one-writer rule), when one is large enough to deserve its own reading, or when a verdict on one would change the scope of another.
+- **Overlap the gate with the writing.** The gate is the longest step and it depends only on the last commit, not on the prose. It starts the moment that commit lands, and the agent writes its report, its diffs and any reply text while it runs, then states the result as DONE with its exit code. A brief that sequences « report, then gate » pays the gate twice in wall clock. Where the host caps a foreground call and backgrounds the run, the agent inspects the process and reads the exit code from the captured file — it never ends a turn waiting, and it never reports a run as « going » when the process is gone.
+- **Skip the assessment step for items already judged.** Assessment-before-action exists for items that need judgment. When you have already ruled, or when the item is mechanical and its precedent is named (a rename, a literal, an annotation copied from a cited file), the brief carries a DECIDED findings list and the agent applies it. Do not make an agent argue a case whose verdict is already written; do not let it apply one whose verdict is not.
+
+None of this is bought by shortening the verification. The gate is the cheapest step to cut and the most expensive to have cut: a scoped selection must cover the tests of every file the change touches, not only the tests of the feature, and a change to a signature, a constructor or a service definition is never gated by a scoped run — those break callers no scoped path visits.
+
 ## The agents' lifecycle is yours
 
 **You launch, you verify, you control, you terminate, you replace — and nothing of it waits for the user.** Observed on the first day a steward inherited this skill: it wrote two briefs and ended two reports by handing the user an invocation to paste, and left an agent at 83 % context running until the user said so. The user's ruling: launching the agents is what the orchestrator's skills exist for, and not doing it is a critical error.
@@ -162,6 +172,11 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The agent is at 83 % but it has stopped, no harm leaving it" | An idle agent answers by habit and holds memory. Stand it down, close its tab, spawn the replacement. |
 | "The review agent found twelve items, I'll forward the list" | A list is not a verdict. Verify each one, keep by pertinence and severity, drop the over-corrections, then bring the operator only what is theirs to decide. |
 | "The comments agent agreed with the reviewer, so it can fix and resolve" | Its agreement is a claim. Re-verify the evidence; agree yourself, then say the option number. |
+| "These fixes are trivial, a scoped run is enough" | A signature, constructor or service change breaks callers no scoped path runs. The gate is what finds them. |
+| "One disposable session per pull request" | The unit is the round, not the artifact. Batch the small ones that share a working directory: one cold start, one gate. |
+| "The agent reports, then runs the gate" | Then the gate is paid twice in wall clock. It starts on the last commit and the report is written while it runs. |
+| "Every item deserves its assessment" | An item you have already ruled on needs applying, not arguing. Put the decided list in the brief. |
+| "A local coverage figure proves the remote gate" | Same command, different result, observed. Coverage annotations and cache state diverge; the remote gate is the authority. |
 
 ## Red flags: STOP
 
@@ -180,3 +195,4 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - Your context at the gate and no successor spawned; a successor spawned without `--permission-mode auto`; a « takeover confirmed » with the predecessor's tab still open.
 - An agent prompt that says « find the orchestrator » instead of naming its session; an orchestrator restarted without re-announcing its address; a message sent without an idle subscription behind it.
 - A review or comments session left open after its round is judged; a finding forwarded to the operator that you have not verified; an implementer session fanning out reviewers.
+- A brief that sequences the gate after the report; a separate session per small artifact when one round would hold them; an assessment round trip on an item you have already decided.
