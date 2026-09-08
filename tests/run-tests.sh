@@ -95,6 +95,13 @@ check "the gate overlaps the writing" "1" "$(grep -c 'starts the moment that com
 check "decided items skip the assessment" "1" "$(grep -c 'DECIDED findings list' "$ROOT/skills/orchestrator/SKILL.md")"
 check "speed is not bought from the gate" "1" "$(grep -c 'never gated by a scoped run' "$ROOT/skills/orchestrator/SKILL.md")"
 check "the comments brief carries a decided list" "1" "$(grep -c 'DECIDED_ITEMS' "$ROOT/templates/agent-comments-brief.md")"
+
+# Text published under the operator's name is theirs to authorise, and a thread closed
+# by a change is answered by the change. Two replies once went up on an orchestrator's
+# approval alone, on threads a fix had already answered.
+check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the comments brief drafts nothing on a fixed thread" "1" "$(grep -c 'draft nothing and post nothing there' "$ROOT/templates/agent-comments-brief.md")"
 check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --prompt' "$ROOT/skills/orchestrator/SKILL.md")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
