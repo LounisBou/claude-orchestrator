@@ -73,6 +73,19 @@ check "the rulebook runs review rounds in disposable sessions" "1" "$(grep -c '^
 check "the review brief forbids writing" "1" "$(grep -c 'You write nothing and post nothing' "$ROOT/templates/agent-review-brief.md")"
 check "the comments brief forbids pushing" "1" "$(grep -c 'Never push' "$ROOT/templates/agent-comments-brief.md")"
 
+# A plain spawn appends at the END of the window, not beside the caller — an agent
+# once landed two tabs from its orchestrator with a stranger's session between them.
+# So placement anchors on a tty or on `self`, the caller's own tab, and the docs say
+# to name one rather than trusting the default position.
+check "move accepts a right anchor" "1" "$(grep -c -- '--right-of) anchor_tty=' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "an anchor is required" "1" "$(grep -c 'move: --left-of or --right-of is required' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "self resolves the caller's own tty" "1" "$(grep -c '^resolve_self_tty()' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "spawn refuses two anchors" "1" "$(grep -c 'mutually exclusive' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --prompt' "$ROOT/skills/orchestrator/SKILL.md")"
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
+case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
+check "two anchors are refused at spawn" "refused" "$anchors"
+
 echo "== iterm-agents spawn (dry run) =="
 # The prompt is never typed into the shell: a 3 000-character prompt with non-ASCII
 # bytes, quotes and a backslash goes to a file byte for byte, the typed command stays

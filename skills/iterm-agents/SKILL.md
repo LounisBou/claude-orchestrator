@@ -18,7 +18,7 @@ $SCRIPT list
     # w1/t3 | /dev/ttys000 | ✳ agent-brief prompt (node)
 
 $SCRIPT spawn --dir <workdir> [--model opus] [--permission-mode auto] \
-    --title <t> --prompt "Read and execute <brief-path>. Your orchestrator is <name [ref]>." [--left-of <tty>]
+    --title <t> --prompt "Read and execute <brief-path>. Your orchestrator is <name [ref]>." [--right-of self]
     # writes the prompt to a file under the plugin's state directory, types a SHORT
     # command that reads it as the host CLI's initial-prompt argument, WAITS until
     # the host CLI is running on the new tty (30 s, ORCHESTRATOR_SPAWN_TIMEOUT), and
@@ -31,11 +31,12 @@ $SCRIPT verify --tty /dev/ttysNNN
 $SCRIPT close --tty /dev/ttysNNN --expect-title <substring>
     # tty-exact; refuses if the session's current title does not contain the substring
 
-$SCRIPT move --tty /dev/ttysNNN --left-of /dev/ttysMMM
-    # places a tab immediately left of another (same window); idempotent, verified after the move
+$SCRIPT move --tty /dev/ttysNNN (--right-of self | --right-of /dev/ttysMMM | --left-of /dev/ttysMMM)
+    # places a tab immediately beside another (same window); idempotent, verified after the move.
+    # `self` is the calling session's own tty, found by walking up the process tree.
 
 $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
-    [--model <model>] [--title <t>] [--prompt <text> | --prompt-file <path>] [--left-of <tty>]
+    [--model <model>] [--title <t>] [--prompt <text> | --prompt-file <path>] [--right-of self | --left-of <tty>]
     # spawns the replacement FIRST and verifies it is running, then closes the old tab
 ```
 
@@ -43,12 +44,21 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
 
 ## Tab layout convention
 
-**The orchestrator's tab sits immediately LEFT of its implementer agent's tab.** A plain `spawn` appends at the right end of the window, which is fine for an agent rotation (the new agent lands right of the orchestrator) but wrong for an orchestrator succession (the successor would land right of the agent). So an orchestrator spawning its successor passes `--left-of <agent tty>`; an orchestrator spawning an agent passes `--left-of <the next sibling's tty>` so the agent lands right after it; when in doubt, `move` fixes the layout after the fact.
+**The orchestrator's tab sits immediately LEFT of its implementer agent's tab.**
+
+A plain `spawn` appends at the FAR RIGHT of the window. That is beside the orchestrator only when the orchestrator happens to be the last tab — in a window that also holds unrelated sessions, the new agent lands past them and the layout is silently wrong. Observed: an agent spawned two tabs away from its orchestrator, with a stranger's session between them, because the plain form was read as « fine for an agent ».
+
+So **always name an anchor**, and name the one you actually know:
+
+- spawning an implementer: `--right-of self` — your own tab, resolved from the process tree, no need to know which tab currently follows you.
+- spawning your successor: `--right-of self` too, then the successor sits between you and your agent; it closes your tab once the takeover is confirmed, so the successor ends up immediately left of the agent.
+- `--left-of <tty>` remains for the case where the anchor you know is on the other side.
+- `move` repairs the layout after the fact, with the same three forms.
 
 ## Safety order for a launch
 
 1. The brief exists at a path the fresh session can open on this machine.
-2. `spawn` with the one-line prompt naming the brief's path and the orchestrator's exact `ListAgents` name and reference — nothing the brief already says.
+2. `spawn` with the one-line prompt naming the brief's path and the orchestrator's exact `ListAgents` name and reference — nothing the brief already says — and with `--right-of self`, so the tab lands beside yours rather than at the end of a window you do not own.
 3. Read the result: the script has already waited for the host CLI on the new tty, but the artifact decides — `list` (the tab), `verify --tty` (the process), `ListAgents` (the peer session, a few seconds later).
 4. **No startup dialog may stand between the launch and the brief.** The typed command pre-approves the project's MCP servers (`--settings '{"enableAllProjectMcpServers":true}'`), because a fresh session parked on « enable these MCP servers? » never reads its brief and nobody sits at that keyboard. Any other startup question the launch cannot pre-answer (a trust prompt, a migration notice) is read in the tab's contents and answered by the orchestrator through the tab — a session stuck on a dialog is not launched, whatever the script printed.
 5. Wait for the handshake. An agent that has not messaged within minutes is inspected, not waited for: `verify`, then the tab's contents (`osascript` … `contents of session`).
@@ -87,5 +97,6 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--expect-title <s>] \
 - Handing the user a brief path and an invocation to paste: the orchestrator spawns.
 - Trusting the printed tty: a command can fail to run; `verify`, `list`, `ListAgents`, then the handshake.
 - Closing by title alone or by tab position: only `--tty` + `--expect-title` is unambiguous.
+- Spawning without an anchor and assuming the tab landed beside you: it lands at the end of the window. Pass `--right-of self`.
 - Rotating before the old agent acknowledged stand-down: risks killing an uncommitted write.
 - Storing a tty and using it after any close happened in between (recycling).

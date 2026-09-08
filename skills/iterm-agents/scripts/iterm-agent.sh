@@ -6,13 +6,15 @@
 # Usage:
 #   iterm-agent.sh list
 #   iterm-agent.sh spawn --dir <path> [--model opus] [--permission-mode auto] [--title <t>]
-#                        [--prompt <text> | --prompt-file <path>] [--left-of /dev/ttysNNN] [--no-verify]
+#                        [--prompt <text> | --prompt-file <path>]
+#                        [--left-of /dev/ttysNNN | --right-of /dev/ttysNNN | --right-of self] [--no-verify]
 #   iterm-agent.sh verify --tty /dev/ttysNNN
 #   iterm-agent.sh prompt-state            (reads a tab's contents on stdin; prints question|ready|busy)
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>]
-#   iterm-agent.sh move --tty /dev/ttysNNN --left-of /dev/ttysMMM
+#   iterm-agent.sh move --tty /dev/ttysNNN (--left-of /dev/ttysMMM | --right-of /dev/ttysMMM | --right-of self)
 #   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--permission-mode auto]
-#                         [--title <t>] [--prompt <text> | --prompt-file <path>] [--expect-title <substring>] [--left-of /dev/ttysMMM]
+#                         [--title <t>] [--prompt <text> | --prompt-file <path>] [--expect-title <substring>]
+#                         [--left-of /dev/ttysMMM | --right-of /dev/ttysMMM | --right-of self]
 #
 # Safety model:
 #   - `close` targets a tty (unique per session). If --expect-title is given, the
@@ -36,7 +38,10 @@
 #   - Quoting for AppleScript is done with the shell's own substitutions, never
 #     with `sed`: under a C locale `sed` dies on a non-ASCII byte (« RE error:
 #     illegal byte sequence ») and a title with an em dash aborted a launch.
-#   - `move` places a tab immediately left of another one (same window). iTerm2's
+#   - `move` places a tab immediately left or right of another one (same window). A
+#     caller that wants a tab beside ITS OWN passes `--right-of self`: naming the
+#     neighbour on the other side means naming a tab the caller does not know, and a
+#     window holding unrelated tabs then swallows the difference. iTerm2's
 #     AppleScript dictionary cannot reorder tabs, so it drives the Window > Tab >
 #     Move Tab menu through System Events; that needs iTerm2 frontmost for the
 #     duration of the move, and the previously frontmost app is restored after.
@@ -219,7 +224,7 @@ cmd_spawn() {
     # The decision mode defaults to the operator's own: a successor or a replacement agent
     # spawned into a stricter mode stops at its first permission prompt in a tab nobody is
     # watching, and the build stalls exactly where the rotation was meant to keep it moving.
-    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" left_of="" verify=1
+    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" left_of="" right_of="" verify=1
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
@@ -229,11 +234,13 @@ cmd_spawn() {
             --prompt) prompt="$2"; shift 2 ;;
             --prompt-file) prompt_file="$2"; shift 2 ;;
             --left-of) left_of="$2"; shift 2 ;;
+            --right-of) right_of="$2"; shift 2 ;;
             --no-verify) verify=0; shift ;;
             *) die "spawn: unknown option $1" ;;
         esac
     done
     [ -n "$dir" ] || die "spawn: --dir is required"
+    [ -z "$left_of" ] || [ -z "$right_of" ] || die "spawn: --left-of and --right-of are mutually exclusive"
     [ -d "$dir" ] || die "spawn: directory not found: $dir"
     [ -z "$prompt" ] || [ -z "$prompt_file" ] || die "spawn: --prompt and --prompt-file are exclusive"
     if [ -n "$prompt_file" ]; then
@@ -303,28 +310,53 @@ cmd_spawn() {
         fi
         echo "spawn: $HOST_CLI running on $new_tty (pid $pid)" >&2
     fi
-    if [ -n "$left_of" ]; then
+    if [ -n "$right_of" ]; then
+        cmd_move --tty "$new_tty" --right-of "$right_of" >&2
+    elif [ -n "$left_of" ]; then
         cmd_move --tty "$new_tty" --left-of "$left_of" >&2
     fi
     echo "$new_tty"
 }
 
+# The tty this script is running on, found by walking up the process tree: the
+# immediate shell is often detached ("??"), the session's own process is not.
+# `--right-of self` exists so a caller can place a tab beside its own without
+# having to name the neighbour on the other side, which it has no way to know.
+resolve_self_tty() {
+    local pid=$$ tty=""
+    local hops=0
+    while [ "$pid" -gt 1 ] && [ "$hops" -lt 12 ]; do
+        tty=$(ps -o tty= -p "$pid" 2>/dev/null | tr -d ' ')
+        case "$tty" in
+            ttys*) printf '/dev/%s\n' "$tty"; return 0 ;;
+        esac
+        pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+        [ -n "$pid" ] || break
+        hops=$((hops + 1))
+    done
+    die "could not resolve this session's own tty for --right-of self"
+}
+
 cmd_move() {
-    local target_tty="" anchor_tty=""
+    local target_tty="" anchor_tty="" side=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --tty) target_tty="$2"; shift 2 ;;
-            --left-of) anchor_tty="$2"; shift 2 ;;
+            --left-of) anchor_tty="$2"; side="left"; shift 2 ;;
+            --right-of) anchor_tty="$2"; side="right"; shift 2 ;;
             *) die "move: unknown option $1" ;;
         esac
     done
     [ -n "$target_tty" ] || die "move: --tty is required"
-    [ -n "$anchor_tty" ] || die "move: --left-of is required"
-    [ "$target_tty" != "$anchor_tty" ] || die "move: --tty and --left-of must differ"
+    [ -n "$anchor_tty" ] || die "move: --left-of or --right-of is required"
+    [ "$anchor_tty" != "self" ] || anchor_tty=$(resolve_self_tty)
+    [ "$target_tty" != "$anchor_tty" ] || die "move: --tty and the anchor must differ"
 
     local qtarget qanchor
     qtarget=$(applescript_quote "$target_tty")
     qanchor=$(applescript_quote "$anchor_tty")
+    local offset=-1 word="left"
+    if [ "$side" = "right" ]; then offset=1; word="right"; fi
     osa "
     on positions()
         tell application \"iTerm2\"
@@ -367,7 +399,7 @@ cmd_move() {
     end moveOnce
 
     set {targetPos, anchorPos, targetTab} to positions()
-    if targetPos is (anchorPos - 1) then return \"already left of $qanchor\"
+    if targetPos is (anchorPos + ($offset)) then return \"already $word of $qanchor\"
 
     tell application \"System Events\" to set previousApp to name of first application process whose frontmost is true
     tell application \"iTerm2\"
@@ -376,11 +408,11 @@ cmd_move() {
     end tell
     delay 0.3
     if targetPos > anchorPos then
-        repeat (targetPos - anchorPos) times
+        repeat (targetPos - anchorPos - (($offset) + 1)) times
             moveOnce(\"Left\")
         end repeat
     else
-        repeat (anchorPos - 1 - targetPos) times
+        repeat (anchorPos - targetPos + (($offset) - 1)) times
             moveOnce(\"Right\")
         end repeat
     end if
@@ -391,8 +423,8 @@ cmd_move() {
     end if
 
     set {targetPos, anchorPos, targetTab} to positions()
-    if targetPos is not (anchorPos - 1) then error \"Move failed: $qtarget is at tab \" & targetPos & \", $qanchor at tab \" & anchorPos & \".\"
-    return \"moved $qtarget to tab \" & targetPos & \", left of $qanchor\"
+    if targetPos is not (anchorPos + ($offset)) then error \"Move failed: $qtarget is at tab \" & targetPos & \", $qanchor at tab \" & anchorPos & \".\"
+    return \"moved $qtarget to tab \" & targetPos & \", $word of $qanchor\"
     "
 }
 
@@ -434,7 +466,7 @@ cmd_close() {
 }
 
 cmd_rotate() {
-    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" old_tty="" expect_title="" left_of=""
+    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" old_tty="" expect_title="" left_of="" right_of=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
@@ -446,6 +478,7 @@ cmd_rotate() {
             --old-tty) old_tty="$2"; shift 2 ;;
             --expect-title) expect_title="$2"; shift 2 ;;
             --left-of) left_of="$2"; shift 2 ;;
+            --right-of) right_of="$2"; shift 2 ;;
             *) die "rotate: unknown option $1" ;;
         esac
     done
@@ -456,7 +489,7 @@ cmd_rotate() {
     # leave zero agents, which is the one outcome this order exists to prevent.
     local new_tty
     new_tty=$(cmd_spawn --dir "$dir" --model "$model" --permission-mode "$mode" --title "$title" \
-        ${prompt:+--prompt "$prompt"} ${prompt_file:+--prompt-file "$prompt_file"} ${left_of:+--left-of "$left_of"})
+        ${prompt:+--prompt "$prompt"} ${prompt_file:+--prompt-file "$prompt_file"} ${left_of:+--left-of "$left_of"} ${right_of:+--right-of "$right_of"})
     echo "spawned replacement on $new_tty"
 
     local close_args=(--tty "$old_tty")
