@@ -320,6 +320,12 @@ check "other settings untouched" "1" "$(jq '.other' "$H/.claude/settings.json")"
 check "previous statusLine saved" '{"type":"command","command":"/x/bar.sh","padding":0}' \
   "$(jq -c . "$H/.claude/claude-orchestrator/statusline.previous.json")"
 check "tap copied and executable" "yes" "$([ -x "$TAPDEST" ] && echo yes || echo no)"
+check "tier map created with three empty bindings" '{"deep":"","standard":"","light":""}' \
+  "$(jq -c . "$H/.claude/claude-orchestrator/models.json")"
+printf '{"deep":"a-model","standard":"","light":""}\n' > "$H/.claude/claude-orchestrator/models.json"
+env HOME="$H" bash "$ROOT/install.sh" >/dev/null 2>&1
+check "an existing tier map is never overwritten" "a-model" \
+  "$(jq -r .deep "$H/.claude/claude-orchestrator/models.json")"
 before=$(cat "$H/.claude/settings.json")
 env HOME="$H" bash "$ROOT/install.sh" >/dev/null 2>&1
 check "second run is a no-op" "$before" "$(cat "$H/.claude/settings.json")"
@@ -343,6 +349,8 @@ printf '{"statusLine":{"type":"command","command":"/x/bar.sh"}}\n' > "$H3/.claud
 env HOME="$H3" bash "$ROOT/install.sh" --dry-run >/dev/null 2>&1
 check "dry-run changes nothing" "/x/bar.sh" "$(jq -r '.statusLine.command' "$H3/.claude/settings.json")"
 check "dry-run creates no state directory" "none" "$([ -d "$H3/.claude/claude-orchestrator" ] && echo created || echo none)"
+check "dry-run writes no tier map" "none" \
+  "$([ -f "$H3/.claude/claude-orchestrator/models.json" ] && echo written || echo none)"
 
 echo "== iterm script (argument validation, no automation) =="
 
