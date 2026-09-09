@@ -151,6 +151,30 @@ check "output still scrolling reads as busy" "busy" "$(printf 'building the bund
 check "the command is typed only after the shell is ready" "2" "$(grep -c 'await_shell_ready "\$new_tty"$' "$AGENT")"
 check "a mangled first attempt is re-typed once" "1" "$(grep -c 'typing the command once more' "$AGENT")"
 
+echo "== model tiers =="
+
+# The plugin binds capability tiers, never model names. `a-model` is the repository's
+# placeholder for an identifier only the operator knows.
+MAP="$WORK/models.json"
+printf '{"deep":"a-model","standard":"b-model","light":""}\n' > "$MAP"
+
+check "a bound tier resolves to its identifier" "a-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$MAP" bash "$AGENT" resolve-tier deep)"
+check "an unbound tier resolves to nothing" "" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$MAP" bash "$AGENT" resolve-tier light)"
+check_status "an unbound tier is not an error" 0 \
+  env ORCHESTRATOR_MODELS_MAP="$MAP" bash "$AGENT" resolve-tier light
+check_status "an unknown tier exits 1" 1 \
+  env ORCHESTRATOR_MODELS_MAP="$MAP" bash "$AGENT" resolve-tier deepest
+check "the environment overrides the map" "c-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$MAP" ORCHESTRATOR_TIER_DEEP=c-model bash "$AGENT" resolve-tier deep)"
+check "a missing map is an all-empty map" "" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$WORK/absent.json" bash "$AGENT" resolve-tier standard)"
+check_status "a missing map is not an error" 0 \
+  env ORCHESTRATOR_MODELS_MAP="$WORK/absent.json" bash "$AGENT" resolve-tier standard
+check "resolve-tier wants exactly one tier" "ERROR: resolve-tier: exactly one tier is required (deep, standard or light)" \
+  "$(bash "$AGENT" resolve-tier 2>&1)"
+
 echo "== context gate hook =="
 # A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
 # prints nothing, and with no tap file it says « unmeasured » exactly once.

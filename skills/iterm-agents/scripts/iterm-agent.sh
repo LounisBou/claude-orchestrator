@@ -10,6 +10,7 @@
 #                        [--left-of /dev/ttysNNN | --right-of /dev/ttysNNN | --right-of self] [--no-verify]
 #   iterm-agent.sh verify --tty /dev/ttysNNN
 #   iterm-agent.sh prompt-state            (reads a tab's contents on stdin; prints question|ready|busy)
+#   iterm-agent.sh resolve-tier <deep|standard|light>   (prints the operator's bound identifier, empty when unbound)
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>]
 #   iterm-agent.sh move --tty /dev/ttysNNN (--left-of /dev/ttysMMM | --right-of /dev/ttysMMM | --right-of self)
 #   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--permission-mode auto]
@@ -51,6 +52,10 @@
 #   ORCHESTRATOR_STATE_DIR       where prompt files are kept (default: <config dir>/claude-orchestrator)
 #   ORCHESTRATOR_SPAWN_TIMEOUT   seconds to wait for the CLI process on the new tty (default: 30)
 #   ORCHESTRATOR_DRY_RUN         when set, `spawn` prints what it would type and touches no terminal
+#   ORCHESTRATOR_MODELS_MAP      the tier map to read (default: <state dir>/models.json)
+#   ORCHESTRATOR_TIER_DEEP       override the map's binding for one run
+#   ORCHESTRATOR_TIER_STANDARD   idem
+#   ORCHESTRATOR_TIER_LIGHT      idem
 
 set -euo pipefail
 
@@ -58,10 +63,39 @@ set -euo pipefail
 HOST_CLI="${ORCHESTRATOR_HOST_CLI:-claude}"
 STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
 PROMPTS_DIR="$STATE_DIR/prompts"
+# The operator's tier map. The plugin ships no model identifier: `deep`, `standard`
+# and `light` name capability, and only this file says what each one runs on.
+MODELS_MAP="${ORCHESTRATOR_MODELS_MAP:-$STATE_DIR/models.json}"
 SPAWN_TIMEOUT="${ORCHESTRATOR_SPAWN_TIMEOUT:-30}"
 DRY_RUN="${ORCHESTRATOR_DRY_RUN:-}"
 
 die() { echo "ERROR: $*" >&2; exit 1; }
+
+resolve_tier() {
+    # A tier in, the identifier the operator bound to it out. An unbound tier prints
+    # nothing and succeeds: the caller reads that as "let the host choose", which is a
+    # better answer than a name this plugin has no business carrying.
+    local tier="${1:-}" var value=""
+    case "$tier" in
+        deep|standard|light) ;;
+        *) die "resolve-tier: unknown tier: $tier (expected deep, standard or light)" ;;
+    esac
+    # An environment override wins over the file, so one run can be routed differently
+    # without editing a map every other session reads.
+    var="ORCHESTRATOR_TIER_$(printf '%s' "$tier" | tr '[:lower:]' '[:upper:]')"
+    eval "value=\${$var:-}"
+    if [ -z "$value" ] && [ -f "$MODELS_MAP" ]; then
+        command -v jq >/dev/null 2>&1 || die "resolve-tier: jq is required to read $MODELS_MAP"
+        value=$(jq -r --arg t "$tier" '.[$t] // ""' "$MODELS_MAP" 2>/dev/null || true)
+        [ "$value" = "null" ] && value=""
+    fi
+    printf '%s\n' "$value"
+}
+
+cmd_resolve_tier() {
+    [ $# -eq 1 ] || die "resolve-tier: exactly one tier is required (deep, standard or light)"
+    resolve_tier "$1"
+}
 
 osa() { osascript -e "$1"; }
 
@@ -506,8 +540,9 @@ case "${1:-}" in
     spawn)  shift; cmd_spawn "$@" ;;
     verify) shift; cmd_verify "$@" ;;
     prompt-state) shift; shell_prompt_state ;;
+    resolve-tier) shift; cmd_resolve_tier "$@" ;;
     close)  shift; cmd_close "$@" ;;
     move)   shift; cmd_move "$@" ;;
     rotate) shift; cmd_rotate "$@" ;;
-    *) die "usage: iterm-agent.sh {list|spawn|verify|close|move|rotate} [options] (see header)" ;;
+    *) die "usage: iterm-agent.sh {list|spawn|verify|resolve-tier|close|move|rotate} [options] (see header)" ;;
 esac
