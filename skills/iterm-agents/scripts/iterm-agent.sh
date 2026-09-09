@@ -5,7 +5,7 @@
 #
 # Usage:
 #   iterm-agent.sh list
-#   iterm-agent.sh spawn --dir <path> [--model opus] [--permission-mode auto] [--title <t>]
+#   iterm-agent.sh spawn --dir <path> [--tier deep|standard|light | --model <id>] [--permission-mode auto] [--title <t>]
 #                        [--prompt <text> | --prompt-file <path>]
 #                        [--left-of /dev/ttysNNN | --right-of /dev/ttysNNN | --right-of self] [--no-verify]
 #   iterm-agent.sh verify --tty /dev/ttysNNN
@@ -13,7 +13,7 @@
 #   iterm-agent.sh resolve-tier <deep|standard|light>   (prints the operator's bound identifier, empty when unbound)
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>]
 #   iterm-agent.sh move --tty /dev/ttysNNN (--left-of /dev/ttysMMM | --right-of /dev/ttysMMM | --right-of self)
-#   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--model opus] [--permission-mode auto]
+#   iterm-agent.sh rotate --dir <path> --old-tty /dev/ttysNNN [--tier deep|standard|light | --model <id>] [--permission-mode auto]
 #                         [--title <t>] [--prompt <text> | --prompt-file <path>] [--expect-title <substring>]
 #                         [--left-of /dev/ttysMMM | --right-of /dev/ttysMMM | --right-of self]
 #
@@ -22,6 +22,9 @@
 #     session's current title must contain it, or the close is refused.
 #   - `rotate` spawns the replacement FIRST, then closes the old session, so a
 #     spawn failure never leaves you with zero agents.
+#   - `spawn` types a model argument only when one is known: a tier the operator has
+#     bound, or an explicit `--model`. With neither, the host applies its own default
+#     rather than a name this plugin would be choosing for everyone.
 #   - `spawn` never types the prompt into the shell. It writes it to a file under
 #     the plugin's state directory and types a SHORT command that reads the file
 #     (`"$(cat <file>)"`) as the host CLI's initial-prompt argument. A prompt typed
@@ -258,11 +261,12 @@ cmd_spawn() {
     # The decision mode defaults to the operator's own: a successor or a replacement agent
     # spawned into a stricter mode stops at its first permission prompt in a tab nobody is
     # watching, and the build stalls exactly where the rotation was meant to keep it moving.
-    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" left_of="" right_of="" verify=1
+    local dir="" model="" tier="" mode="auto" title="agent" prompt="" prompt_file="" left_of="" right_of="" verify=1
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
             --model) model="$2"; shift 2 ;;
+            --tier) tier="$2"; shift 2 ;;
             --permission-mode) mode="$2"; shift 2 ;;
             --title) title="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
@@ -277,6 +281,8 @@ cmd_spawn() {
     [ -z "$left_of" ] || [ -z "$right_of" ] || die "spawn: --left-of and --right-of are mutually exclusive"
     [ -d "$dir" ] || die "spawn: directory not found: $dir"
     [ -z "$prompt" ] || [ -z "$prompt_file" ] || die "spawn: --prompt and --prompt-file are exclusive"
+    [ -z "$tier" ] || [ -z "$model" ] || die "spawn: --tier and --model are mutually exclusive"
+    [ -z "$tier" ] || model=$(resolve_tier "$tier")
     if [ -n "$prompt_file" ]; then
         [ -f "$prompt_file" ] || die "spawn: prompt file not found: $prompt_file"
     elif [ -n "$prompt" ]; then
@@ -290,7 +296,14 @@ cmd_spawn() {
     # stops on the "enable these MCP servers?" dialog never reads its brief, and
     # nobody is at that keyboard to answer.
     local settings='{"enableAllProjectMcpServers":true}'
-    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI --model $(printf '%q' "$model") --permission-mode $(printf '%q' "$mode") --settings $(printf '%q' "$settings")"
+    local shellcmd="cd $(printf '%q' "$dir") && printf '\\033]0;%s\\007' $(printf '%q' "$title") && $HOST_CLI"
+    # No model argument at all when neither a tier nor an explicit identifier says which:
+    # the host's own default is the right answer, and a name hardcoded here would be a
+    # routing decision taken by the plugin for every operator.
+    if [ -n "$model" ]; then
+        shellcmd="$shellcmd --model $(printf '%q' "$model")"
+    fi
+    shellcmd="$shellcmd --permission-mode $(printf '%q' "$mode") --settings $(printf '%q' "$settings")"
     if [ -n "$prompt_file" ]; then
         shellcmd="$shellcmd \"\$(cat $(printf '%q' "$prompt_file"))\""
     fi
@@ -504,11 +517,12 @@ cmd_close() {
 }
 
 cmd_rotate() {
-    local dir="" model="opus" mode="auto" title="agent" prompt="" prompt_file="" old_tty="" expect_title="" left_of="" right_of=""
+    local dir="" model="" tier="" mode="auto" title="agent" prompt="" prompt_file="" old_tty="" expect_title="" left_of="" right_of=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --dir) dir="$2"; shift 2 ;;
             --model) model="$2"; shift 2 ;;
+            --tier) tier="$2"; shift 2 ;;
             --permission-mode) mode="$2"; shift 2 ;;
             --title) title="$2"; shift 2 ;;
             --prompt) prompt="$2"; shift 2 ;;
@@ -526,7 +540,8 @@ cmd_rotate() {
     # rotation that killed the old agent on a spawn that never started would
     # leave zero agents, which is the one outcome this order exists to prevent.
     local new_tty
-    new_tty=$(cmd_spawn --dir "$dir" --model "$model" --permission-mode "$mode" --title "$title" \
+    new_tty=$(cmd_spawn --dir "$dir" --permission-mode "$mode" --title "$title" \
+        ${tier:+--tier "$tier"} ${model:+--model "$model"} \
         ${prompt:+--prompt "$prompt"} ${prompt_file:+--prompt-file "$prompt_file"} ${left_of:+--left-of "$left_of"} ${right_of:+--right-of "$right_of"})
     echo "spawned replacement on $new_tty"
 

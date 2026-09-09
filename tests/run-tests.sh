@@ -43,6 +43,14 @@ hits=$(grep -rniI 'claude' "$ROOT" --exclude-dir=.git --exclude=plan.md --exclud
   | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI:-claude|claude-orchestrator|\.claude-plugin|/\.claude/' || true)
 check "no product name in prose" "" "$hits"
 
+# The tiers exist so no model family name has to appear here. The grep above looks for
+# the host's name only, and would never have caught the identifier the launcher carried.
+# `run-tests.sh` and the plan document are excluded because they QUOTE this deny-list;
+# everything else in the repository is held to it.
+hits=$(grep -rniIE '\b(opus|sonnet|haiku)\b' "$ROOT" --exclude-dir=.git --exclude-dir=plans \
+  --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh || true)
+check "no model family name in the plugin" "" "$hits"
+
 # Nothing tied to one machine or one project enters the generic plugin: no
 # absolute home path, no real session reference (the documented example is
 # the six-hex placeholder a1b2c3), no path into a downstream project's tree.
@@ -80,7 +88,9 @@ check "the comments brief forbids pushing" "1" "$(grep -c 'Never push' "$ROOT/te
 check "move accepts a right anchor" "1" "$(grep -c -- '--right-of) anchor_tty=' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "an anchor is required" "1" "$(grep -c 'move: --left-of or --right-of is required' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 check "self resolves the caller's own tty" "1" "$(grep -c '^resolve_self_tty()' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
-check "spawn refuses two anchors" "1" "$(grep -c 'mutually exclusive' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
+# Named in full: the bare phrase now appears twice (the anchors, and --tier against
+# --model), and a guard that counts an unrelated message is green over nothing.
+check "spawn refuses two anchors" "1" "$(grep -c -- '--left-of and --right-of are mutually exclusive' "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh")"
 # Crossing the anchor shifts it by one, so the move count differs per side. The first
 # --right-of implementation computed zero moves and the AppleScript verification caught
 # it live: the counts are pinned here so the asymmetry cannot be "simplified" away.
@@ -127,7 +137,7 @@ check "the typed command reads the prompt from its file" "1" "$(printf '%s' "$cm
 check "the prompt file holds the prompt byte for byte" "$prompt" "$(cat "$file")"
 check "the prompt file lives under the state directory" "yes" "$([ "${file#"$ISTATE"/prompts/}" != "$file" ] && echo yes || echo "$file")"
 check "the typed command carries the decision mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto')"
-check "the typed command carries the model" "1" "$(printf '%s' "$cmd" | grep -c -- '--model opus')"
+check "no tier and no map types no model argument" "0" "$(printf '%s' "$cmd" | grep -c -- '--model')"
 check "the typed command changes into the working directory" "1" "$(printf '%s' "$cmd" | grep -c "^cd $WORK && ")"
 aq=${out#*applescript=}; aq=${aq%%$'\n'*}
 check "the double quotes are escaped for AppleScript" "1" "$(printf '%s' "$aq" | grep -c '\\"\$(cat ')"
@@ -174,6 +184,26 @@ check_status "a missing map is not an error" 0 \
   env ORCHESTRATOR_MODELS_MAP="$WORK/absent.json" bash "$AGENT" resolve-tier standard
 check "resolve-tier wants exactly one tier" "ERROR: resolve-tier: exactly one tier is required (deep, standard or light)" \
   "$(bash "$AGENT" resolve-tier 2>&1)"
+
+tcmd() {
+  local out
+  out=$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
+    bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1)
+  out=${out#*shellcmd=}; printf '%s' "${out%%$'\n'*}"
+}
+check "a bound tier is typed as the model argument" "1" "$(tcmd --tier deep | grep -c -- '--model a-model')"
+check "an unbound tier types no model argument" "0" "$(tcmd --tier light | grep -c -- '--model')"
+check "an explicit model is typed as given" "1" "$(tcmd --model b-model | grep -c -- '--model b-model')"
+check_status "--tier and --model together are refused" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
+  bash "$AGENT" spawn --dir "$WORK" --tier deep --model b-model
+check_status "an unknown tier is refused at spawn" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
+  bash "$AGENT" spawn --dir "$WORK" --tier deepest
+# rotate performs a real close, so its forwarding is checked on the source, as the
+# suite already checks that rotate inherits the spawn's verification.
+check "rotate forwards the tier to the spawn" "1" \
+  "$(grep -c '\${tier:+--tier "\$tier"}' "$AGENT")"
 
 echo "== context gate hook =="
 # A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
