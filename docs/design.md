@@ -713,3 +713,44 @@ spawns — so a reader finds no order to the contrary.
 
 What the suite reads: no plan under `docs/superpowers/plans/` opens with the foreign
 header; the rulebook carries the rule; the succession brief template carries it.
+
+## 29. A spawn settles the app's notifications before it hangs up
+
+**0.22.2.** Since 0.18.0 every spawn printed four library tracebacks on stderr — « Task
+exception was never retrieved », each ending on a websocket our side had closed — and then
+a tty that was right. The noise was recorded as a defect and not read as a failure, which
+was correct; it was also the reason a real diagnosis on that stream would have been missed,
+since a reader taught to skip four tracebacks skips the fifth.
+
+**The mechanism, read on the library.** Getting the app object subscribes it to layout and
+focus notifications on its connection, so it keeps itself fresh while a script runs.
+Creating a tab is a layout change; the app sends the notifications during the creation's
+own round trips, and the library dispatches each one as a task of its own — three refreshes
+of the layout and one of the focus. Our `run()` returns the moment the command's coroutine
+does; the library then cancels the dispatcher and the helper tasks, but never awaits them,
+and closes the socket. The tasks that were mid-flight — awaiting a reply, or about to send —
+end on the closed socket with an exception, and an exception nobody retrieves is what the
+event loop reports at exit. The number of connections a spawn opens was the first suspect
+and is not the cause: the notifications are born of the mutation, and the last connection,
+which creates the tab, would close on them just the same.
+
+**The fix is on our side of the library, and it is one await.** Before `run()` hands the
+connection back to be closed, it settles: every pending task whose coroutine is the
+library's helper dispatch is awaited, with its exception retrieved, while the socket is
+still open — so the notifications complete instead of dying, and the ones that fail are
+read rather than reported at exit. The pass repeats until nothing is pending, with a bound
+for a storm; the dispatcher's own task, which never ends, is not among what is awaited.
+Nothing in the launcher's behaviour changes: the same tab, the same tty, the same chain
+entry, and a stderr that carries a diagnosis only when there is one.
+
+**What was re-measured beside it, and not found.** The note that `screen --tty` reads
+nothing under the host's fullscreen interface was retaken on three live tabs with that
+interface on — the orchestrator's own, a fresh probe on its first prompt, an implementer
+mid-phase — and each read its full screen. Whatever produced a blank read once, it is not
+the alternate screen today; the note is withdrawn rather than fixed.
+
+What the suite reads, on a stub of the library's connection: a helper task that fails is
+awaited and its exception retrieved, so nothing is reported at exit, and the settle returns
+with the dispatcher's task still running; the same stub without the settle is reported,
+which is what makes the first reading a reading; `run()` calls the settle. The live round
+reads the spawn's stderr for the traceback's first line and expects none.
