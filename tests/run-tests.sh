@@ -645,6 +645,45 @@ check "close closes the session and leaves the tab" "hidden one|True" \
   "$("$py" -c "$STUB
 t=asyncio.run(ia.close_session(app,'/dev/ttys802','hidden')); print('%s|%s' % (t, b.closed))" "$ROOT/skills/iterm-agents/scripts")"
 
+# The library dispatches every notification as a task of its own and, when the command's
+# coroutine returns, cancels those tasks without awaiting them and closes the socket: the
+# ones mid-flight die on it, and the loop reports each one at exit (§29). settle() awaits
+# them while the socket is open. The stub is a connection whose helper fails and whose
+# dispatcher never ends; the control below is the same stub without the settle, so the
+# first check reads the mechanism and not the absence of a warning.
+SETTLE='
+import asyncio, gc, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+class Connection:
+    async def _async_dispatch_to_helper(self, message):
+        await asyncio.sleep(0)
+        raise RuntimeError("closed under " + str(message))
+    async def _async_dispatch_forever(self):
+        while True:
+            await asyncio.sleep(3600)
+async def main(settle):
+    c = Connection()
+    forever = asyncio.ensure_future(c._async_dispatch_forever())
+    asyncio.ensure_future(c._async_dispatch_to_helper(1))
+    asyncio.ensure_future(c._async_dispatch_to_helper(2))
+    if settle:
+        await asyncio.wait_for(ia.settle(), 5)
+    else:
+        await asyncio.sleep(0.05)
+    forever.cancel()
+    print("settled")
+asyncio.run(main(sys.argv[2] == "settle"))
+gc.collect()
+'
+settle_out=$("$py" -c "$SETTLE" "$ROOT/skills/iterm-agents/scripts" settle 2>&1)
+check "settle awaits the helpers, retrieves their exceptions, and returns with the dispatcher running" "settled|0" \
+  "$(printf '%s|%s' "$(printf '%s' "$settle_out" | head -1)" "$(printf '%s' "$settle_out" | grep -c 'never retrieved')")"
+check "the control without settle is reported at exit (the check reads the mechanism)" "1" \
+  "$("$py" -c "$SETTLE" "$ROOT/skills/iterm-agents/scripts" none 2>&1 | grep -c 'never retrieved' | awk '{print ($1>0)}')"
+check "run() settles before handing the connection back" "1" \
+  "$(grep -c '^        await settle()$' "$ROOT/skills/iterm-agents/scripts/iterm_agent.py")"
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"

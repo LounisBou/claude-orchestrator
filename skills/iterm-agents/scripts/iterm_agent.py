@@ -240,12 +240,37 @@ async def chain_anchor(app, own_tty):
 
 # --- the API ---------------------------------------------------------------------
 
+HELPER_DISPATCH = "_async_dispatch_to_helper"
+
+
+async def settle(tries=20):
+    """Let the library's notification tasks finish while the connection is still open.
+
+    A mutation — a tab created, a session closed — makes the app send layout and focus
+    notifications, and the library dispatches each one as a task of its own. When the
+    command's coroutine returns, the library cancels those tasks without awaiting them
+    and closes the socket; the ones mid-flight die on it, and the loop reports every one
+    at exit as an exception nobody retrieved — four tracebacks per spawn, on a spawn that
+    succeeded (§29). Awaiting them here, socket open, is the whole fix. The dispatcher's
+    own task never ends and is not awaited; the bound is for a storm, the normal case
+    settles on the first pass."""
+    me = asyncio.current_task()
+    for _ in range(tries):
+        pending = [t for t in asyncio.all_tasks()
+                   if t is not me and not t.done()
+                   and getattr(t.get_coro(), "__qualname__", "").endswith(HELPER_DISPATCH)]
+        if not pending:
+            return
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 def run(coro_fn):
     iterm2 = need_iterm2()
     result = {}
 
     async def main(connection):
         result["value"] = await coro_fn(iterm2, connection)
+        await settle()
 
     iterm2.run_until_complete(main)
     return result.get("value")

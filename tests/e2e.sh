@@ -103,6 +103,11 @@ TTY=$(printf '%s' "$spawn_out" | grep -oE '^/dev/ttys[0-9]+$' | tail -1)
 check "spawn returns a tty" "yes" \
   "$(printf '%s' "$TTY" | grep -qE '^/dev/tty' && echo yes || printf 'no tty; spawn said: %s' "$(printf '%s' "$spawn_out" | tail -2 | tr '\n' ' ')")"
 [ -n "$TTY" ] || exit 1
+# Four library tracebacks used to follow every successful spawn: notification tasks dying
+# on the closed socket (§29). A stderr that is noisy on success is one nobody reads on
+# failure. spawn_out keeps stderr, so this reads the real thing.
+check "the spawn's stderr carries no library traceback" "0" \
+  "$(printf '%s' "$spawn_out" | grep -c 'Task exception was never retrieved')"
 
 waited=0
 while [ $waited -lt 30 ]; do
