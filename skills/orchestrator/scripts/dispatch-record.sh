@@ -114,10 +114,10 @@ review)
         --arg h "$head" --arg n "$norms" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     ;;
 ready)
-    # The gate, and the whole of it: this row's last review read exactly this head, and it
-    # recorded a norms check. No other condition, no policy: what it cannot see - whether the
-    # findings were verified, whether the operator approved - stays the orchestrator's, and a
-    # green `ready` is not an approved pull request.
+    # The gate, and the whole of it: this row's last review read exactly this head (`review`
+    # records no review without its norms value). No other condition, no policy: what it
+    # cannot see - whether the findings were verified, whether the operator approved - stays
+    # the orchestrator's, and a green `ready` is not an approved pull request.
     id="${3:-}"; [ -n "$id" ] || die "ready: a row id is required"
     require_row ready "$id"
     shift 3; head=""
@@ -132,10 +132,6 @@ ready)
     norms=$(jq -sr --argjson i "$id" '[.[]|select(.id==$i)][0].review.norms // ""' "$record")
     [ -n "$reviewed" ] || die "ready: no review recorded on row $id: dispatch a review round and record it with \`review\`"
     [ "$reviewed" = "$head" ] || die "ready: last review read $reviewed, head is $head: the head in front of you has not been read"
-    case "$norms" in
-        tool|none) ;;
-        *) die "ready: no norms check recorded on row $id: re-record the review with --norms tool or --norms none" ;;
-    esac
     echo "ready: row $id reviewed at $head, norms check $norms"
     ;;
 close)

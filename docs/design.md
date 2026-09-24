@@ -2029,7 +2029,7 @@ So the round's reading lands on the record, and the record answers one question.
 read and whether the project's own tool ran or the project ships none; it replaces `round`
 for review rounds, because a round that leaves no head behind is the round this gate exists
 to refuse. `ready <record> <id> --head <sha>` exits 0 only when the last review read exactly
-that head and recorded a norms value, and names the condition that failed otherwise. Only the
+that head, and names the condition that failed otherwise. Only the
 last review is kept: the question is about the head in front of the orchestrator now, and a
 history of heads answers a different one.
 
