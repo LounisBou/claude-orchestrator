@@ -485,6 +485,48 @@ check_status "an unknown tier is refused at open" 1 bash "$REC" open "$R" --clas
 check_status "open without a class is an error" 1 bash "$REC" open "$R" --tier deep
 check_status "a summary of nothing is not an error" 0 bash "$REC" summary "$WORK/absent.jsonl"
 
+# The gate. « Every agent-produced pull request gets its review and its norms check before
+# its verdict » was written in the rulebook and in the review template, and was still broken
+# three times in one day: two rounds replaced the project's norms tool by a hand reading of
+# its norms file, and two corrective rounds were verified by the orchestrator alone, on the
+# point of taking two pull requests out of draft. A rule only prose carries is applied from
+# memory. `review` records what a round actually read; `ready` refuses everything else.
+G="$WORK/gate.jsonl"
+g1=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "gate")
+check_status "ready refuses a row no review has touched" 1 bash "$REC" ready "$G" "$g1" --head aaa111
+check "and says which condition failed" "1" \
+  "$(bash "$REC" ready "$G" "$g1" --head aaa111 2>&1 | grep -c 'no review recorded')"
+
+bash "$REC" review "$G" "$g1" --head aaa111 --norms tool >/dev/null
+check "a review records the head it read and its norms check" "aaa111|tool" \
+  "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms]|join("|")' "$G")"
+check "a review counts as a round" "1" "$(jq -r --argjson i "$g1" 'select(.id==$i)|.rounds' "$G")"
+check_status "ready passes at the head that review read" 0 bash "$REC" ready "$G" "$g1" --head aaa111
+
+# The head moves on every corrective round, and the review that read the previous one says
+# nothing about this one. This is the case the orchestrator talked itself past.
+check_status "ready refuses a head no review has read" 1 bash "$REC" ready "$G" "$g1" --head bbb222
+check "and names both heads" "1" \
+  "$(bash "$REC" ready "$G" "$g1" --head bbb222 2>&1 | grep -c 'last review read aaa111, head is bbb222')"
+
+bash "$REC" review "$G" "$g1" --head bbb222 --norms none >/dev/null
+check "the row keeps the LAST review, and the round is counted" "bbb222|none|2" \
+  "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms,.rounds]|join("|")' "$G")"
+check "a review adds no row" "1" "$(wc -l < "$G" | tr -d ' ')"
+check_status "a project shipping no norms tool still passes the gate" 0 bash "$REC" ready "$G" "$g1" --head bbb222
+
+# `none` is a fact about the PROJECT, not a verdict a round may reach for: any third value
+# is refused rather than recorded, because an unreadable record gates nothing.
+check_status "a norms value that is neither tool nor none is refused" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms manual
+check "a refused review leaves the row as it was" "bbb222|none|2" \
+  "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms,.rounds]|join("|")' "$G")"
+check_status "review without --head is an error" 1 bash "$REC" review "$G" "$g1" --norms tool
+check_status "review without --norms is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333
+check_status "ready without --head is an error" 1 bash "$REC" ready "$G" "$g1"
+check_status "review on an unknown row is an error" 1 bash "$REC" review "$G" 99 --head aaa111 --norms tool
+check_status "ready on an unknown row is an error" 1 bash "$REC" ready "$G" 99 --head aaa111
+check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
+
 echo "== workspace =="
 
 # A clone carries what git tracks and nothing else; the checkout is made WITH the
