@@ -723,7 +723,6 @@ ok_brief "$B/twoaddr.md"; printf 'For example `other-12 [9f9f9f]`.\n' >> "$B/two
 check_status "a second session reference is a finding" 1 bash "$LINT" "$B/twoaddr.md"
 check "the second address is named" "1" "$(bash "$LINT" "$B/twoaddr.md" 2>&1 | grep -c 'more than one session reference')"
 
-
 printf '# nothing\n\nYou are the implementer for this phase.\n' > "$B/noaddr.md"
 check_status "an implementer brief without an address is a finding" 1 bash "$LINT" "$B/noaddr.md"
 check "the missing address is named" "1" "$(bash "$LINT" "$B/noaddr.md" 2>&1 | grep -c 'no orchestrator address')"
