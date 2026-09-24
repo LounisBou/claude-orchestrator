@@ -540,8 +540,10 @@ check "a refused review leaves the row as it was" "bbb222|none|2" \
 check_status "review without --head is an error" 1 bash "$REC" review "$G" "$g1" --norms tool
 check_status "review without --norms is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333
 check_status "ready without --head is an error" 1 bash "$REC" ready "$G" "$g1"
+check "and says the head is required" "1" "$(bash "$REC" ready "$G" "$g1" 2>&1 | grep -c 'ready: --head is required')"
 check_status "review on an unknown row is an error" 1 bash "$REC" review "$G" 99 --head aaa111 --norms tool
 check_status "ready on an unknown row is an error" 1 bash "$REC" ready "$G" 99 --head aaa111
+check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --head aaa111 2>&1 | grep -c 'ready: no row with id 99')"
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 
 echo "== workspace =="
