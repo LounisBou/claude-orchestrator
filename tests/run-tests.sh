@@ -510,40 +510,55 @@ check_status "a summary of nothing is not an error" 0 bash "$REC" summary "$WORK
 # memory. `review` records what a round actually read; `ready` refuses everything else.
 G="$WORK/gate.jsonl"
 g1=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "gate")
-check_status "ready refuses a row no review has touched" 1 bash "$REC" ready "$G" "$g1" --head aaa111
+check_status "ready refuses a row no review has touched" 1 bash "$REC" ready "$G" "$g1" --head aaa1111
 check "and says which condition failed" "1" \
-  "$(bash "$REC" ready "$G" "$g1" --head aaa111 2>&1 | grep -c 'no review recorded')"
+  "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>&1 | grep -c 'no review recorded')"
 
-bash "$REC" review "$G" "$g1" --head aaa111 --norms tool >/dev/null
-check "a review records the head it read and its norms check" "aaa111|tool" \
+bash "$REC" review "$G" "$g1" --head aaa1111 --norms tool >/dev/null
+check "a review records the head it read and its norms check" "aaa1111|tool" \
   "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms]|join("|")' "$G")"
 check "a review counts as a round" "1" "$(jq -r --argjson i "$g1" 'select(.id==$i)|.rounds' "$G")"
-check_status "ready passes at the head that review read" 0 bash "$REC" ready "$G" "$g1" --head aaa111
+check_status "ready passes at the head that review read" 0 bash "$REC" ready "$G" "$g1" --head aaa1111
 
 # The head moves on every corrective round, and the review that read the previous one says
 # nothing about this one. This is the case the orchestrator talked itself past.
-check_status "ready refuses a head no review has read" 1 bash "$REC" ready "$G" "$g1" --head bbb222
+check_status "ready refuses a head no review has read" 1 bash "$REC" ready "$G" "$g1" --head bbb2222
 check "and names both heads" "1" \
-  "$(bash "$REC" ready "$G" "$g1" --head bbb222 2>&1 | grep -c 'last review read aaa111, head is bbb222')"
+  "$(bash "$REC" ready "$G" "$g1" --head bbb2222 2>&1 | grep -c 'last review read aaa1111, head is bbb2222')"
 
-bash "$REC" review "$G" "$g1" --head bbb222 --norms none >/dev/null
-check "the row keeps the LAST review, and the round is counted" "bbb222|none|2" \
+bash "$REC" review "$G" "$g1" --head bbb2222 --norms none >/dev/null
+check "the row keeps the LAST review, and the round is counted" "bbb2222|none|2" \
   "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms,.rounds]|join("|")' "$G")"
 check "a review adds no row" "1" "$(wc -l < "$G" | tr -d ' ')"
-check_status "a project shipping no norms tool still passes the gate" 0 bash "$REC" ready "$G" "$g1" --head bbb222
+check_status "a project shipping no norms tool still passes the gate" 0 bash "$REC" ready "$G" "$g1" --head bbb2222
+
+# `workspace.sh` prints short SHAs where a host API gives all forty: the same commit must not
+# be refused for how it was spelled. Either side may abbreviate the other, from seven
+# characters up; anything shorter identifies nothing, and no git call is made to check.
+full=0123456789abcdef0123456789abcdef01234567
+g2=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "abbreviated")
+bash "$REC" review "$G" "$g2" --head 0123456 --norms tool >/dev/null
+check_status "a short recorded head accepts the full head of the same commit" 0 bash "$REC" ready "$G" "$g2" --head "$full"
+bash "$REC" review "$G" "$g2" --head "$full" --norms tool >/dev/null
+check_status "a full recorded head accepts the short head of the same commit" 0 bash "$REC" ready "$G" "$g2" --head 0123456
+check_status "two heads sharing no prefix are refused" 1 bash "$REC" ready "$G" "$g2" --head fedcba9876543210fedcba9876543210fedcba98
+check "and are named" "1" \
+  "$(bash "$REC" ready "$G" "$g2" --head fedcba9 2>&1 | grep -c "last review read $full, head is fedcba9")"
+check_status "a six-character head identifies nothing" 1 bash "$REC" ready "$G" "$g2" --head 012345
+check "and says so" "1" "$(bash "$REC" ready "$G" "$g2" --head 012345 2>&1 | grep -c 'ready: head 012345 is too short')"
 
 # `none` is a fact about the PROJECT, not a verdict a round may reach for: any third value
 # is refused rather than recorded, because an unreadable record gates nothing.
 check_status "a norms value that is neither tool nor none is refused" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms manual
-check "a refused review leaves the row as it was" "bbb222|none|2" \
+check "a refused review leaves the row as it was" "bbb2222|none|2" \
   "$(jq -r --argjson i "$g1" 'select(.id==$i)|[.review.head,.review.norms,.rounds]|join("|")' "$G")"
 check_status "review without --head is an error" 1 bash "$REC" review "$G" "$g1" --norms tool
 check_status "review without --norms is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333
 check_status "ready without --head is an error" 1 bash "$REC" ready "$G" "$g1"
 check "and says the head is required" "1" "$(bash "$REC" ready "$G" "$g1" 2>&1 | grep -c 'ready: --head is required')"
-check_status "review on an unknown row is an error" 1 bash "$REC" review "$G" 99 --head aaa111 --norms tool
-check_status "ready on an unknown row is an error" 1 bash "$REC" ready "$G" 99 --head aaa111
-check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --head aaa111 2>&1 | grep -c 'ready: no row with id 99')"
+check_status "review on an unknown row is an error" 1 bash "$REC" review "$G" 99 --head aaa1111 --norms tool
+check_status "ready on an unknown row is an error" 1 bash "$REC" ready "$G" 99 --head aaa1111
+check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --head aaa1111 2>&1 | grep -c 'ready: no row with id 99')"
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
 check "and names the subcommands it expects" "1" \

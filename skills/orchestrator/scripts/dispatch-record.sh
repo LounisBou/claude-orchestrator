@@ -19,7 +19,8 @@
 # drop did not pay, so the reversion is a reading rather than an impression.
 #
 # `review` and `ready` carry the second rule the record is asked to hold: a pull request is
-# ready only when a review session read ITS head and the project's own norms check ran there.
+# ready only when a review session read ITS head (either side may abbreviate the other, from
+# 7 characters) and the project's own norms check ran there.
 # That rule was written in the rulebook and in the review brief, and was still broken three
 # times in one day - twice by a reader's opinion of the norms file standing in for the tool,
 # once by a corrective round the orchestrator verified alone. A rule only prose carries is
@@ -131,7 +132,13 @@ ready)
     reviewed=$(jq -sr --argjson i "$id" '[.[]|select(.id==$i)][0].review.head // ""' "$record")
     norms=$(jq -sr --argjson i "$id" '[.[]|select(.id==$i)][0].review.norms // ""' "$record")
     [ -n "$reviewed" ] || die "ready: no review recorded on row $id: dispatch a review round and record it with \`review\`"
-    [ "$reviewed" = "$head" ] || die "ready: last review read $reviewed, head is $head: the head in front of you has not been read"
+    # Either side may abbreviate the other; the shorter one must still identify a commit.
+    short=$reviewed; long=$head; [ "${#short}" -le "${#long}" ] || { short=$head; long=$reviewed; }
+    [ "${#short}" -ge 7 ] || die "ready: head $short is too short to identify a commit (7 characters at least)"
+    case "$long" in
+        "$short"*) ;;
+        *) die "ready: last review read $reviewed, head is $head: the head in front of you has not been read" ;;
+    esac
     echo "ready: row $id reviewed at $head, norms check $norms"
     ;;
 close)
