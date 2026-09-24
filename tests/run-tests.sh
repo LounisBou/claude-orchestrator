@@ -545,6 +545,9 @@ check_status "review on an unknown row is an error" 1 bash "$REC" review "$G" 99
 check_status "ready on an unknown row is an error" 1 bash "$REC" ready "$G" 99 --head aaa111
 check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --head aaa111 2>&1 | grep -c 'ready: no row with id 99')"
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
+check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
+check "and names the subcommands it expects" "1" \
+  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, ready, close, escaped or summary)')"
 
 echo "== workspace =="
 
