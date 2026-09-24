@@ -157,6 +157,18 @@ check "the review brief carries the norms check placeholder" "1" "$(grep -c "{{N
 check "the norms check placeholder is documented on its line" "1" "$(grep -c "the project.s norms check invocation, or the word" "$ROOT/templates/agent-review-brief.md")"
 check "the review brief takes the report, not the fix path" "1" "$(grep -c "its fix path is not yours to take" "$ROOT/templates/agent-review-brief.md")"
 
+# The same rule, written in prose on both sides, was still broken three times in one day:
+# twice a reader.s opinion of the norms file stood in for the project.s tool, and once a
+# corrective round was verified by the orchestrator alone. Prose is applied from memory, so
+# the rule now ends on a record a script can refuse. These pin the sentences that say so.
+check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at its CURRENT head" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a corrective round is reviewed like any delivery" "1" "$(grep -c "the round that reads a corrective round is a review round like any other" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a hand reading standing in for the tool has its excuse" "1" "$(grep -c "the tool IS the check" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a self-verified repair has its excuse" "1" "$(grep -c "refuses a head no review has read" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the ungated pull request has its red flag" "1" "$(grep -c "taken out of draft, declared ready or given its verdict without" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the routing skill lists both new subcommands" "1|1" \
+  "$(grep -c "dispatch-record.sh review <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh ready <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")"
+
 # A plain spawn appends at the END of the window, not beside the caller — an agent
 # once landed two tabs from its orchestrator with a stranger's session between them.
 # So placement anchors on a tty or on `self`, the caller's own tab, and the docs say
