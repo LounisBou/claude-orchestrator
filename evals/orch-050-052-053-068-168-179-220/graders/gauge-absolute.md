@@ -14,4 +14,4 @@ Pass only if ALL hold for the brief:
 2. The script is named by an absolute path under
    `/Users/dev/.claude/plugins/cache/lounisbou/orchestrator/0.34.0/`.
 3. No path in the brief uses a variable the host expands (`${CLAUDE_PLUGIN_ROOT}`,
-   `$CLAUDE_...`, or any `${...}` placeholder left for the agent's shell).
+   or any other `${...}` placeholder left for the agent's shell).
