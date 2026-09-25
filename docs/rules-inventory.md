@@ -5,7 +5,7 @@ rule, so that each one can be kept, merged, moved or dropped on purpose while th
 directives are rewritten. `tests/rules-trace.sh` checks it mechanically.
 
 - **Base commit:** `c5c968f` (0.34.0). Line numbers cite the sources as they stand there,
-  except `docs/design.md`, cited as of `60337a1`, which adds six lines to its layout block.
+  except `docs/design.md`, cited as of `60337a1`, which adds five lines to its layout block.
 - **Date:** 2026-09-25.
 - **Sources:** `skills/*/SKILL.md`, `commands/*.md`, `templates/*.md`, `README.md`,
   `docs/design.md`.
@@ -16,7 +16,7 @@ directives are rewritten. `tests/rules-trace.sh` checks it mechanically.
 |---|---|
 | `id` | `<FAMILY>-<NNN>`, unique, zero-padded |
 | `rule` | one normative sentence, reworded without loss of meaning; a literal pipe is written `\|` |
-| `sources` | every repo-relative `path:line` where the rule appears, comma-separated |
+| `sources` | every repo-relative `path:line` where the rule appears, comma-separated; a passage of several lines is cited by its first line, never as a range |
 | `kind` | `rule` · `procedure` · `fact` · `rationale` |
 | `criticality` | `critical` (a violation breaks a session or costs hours; a row is critical when a specific incident is told for it, on its source line, in its rationale row or through the row it merges with; a section headed « all observed » does not by itself make its rows critical) · `normal` |
 | `enforced-by` | `prose` · `script:<path>` (an existing lint, gate or test) · `eval` |
@@ -27,12 +27,16 @@ directives are rewritten. `tests/rules-trace.sh` checks it mechanically.
 A rule stated in a skill and restated in a template or a command is one row citing every
 source, its target the skill. A rule one skill restates from another is a row of its own
 whose fate is `merge->` the row it repeats. A rule no skill states belongs to the family of
-the first template or command that states it; the others add their sources to it.
+the first template or command that states it, first in the file order of the tables
+below; the others add their sources to it. A pointer under `docs/superpowers/` states
+no rule of its own and carries no row. A row added after a review takes the next number
+of its family and sits at the end of its table.
 
 A `rationale` row carries the narrative behind a rule and names that rule's id at the
-start of its `rule` cell: « rationale of ORCH-042: … ». A rule whose rationale row is
-`critical` is `critical`, and a merge row and the row it merges into carry the same
-criticality, the higher of the two.
+start of its `rule` cell: « rationale of ORCH-042: … »; the history of the design, which
+belongs to no single rule, reads « rationale of §N: … », N being the number of its section
+in the design. A rule whose rationale row is `critical` is `critical`, and a merge row and
+the row it merges into carry the same criticality, the higher of the two.
 
 ## Id prefixes
 
