@@ -2599,6 +2599,90 @@ check_status "spawn without --dir fails" 1 bash "$ITERM" spawn --title x
 check_status "unknown subcommand fails" 1 bash "$ITERM" bogus
 check "close error names the option" "ERROR: close: --tty is required" "$(bash "$ITERM" close 2>&1)"
 
+echo "== rules trace =="
+
+# The trace is the mechanical proof that no rule of the inventory vanished while the
+# directives were rewritten. It runs on a throwaway repository holding the fixtures, so
+# `sources` has commits to read and `targets` a working tree to mutate; every mutation is
+# undone by checking the fixture out again.
+TRACE="$ROOT/tests/rules-trace.sh"
+TR="$WORK/rules-trace"
+mkdir -p "$TR"
+cp "$ROOT"/tests/fixtures/rules-inventory/* "$TR/"
+( cd "$TR" && git init -q && git add . \
+    && git -c user.name=suite -c user.email=suite@localhost commit -qm fixtures )
+trace() { ( cd "$TR" && bash "$TRACE" "$@" 2>&1 ); }
+trace_status() { ( cd "$TR" && bash "$TRACE" "$@" >/dev/null 2>&1 ); echo "exit $?"; }
+restore() { ( cd "$TR" && git checkout -q -- . ); }
+
+check "trace: no argument is a usage error" "exit 2" "$(trace_status)"
+check "trace: an unknown mode is a usage error" "exit 2" "$(trace_status bogus inventory.md)"
+check "trace: an unreadable inventory exits 2" "exit 2" "$(trace_status targets absent.md)"
+check "trace: an unknown ref exits 2" "exit 2" "$(trace_status sources inventory.md --ref no-such-ref)"
+
+check "trace: every fixture target holds its signature" "exit 0" "$(trace_status targets inventory.md)"
+check "trace: the last line counts ok, missing and skipped" "ok=4 missing=0 skipped=1" \
+  "$(trace targets inventory.md | tail -1)"
+check "trace: a drop? row whose signature is absent is skipped, not named" "0" \
+  "$(trace targets inventory.md | grep -c 'FIX-005')"
+
+# An escaped pipe in `rule` must not shift fate, target and signature one column right:
+# the row would then read its fate from `enforced-by` and fail, or worse, pass on garbage.
+grep -E '^\| (id|---|FIX-003) ' "$TR/inventory.md" > "$TR/escaped.md"
+check "trace: an escaped pipe in rule does not shift the columns" "ok=1 missing=0 skipped=0" \
+  "$(trace targets escaped.md | tail -1)"
+
+# The mutation the trace exists for: a rule deleted from its target is named by its row.
+sed -i.bak '/reports its measured context/d' "$TR/alpha.md" && rm -f "$TR/alpha.md.bak"
+check "trace: a removed signature exits 1" "exit 1" "$(trace_status targets inventory.md)"
+check "trace: a removed signature names its row" "FIX-001 absent alpha.md" \
+  "$(trace targets inventory.md | grep '^FIX-001 ')"
+restore
+
+# A signature found twice no longer proves its rule: the copy that survives may be the
+# other one.
+echo "A session never waits on a message it has not verified reached its address." >> "$TR/alpha.md"
+check "trace: a signature present twice exits 1" "exit 1" "$(trace_status targets inventory.md)"
+check "trace: a signature present twice is named not unique" "FIX-002 not-unique:2 alpha.md" \
+  "$(trace targets inventory.md | grep '^FIX-002 ')"
+restore
+
+# Twice on ONE line is still twice: counting matching lines would call it unique.
+sed -i.bak 's/^Nothing started outlives the tool call that started it\.$/& and no other part overrides it./' "$TR/beta.md" && rm -f "$TR/beta.md.bak"
+check "trace: two occurrences on one line are not unique" "FIX-004 not-unique:2 beta.md" \
+  "$(trace targets inventory.md | grep '^FIX-004 ')"
+restore
+
+sed 's/| alpha.md | reports its measured context at the end |/| alpha.md | reports its measured context |/' \
+  "$TR/inventory.md" > "$TR/short.md"
+check "trace: a signature under six words is refused" "FIX-001 short-signature alpha.md" \
+  "$(trace targets short.md | grep '^FIX-001 ')"
+sed 's/| alpha.md | reports its measured context at the end |/| gone.md | reports its measured context at the end |/' \
+  "$TR/inventory.md" > "$TR/notarget.md"
+check "trace: a target file that does not exist is named" "FIX-001 no-target gone.md" \
+  "$(trace targets notarget.md | grep '^FIX-001 ')"
+
+check "trace: every fixture source exists at HEAD" "exit 0" "$(trace_status sources inventory.md)"
+check "trace: sources counts every row" "ok=5 missing=0 skipped=0" "$(trace sources inventory.md | tail -1)"
+sed 's/| alpha.md:3 |/| alpha.md:99 |/' "$TR/inventory.md" > "$TR/pastend.md"
+check "trace: a source past the end of its file exits 1" "exit 1" "$(trace_status sources pastend.md)"
+check "trace: a source past the end is named with its row" "FIX-001 past-end:alpha.md:99 alpha.md" \
+  "$(trace sources pastend.md | grep '^FIX-001 ')"
+sed 's/| alpha.md:5, beta.md:3 |/| alpha.md:5, gone.md:3 |/' "$TR/inventory.md" > "$TR/nofile.md"
+check "trace: a source in a file absent at the ref is named" "FIX-002 no-file:gone.md:3 alpha.md" \
+  "$(trace sources nofile.md | grep '^FIX-002 ')"
+
+# --ref reads the file as it was at that commit, not as it is in the working tree.
+printf '# Beta\n' > "$TR/beta.md"
+( cd "$TR" && git -c user.name=suite -c user.email=suite@localhost commit -qam shorten )
+check "trace: sources at HEAD sees the shortened file" "exit 1" "$(trace_status sources inventory.md)"
+check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sources inventory.md --ref HEAD~1)"
+
+check "trace: the real inventory holds every signature" "exit 0" \
+  "$( ( cd "$ROOT" && bash "$TRACE" targets docs/rules-inventory.md >/dev/null 2>&1 ); echo "exit $?")"
+check "trace: every source of the real inventory exists at HEAD" "exit 0" \
+  "$( ( cd "$ROOT" && bash "$TRACE" sources docs/rules-inventory.md --ref HEAD >/dev/null 2>&1 ); echo "exit $?")"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
