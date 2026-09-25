@@ -30,8 +30,9 @@ taken in order; the count in the header moves with it.
 
 Re-verify the item and its premise on the artifact in the same turn, immediately before
 presenting it: the collection may be an hour old. Found settled, it is written back as
-« already done: <evidence> », dropped from the count, reported in one line, and the next
-question is presented instead — a settled item is never asked.
+« already done: <evidence> », dropped from the count (N in the header drops with it),
+reported in one line, and the next question is presented instead —
+a settled item is never asked.
 
 - **Question i of N — the question as a sentence, naming the thing on the screen or in
   the data**, never a bare identifier.

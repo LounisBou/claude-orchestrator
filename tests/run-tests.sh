@@ -116,6 +116,8 @@ check "the decide command records before it moves on" "1" "$(grep -c 'Present th
 check "the decide command verifies each item still open when collecting" "1" "$(grep -c 'Then verify each item STILL OPEN on its own artifact' "$ROOT/commands/decide.md")"
 check "the decide command re-verifies an item before presenting it" "1" "$(grep -c 'Re-verify the item and its premise on the artifact in the same turn' "$ROOT/commands/decide.md")"
 check "the decide command never asks a settled item" "1" "$(grep -c 'a settled item is never asked' "$ROOT/commands/decide.md")"
+check "the decide command re-reads the premise its question assumes" "1" "$(grep -c 'premise its question assumes' "$ROOT/commands/decide.md")"
+check "the decide command writes a settled item back with its evidence" "2" "$(grep -c 'already done: <evidence>' "$ROOT/commands/decide.md")"
 check "the progress report corrects the state file from the artifacts" "1" "$(grep -c 'the artifacts win and the state file is CORRECTED' "$ROOT/commands/progress.md")"
 check "the progress report never shows a merged or closed PR as pending" "1" "$(grep -c 'never as pending' "$ROOT/commands/progress.md")"
 check "the progress command may edit the state file" "1" "$(grep -c '^allowed-tools: .*, Edit$' "$ROOT/commands/progress.md")"
