@@ -203,6 +203,27 @@ check "the review brief refuses the envelope as a reason to substitute" "1" "$(g
 check "the review brief ends its report on a machine line" "1|1" \
   "$(grep -c "norms-check: tool" "$ROOT/templates/agent-review-brief.md")|$(grep -c "norms-check: none" "$ROOT/templates/agent-review-brief.md")"
 
+# The operator's ruling of 2026-09-25: a pull request that creates or substantially modifies a
+# frontend surface, or creates the interface of a new feature, is proved by a browser run
+# (Playwright) and by screenshots on the pull request. A green suite says nothing of what a
+# surface shows, so the rule lives where each reader acts on it: the rulebook for the
+# orchestrator, the phase brief for the implementer, the review brief for the round.
+SKILL="$ROOT/skills/orchestrator/SKILL.md"
+PHASE="$ROOT/templates/agent-phase-brief.md"
+REVIEW="$ROOT/templates/agent-review-brief.md"
+check "the rulebook states the frontend surface rule among the standing rules" "1|1|1" \
+  "$(grep -cF "A frontend surface is proved by a browser run and by screenshots on the pull request." "$SKILL")|$(grep -cF "driving that surface in a real browser with Playwright" "$SKILL")|$(grep -cF "each screenshot naming the surface and the state it shows" "$SKILL")"
+check "a minor change is not held to it, and the orchestrator rules on the claim" "1" \
+  "$(grep -cF "when the implementer judges a change minor, the report says so and why, and the orchestrator rules" "$SKILL")"
+check "the review on evidence checks the screenshots against the diff and the spec" "1|1" \
+  "$(grep -cF "the screenshots are on the pull request and show the surface the diff changes, in the states the spec names" "$SKILL")|$(grep -cF "a missing or unrelated screenshot is a finding, and the pull request is not ready" "$SKILL")"
+check "the frontend surface rule has its excuse and its red flag" "1|1" \
+  "$(grep -cF "The tests are green, so the screenshots are optional" "$SKILL")|$(grep -cF "given its verdict or declared ready with no screenshots of the surface it changes" "$SKILL")"
+check "the phase brief tells the implementer to drive the surface and show it" "1|1|1" \
+  "$(grep -cF "drive that surface in a real browser with Playwright" "$PHASE")|$(grep -cF "each naming the surface and the state it shows" "$PHASE")|$(grep -cF "say so and why in the report, and the orchestrator rules" "$PHASE")"
+check "the review brief checks the screenshots against the diff" "1|1" \
+  "$(grep -cF "the screenshots on the pull request against the diff" "$REVIEW")|$(grep -cF "a missing or unrelated screenshot is a finding" "$REVIEW")"
+
 # A plain spawn appends at the END of the window, not beside the caller — an agent
 # once landed two tabs from its orchestrator with a stranger's session between them.
 # So placement anchors on a tty or on `self`, the caller's own tab, and the docs say
