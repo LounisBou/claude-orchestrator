@@ -1,6 +1,6 @@
 # Directive optimization — design
 
-Date: 2026-09-25. Base: `main` at `e8eda16` (0.31.0).
+Date: 2026-09-25. Base: `main` at `c5c968f` (0.34.0).
 
 ## Goal
 
@@ -10,10 +10,10 @@ word-count goal is set, because a figure to reach is a reason to cut a rule.
 
 Success is three readings, all required:
 
-1. **Traceability** — every rule of 0.31.0 is inventoried and each one is kept,
+1. **Traceability** — every rule of 0.34.0 is inventoried and each one is kept,
    merged, moved or dropped; a drop happens only on the operator's ruling.
 2. **No regression** — the eval suite scores the converted plugin at or above the
-   0.31.0 baseline, case by case.
+   0.34.0 baseline, case by case.
 3. **Conventions** — each `SKILL.md` stays under 500 lines, detail lives in
    `references/` one level deep, each reference over 100 lines opens with a
    table of contents.
@@ -43,7 +43,7 @@ atomic rule:
 | `target` | where it lives after conversion |
 | `signature` | a short literal excerpt a grep finds at `target` |
 
-A trace script under `tests/` checks that every cited `source` exists at 0.31.0
+A trace script under `tests/` checks that every cited `source` exists at 0.34.0
 and, after each conversion, that every `keep`, `merge` and `move` row's
 `signature` is found at its `target`. It is the mechanical proof that no rule
 vanished silently, and it lands with its own mutation (remove one signature from
@@ -64,7 +64,7 @@ suite, run by the host's plugin evaluation command.
 - **Cases grade the decision, never the effect.** Tools that would open a tab,
   spawn a session or reach the forge are not granted; the grader reads the
   attempted call or the text.
-- **Baseline** on 0.31.0 with the no-plugin arm. A case that passes without the
+- **Baseline** on 0.34.0 with the no-plugin arm. A case that passes without the
   plugin proves nothing and is rewritten or removed.
 - **Repetitions**: three per case at baseline; one per case after each
   conversion, and three again on any case that dropped. A case unstable with the
