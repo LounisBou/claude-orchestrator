@@ -2164,8 +2164,8 @@ orchestrator resolved is verified like the correction round, the range-diff agai
 showing the resolution and nothing else. A squash-merge leaves the lower branch's commits on
 the main branch under no name a rebase recognises, so the next branch replays only its own
 commits, `rebase --onto` from the lower branch's old head, and never the lower branch's
-originals. The rebase is pushed with `--force-with-lease` against the head read, the one force
-the rule allows.
+originals. The rebase is pushed with `--force-with-lease=<branch>:<sha read>`, the one force
+the rule allows: a bare `--force-with-lease` checks the remote-tracking ref, not the head read.
 
 What the suite reads: `fixed` refused without a review and a second time, each refusal leaving
 the row as it was; the fixed head recorded and counted; `ready` passing at the fixed head in
