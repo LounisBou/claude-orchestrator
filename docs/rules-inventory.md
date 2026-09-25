@@ -4,7 +4,8 @@ A working file: every rule the plugin's markdown directives state, one row per a
 rule, so that each one can be kept, merged, moved or dropped on purpose while the
 directives are rewritten. `tests/rules-trace.sh` checks it mechanically.
 
-- **Base commit:** `c5c968f` (0.34.0); line numbers cite the sources as they stand there.
+- **Base commit:** `c5c968f` (0.34.0). Line numbers cite the sources as they stand there,
+  except `docs/design.md`, cited as of `60337a1`, which adds six lines to its layout block.
 - **Date:** 2026-09-25.
 - **Sources:** `skills/*/SKILL.md`, `commands/*.md`, `templates/*.md`, `README.md`,
   `docs/design.md`.
