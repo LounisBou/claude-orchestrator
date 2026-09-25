@@ -557,6 +557,37 @@ check "and are named" "1" \
 check_status "a six-character head identifies nothing" 1 bash "$REC" ready "$G" "$g2" --head 012345
 check "and says so" "1" "$(bash "$REC" ready "$G" "$g2" --head 012345 2>&1 | grep -c 'ready: head 012345 is too short')"
 
+# The operator's process: ONE review round, the orchestrator's triage, ONE correction round
+# the orchestrator verifies on the artifact, done. The correction moves the head, and the
+# review that read the previous one must still let the pull request through at the head the
+# orchestrator verified - once, and only after a review, or the gate stops meaning anything.
+g3=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "one fix")
+check_status "fixed refuses a row no review has touched" 1 bash "$REC" fixed "$G" "$g3" --head ddd4444
+check "and says a review comes first" "1" \
+  "$(bash "$REC" fixed "$G" "$g3" --head ddd4444 2>&1 | grep -c 'fixed: no review recorded on row')"
+check "a refused fix leaves no fixed head" "" "$(jq -r --argjson i "$g3" 'select(.id==$i)|.review.fixed.head // ""' "$G")"
+bash "$REC" review "$G" "$g3" --head ccc3333 --norms tool >/dev/null
+bash "$REC" fixed "$G" "$g3" --head ddd4444 >/dev/null
+check "fixed records the head the orchestrator verified, and counts the round" "ccc3333|ddd4444|2" \
+  "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.head,.review.fixed.head,.rounds]|join("|")' "$G")"
+check_status "ready passes at the fixed head" 0 bash "$REC" ready "$G" "$g3" --head ddd4444
+check "and says which reading it rests on" "1" \
+  "$(bash "$REC" ready "$G" "$g3" --head ddd4444 2>&1 | grep -c 'ready: row 3 reviewed at ccc3333, corrected and verified at ddd4444')"
+check_status "the fixed head accepts its full spelling" 0 bash "$REC" ready "$G" "$g3" --head ddd4444abcdef
+check_status "ready still passes at the reviewed head" 0 bash "$REC" ready "$G" "$g3" --head ccc3333
+check_status "ready refuses a head neither reviewed nor fixed" 1 bash "$REC" ready "$G" "$g3" --head eee5555
+check "and names all three heads" "1" \
+  "$(bash "$REC" ready "$G" "$g3" --head eee5555 2>&1 | grep -c 'last review read ccc3333, its correction ddd4444, head is eee5555')"
+check_status "a second correction round is refused" 1 bash "$REC" fixed "$G" "$g3" --head eee5555
+check "and says there is one" "1" \
+  "$(bash "$REC" fixed "$G" "$g3" --head eee5555 2>&1 | grep -c 'fixed: row 3 already has its correction round at ddd4444')"
+check "a refused second fix leaves the first" "ddd4444|2" \
+  "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.fixed.head,.rounds]|join("|")' "$G")"
+check_status "fixed without --head is an error" 1 bash "$REC" fixed "$G" "$g2"
+check "and says the head is required" "1" "$(bash "$REC" fixed "$G" "$g2" 2>&1 | grep -c 'fixed: --head is required')"
+check_status "fixed on an unknown row is an error" 1 bash "$REC" fixed "$G" 99 --head aaa1111
+check_status "fixed on an unknown option is an error" 1 bash "$REC" fixed "$G" "$g2" --head aaa1111 --force
+
 # `none` is a fact about the PROJECT, not a verdict a round may reach for: any third value
 # is refused rather than recorded, because an unreadable record gates nothing.
 check_status "a norms value that is neither tool nor none is refused" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms manual
@@ -572,7 +603,7 @@ check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --hea
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
 check "and names the subcommands it expects" "1" \
-  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, ready, close, escaped or summary)')"
+  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped or summary)')"
 
 echo "== workspace =="
 
