@@ -1762,6 +1762,8 @@ check "and still resolves to it" "a-model-5-5" \
   "$(env ORCHESTRATOR_MODELS_MAP="$VMAP" bash "$AGENT" resolve-tier deep 2>/dev/null)"
 check "a family alias does not warn" "" \
   "$(env ORCHESTRATOR_MODELS_MAP="$VMAP" bash "$AGENT" resolve-tier standard 2>&1 >/dev/null)"
+check "a versioned override warns once and still resolves to it" "1|a-model-5-5" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$MAP" ORCHESTRATOR_TIER_DEEP=a-model-5-5 bash "$AGENT" resolve-tier deep 2>&1 >/dev/null | grep -c 'versioned identifier a-model-5-5')|$(env ORCHESTRATOR_MODELS_MAP="$MAP" ORCHESTRATOR_TIER_DEEP=a-model-5-5 bash "$AGENT" resolve-tier deep 2>/dev/null)"
 check "a versioned binding warns at spawn and still launches it" "1|1" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$VMAP" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p --tier deep 2>&1 | grep -c 'versioned identifier')|$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$VMAP" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p --tier deep 2>/dev/null | grep -c -- '--model a-model-5-5 ')"
 # A map the operator wrote and jq cannot read is NOT an unbound tier. Treating the two
