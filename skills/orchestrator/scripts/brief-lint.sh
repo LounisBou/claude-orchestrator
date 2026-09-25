@@ -91,7 +91,7 @@ fi
 # 6. A review brief that never asks for the norms check to be REPORTED leaves the
 #    orchestrator with nothing to record, and its readiness gate then refuses a head whose
 #    round did read it. The rule lived in prose on both sides of the round and was skipped
-#    three times in one day; the line the report must end on is mechanical, so it is read
+#    twice in one day; the line the report must end on is mechanical, so it is read
 #    here rather than discovered when the pull request cannot be declared ready.
 if grep -q 'You are the REVIEW agent' "$brief" 2>/dev/null; then
     grep -q 'norms-check:' "$brief" 2>/dev/null \

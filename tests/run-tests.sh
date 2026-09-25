@@ -533,10 +533,9 @@ check_status "a summary of nothing is not an error" 0 bash "$REC" summary "$WORK
 
 # The gate. « Every agent-produced pull request gets its review and its norms check before
 # its verdict » was written in the rulebook and in the review template, and was still broken
-# three times in one day: two rounds replaced the project's norms tool by a hand reading of
-# its norms file, and two corrective rounds were verified by the orchestrator alone, on the
-# point of taking two pull requests out of draft. A rule only prose carries is applied from
-# memory. `review` records what a round actually read; `ready` refuses everything else.
+# twice in one day: two rounds replaced the project's norms tool by a hand reading of its
+# norms file. A rule only prose carries is applied from memory. `review` records what a round
+# actually read; `ready` refuses everything else.
 G="$WORK/gate.jsonl"
 g1=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "gate")
 check_status "ready refuses a row no review has touched" 1 bash "$REC" ready "$G" "$g1" --head aaa1111
@@ -808,8 +807,8 @@ check "the missing non-goals are named" "1" "$(bash "$LINT" "$B/noaddr.md" 2>&1 
 # and holding it to one would make the check noise nobody reads. What it IS held to is the
 # line its report must end on: a round that never reports its norms check leaves the
 # orchestrator nothing to record, and the readiness gate then refuses a head whose round did
-# read it. The rule lived in prose on both sides of the round and was skipped three times in
-# one day, so the brief is read for it before the dispatch rather than after.
+# read it. The rule lived in prose on both sides of the round and was skipped twice in one
+# day, so the brief is read for it before the dispatch rather than after.
 review_brief() { printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is `p-1 [a1b2c3]`.\n' > "$1"; }
 
 review_brief "$B/review.md"
