@@ -211,18 +211,30 @@ check "the review brief ends its report on a machine line" "1|1" \
 SKILL="$ROOT/skills/orchestrator/SKILL.md"
 PHASE="$ROOT/templates/agent-phase-brief.md"
 REVIEW="$ROOT/templates/agent-review-brief.md"
-check "the rulebook states the frontend surface rule among the standing rules" "1|1|1" \
-  "$(grep -cF "A frontend surface is proved by a browser run and by screenshots on the pull request." "$SKILL")|$(grep -cF "driving that surface in a real browser with Playwright" "$SKILL")|$(grep -cF "each screenshot naming the surface and the state it shows" "$SKILL")"
+SURFACE="creates or substantially modifies a frontend surface, or creates the interface of a new feature"
+SURFACE_HEAD="A frontend surface is proved by a browser run and by screenshots on the pull request."
+# The operator's words are the trigger, verbatim, in every place the rule appears: the standing
+# rule, review item 12, the excuse row and the red flag in the rulebook, then each brief.
+check "the trigger phrase is the operator's, verbatim, in the rulebook, the phase brief and the review brief" "4|1|1" \
+  "$(grep -cF "$SURFACE" "$SKILL")|$(grep -cF "$SURFACE" "$PHASE")|$(grep -cF "$SURFACE" "$REVIEW")"
+check "the rulebook states the frontend surface rule among the standing rules" "1|1" \
+  "$(grep -F "$SURFACE_HEAD" "$SKILL" | grep -cF "$SURFACE")|$(grep -cF "testing that surface in a real browser with Playwright" "$SKILL")"
 check "a minor change is not held to it, and the orchestrator rules on the claim" "1" \
-  "$(grep -cF "when the implementer judges a change minor, the report says so and why, and the orchestrator rules" "$SKILL")"
-check "the review on evidence checks the screenshots against the diff and the spec" "1|1" \
-  "$(grep -cF "the screenshots are on the pull request and show the surface the diff changes, in the states the spec names" "$SKILL")|$(grep -cF "a missing or unrelated screenshot is a finding, and the pull request is not ready" "$SKILL")"
+  "$(grep -cF "A minor change — a colour, a spacing, a label, a fix invisible at a glance — is not held to it: when the implementer judges a change minor, the report says so and why, and the orchestrator rules" "$SKILL")"
+check "the rulebook says where the screenshots go and what they may show" "1" \
+  "$(grep -cF "The screenshots go in the pull request's description, written by the implementer; they are never committed to the branch; they are taken on fixtures or seeded data, with no secret, token, personal data, internal host or local path visible." "$SKILL")"
+check "the review on evidence checks the screenshots, the surface and the Playwright run" "1|1" \
+  "$(grep -cF "check that the screenshots are on the pull request, that they show the surface the diff changes, and that the implementer's report names the Playwright run" "$SKILL")|$(grep -cF "a missing or unrelated screenshot is a finding, and the pull request is not ready" "$SKILL")"
 check "the frontend surface rule has its excuse and its red flag" "1|1" \
   "$(grep -cF "The tests are green, so the screenshots are optional" "$SKILL")|$(grep -cF "given its verdict or declared ready with no screenshots of the surface it changes" "$SKILL")"
-check "the phase brief tells the implementer to drive the surface and show it" "1|1|1" \
-  "$(grep -cF "drive that surface in a real browser with Playwright" "$PHASE")|$(grep -cF "each naming the surface and the state it shows" "$PHASE")|$(grep -cF "say so and why in the report, and the orchestrator rules" "$PHASE")"
-check "the review brief checks the screenshots against the diff" "1|1" \
-  "$(grep -cF "the screenshots on the pull request against the diff" "$REVIEW")|$(grep -cF "a missing or unrelated screenshot is a finding" "$REVIEW")"
+check "the phase brief tells the implementer to test the surface in a browser and show it" "1|1" \
+  "$(grep -cF "test that surface in a real browser with Playwright and put screenshots of it on the pull request" "$PHASE")|$(grep -cF "A minor change (a colour, a spacing, a label, a fix invisible at a glance) is not held to it: say so and why in the report, and the orchestrator decides" "$PHASE")"
+check "the phase brief says where the screenshots go and what they may show" "1" \
+  "$(grep -cF "The screenshots go in the pull request's description, written by you; they are never committed to the branch; they are taken on fixtures or seeded data, with no secret, token, personal data, internal host or local path visible." "$PHASE")"
+check "the phase brief stops the implementer that has no browser" "1" \
+  "$(grep -cF "If no browser or Playwright is available to you, STOP and say so." "$PHASE")"
+check "the review brief checks the screenshots against the diff and rules on a minor claim" "1|1|1" \
+  "$(grep -cF "the screenshots on the pull request against the diff" "$REVIEW")|$(grep -cF "They must show the surface the diff changes, and the implementer's report must name the Playwright run; a missing or unrelated screenshot is a finding." "$REVIEW")|$(grep -cF "A change the implementer's report calls minor is reported as such, with its reason, and the orchestrator rules." "$REVIEW")"
 
 # A plain spawn appends at the END of the window, not beside the caller — an agent
 # once landed two tabs from its orchestrator with a stranger's session between them.
