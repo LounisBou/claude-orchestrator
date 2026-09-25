@@ -429,3 +429,24 @@ tests/rules-trace.sh targets docs/rules-inventory.md                  # every ke
 
 - `ROUTE-038` `script-candidate?` — the spawn could read the budget figures and refuse a new dispatch at or above ~90 %, as the context gate already does for context.
 
+
+## GAUGE — `skills/context-gauge/SKILL.md`
+
+| id | rule | sources | kind | criticality | enforced-by | fate | target | signature |
+|---|---|---|---|---|---|---|---|---|
+| GAUGE-001 | The skill applies when a session must know its own context fill as a measured figure instead of estimating it: before dispatching, when reporting, when deciding on rotation or succession. | skills/context-gauge/SKILL.md:3 | fact | normal | prose | keep | skills/context-gauge/SKILL.md | must know its own context fill as a measured figure |
+| GAUGE-002 | `context-gauge.sh` prints a session's context fill as `key=value` lines from two tiers and always says which one answered. | skills/context-gauge/SKILL.md:10 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | It reads two tiers and always says which one answered |
+| GAUGE-003 | `source=tap` is the exact figure the host gave the status line on its last render, recorded by the tap the installer wires, used when younger than 120 s. | skills/context-gauge/SKILL.md:12 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | the exact figure the host gave the status line on its last render |
+| GAUGE-004 | `source=transcript` is computed from the session's transcript (the last usage block's input plus cache tokens), needs the window size (stale tap total, else `--window`, else 200000) and names it in `context_window_source=`. | skills/context-gauge/SKILL.md:13 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | computed from the session's own transcript: the last `usage` block's input plus cache tokens |
+| GAUGE-005 | The gauge prints `context_percent`, `context_tokens`, `context_window`, `five_hour_percent`, `seven_day_percent` (or `unavailable`) and `source`. | skills/context-gauge/SKILL.md:10, skills/context-gauge/SKILL.md:24, skills/context-gauge/SKILL.md:29 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | prints a session's context fill as `key=value` lines |
+| GAUGE-006 | The session id defaults to `CLAUDE_CODE_SESSION_ID`; another session's id reads a peer only from a machine holding its tap file or transcript. | skills/context-gauge/SKILL.md:32 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | Pass another session's id to read a peer |
+| GAUGE-007 | Report the measurement, never an estimate: paste the `context_percent=` line and its `source=` line in every report an orchestrator asks for. | skills/context-gauge/SKILL.md:36 | rule | critical | prose | merge->ORCH-179 | skills/context-gauge/SKILL.md | **Report the measurement, never an estimate.** |
+| GAUGE-008 | An idle session's tap file ages and the gauge falls back to the transcript; `source=transcript` is not an error. | skills/context-gauge/SKILL.md:37 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | An idle session stops rendering its status line, so its tap file ages |
+| GAUGE-009 | `context_window_source=default` means the window was assumed: pass `--window` when the model's window differs from 200000, or wire the tap. | skills/context-gauge/SKILL.md:38 | rule | normal | prose | keep | skills/context-gauge/SKILL.md | `context_window_source=default` means the window was assumed. |
+| GAUGE-010 | Without the tap wired only the transcript tier answers, and it needs `python3`. | skills/context-gauge/SKILL.md:39 | fact | normal | script:skills/context-gauge/scripts/context-gauge.sh | keep | skills/context-gauge/SKILL.md | Without the tap wired, only the transcript tier answers |
+| GAUGE-011 | The tap is a wrapper, never a patch: it records the payload and hands it untouched to the status line the user already runs. | skills/context-gauge/SKILL.md:40 | rule | normal | script:skills/context-gauge/scripts/statusline-tap.sh | keep | skills/context-gauge/SKILL.md | The tap is a wrapper, never a patch |
+
+### Proposals
+
+None.
+
