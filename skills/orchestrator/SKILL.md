@@ -68,27 +68,15 @@ project had already made.
    `misaert` was called, through a whole round, by a first name no command had ever printed,
    until the operator asked who that was.
 7. **Nothing is asked, proposed or reported as pending before its state is re-read on the
-   artifact, IN THE SAME TURN.** The pull request's state and its merge, the branch head, the
-   process, the file: read now, with a command whose output this turn contains — never from
-   the state file, never from a report you wrote an hour ago, never from memory, all three of
-   which describe a moment that has passed. **The re-reading covers the question's PREMISE as
-   well as its item**: before asking, read the process the question assumes — how the project
-   ships, which branch or environment is the target, what that target already holds — because
-   a question resting on a false premise cannot be answered, only corrected, and correcting
-   it is his work not yours. His own hand is the first thing that moves a state behind an
-   orchestrator's back: a merge, a close, an undraft, done between two of your turns and
-   announced nowhere. An item found already done is reported as done in one line, with its
-   evidence, and never asked: a question about finished work spends his attention on nothing
-   and tells him the session has stopped watching the thing it is supposed to be watching.
-   Observed, on one morning: he merged a pull request at 06:55, at 08:54 a review round was
-   dispatched on it, and at 09:40 he was asked whether to merge it — twice, once in a report
-   and once in a decision round — because its draft flag had been read where its state and
-   its merge were the facts, and nothing had been re-read between the report and the
-   question. Then, in the same round, he was asked whether to deploy the main branch to
-   production: a premise copied from an inherited state file, in a project that ships through
-   a staging branch by a recurring deployment pull request, one of which had already carried
-   that very change to staging an hour earlier. Neither the process nor the target had been
-   read before the question was put.
+   artifact, IN THE SAME TURN.** The pull request's state and merge, the branch head, the
+   process, the file: read by a command in this turn, never from the state file, a report or
+   memory — his own merge, close or undraft moves a state between your turns.
+   **The re-reading covers the question's PREMISE as well as its item**: how the project ships,
+   the target branch or environment, what it already holds.
+   An item found already done is reported as done in one line, with its evidence, never asked.
+   Observed: a pull request he merged at 06:55 got a review round at 08:54 and a merge
+   question, twice, at 09:40; the same round asked him to deploy main to production, in a
+   project shipping through staging, which had held that change for an hour.
 
 **A ruling of his outranks a rule here.** When his instruction contradicts this skill, the
 instruction wins; say the contradiction in one line and carry it out, never argue it. The

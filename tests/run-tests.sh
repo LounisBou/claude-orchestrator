@@ -886,6 +886,8 @@ check "the rulebook: the re-reading covers the question's premise" "yes" \
   "$(carries "$RULEBOOK" "The re-reading covers the question's PREMISE")"
 check "the rulebook: an item found done is reported, never asked" "yes" \
   "$(carries "$RULEBOOK" "An item found already done is reported as done in one line")"
+check "the rulebook: the premise read is how the project ships" "yes" \
+  "$(carries "$RULEBOOK" "how the project ships")"
 check "the rulebook refreshes the state file from the artifacts" "yes" \
   "$(carries "$RULEBOOK" "Refresh the state from the artifacts, never from your own file")"
 check "a merged or closed pull request stops the work in flight on it" "yes" \
