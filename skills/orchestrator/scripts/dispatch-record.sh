@@ -23,10 +23,10 @@
 # ready only when a review session read ITS head (either side may abbreviate the other, from
 # 7 characters) and the project's own norms check ran there - or when the head is the one
 # correction round that review produced, which the orchestrator verified on the artifact.
-# That rule was written in the rulebook and in the review brief, and was still broken three
-# times in one day by a reader's opinion of the norms file standing in for the tool. A rule
-# only prose carries is applied from memory, and memory forgets it; `ready` is the refusal
-# prose cannot make.
+# That rule was written in the rulebook and in the review brief, and was still broken twice
+# in one day by a reader's opinion of the norms file standing in for the tool. A rule only
+# prose carries is applied from memory, and memory forgets it; `ready` is the refusal prose
+# cannot make.
 #
 # The record belongs to the PROJECT being built, not to this plugin: the default table
 # ships here, a project's corrections belong with that project's state.

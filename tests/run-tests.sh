@@ -169,10 +169,10 @@ check "the review brief carries the norms check placeholder" "yes" "$(grep -qF -
 check "the norms check placeholder is documented on its line" "1" "$(grep -c "the project.s norms check invocation, or the word" "$ROOT/templates/agent-review-brief.md")"
 check "the review brief takes the report, not the fix path" "1" "$(grep -c "its fix path is not yours to take" "$ROOT/templates/agent-review-brief.md")"
 
-# The same rule, written in prose on both sides, was still broken three times in one day:
-# twice a reader.s opinion of the norms file stood in for the project.s tool, and once a
-# corrective round was verified by the orchestrator alone. Prose is applied from memory, so
-# the rule now ends on a record a script can refuse. These pin the sentences that say so.
+# The same rule, written in prose on both sides, was still broken twice in one day: a
+# reader.s opinion of the norms file stood in for the project.s tool. Prose is applied from
+# memory, so the rule now ends on a record a script can refuse. These pin the sentences that
+# say so.
 check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at the head in front of you" "$ROOT/skills/orchestrator/SKILL.md")"
 # The operator's ruling of 2026-09-25: one review round, the orchestrator's triage, one
 # correction round the orchestrator verifies itself, done. The sentences that prescribed a
