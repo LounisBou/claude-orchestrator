@@ -2180,3 +2180,38 @@ and rebase sentences, their excuses and red flags, and the absence of every sent
 ordered a second review. What a live round reads: whether a pull request dispatched by the
 orchestrator ever gets a second review round, and whether « ready » ever reaches the operator
 on a branch that is not rebased.
+
+## 59. A frontend surface is proved by a browser run and screenshots on the pull request
+
+**0.35.0.** On 2026-09-25 the operator ruled that a pull request touching frontend design, and
+creating or substantially modifying a surface — a significant change, not a minor one — or
+creating the interface of a new feature, must be tested in a browser with Playwright and carry
+screenshots of the surface on the pull request. A new feature's interface is a new surface, and
+is held to it like a reworked one.
+
+A green suite and a read diff say what the code does, not what a surface shows: a layout that
+collapses, a state nobody rendered or a screen that does not match the spec passes both. The
+proof is the surface itself, driven in a real browser, and the screenshots are that proof left
+where the review and the operator read the pull request. Each one names the surface and the
+state it shows, so a reader can tell which screen and which state of it they are looking at, and
+whether a state the spec names is missing.
+
+The rule sits where each reader acts on it. The rulebook carries it as a standing rule, so it
+goes into every brief, and as a review item: before a verdict on such a pull request the
+orchestrator checks that the screenshots are on it and show the surface the diff changes, in the
+states the spec names, and a missing or unrelated screenshot is a finding that keeps the pull
+request from ready. The phase brief carries the clause for the implementer, who does not read
+the rulebook; the review brief has its round check the screenshots against the diff.
+
+A minor change — a colour, a spacing, a label, a fix invisible at a glance — is not held to it.
+The implementer is the one who knows what it changed, so it judges, and says so and why in its
+report; the orchestrator rules on that claim, so that « minor » is not a way around the rule.
+
+What is left out on purpose: no script, no hook and no tooling for screenshots, and no named
+upload mechanism — the rule asks for the screenshots on the pull request and no more.
+
+What the suite reads: the standing rule with its three parts, the minor-change clause, the review
+item, the excuse and the red flag in the rulebook, the clause in the phase brief and the check in
+the review brief, each falling when its sentence is removed. What a live round reads: whether a
+pull request that reworks a surface ever reaches a verdict without screenshots of it, and whether
+« minor » is claimed on a change the orchestrator would have ruled otherwise.
