@@ -173,13 +173,32 @@ check "the review brief takes the report, not the fix path" "1" "$(grep -c "its 
 # twice a reader.s opinion of the norms file stood in for the project.s tool, and once a
 # corrective round was verified by the orchestrator alone. Prose is applied from memory, so
 # the rule now ends on a record a script can refuse. These pin the sentences that say so.
-check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at its CURRENT head" "$ROOT/skills/orchestrator/SKILL.md")"
-check "a corrective round is reviewed like any delivery" "1" "$(grep -c "the round that reads a corrective round is a review round like any other" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at the head in front of you" "$ROOT/skills/orchestrator/SKILL.md")"
+# The operator's ruling of 2026-09-25: one review round, the orchestrator's triage, one
+# correction round the orchestrator verifies itself, done. The sentences that prescribed a
+# review of every repair are gone in the same move, or the rulebook orders both.
+check "the rulebook states one review round and one correction round" "1|1" \
+  "$(grep -c "One review round, one correction round, and you close it" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "no review of the correction round, no further round, no over-correction" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the triage names every dropped item" "2" "$(grep -c "dropped item named in one line with its reason\|name each dropped item with its reason" "$ROOT/skills/orchestrator/SKILL.md")"
+check "no sentence still orders a review of the repair" "0|0|0" \
+  "$(grep -c "the round that reads a corrective round" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "the round after a repair reads the repair" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "No head is reviewed until" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook records the correction round on the record" "1" "$(grep -c "dispatch-record.sh fixed <record> <id> --head <sha>" "$ROOT/skills/orchestrator/SKILL.md")"
+# Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
+# of a lower branch is replayed around, never through.
+check "ready leaves the pull request in draft" "1" "$(grep -c "Ready is the operator's turn, and the pull request stays in draft" "$ROOT/skills/orchestrator/SKILL.md")"
+check "ready includes the rebase and names the squash-merge trap" "1|1|1" \
+  "$(grep -c "each pull request of a stack on the one below it" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "git rebase --onto <main> <old head of the lower branch> <branch>" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "the one force this rule allows" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the new excuses have their rows" "1|1|1" \
+  "$(grep -c "The reviewer found it, so it goes in the correction round" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "is green, I can take it out of draft" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "a plain rebase on main will do" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the new red flags are listed" "1|1" \
+  "$(grep -c "A second review round scheduled on a pull request you dispatched" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "a force push other than a rebase" "$ROOT/skills/orchestrator/SKILL.md")"
 check "a hand reading standing in for the tool has its excuse" "1" "$(grep -c "the tool IS the check" "$ROOT/skills/orchestrator/SKILL.md")"
-check "a self-verified repair has its excuse" "1" "$(grep -c "refuses a head no review has read" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the ungated pull request has its red flag" "1" "$(grep -c "taken out of draft, declared ready or given its verdict without" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the routing skill lists both new subcommands" "1|1" \
-  "$(grep -c "dispatch-record.sh review <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh ready <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")"
+check "a review of the correction round has its excuse" "1" "$(grep -c "The correction round deserves a review round of its own" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request you took out of draft; « ready » told to the operator before" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the routing skill lists the gate's subcommands" "1|1|1" \
+  "$(grep -c "dispatch-record.sh review <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh fixed <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh ready <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")"
+check "the routing table verifies the correction round on the artifact" "0|1" \
+  "$(grep -c "the round that re-reads the repair" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "you, on the artifact: the diff, the decisive tests, a mutation" "$ROOT/skills/model-routing/SKILL.md")"
 check "the review brief refuses the envelope as a reason to substitute" "1" "$(grep -c "do not substitute" "$ROOT/templates/agent-review-brief.md")"
 check "the review brief ends its report on a machine line" "1|1" \
   "$(grep -c "norms-check: tool" "$ROOT/templates/agent-review-brief.md")|$(grep -c "norms-check: none" "$ROOT/templates/agent-review-brief.md")"
