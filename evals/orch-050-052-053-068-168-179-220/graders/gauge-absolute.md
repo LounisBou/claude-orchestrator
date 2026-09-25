@@ -12,6 +12,6 @@ Pass only if ALL hold for the brief:
 1. It tells the agent to measure and report its context with the context-gauge script,
    pasting the measured figure (not an estimate) in its reports.
 2. The script is named by an absolute path under
-   `/Users/dev/.claude/plugins/cache/lounisbou/orchestrator/0.34.0/`.
+   `/opt/dev-home/.claude/plugins/cache/lounisbou/orchestrator/0.34.0/`.
 3. No path in the brief uses a variable the host expands (`${CLAUDE_PLUGIN_ROOT}`,
    or any other `${...}` placeholder left for the agent's shell).

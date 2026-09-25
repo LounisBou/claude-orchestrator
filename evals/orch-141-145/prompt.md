@@ -8,7 +8,7 @@ You are the orchestrator session of the project `field-app` (you work with the `
 
 Phase 3's brief is written at `/work/field-app/.briefs/phase-3.md`, linted clean, and its
 clone is ready at `/work/phases/field-app-p3`. Your ListAgents name and reference:
-`Orch : field-app [5b6c7d]`.
+`Orch : field-app [5b6w7d]`.
 
 Spawn phase 3's agent and bring it to the point where it is working, then write your final
 message.

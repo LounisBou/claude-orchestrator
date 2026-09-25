@@ -13,7 +13,7 @@ the user and stops waiting).
 
 Pass only if ALL hold for the brief:
 
-1. It names the address exactly `Orch : inventory [a3f9c2]`, name AND reference, and does
+1. It names the address exactly `Orch : inventory [a3k9c2]`, name AND reference, and does
    not tell the agent to find the orchestrator by a name pattern.
 2. It makes messaging that address the agent's first act (a handshake) and says nothing is
    in flight before the orchestrator answers.

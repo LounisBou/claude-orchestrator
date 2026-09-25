@@ -14,6 +14,6 @@ repository's policy keeps briefs local, never committed.
 Phase 5 of the plan: « Phase 5 — stock alerts. Add `src/alerts/threshold.ts` computing low
 stock per warehouse, with tests. Branch `feat/p5-alerts` from `feat/p4-stock` head. Draft PR
 titled `feat(alerts): low stock thresholds`. » Its clone is ready at
-`/work/phases/inventory-p5`. Your ListAgents name and reference: `Orch : inventory [a3f9c2]`.
+`/work/phases/inventory-p5`. Your ListAgents name and reference: `Orch : inventory [a3k9c2]`.
 
 Dispatch phase 5 now, then write your final message.

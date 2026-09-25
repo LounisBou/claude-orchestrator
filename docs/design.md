@@ -53,6 +53,95 @@ tests/fixtures/rules-inventory/alpha.md       a target file of that inventory
 tests/fixtures/rules-inventory/beta.md        a target file of that inventory
 docs/design.md                       this document
 docs/rules-inventory.md              working file: every directive rule, deleted once the rewrite is done
+evals/README.md                      how the behaviour suite is staged, run and read
+evals/SELECTION.md                   the cases chosen, and the criteria that chose them
+evals/baseline-0.34.0.json           the baseline run the suite is compared against
+evals/iterm-005-019-064-065/prompt.md
+evals/iterm-005-019-064-065/graders/fresh-tty-and-title-words.md
+evals/iterm-054/prompt.md
+evals/iterm-054/graders/no-trust-on-foreign-dir.md
+evals/orch-002/prompt.md
+evals/orch-002/graders/dispatches-not-writes.md
+evals/orch-004/prompt.md
+evals/orch-004/graders/own-checkout-per-writer.md
+evals/orch-007-011-079-088/prompt.md
+evals/orch-007-011-079-088/graders/cleanup-checked.md
+evals/orch-007-011-079-088/graders/verdict-on-evidence.md
+evals/orch-010-014/prompt.md
+evals/orch-010-014/graders/says-and-complies.md
+evals/orch-012-099/prompt.md
+evals/orch-012-099/graders/verified-by-orchestrator-no-new-round.md
+evals/orch-015-017/prompt.md
+evals/orch-015-017/graders/answers-first.md
+evals/orch-016/prompt.md
+evals/orch-016/graders/says-stopped-being-useful.md
+evals/orch-018/prompt.md
+evals/orch-018/graders/names-the-term.md
+evals/orch-020/prompt.md
+evals/orch-020/graders/own-doing-first.md
+evals/orch-021/prompt.md
+evals/orch-021/graders/one-item-then-wait.md
+evals/orch-021/graders/opens-the-method-first.md
+evals/orch-023/prompt.md
+evals/orch-023/graders/nothing-unread-stated.md
+evals/orch-025-026/prompt.md
+evals/orch-025-026/graders/rereads-item-and-premise.md
+evals/orch-029/prompt.md
+evals/orch-029/graders/stop-and-ask.md
+evals/orch-038-040-043/prompt.md
+evals/orch-038-040-043/graders/brief-on-disk-then-one-line.md
+evals/orch-050-052-053-068-168-179-220/prompt.md
+evals/orch-050-052-053-068-168-179-220/graders/address-handshake-silence.md
+evals/orch-050-052-053-068-168-179-220/graders/brief-written.md
+evals/orch-050-052-053-068-168-179-220/graders/gauge-absolute.md
+evals/orch-050-052-053-068-168-179-220/graders/synchronous-and-gate.md
+evals/orch-055/prompt.md
+evals/orch-055/graders/subscribes-to-idle.md
+evals/orch-056-183-189/prompt.md
+evals/orch-056-183-189/graders/takeover-order.md
+evals/orch-061-063/prompt.md
+evals/orch-061-063/graders/checks-the-policy-file.md
+evals/orch-061-063/graders/points-not-grants.md
+evals/orch-071-072/prompt.md
+evals/orch-071-072/graders/no-own-subagent-implements.md
+evals/orch-089/prompt.md
+evals/orch-089/graders/literals-against-source.md
+evals/orch-093-095-096-tpl-review-002-004-005/prompt.md
+evals/orch-093-095-096-tpl-review-002-004-005/graders/both-readings.md
+evals/orch-093-095-096-tpl-review-002-004-005/graders/machine-line-and-no-config.md
+evals/orch-093-095-096-tpl-review-002-004-005/graders/review-brief-norms.md
+evals/orch-097-098/prompt.md
+evals/orch-097-098/graders/triage-then-one-correction.md
+evals/orch-101-102-103-105/prompt.md
+evals/orch-101-102-103-105/graders/ready-on-the-record.md
+evals/orch-136-161/prompt.md
+evals/orch-136-161/graders/runs-it-itself.md
+evals/orch-138/prompt.md
+evals/orch-138/graders/no-other-terminal.md
+evals/orch-138/graders/says-why-and-stops.md
+evals/orch-141-145/prompt.md
+evals/orch-141-145/graders/anchored-and-verified.md
+evals/orch-146-route-010/prompt.md
+evals/orch-146-route-010/graders/repairs-the-binding.md
+evals/orch-147-149-iterm-018/prompt.md
+evals/orch-147-149-iterm-018/graders/inspect-not-wait.md
+evals/orch-151-152-iterm-055/prompt.md
+evals/orch-151-152-iterm-055/graders/commit-or-drop-before-close.md
+evals/orch-154-155/prompt.md
+evals/orch-154-155/graders/stood-down-now.md
+evals/orch-156-iterm-049-051/prompt.md
+evals/orch-156-iterm-049-051/graders/rotation-order.md
+evals/orch-157-191-192/prompt.md
+evals/orch-157-191-192/graders/hands-over-and-ends.md
+evals/orch-158-167/prompt.md
+evals/orch-158-167/graders/gate-and-readings.md
+evals/orch-177-178/prompt.md
+evals/orch-177-178/graders/refresh-then-stop-merged.md
+evals/orch-180-182-184-188-cmd-succeed-002/prompt.md
+evals/orch-180-182-184-188-cmd-succeed-002/graders/spawns-without-asking.md
+evals/orch-180-182-184-188-cmd-succeed-002/graders/successor-spawn-flags.md
+evals/orch-195/prompt.md
+evals/orch-195/graders/does-not-end-itself.md
 README.md, LICENSE
 ```
 

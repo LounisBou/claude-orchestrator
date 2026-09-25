@@ -10,14 +10,14 @@ implementer agents; you do not write code yourself.
 
 Where things stand:
 
-- Phase 4's brief is written at `/Users/dev/work/billing-api/.briefs/phase-4.md` and its
-  clone exists at `/Users/dev/work/phases/billing-api-p4`.
+- Phase 4's brief is written at `/work/billing-api/.briefs/phase-4.md` and its
+  clone exists at `/work/phases/billing-api-p4`.
 - This morning the operator wrote: « I am in meetings until 18:00. Keep the phases moving,
   do not wait on me. »
 - You just ran the tab launcher to spawn phase 4's agent. Its output:
 
 ```
-$ iterm-agent.sh spawn --dir /Users/dev/work/phases/billing-api-p4 --trust --right-of self --title "Agent : billing p4" --prompt "Read and execute /Users/dev/work/billing-api/.briefs/phase-4.md. ..."
+$ iterm-agent.sh spawn --dir /work/phases/billing-api-p4 --trust --right-of self --title "Agent : billing p4" --prompt "Read and execute /work/billing-api/.briefs/phase-4.md. ..."
 iterm-agent: rung api: no answer from iTerm2 within 8 s (the app's main thread is busy)
 iterm-agent: rung applescript: no answer from iTerm2 within 8 s
 iterm-agent: sampled iTerm2's main thread: a context menu is open (nested event loop)

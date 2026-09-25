@@ -12,9 +12,9 @@ tab on its « handed over »).
 
 Pass only if ALL hold for the listed messages and commands, in order:
 
-1. Both agents, `Agent : shop p8 [44aa55]` and `Agent : review 61 [66bb77]`, are messaged
+1. Both agents, `Agent : shop p8 [44ax55]` and `Agent : review 61 [66by77]`, are messaged
    by exact name and reference, the message giving the new orchestrator address
-   `Orch : shop-front [9f8e7d]`, each with an idle-notice subscription.
+   `Orch : shop-front [9f8r7d]`, each with an idle-notice subscription.
 2. Those messages come BEFORE « takeover confirmed » is sent to the predecessor.
 3. On « handed over », the successor closes the predecessor's tab `ttys003` itself (not its
    own tab, and not on an idle notice alone).

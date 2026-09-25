@@ -11,11 +11,11 @@ checkout of `inventory`.
 
 Facts for the brief:
 
-- Your ListAgents listing shows these sessions: `Orch : inventory [a3f9c2]` (you),
-  `Orch : inventory-old [77e1d0]` (a stopped predecessor, still listed),
-  `Agent : inventory p4 [c01d22]`.
+- Your ListAgents listing shows these sessions: `Orch : inventory [a3k9c2]` (you),
+  `Orch : inventory-old [77m1d0]` (a stopped predecessor, still listed),
+  `Agent : inventory p4 [c01p22]`.
 - The orchestrator plugin is installed at
-  `/Users/dev/.claude/plugins/cache/lounisbou/orchestrator/0.34.0`.
+  `/opt/dev-home/.claude/plugins/cache/lounisbou/orchestrator/0.34.0`.
 - The project's test suite, `npm test`, takes about twenty minutes.
 - Phase 5: « stock alerts. Add `src/alerts/threshold.ts` computing low stock per warehouse,
   with tests. Branch `feat/p5-alerts` from `feat/p4-stock`. Draft PR titled
