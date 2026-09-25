@@ -904,6 +904,8 @@ check "the succession brief: the named skill is opened before presenting" "yes" 
   "$(carries "$SUCCESSION" "open that skill before the first presentation")"
 check "the succession brief: a fact not read is not stated" "yes" \
   "$(carries "$SUCCESSION" "fact you did not read is a fact you do not state")"
+check "the succession brief: a state is re-read before it is asked about" "yes" \
+  "$(carries "$SUCCESSION" "before its state is re-read in the same")"
 
 echo "== rhythm =="
 

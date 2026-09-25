@@ -2077,7 +2077,9 @@ that target already holds — as well as the item. An item found already done is
 in one line, with its evidence, and never asked. The orchestrator's own context gains its
 counterpart: the state file is refreshed from the artifacts at every quiet boundary and before
 every report, and a pull request found merged or closed stops the work in flight on it at
-once. `/orchestrator:decide` verifies each item still open when it collects the round and
+once. The duty travels in the succession brief, for the reason §47 gives, and a successor
+needs it most: the state file it inherits is the one its predecessor last saw.
+`/orchestrator:decide` verifies each item still open when it collects the round and
 again in the turn it presents it, writing a settled one back as « already done: <evidence> »
 and dropping it from the count; `/orchestrator:progress` lets the artifacts win where they
 disagree with the state file, and corrects the file before presenting, which is why it now
@@ -2089,6 +2091,6 @@ stale reading from the file to the watcher's last pass.
 
 What the suite reads: the duty, its premise clause and its « reported, never asked » clause,
 the refresh bullet and its stop on a merged pull request, the excuse and the red flag in the
-rulebook; the two verifications and the settled item in the decide command; the correction and
+rulebook; the duty in the succession brief; the two verifications and the settled item in the decide command; the correction and
 the `Edit` tool in the progress command. What a live round reads: whether a question ever
 reaches the operator about an item the artifact, read in that turn, shows settled.
