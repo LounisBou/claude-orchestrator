@@ -117,6 +117,7 @@ check "the decide command verifies each item still open when collecting" "1" "$(
 check "the decide command re-verifies an item before presenting it" "1" "$(grep -c 'Re-verify the item and its premise on the artifact in the same turn' "$ROOT/commands/decide.md")"
 check "the decide command never asks a settled item" "1" "$(grep -c 'a settled item is never asked' "$ROOT/commands/decide.md")"
 check "the progress report corrects the state file from the artifacts" "1" "$(grep -c 'the artifacts win and the state file is CORRECTED' "$ROOT/commands/progress.md")"
+check "the progress report never shows a merged or closed PR as pending" "1" "$(grep -c 'never as pending' "$ROOT/commands/progress.md")"
 check "the progress command may edit the state file" "1" "$(grep -c '^allowed-tools: .*, Edit$' "$ROOT/commands/progress.md")"
 check "the succession inherits the orchestrator's model" "1" "$(grep -c -- '--inherit-model' "$ROOT/commands/succeed.md")"
 check "the succession names no tier" "0" "$(grep -c -- '--tier deep' "$ROOT/commands/succeed.md")"
