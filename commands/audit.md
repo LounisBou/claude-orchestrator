@@ -8,7 +8,7 @@ Run on the operator's word only: the operator launches the audit and the operato
 with `/orchestrator:audit-end` typed by the operator. No session launches an audit by itself.
 
 Launch the AUDITOR of this orchestration, described in `orchestrator:orchestrator`,
-section « The audit ». Load that skill first.
+its reference `references/audit.md`. Load that skill first.
 
 Usage: `/orchestrator:audit <subject> [--scope <what>] [--method <path>]`.
 
@@ -39,7 +39,7 @@ Then:
      path> » — the auditor ended at its context gate — names that report as the previous
      one, and the new audit starts at the section it reached;
    - the method-and-decisions file, by its absolute path — one per project, the one file
-     the auditor writes and you land (the rulebook's section « The audit »): the file `--method` names;
+     the auditor writes and you land (the rulebook's `references/audit.md`): the file `--method` names;
      without `--method`, the record for this repository in the state directory (step 5),
      so that every audit after the first finds it without the flag; with neither, the
      project has none yet, and the brief names where the auditor creates it:

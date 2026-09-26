@@ -3,7 +3,7 @@ description: End an audit, on the operator's word only — in the auditor's tab,
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Bash(ps:*), Bash(ls:*), Bash(rm:*), Bash(date:*), Read, Write, Edit, ListAgents, SendMessage
 ---
 
-End the AUDIT described in `orchestrator:orchestrator`, section « The audit ».
+End the AUDIT described in `orchestrator:orchestrator`, its reference `references/audit.md`.
 Load that skill first.
 
 This command runs ONLY when the operator types it — or gives the word in that session's tab.
