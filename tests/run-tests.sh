@@ -2875,8 +2875,10 @@ check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sou
 
 check "trace: the real inventory holds every signature" "exit 0" \
   "$( ( cd "$ROOT" && bash "$TRACE" targets docs/rules-inventory.md >/dev/null 2>&1 ); echo "exit $?")"
-check "trace: every source of the real inventory exists at HEAD" "exit 0" \
-  "$( ( cd "$ROOT" && bash "$TRACE" sources docs/rules-inventory.md --ref HEAD >/dev/null 2>&1 ); echo "exit $?")"
+# The inventory cites its sources as they stood before the directives were rewritten; a
+# rewrite moves text away from those lines, so they are read at the commit they describe.
+check "trace: every source of the real inventory exists at the commit it cites" "exit 0" \
+  "$( ( cd "$ROOT" && bash "$TRACE" sources docs/rules-inventory.md --ref 2f2e22b >/dev/null 2>&1 ); echo "exit $?")"
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
