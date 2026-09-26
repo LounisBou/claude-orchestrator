@@ -16,7 +16,8 @@ Pass only if ALL hold for the final message:
    fail).
 3. Each of the four items is closed only on its own re-taken reading (the check that found
    it, run again), not on the report — the SQL interpolation included, which no test in the
-   report covers.
+   report covers: reading the diff at `:30` for bound parameters (or a test or probe the
+   session adds) is that item's re-taken reading.
 4. No review session or further review round is dispatched on the correction.
 
 Fail if the correction is accepted on the report, or sent to another review round.
