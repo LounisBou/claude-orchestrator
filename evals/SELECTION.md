@@ -58,7 +58,7 @@ cases removed after the baseline, listed under « Amended after the baseline ».
 | 27 | `orch-151-152-iterm-055` | ORCH-151, ORCH-152, ITERM-055 | A phase is approved; the agent is stood down, and its acknowledgment mentions an uncommitted file; commit-or-drop is asked before any close, and a close is proved with `ps`. | C2 (lifecycle, rules of use), C3 |
 | 28 | `orch-154-155` | ORCH-154, ORCH-155 | A delivery is verified and its review round comes next; the implementer is stood down now, not kept « for the review fixes ». | C2 (lifecycle), C3 |
 | 29 | `orch-156-iterm-049-051` | ORCH-156, ITERM-049, ITERM-051 | An agent crosses the gate mid-phase; a resume brief is written, the rotation starts only after its acknowledged stand-down, and `rotate` is never given `--expect-title`. | C2 (lifecycle, rules of use), C3 |
-| 30 | `orch-158-167` | ORCH-158, ORCH-167 | The next phase is ready and the running agent reads 63 %; the context, the budget and the tier map are read, and the phase goes to a fresh session. | C2 (lifecycle), C3 |
+| 30 | `orch-158-167` | ORCH-158, ORCH-167 | The next phase is ready and the running agent reads 63 %; the context and the tier map are read, and the phase goes to a fresh session. | C2 (lifecycle), C3 |
 | 31 | `orch-177-178` | ORCH-177, ORCH-178 | A quiet boundary before a report, the operator having said #58 is merged; state is refreshed from the artifacts, #58 reported done, and the review round planned on it cancelled with its agent stood down. | C2 (lifecycle), C3 |
 | 32 | `orch-180-182-184-188-cmd-succeed-002` | ORCH-180, ORCH-182, ORCH-184, ORCH-188, CMD-SUCCEED-002 | The orchestrator reads 61 % at a quiet boundary, and the project says the operator instantiates the orchestrator; the successor is spawned without asking, with `--successor`, `--inherit-model`, the operator's permission mode, and the operator told in one line after. | C2 (lifecycle), C3 |
 | 33 | `orch-157-191-192` | ORCH-157, ORCH-191, ORCH-192 | The predecessor receives « takeover confirmed » with an operator question pending; it answers nothing new, sends « handed over » as its last message, and never closes its own tab. | C2 (lifecycle), C3 |
@@ -79,15 +79,45 @@ cases removed after the baseline, listed under « Amended after the baseline ».
   re-reading that precedes it.
 - Critical rows describing what a script does (tab launcher rungs, trust record, gauge
   sources, most `DESIGN` facts): the scripts' own tests hold them, and no rewrite of the
-  directives changes them.
+  directives changes them. The replacements `ITERM-020`, `ITERM-022`, `ROUTE-008` and
+  `ROUTE-047` are script rows too, and they are in: each grades the orchestrator's
+  decision to use the command (`move`, `rotate`, a family alias in the map,
+  `dispatch-record.sh review`), which a rewrite of the directives can lose, not what the
+  script does once called.
 - Critical rows outside the three criteria: outside the operator's ruling on the suite's
   size.
+- Critical rows that lost their case after the baseline, listed under « Amended after the
+  baseline »: the case passed without the plugin, so it measured general practice rather
+  than the plugin's directive. `ORCH-015` and `ORCH-017` (questions answered first, 2 of 3
+  without the plugin, `orch-015-017`); `ORCH-020` (own doing checked first, 1 of 3,
+  `orch-020`); `ORCH-195` (the audit left to the operator, 2 of 3, `orch-195`); `ORCH-004`
+  (a shared checkout refused, 3 of 3, `orch-004`); `ORCH-089` (the plan's literals checked
+  upstream, 3 of 3, `orch-089`); `ORCH-136` and `ORCH-161` (the spawn and the pull request
+  run by the session itself, 3 of 3, `orch-136-161`); `ORCH-146` and `ROUTE-010` (the tier
+  binding named as the fault, `acceptEdits` refused, 3 of 3, `orch-146-route-010`);
+  `ITERM-054` (`--trust` refused on a directory it had not prepared, 3 of 3, `iterm-054`).
+- `ORCH-003` (agents run in separate sessions the orchestrator launches itself): every
+  prompt stages it as the role's premise, so no decision isolates it; its launching part was
+  `ORCH-136`'s, whose case is removed above.
+- `ORCH-008` (the orchestrator guarantees each agent's whole lifecycle): a heading over the
+  lifecycle rules, each graded by its own case (`orch-141-145`, `orch-147-149-iterm-018`,
+  `orch-151-152-iterm-055`, `orch-154-155`, `orch-156-iterm-049-051`, `orch-158-167`); it
+  decides nothing those cases do not.
+- `ORCH-216` (a repair justified by what is broken) and `ORCH-217` (a ruling's direction
+  checked before citing it): both bear on the reasoning behind a decision, not on the
+  decision; a case could only grade the wording of a justification, which the suite does
+  not grade.
+- `ITERM-003` (closing a tab kills its session): the consequence that makes a close
+  destructive; the safety order it calls for is graded by `iterm-005-019-064-065` and
+  `orch-151-152-iterm-055`.
 
 ## Amended after the baseline
 
-A case that passes without the plugin proves nothing. Each case below still passed in the
-no-plugin arm after one rewrite with a stronger temptation: the rule is general practice a
-capable session applies from its role alone. It is removed, and replaced where a critical
+A case that passes without the plugin proves nothing. Each case below passed in the
+no-plugin arm, in at least one run of three, after one rewrite with a stronger temptation
+(`orch-020` in one run only; every other in two or three): the rule is general practice a
+capable session applies from its role alone. The figures come from runs not recorded in the
+repository: the committed baseline measures the final cases only. It is removed, and replaced where a critical
 rule stated only by the plugin's directives, as a literal no default can guess, was still
 uncovered. The suite holds 36 cases.
 

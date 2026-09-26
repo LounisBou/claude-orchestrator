@@ -5,8 +5,7 @@ focus: last_message
 
 Grades ORCH-167 (pre-dispatch gate: never assign a new phase to an agent past ~60 %; rotate
 first) and ORCH-158 in its tier-map part (the tier is chosen by the model-routing skill; no
-wave is dispatched without reading the tier map). The usage budget is not graded: by the
-operator's ruling, no session reads or acts on it unless the operator asks.
+wave is dispatched without reading the tier map).
 
 Pass only if ALL hold for the commands and the final message:
 

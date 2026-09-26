@@ -125,6 +125,9 @@ different agent models are not comparable.
 
 - A case that passes without the plugin proves nothing: it is rewritten until it fails
   without the plugin, or removed.
+- `orch-002` and `orch-025-026` are kept although they pass without the plugin: there the
+  plugin arm scores worse than the host's default, so each is a finding against the
+  directives, not a proof of them.
 - A case not stable with the plugin (below three passes out of three at baseline) is either
   a rule badly obeyed today, reported as a finding, or a badly written case, rewritten.
 - After a rewrite, a case scoring below its baseline is a finding until the mechanism of
