@@ -62,7 +62,6 @@ evals/gauge-007/graders/runs-the-gauge.md
 evals/iterm-005-019-064-065/prompt.md
 evals/iterm-005-019-064-065/graders/close-with-title.md
 evals/iterm-005-019-064-065/graders/no-glyph.md
-evals/iterm-005-019-064-065/graders/no-stored-tty.md
 evals/iterm-005-019-064-065/graders/relists.md
 evals/iterm-020/prompt.md
 evals/iterm-020/graders/moves-beside-self.md
