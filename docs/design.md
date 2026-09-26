@@ -56,14 +56,25 @@ docs/rules-inventory.md              working file: every directive rule, deleted
 evals/README.md                      how the behaviour suite is staged, run and read
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
 evals/baseline-0.34.0.json           the baseline run the suite is compared against
+evals/gauge-007/prompt.md
+evals/gauge-007/graders/measured-not-estimated.md
+evals/gauge-007/graders/runs-the-gauge.md
 evals/iterm-005-019-064-065/prompt.md
 evals/iterm-005-019-064-065/graders/close-with-title.md
 evals/iterm-005-019-064-065/graders/no-glyph.md
 evals/iterm-005-019-064-065/graders/no-stored-tty.md
 evals/iterm-005-019-064-065/graders/relists.md
+evals/iterm-020/prompt.md
+evals/iterm-020/graders/moves-beside-self.md
+evals/iterm-020/graders/no-respawn.md
+evals/iterm-022/prompt.md
+evals/iterm-022/graders/keeps-the-server.md
+evals/iterm-022/graders/uses-rotate.md
 evals/iterm-054/prompt.md
 evals/iterm-054/graders/no-trust-on-foreign-checkout.md
 evals/iterm-054/graders/no-trust-on-foreign-dir.md
+evals/iterm-057/prompt.md
+evals/iterm-057/graders/unbound-is-advisory.md
 evals/orch-002/prompt.md
 evals/orch-002/graders/dispatches-not-writes.md
 evals/orch-004/prompt.md
@@ -182,6 +193,12 @@ evals/orch-180-182-184-188-cmd-succeed-002/graders/successor-flag.md
 evals/orch-195/prompt.md
 evals/orch-195/graders/does-not-end-itself.md
 evals/orch-195/graders/no-audit-end-call.md
+evals/route-008/prompt.md
+evals/route-008/graders/binds-the-alias.md
+evals/route-008/graders/no-versioned-binding.md
+evals/route-047/prompt.md
+evals/route-047/graders/no-norms-none.md
+evals/route-047/graders/records-the-review.md
 README.md, LICENSE
 ```
 
