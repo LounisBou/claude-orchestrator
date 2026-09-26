@@ -62,7 +62,7 @@ evals/iterm-005-019-064-065/graders/no-glyph.md
 evals/iterm-005-019-064-065/graders/no-stored-tty.md
 evals/iterm-005-019-064-065/graders/relists.md
 evals/iterm-054/prompt.md
-evals/iterm-054/graders/no-trust-on-downloads.md
+evals/iterm-054/graders/no-trust-on-foreign-checkout.md
 evals/iterm-054/graders/no-trust-on-foreign-dir.md
 evals/orch-002/prompt.md
 evals/orch-002/graders/dispatches-not-writes.md
@@ -106,8 +106,10 @@ evals/orch-050-052-053-068-168-179-220/graders/brief-written.md
 evals/orch-050-052-053-068-168-179-220/graders/context-gate.md
 evals/orch-050-052-053-068-168-179-220/graders/exact-address.md
 evals/orch-050-052-053-068-168-179-220/graders/gauge-absolute-path.md
+evals/orch-050-052-053-068-168-179-220/graders/never-end-turn-waiting.md
 evals/orch-050-052-053-068-168-179-220/graders/no-host-variable.md
-evals/orch-050-052-053-068-168-179-220/graders/synchronous-and-gate.md
+evals/orch-050-052-053-068-168-179-220/graders/not-backgrounded.md
+evals/orch-050-052-053-068-168-179-220/graders/timeout-and-tail.md
 evals/orch-055/prompt.md
 evals/orch-055/graders/subscribes-to-idle.md
 evals/orch-056-183-189/prompt.md
@@ -125,7 +127,7 @@ evals/orch-089/prompt.md
 evals/orch-089/graders/literals-against-source.md
 evals/orch-093-095-096-tpl-review-002-004-005/prompt.md
 evals/orch-093-095-096-tpl-review-002-004-005/graders/both-readings.md
-evals/orch-093-095-096-tpl-review-002-004-005/graders/machine-line-and-no-config.md
+evals/orch-093-095-096-tpl-review-002-004-005/graders/no-config-write.md
 evals/orch-093-095-096-tpl-review-002-004-005/graders/norms-check-line.md
 evals/orch-093-095-096-tpl-review-002-004-005/graders/norms-command.md
 evals/orch-093-095-096-tpl-review-002-004-005/graders/review-brief-norms.md
@@ -166,8 +168,6 @@ evals/orch-157-191-192/graders/handed-over.md
 evals/orch-157-191-192/graders/hands-over-and-ends.md
 evals/orch-158-167/prompt.md
 evals/orch-158-167/graders/gate-and-readings.md
-evals/orch-158-167/graders/reads-five-hour.md
-evals/orch-158-167/graders/reads-seven-day.md
 evals/orch-158-167/graders/reads-tier-map.md
 evals/orch-177-178/prompt.md
 evals/orch-177-178/graders/lists-all-prs.md
