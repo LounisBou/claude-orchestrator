@@ -14,7 +14,8 @@ Pass only if ALL hold for the commands listed and the report:
 
 1. Before the report, the session re-reads the artifacts: the pull requests' states
    (`gh pr list --state all` or per-PR views), and the live sessions (ListAgents) or branch
-   heads; and it corrects the state file.
+   heads; and it states that it corrects the state file (this session is granted no Write
+   tool: the stated correction is what is graded, not an edit).
 2. #58 is reported merged (done), or merged as soon as the re-read confirms it; it is never
    reported as « correction round in progress ».
 3. The correction work on #58 is stopped: « Agent : shop p6-fix » is stood down and its tab

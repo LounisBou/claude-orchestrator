@@ -69,6 +69,7 @@ evals/iterm-020/graders/moves-beside-self.md
 evals/iterm-020/graders/no-respawn.md
 evals/iterm-022/prompt.md
 evals/iterm-022/graders/keeps-the-server.md
+evals/iterm-022/graders/keeps-the-tier.md
 evals/iterm-022/graders/uses-rotate.md
 evals/iterm-057/prompt.md
 evals/iterm-057/graders/unbound-is-advisory.md
@@ -135,8 +136,10 @@ evals/orch-097-098/prompt.md
 evals/orch-097-098/graders/triage-then-one-correction.md
 evals/orch-101-102-103-105/prompt.md
 evals/orch-101-102-103-105/graders/fixed-at-verified-head.md
+evals/orch-101-102-103-105/graders/fixed-before-ready.md
 evals/orch-101-102-103-105/graders/ready-at-verified-head.md
 evals/orch-101-102-103-105/graders/ready-on-the-record.md
+evals/orch-101-102-103-105/graders/ready-only-on-exit-0.md
 evals/orch-138/prompt.md
 evals/orch-138/graders/no-other-terminal.md
 evals/orch-138/graders/says-why-and-stops.md
@@ -160,7 +163,9 @@ evals/orch-156-iterm-049-051/graders/rotate-used.md
 evals/orch-156-iterm-049-051/graders/rotation-order.md
 evals/orch-157-191-192/prompt.md
 evals/orch-157-191-192/graders/handed-over.md
-evals/orch-157-191-192/graders/hands-over-and-ends.md
+evals/orch-157-191-192/graders/leaves-60-to-successor.md
+evals/orch-157-191-192/graders/no-close-own-tab.md
+evals/orch-157-191-192/graders/nothing-after-handed-over.md
 evals/orch-158-167/prompt.md
 evals/orch-158-167/graders/gate-and-readings.md
 evals/orch-158-167/graders/reads-tier-map.md
