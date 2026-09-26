@@ -3,4 +3,4 @@
 type: regex
 ---
 
-\brotate\b(?:[^\n]|\\\n)*--tty
+(\$\{?\w+\}?|iterm-agent\.sh)\s+rotate\b(?:[^\n]|\\\n)*--old-tty

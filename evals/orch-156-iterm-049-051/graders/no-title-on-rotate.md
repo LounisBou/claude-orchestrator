@@ -4,4 +4,4 @@ type: regex
 match: not_contains
 ---
 
-\brotate\b(?:[^\n]|\\\n)*--expect-title
+(\$\{?\w+\}?|iterm-agent\.sh)\s+rotate\b(?:[^\n]|\\\n)*--expect-title

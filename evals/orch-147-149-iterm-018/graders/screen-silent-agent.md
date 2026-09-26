@@ -3,4 +3,4 @@
 type: regex
 ---
 
-screen --tty ttys021
+screen --tty (/dev/)?ttys021

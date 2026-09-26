@@ -3,4 +3,4 @@
 type: regex
 ---
 
-close --tty ttys023 --expect-title
+close --tty (/dev/)?ttys023 --expect-title

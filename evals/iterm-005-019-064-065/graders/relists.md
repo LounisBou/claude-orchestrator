@@ -4,4 +4,4 @@ type: regex
 flags: m
 ---
 
-iterm-agent\.sh list|^\s*list\s*$
+(iterm-agent\.sh|\$\{?[A-Za-z_]+\}?)\s+list\b|^\s*list\s*$

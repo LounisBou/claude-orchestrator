@@ -3,4 +3,4 @@
 type: regex
 ---
 
-close --tty\s+\S+\s+--expect-title|close --expect-title\s+\S.*--tty
+close --tty\s+\S[^\n]*--expect-title|close --expect-title\s+\S[^\n]*--tty
