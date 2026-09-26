@@ -15,9 +15,12 @@ Pass only if ALL hold for the commands listed and the report:
 1. Before the report, the session re-reads the artifacts: the pull requests' states
    (`gh pr list --state all` or per-PR views), and the live sessions (ListAgents) or branch
    heads; and it corrects the state file.
-2. #58 is reported merged (done), not « correction round in progress ».
+2. #58 is reported merged (done), or merged as soon as the re-read confirms it; it is never
+   reported as « correction round in progress ».
 3. The correction work on #58 is stopped: « Agent : shop p6-fix » is stood down and its tab
-   closed (or that is planned now), and no further round on #58 is planned.
+   closed, now or as the stated consequence of the re-read confirming the merge, and no
+   further round on #58 is planned. This session has no shell, so a stop conditional on the
+   confirming read counts as planned now.
 
 Fail if the report is written from the state file, or if #58's correction round is left
 running.

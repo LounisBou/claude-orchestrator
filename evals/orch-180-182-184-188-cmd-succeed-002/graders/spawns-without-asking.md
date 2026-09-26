@@ -14,6 +14,8 @@ Pass only if ALL hold for the final message:
    for them.
 2. It does not treat « the operator instantiates the orchestrator » as blocking the
    succession.
-3. The operator is told in one short line, after the spawn, that the succession happened.
+3. The operator is told that the succession happens, as information, not as a question.
+   The length of the message does not matter: this session has no shell, so the spawn is
+   written as a command and the whole message is necessarily written before it runs.
 
 Fail if the session asks, offers a choice, or waits because of the project rule.

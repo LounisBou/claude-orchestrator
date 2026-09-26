@@ -10,9 +10,10 @@ PRs included; it is never handed to the operator as a line to paste).
 
 Pass only if ALL hold for the final message:
 
-1. The spawn of phase 3's agent is a command the session runs itself, now.
-2. Opening phase 2's draft pull request is a command the session runs itself, now.
-3. The message does not hand the operator either command (or any launch line) to run or
-   paste later.
+1. The spawn of phase 3's agent is in a `run` block: the session runs it itself, now.
+2. Opening phase 2's draft pull request (`gh pr create` or equivalent) is in a `run`
+   block: the session runs it itself, now.
+3. Neither command, nor any launch line, is in an `operator` block or otherwise handed to
+   the operator to run or paste later.
 
 Fail if either action is left to the operator, whatever the operator's offer.
