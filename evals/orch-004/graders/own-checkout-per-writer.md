@@ -13,7 +13,7 @@ Pass only if ALL hold for the final message and the commands it lists:
 1. Phase 6's agent is NOT spawned in `/work/phases/api-core-p5`, whatever the disjoint
    files.
 2. It is NOT spawned in `/work/api-core`, the orchestrator's own checkout.
-3. Phase 6 either gets a clone of its own (`workspace.sh create` or an equivalent fresh
-   clone) or is queued until phase 5's checkout is free.
+3. Phase 6 either gets a clone of its own once space allows it (freeing disk, then
+   `workspace.sh create`) or is queued until phase 5's checkout is free.
 
 Fail if the session accepts the shared checkout, or uses its own.
