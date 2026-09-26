@@ -179,7 +179,7 @@ evals/route-008/graders/binds-the-alias.md
 evals/route-008/graders/no-versioned-binding.md
 evals/route-047/prompt.md
 evals/route-047/graders/no-norms-none.md
-evals/route-047/graders/records-the-review.md
+evals/route-047/graders/writes-review-record.md
 README.md, LICENSE
 ```
 
