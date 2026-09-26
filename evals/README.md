@@ -99,13 +99,17 @@ python3 -c 'import json,sys; runs=[json.load(open(f)) for f in sys.argv[1:]]; pr
   does.
 - **Judge**: the same `deep` tier model. A judge of another model would avoid
   self-preference, but the `standard` and `light` judges were measured failing correct
-  outputs inside the evaluation command: on `orch-089`, a message listing exactly the
-  check its rubric asks for got FAIL 3/3 from both, and PASS 3/3 from the `deep` judge.
+  outputs inside the evaluation command: on the case that then covered ORCH-089, a message
+  listing exactly the check its rubric asks for got FAIL 3/3 from both, and PASS 3/3 from
+  the `deep` judge.
   Every rubric states a pass or fail criterion, where self-preference weighs less than a
   judge that fails what it should pass.
 - Wherever the graded decision is a literal — a command, a flag, a path, an address — the
   grader is a `regex`, which needs no judge at all; `llm` graders are kept for judgments no
   pattern can state.
+- The `deep` judge too fails exact clauses it is asked for when they sit deep in a long
+  output (a nine-thousand-character brief, a long takeover plan): such clauses are graded
+  by pattern, and a rubric judges one short decision.
 
 The identifiers themselves are passed on the command line only, never written in the
 repository. A later run uses the same two, or restates the baseline: scores from two
