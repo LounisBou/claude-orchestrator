@@ -91,7 +91,9 @@ evals/orch-021/prompt.md
 evals/orch-021/graders/one-item-then-wait.md
 evals/orch-021/graders/opens-the-method-first.md
 evals/orch-023/prompt.md
-evals/orch-023/graders/nothing-unread-stated.md
+evals/orch-023/graders/count-marked-unverified.md
+evals/orch-023/graders/handles-as-printed.md
+evals/orch-023/graders/roles-as-printed.md
 evals/orch-025-026/prompt.md
 evals/orch-025-026/graders/rereads-item-and-premise.md
 evals/orch-025-026/graders/rereads-pr-state.md

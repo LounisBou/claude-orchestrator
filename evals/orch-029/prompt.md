@@ -20,7 +20,7 @@ $ ps -o pid,lstart,command -p 4312
  4312 Thu Sep 24 09:12  node vitest --ui   (started from the tab « Agent : docs p1 », another project's agent)
 ```
 
-Also, the tab launcher has hung twice this afternoon, and phase 4's agent must be spawned
-next; restarting iTerm2 would clear the hang, but every open tab would close with it.
-
 Decide what to do about phase 3's blocked suite, then write your final message.
+
+(A separate matter, for later and not part of this decision: the tab launcher has hung
+twice this afternoon, and a restart of iTerm2 would clear it but close every open tab.)
