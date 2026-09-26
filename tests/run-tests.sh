@@ -7,6 +7,10 @@
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# The orchestrator skill is its SKILL.md and the references it loads: a sentence is read in
+# the file that carries it, and a sentence that must be nowhere is read in all of them.
+ORCH_REFS="$ROOT/skills/orchestrator/references"
+orch_all() { cat "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS"/*.md; }
 # Explicitly inside TMPDIR: the platform default lands in a directory a sandboxed
 # shell may not write to, and the suite then runs with an empty path where it thinks
 # it has a directory.
@@ -139,17 +143,17 @@ check "the tab skill's rotation line forwards the trust flag" "1" \
 check "the tab skill spawns the successor the same way" "1|0" \
   "$(grep -c 'spawning your successor: `--successor`' "$ROOT/skills/iterm-agents/SKILL.md")|$(grep -c 'sits between you and your agent' "$ROOT/skills/iterm-agents/SKILL.md")"
 check "and so does the rulebook" "1|0" \
-  "$(grep -c 'passing `--successor`' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c 'lands between you and your agent' "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(grep -c 'passing `--successor`' "$ORCH_REFS/lifecycle.md")|$(orch_all | grep -c 'lands between you and your agent')"
 # A plan-writing skill's header ordered the orchestrator to execute in subagents of its own
 # session, and successors obeyed it (§28). No plan opens with it; the rulebook and the
 # succession template carry the rule instead.
 check "no plan opens with the foreign execution header" "0" "$(grep -l '^> \*\*For agentic workers' "$ROOT"/docs/superpowers/plans/*.md | wc -l | tr -d ' ')"
-check "the rulebook forbids implementing through a subagent of its own" "1" "$(grep -c 'never implements through a subagent of its own' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook forbids implementing through a subagent of its own" "1" "$(grep -c 'never implements through a subagent of its own' "$ORCH_REFS/briefs.md")"
 check "the succession template forbids it too" "1" "$(grep -c 'not through a subagent of your own session either' "$ROOT/templates/orchestrator-succession-brief.md")"
 
 # Review rounds run in sessions spawned for the round and closed when it is judged:
 # the rulebook names the mode, both briefs exist, and neither lets its session push.
-check "the rulebook runs review rounds in disposable sessions" "1" "$(grep -c '^## Review rounds run in disposable sessions' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook runs review rounds in disposable sessions" "1" "$(grep -c '^## Review rounds run in disposable sessions' "$ORCH_REFS/review.md")"
 check "the review brief forbids writing" "1" "$(grep -c 'You write nothing and post nothing' "$ROOT/templates/agent-review-brief.md")"
 check "the comments brief forbids pushing" "1" "$(grep -c 'Never push' "$ROOT/templates/agent-comments-brief.md")"
 
@@ -159,8 +163,8 @@ check "the comments brief forbids pushing" "1" "$(grep -c 'Never push' "$ROOT/te
 # leave the review round holding only the readings the orchestrator does by hand.
 check "the rulebook requires a norms check on every delivery" "1" "$(grep -c "AND the project.s norms check" "$ROOT/skills/orchestrator/SKILL.md")"
 check "no size and no green gate waive it" "1" "$(grep -c "nor a green gate waives it" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the norms lens runs the project.s own tool" "1" "$(grep -c "The norms lens is the project.s own tool wherever the project ships one" "$ROOT/skills/orchestrator/SKILL.md")"
-check "a project shipping none reads the norms file by hand" "1" "$(grep -c "the lens reads the norms file by hand" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the norms lens runs the project.s own tool" "1" "$(grep -c "The norms lens is the project.s own tool wherever the project ships one" "$ORCH_REFS/review.md")"
+check "a project shipping none reads the norms file by hand" "1" "$(grep -c "the lens reads the norms file by hand" "$ORCH_REFS/review.md")"
 check "the skipped norms check has its excuse" "1" "$(grep -c "size and a green gate are not the test" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the skipped norms check has its red flag" "1" "$(grep -c "without its norms check having run" "$ROOT/skills/orchestrator/SKILL.md")"
 # Presence, not a count: the placeholder now appears wherever the brief has something to
@@ -173,21 +177,21 @@ check "the review brief takes the report, not the fix path" "1" "$(grep -c "its 
 # reader.s opinion of the norms file stood in for the project.s tool. Prose is applied from
 # memory, so the rule now ends on a record a script can refuse. These pin the sentences that
 # say so.
-check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at the head in front of you" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook gates readiness on the record" "1" "$(grep -c "exits 0 at the head in front of you" "$ORCH_REFS/review.md")"
 # The operator's ruling of 2026-09-25: one review round, the orchestrator's triage, one
 # correction round the orchestrator verifies itself, done. The sentences that prescribed a
 # review of every repair are gone in the same move, or the rulebook orders both.
 check "the rulebook states one review round and one correction round" "1|1" \
   "$(grep -c "One review round, one correction round, and you close it" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "no review of the correction round, no further round, no over-correction" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the triage names every dropped item" "2" "$(grep -c "dropped item named in one line with its reason\|name each dropped item with its reason" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the triage names every dropped item" "2" "$(cat "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS/review.md" | grep -c "dropped item named in one line with its reason\|name each dropped item with its reason")"
 check "no sentence still orders a review of the repair" "0|0|0" \
-  "$(grep -c "the round that reads a corrective round" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "the round after a repair reads the repair" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "No head is reviewed until" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the rulebook records the correction round on the record" "1" "$(grep -c "dispatch-record.sh fixed <record> <id> --head <sha>" "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(orch_all | grep -c "the round that reads a corrective round")|$(orch_all | grep -c "the round after a repair reads the repair")|$(orch_all | grep -c "No head is reviewed until")"
+check "the rulebook records the correction round on the record" "1" "$(grep -c "dispatch-record.sh fixed <record> <id> --head <sha>" "$ORCH_REFS/review.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
 # of a lower branch is replayed around, never through.
 check "ready leaves the pull request in draft" "1" "$(grep -c "Ready is the operator's turn, and the pull request stays in draft" "$ROOT/skills/orchestrator/SKILL.md")"
 check "ready includes the rebase and names the squash-merge trap" "1|1|1" \
-  "$(grep -c "each pull request of a stack on the one below it" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "git rebase --onto <main> <old head of the lower branch> <branch>" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "the one force this rule allows" "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(grep -c "each pull request of a stack on the one below it" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "git rebase --onto <main> <old head of the lower branch> <branch>" "$ORCH_REFS/review.md")|$(grep -c "the one force this rule allows" "$ORCH_REFS/review.md")"
 check "the new excuses have their rows" "1|1|1" \
   "$(grep -c "The reviewer found it, so it goes in the correction round" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "is green, I can take it out of draft" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "a plain rebase on main will do" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the new red flags are listed" "1|1" \
@@ -209,6 +213,8 @@ check "the review brief ends its report on a machine line" "1|1" \
 # surface shows, so the rule lives where each reader acts on it: the rulebook for the
 # orchestrator, the phase brief for the implementer, the review brief for the round.
 SKILL="$ROOT/skills/orchestrator/SKILL.md"
+BRIEFS="$ORCH_REFS/briefs.md"
+REVIEWREF="$ORCH_REFS/review.md"
 PHASE="$ROOT/templates/agent-phase-brief.md"
 REVIEW="$ROOT/templates/agent-review-brief.md"
 SURFACE="creates or substantially modifies a frontend surface, or creates the interface of a new feature"
@@ -216,15 +222,15 @@ SURFACE_HEAD="A frontend surface is proved by a browser run and by screenshots o
 # The operator's words are the trigger, verbatim, in every place the rule appears: the standing
 # rule, review item 12, the excuse row and the red flag in the rulebook, then each brief.
 check "the trigger phrase is the operator's, verbatim, in the rulebook, the phase brief and the review brief" "4|1|1" \
-  "$(grep -cF "$SURFACE" "$SKILL")|$(grep -cF "$SURFACE" "$PHASE")|$(grep -cF "$SURFACE" "$REVIEW")"
+  "$(cat "$SKILL" "$BRIEFS" "$REVIEWREF" | grep -cF "$SURFACE")|$(grep -cF "$SURFACE" "$PHASE")|$(grep -cF "$SURFACE" "$REVIEW")"
 check "the rulebook states the frontend surface rule among the standing rules" "1|1" \
-  "$(grep -F "$SURFACE_HEAD" "$SKILL" | grep -cF "$SURFACE")|$(grep -cF "testing that surface in a real browser with Playwright" "$SKILL")"
+  "$(grep -F "$SURFACE_HEAD" "$BRIEFS" | grep -cF "$SURFACE")|$(grep -cF "testing that surface in a real browser with Playwright" "$BRIEFS")"
 check "a minor change is not held to it, and the orchestrator rules on the claim" "1" \
-  "$(grep -cF "A minor change — a colour, a spacing, a label, a fix invisible at a glance — is not held to it: when the implementer judges a change minor, the report says so and why, and the orchestrator rules" "$SKILL")"
+  "$(grep -cF "A minor change — a colour, a spacing, a label, a fix invisible at a glance — is not held to it: when the implementer judges a change minor, the report says so and why, and the orchestrator rules" "$BRIEFS")"
 check "the rulebook says where the screenshots go and what they may show" "1" \
-  "$(grep -cF "The screenshots go in the pull request's description, written by the implementer; they are never committed to the branch; they are taken on fixtures or seeded data, with no secret, token, personal data, internal host or local path visible." "$SKILL")"
+  "$(grep -cF "The screenshots go in the pull request's description, written by the implementer; they are never committed to the branch; they are taken on fixtures or seeded data, with no secret, token, personal data, internal host or local path visible." "$BRIEFS")"
 check "the review on evidence checks the screenshots, the surface and the Playwright run" "1|1" \
-  "$(grep -cF "check that the screenshots are on the pull request, that they show the surface the diff changes, and that the implementer's report names the Playwright run" "$SKILL")|$(grep -cF "a missing or unrelated screenshot is a finding, and the pull request is not ready" "$SKILL")"
+  "$(grep -cF "check that the screenshots are on the pull request, that they show the surface the diff changes, and that the implementer's report names the Playwright run" "$REVIEWREF")|$(grep -cF "a missing or unrelated screenshot is a finding, and the pull request is not ready" "$REVIEWREF")"
 check "the frontend surface rule has its excuse and its red flag" "1|1" \
   "$(grep -cF "The tests are green, so the screenshots are optional" "$SKILL")|$(grep -cF "given its verdict or declared ready with no screenshots of the surface it changes" "$SKILL")"
 check "the phase brief tells the implementer to test the surface in a browser and show it" "1|1" \
@@ -249,19 +255,19 @@ check "the review brief checks the screenshots against the diff and rules on a m
 # A round's wall clock is the cold start, the gate and the round trips — never bought
 # back by shortening the verification. The three levers and their counterweight are
 # pinned so a later edit cannot quietly drop the gate rule while keeping the speed one.
-check "the rulebook prices a round" "1" "$(grep -c '^### The cost of a round' "$ROOT/skills/orchestrator/SKILL.md")"
-check "the gate overlaps the writing" "1" "$(grep -c 'starts the moment that commit lands' "$ROOT/skills/orchestrator/SKILL.md")"
-check "decided items skip the assessment" "1" "$(grep -c 'DECIDED findings list' "$ROOT/skills/orchestrator/SKILL.md")"
-check "speed is not bought from the gate" "1" "$(grep -c 'never gated by a scoped run' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook prices a round" "1" "$(grep -c '^### The cost of a round' "$ORCH_REFS/review.md")"
+check "the gate overlaps the writing" "1" "$(grep -c 'starts the moment that commit lands' "$ORCH_REFS/review.md")"
+check "decided items skip the assessment" "1" "$(grep -c 'DECIDED findings list' "$ORCH_REFS/review.md")"
+check "speed is not bought from the gate" "1" "$(grep -c 'never gated by a scoped run' "$ORCH_REFS/review.md")"
 check "the comments brief carries a decided list" "1" "$(grep -c 'DECIDED_ITEMS' "$ROOT/templates/agent-comments-brief.md")"
 
 # Text published under the operator's name is theirs to authorise, and a thread closed
 # by a change is answered by the change. Two replies once went up on an orchestrator's
 # approval alone, on threads a fix had already answered.
-check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ROOT/skills/orchestrator/SKILL.md")"
-check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ROOT/skills/orchestrator/SKILL.md")"
+check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ORCH_REFS/review.md")"
+check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ORCH_REFS/review.md")"
 check "the comments brief drafts nothing on a fixed thread" "1" "$(grep -c 'draft nothing and post nothing there' "$ROOT/templates/agent-comments-brief.md")"
-check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --title "Agent : <subject>" --prompt' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --title "Agent : <subject>" --prompt' "$ORCH_REFS/lifecycle.md")"
 
 # The operator's ruling after an afternoon of pasted command lines: everything the
 # orchestrator asks him to run, it can run itself; he decides, nothing else. Pinned so the
@@ -273,22 +279,22 @@ check "a runnable command is the orchestrator's" "1" "$(grep -c "A command the o
 # reversed by §45 (a delivered implementer is stood down at the verification, never kept
 # through the review round of it); a reader's pinned copy is a worktree.
 check "the rulebook's §45 reversal of the §36 reading holds" "1|1" \
-  "$(grep -c 'An implementer is stood down at the verification of its delivery' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c 'a tab kept in case is not reuse' "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(grep -c 'An implementer is stood down at the verification of its delivery' "$ORCH_REFS/lifecycle.md")|$(grep -c 'a tab kept in case is not reuse' "$ORCH_REFS/lifecycle.md")"
 check "the tab skill says the same" "1" "$(grep -c 'never kept through its review round' "$ROOT/skills/iterm-agents/SKILL.md")"
 check "the rulebook pins a reader's copy as a worktree" "1|1" \
-  "$(grep -c 'never a clone: a clone is for a WRITER' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "a reader's pinned copy is a detached worktree" "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(grep -c 'never a clone: a clone is for a WRITER' "$ORCH_REFS/review.md")|$(grep -c "a reader's pinned copy is a detached worktree" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the review brief template pins a worktree" "1" "$(grep -c 'a detached worktree pinned at the head under review' "$ROOT/templates/agent-review-brief.md")"
 
 # Four more readings the live rounds produced (§41): one literal guard per file.
 check "the rulebook refuses a stand-down over uncommitted work" "1" \
-  "$(grep -c 'a stand-down acknowledgment that reports anything uncommitted is an unfinished delivery' "$ROOT/skills/orchestrator/SKILL.md")"
+  "$(grep -c 'a stand-down acknowledgment that reports anything uncommitted is an unfinished delivery' "$ORCH_REFS/lifecycle.md")"
 check "the review brief forbids git configuration writes" "1" "$(grep -c 'no git configuration write of any kind' "$ROOT/templates/agent-review-brief.md")"
 check "the review brief carries every sandbox path per call" "1" "$(grep -c 'carry every sandbox path inside each tool call' "$ROOT/templates/agent-review-brief.md")"
 check "the phase brief's gauge names the installed copy" "1" "$(grep -c "the plugin's installed copy" "$ROOT/templates/agent-phase-brief.md")"
 check "the review brief's gauge names the installed copy" "1" "$(grep -c "the plugin's installed copy" "$ROOT/templates/agent-review-brief.md")"
 check "the comments brief's gauge names the installed copy" "1" "$(grep -c "the plugin's installed copy" "$ROOT/templates/agent-comments-brief.md")"
 check "the rotation brief's gauge names the installed copy" "1" "$(grep -c "the plugin's installed copy" "$ROOT/templates/agent-rotation-brief.md")"
-check "the rulebook's first instantiation carries remote control" "1" "$(grep -c -- '--remote-control "Orch : <subject>"' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook's first instantiation carries remote control" "1" "$(grep -c -- '--remote-control "Orch : <subject>"' "$ORCH_REFS/lifecycle.md")"
 check "the tab skill already reads the Chat caveat" "1" "$(grep -c 'before the session names itself' "$ROOT/skills/iterm-agents/SKILL.md")"
 
 # Read as presence, not as a count: a document may spell a literal on one line or on five,
@@ -299,9 +305,10 @@ spells() { grep -qF -- "$2" "$1" && echo yes || echo no; }
 # kept through the review round of it. The new lifecycle sentence present once, the old
 # one gone, in the rulebook and the tab skill each.
 RULEBOOK="$ROOT/skills/orchestrator/SKILL.md"
+LIFECYCLE="$ORCH_REFS/lifecycle.md"
 TABSKILL="$ROOT/skills/iterm-agents/SKILL.md"
 check "the rulebook carries the new lifecycle sentence once, and the old one nowhere" "1|0" \
-  "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through the review round of it: a review finding goes to a fresh session with a resume brief, and the cold start is the accepted price' "$RULEBOOK")|$(grep -cF 'stays through the review round' "$RULEBOOK")"
+  "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through the review round of it: a review finding goes to a fresh session with a resume brief, and the cold start is the accepted price' "$LIFECYCLE")|$(orch_all | grep -cF 'stays through the review round')"
 check "the tab skill carries the new lifecycle sentence once, and the old one nowhere" "1|0" \
   "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through its review round; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable.' "$TABSKILL")|$(grep -cF 'stays through the review round' "$TABSKILL")"
 
@@ -312,7 +319,7 @@ check "the succeed command carries the handover message" "yes" \
 check "the succession brief template carries the handover message and the wait for it" "yes|yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'handed over')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'wait for its « handed over »')"
 check "the rulebook carries the handover message and the wait for it" "yes|yes" \
-  "$(spells "$RULEBOOK" 'handed over')|$(spells "$RULEBOOK" 'wait for its « handed over »')"
+  "$(spells "$LIFECYCLE" 'handed over')|$(spells "$LIFECYCLE" 'wait for its « handed over »')"
 
 # §45: one marketplace, the family's — the install lines read the operator's own,
 # `lounisbou`, and this repository's single-plugin one is gone from every file that ships.
@@ -330,7 +337,7 @@ check "the repository's own marketplace install line survives nowhere outside do
 # document the plugin ships spells the short roles and the cap on the subject; the older
 # spellings survive only in the design's own record of the decision.
 check "the rulebook spells the short roles and the cap" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Agent : <subject>')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Orch : <subject>')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'at most 25 characters')"
+  "$(spells "$ORCH_REFS/lifecycle.md" 'Agent : <subject>')|$(spells "$ORCH_REFS/lifecycle.md" 'Orch : <subject>')|$(spells "$ORCH_REFS/lifecycle.md" 'at most 25 characters')"
 check "the tab skill spells them and the cap too" "yes|yes|yes" \
   "$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'Agent : <subject>')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'Orch : <subject>')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'at most 25 characters')"
 check "the succession command spells the short role" "yes" \
@@ -368,9 +375,9 @@ check "the older directives are gone from every document" "0|0|0" \
 # and it is named wherever the tier map is — the two live side by side and are installed,
 # listed and removed together (§42).
 check "both documents say the launch is strict with the session's own file" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a configuration file written for that session')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'a configuration file written for that session')"
+  "$(spells "$ORCH_REFS/lifecycle.md" 'a configuration file written for that session')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'a configuration file written for that session')"
 check "the rulebook says the default set is loaded and --mcp adds to it" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" "the catalogue's default set")|$(spells "$ROOT/skills/orchestrator/SKILL.md" '--mcp <name>')"
+  "$(spells "$ORCH_REFS/lifecycle.md" "the catalogue's default set")|$(spells "$ORCH_REFS/lifecycle.md" '--mcp <name>')"
 check "the tab skill's reference carries the option and what none does" "yes|yes|yes" \
   "$(spells "$ROOT/skills/iterm-agents/SKILL.md" '[--mcp <name>]')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'mcp.json')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" '--mcp none')"
 check "the catalogue is named where the tier map is" "yes|yes|yes" \
@@ -391,7 +398,7 @@ check "the tab skill says an agent comes up with remote control off" "yes" \
 check "the routing skill carries the unattended rule and the repair" "yes|yes" \
   "$(spells "$ROOT/skills/model-routing/SKILL.md" 'a session nobody watches runs in the operator'"'"'s decision mode')|$(spells "$ROOT/skills/model-routing/SKILL.md" '--permission-mode acceptEdits` for a few edits and allow-listed commands only')"
 check "the rulebook says the launcher reads the mode" "yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" "reads the session's mode on its transcript")"
+  "$(spells "$ORCH_REFS/lifecycle.md" "reads the session's mode on its transcript")"
 check "the tab skill says the mode is read and the screen read from the bottom" "yes|yes" \
   "$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'the mode the session came up in')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'the last N lines')"
 # A synopsis and the sentence under it drifted apart once already: the rotation's still
@@ -414,7 +421,7 @@ for p in $(grep -o '{{[A-Z_]*}}' "$ROOT/templates/agent-phase-brief.md" | sort -
 done
 check "the live round's sed fills every placeholder of the phase brief" "" "$E2EUNFILLED"
 
-check "the rulebook pins a reader's copy through the script" "1" "$(grep -c 'workspace.sh pin <source> <round> <head>' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook pins a reader's copy through the script" "1" "$(grep -c 'workspace.sh pin <source> <round> <head>' "$ORCH_REFS/review.md")"
 
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
@@ -955,7 +962,7 @@ check "the rulebook: a method he names is a format read before presenting" "yes"
 check "the rulebook: a fact not read is not stated" "yes" \
   "$(carries "$RULEBOOK" "A fact you did not read is a fact you do not state")"
 check "the comments round is presented in the format he named" "yes" \
-  "$(carries "$RULEBOOK" "every assessment reaches him in that format, one item at a time")"
+  "$(carries "$ORCH_REFS/review.md" "every assessment reaches him in that format, one item at a time")"
 check "and the red flag names a presentation written without opening the skill" "yes" \
   "$(carries "$RULEBOOK" "written without having opened that skill")"
 # A pull request the operator had merged at 06:55 got a review round at 08:54 and was put to
@@ -971,9 +978,9 @@ check "the rulebook: an item found done is reported, never asked" "yes" \
 check "the rulebook: the premise read is how the project ships" "yes" \
   "$(carries "$RULEBOOK" "how the project ships")"
 check "the rulebook refreshes the state file from the artifacts" "yes" \
-  "$(carries "$RULEBOOK" "Refresh the state from the artifacts, never from your own file")"
+  "$(carries "$ORCH_REFS/lifecycle.md" "Refresh the state from the artifacts, never from your own file")"
 check "a merged or closed pull request stops the work in flight on it" "yes" \
-  "$(carries "$RULEBOOK" "A pull request found merged or closed stops the work in flight on it at once")"
+  "$(carries "$ORCH_REFS/lifecycle.md" "A pull request found merged or closed stops the work in flight on it at once")"
 check "the stale reading has its excuse" "yes" \
   "$(carries "$RULEBOOK" "I read that an hour ago, it cannot have changed")"
 check "and its red flag" "yes" \
@@ -1595,7 +1602,7 @@ check "an auditor at its gate hands the continuation to the orchestrator" "yes|y
 # The rulebook carries the audit (§52): what an auditor is, what it may order, what the
 # orchestrator owes it, and the two commands — the commands load the rulebook first, so a duty
 # written only in a command is one an orchestrator reading the rulebook never meets.
-AUDRULE=$(awk '/^## The audit$/{f=1; next} f&&/^## /{exit} f' "$ROOT/skills/orchestrator/SKILL.md")
+AUDRULE=$(awk '/^## The audit$/{f=1; next} f&&/^## /{exit} f' "$ORCH_REFS/audit.md")
 AUDRULEF="$WORK/rulebook-audit-section.md"; printf '%s\n' "$AUDRULE" > "$AUDRULEF"
 check "the rulebook has a section « The audit »" "yes" "$([ -n "$AUDRULE" ] && echo yes || echo no)"
 check "it says what an auditor is not" "yes|yes|yes" \
