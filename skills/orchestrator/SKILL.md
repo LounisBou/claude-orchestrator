@@ -95,7 +95,26 @@ plan → brief → launch → verify → review → terminate → replace. The r
 6. **Terminate.** The verdict closes the agent's tab and its checkout (`references/lifecycle.md`).
 7. **Replace.** At the gate, the agent rotates; you hand over to a successor (`references/lifecycle.md`).
 
-Across the loop: **before a heavy run or a parallel dispatch, read `references/machine.md`**; **when the operator launches or ends an audit, read `references/audit.md`**. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
+Across the loop: **before a heavy run or a parallel dispatch, read `references/machine.md`**; **when the operator launches or ends an audit, or an auditor's message reaches you, read `references/audit.md`**. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
+
+## Carried at every step
+
+These bind at actions no reference is loaded for — a message sent, a report read, a report to the operator, a re-instantiation — so they live here.
+
+**On your side**: after every message that expects work back, subscribe to the agent's idle notice (`SendMessage` with `notify_when_idle: true`), so an agent idling on an unanswered message surfaces in minutes, not hours; and when you are re-instantiated, your first message re-announces your new address to every running agent before you read anything else, and your succession brief carries both addresses.
+
+**Control.** Every report carries the agent's measured context; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent asking beyond its scope is relayed to the user, never answered from your own judgment.
+
+- **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something has already broken the "status lives once" rule. This is a standing property, not a pre-compaction chore.
+- **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read what the artifacts say — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw, which is not what is, and the operator's own hand between two of your turns is the commonest difference. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, the agents on it stood down and their tabs closed like any finished delivery. A round dispatched on a head the operator has already merged is paid for in full and reads nothing.
+
+- **Nothing outward-facing is published without the operator's approval, and a fix needs no words.** A reply on a review thread, a comment on an issue, any text that lands under the operator's name in front of a colleague: the orchestrator may draft it, never authorise it. Approval comes from the operator and from nobody else, and an approval given for one text is not an approval for the next. And most such texts should not exist: **a thread closed by a change is answered by the change** — the diff says what was done, and a paragraph restating it is noise the reviewer has to read. Reply only when something must be said that the code cannot say: a refusal and its reason, an answer to a question, a decision taken elsewhere. Resolving a thread is not publishing and stays the orchestrator's call.
+
+When an auditor runs (`references/audit.md`):
+
+**What you owe it.** The state it asks for, from the artifacts and not from memory. Answers in order, as fast as the operator's. The application: the orchestrator applies every ordered change it sends — or refuses it with the ruling it crosses — without asking the operator whether to, and writes the application where the method lives, in the same move. And the next audit's reading: the report stays under the briefs directory's `audits/`, the next brief points at it, and the next auditor reads, change by change, whether each order was applied, is applicable as written, and bore fruit.
+
+**Across a succession.** A running audit is part of the state: the succession brief you write names the auditor, its tty and its report path, and the successor re-announces its address to the auditor like to any agent, and moves the audit's record under its own session id.
 
 ## Thresholds
 
