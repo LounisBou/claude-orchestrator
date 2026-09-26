@@ -77,39 +77,36 @@
   "iterm-005-019-064-065": {
    "with": [
     {
-     "costUsd": 0.342,
-     "durationSeconds": 18,
+     "costUsd": 0.351,
+     "durationSeconds": 20,
      "error": null,
      "graders": {
       "close-with-title": true,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": true
      },
      "passed": true,
      "score": 1
     },
     {
-     "costUsd": 0.345,
-     "durationSeconds": 20,
+     "costUsd": 0.348,
+     "durationSeconds": 19,
      "error": null,
      "graders": {
       "close-with-title": true,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": true
      },
      "passed": true,
      "score": 1
     },
     {
-     "costUsd": 0.345,
-     "durationSeconds": 20,
+     "costUsd": 0.353,
+     "durationSeconds": 22,
      "error": null,
      "graders": {
       "close-with-title": true,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": true
      },
      "passed": true,
@@ -118,51 +115,48 @@
    ],
    "without": [
     {
-     "costUsd": 0.079,
-     "durationSeconds": 19,
+     "costUsd": 0.082,
+     "durationSeconds": 21,
      "error": null,
      "graders": {
       "close-with-title": false,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": false
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.3333333333333333
     },
     {
-     "costUsd": 0.079,
+     "costUsd": 0.078,
      "durationSeconds": 18,
      "error": null,
      "graders": {
       "close-with-title": false,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": false
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.3333333333333333
     },
     {
-     "costUsd": 0.075,
-     "durationSeconds": 17,
+     "costUsd": 0.07,
+     "durationSeconds": 15,
      "error": null,
      "graders": {
       "close-with-title": false,
       "no-glyph": true,
-      "no-stored-tty": true,
       "relists": false
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.3333333333333333
     }
    ]
   },
   "iterm-020": {
    "with": [
     {
-     "costUsd": 0.338,
-     "durationSeconds": 16,
+     "costUsd": 0.347,
+     "durationSeconds": 19,
      "error": null,
      "graders": {
       "moves-beside-self": true,
@@ -172,8 +166,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.337,
-     "durationSeconds": 16,
+     "costUsd": 0.349,
+     "durationSeconds": 22,
      "error": null,
      "graders": {
       "moves-beside-self": true,
@@ -183,7 +177,7 @@
      "score": 1
     },
     {
-     "costUsd": 0.34,
+     "costUsd": 0.344,
      "durationSeconds": 17,
      "error": null,
      "graders": {
@@ -196,8 +190,8 @@
    ],
    "without": [
     {
-     "costUsd": 0.087,
-     "durationSeconds": 23,
+     "costUsd": 0.081,
+     "durationSeconds": 20,
      "error": null,
      "graders": {
       "moves-beside-self": false,
@@ -207,8 +201,8 @@
      "score": 0.5
     },
     {
-     "costUsd": 0.089,
-     "durationSeconds": 24,
+     "costUsd": 0.095,
+     "durationSeconds": 27,
      "error": null,
      "graders": {
       "moves-beside-self": false,
@@ -218,8 +212,8 @@
      "score": 0.5
     },
     {
-     "costUsd": 0.08,
-     "durationSeconds": 19,
+     "costUsd": 0.091,
+     "durationSeconds": 25,
      "error": null,
      "graders": {
       "moves-beside-self": false,
@@ -233,11 +227,12 @@
   "iterm-022": {
    "with": [
     {
-     "costUsd": 0.376,
-     "durationSeconds": 29,
+     "costUsd": 0.385,
+     "durationSeconds": 27,
      "error": null,
      "graders": {
       "keeps-the-server": true,
+      "keeps-the-tier": true,
       "uses-rotate": true
      },
      "passed": true,
@@ -249,17 +244,19 @@
      "error": null,
      "graders": {
       "keeps-the-server": true,
+      "keeps-the-tier": true,
       "uses-rotate": true
      },
      "passed": true,
      "score": 1
     },
     {
-     "costUsd": 0.366,
-     "durationSeconds": 28,
+     "costUsd": 0.372,
+     "durationSeconds": 30,
      "error": null,
      "graders": {
       "keeps-the-server": true,
+      "keeps-the-tier": true,
       "uses-rotate": true
      },
      "passed": true,
@@ -268,77 +265,80 @@
    ],
    "without": [
     {
-     "costUsd": 0.085,
-     "durationSeconds": 19,
+     "costUsd": 0.089,
+     "durationSeconds": 20,
      "error": null,
      "graders": {
       "keeps-the-server": true,
+      "keeps-the-tier": false,
       "uses-rotate": false
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.3333333333333333
     },
     {
-     "costUsd": 0.099,
-     "durationSeconds": 25,
-     "error": null,
-     "graders": {
-      "keeps-the-server": true,
-      "uses-rotate": false
-     },
-     "passed": false,
-     "score": 0.5
-    },
-    {
-     "costUsd": 0.083,
+     "costUsd": 0.076,
      "durationSeconds": 17,
      "error": null,
      "graders": {
       "keeps-the-server": true,
+      "keeps-the-tier": false,
       "uses-rotate": false
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.3333333333333333
+    },
+    {
+     "costUsd": 0.079,
+     "durationSeconds": 18,
+     "error": null,
+     "graders": {
+      "keeps-the-server": true,
+      "keeps-the-tier": false,
+      "uses-rotate": false
+     },
+     "passed": false,
+     "score": 0.3333333333333333
     }
    ]
   },
   "iterm-057": {
    "with": [
     {
-     "costUsd": 0.534,
-     "durationSeconds": 66,
+     "costUsd": 0.496,
+     "durationSeconds": 51,
      "error": null,
      "graders": {
-      "unbound-is-advisory": true
+      "unbound-is-advisory": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0
     },
     {
-     "costUsd": 0.561,
-     "durationSeconds": 71,
+     "costUsd": 0.53,
+     "durationSeconds": 65,
      "error": null,
      "graders": {
-      "unbound-is-advisory": true
+      "unbound-is-advisory": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0
     },
     {
-     "costUsd": 0.566,
-     "durationSeconds": 82,
+     "costUsd": 0.514,
+     "durationSeconds": 57,
      "error": null,
      "graders": {
-      "unbound-is-advisory": true
+      "unbound-is-advisory": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0
     }
    ],
    "without": [
     {
-     "costUsd": 0.081,
-     "durationSeconds": 18,
+     "costUsd": 0.102,
+     "durationSeconds": 26,
      "error": null,
      "graders": {
       "unbound-is-advisory": false
@@ -347,8 +347,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.098,
-     "durationSeconds": 23,
+     "costUsd": 0.102,
+     "durationSeconds": 21,
      "error": null,
      "graders": {
       "unbound-is-advisory": false
@@ -357,8 +357,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.082,
-     "durationSeconds": 18,
+     "costUsd": 0.096,
+     "durationSeconds": 21,
      "error": null,
      "graders": {
       "unbound-is-advisory": false
@@ -713,18 +713,18 @@
   "orch-018": {
    "with": [
     {
-     "costUsd": 0.513,
+     "costUsd": 0.502,
      "durationSeconds": 75,
      "error": null,
      "graders": {
-      "names-the-term": true
+      "names-the-term": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0
     },
     {
-     "costUsd": 0.552,
-     "durationSeconds": 80,
+     "costUsd": 0.427,
+     "durationSeconds": 46,
      "error": null,
      "graders": {
       "names-the-term": true
@@ -733,8 +733,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.506,
-     "durationSeconds": 68,
+     "costUsd": 0.503,
+     "durationSeconds": 60,
      "error": null,
      "graders": {
       "names-the-term": true
@@ -745,8 +745,8 @@
    ],
    "without": [
     {
-     "costUsd": 0.135,
-     "durationSeconds": 39,
+     "costUsd": 0.129,
+     "durationSeconds": 34,
      "error": null,
      "graders": {
       "names-the-term": false
@@ -755,8 +755,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.11,
-     "durationSeconds": 32,
+     "costUsd": 0.136,
+     "durationSeconds": 34,
      "error": null,
      "graders": {
       "names-the-term": false
@@ -765,7 +765,7 @@
      "score": 0
     },
     {
-     "costUsd": 0.12,
+     "costUsd": 0.132,
      "durationSeconds": 32,
      "error": null,
      "graders": {
@@ -779,8 +779,8 @@
   "orch-021": {
    "with": [
     {
-     "costUsd": 1.205,
-     "durationSeconds": 56,
+     "costUsd": 1.459,
+     "durationSeconds": 93,
      "error": null,
      "graders": {
       "one-item-then-wait": true,
@@ -790,8 +790,8 @@
      "score": 1
     },
     {
-     "costUsd": 1.347,
-     "durationSeconds": 57,
+     "costUsd": 0.911,
+     "durationSeconds": 61,
      "error": null,
      "graders": {
       "one-item-then-wait": true,
@@ -801,21 +801,32 @@
      "score": 1
     },
     {
-     "costUsd": 1.077,
-     "durationSeconds": 62,
+     "costUsd": 1.233,
+     "durationSeconds": 69,
      "error": null,
      "graders": {
       "one-item-then-wait": true,
-      "opens-the-method-first": true
+      "opens-the-method-first": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0.5
     }
    ],
    "without": [
     {
-     "costUsd": 0.278,
-     "durationSeconds": 36,
+     "costUsd": 0.425,
+     "durationSeconds": 29,
+     "error": null,
+     "graders": {
+      "one-item-then-wait": false,
+      "opens-the-method-first": true
+     },
+     "passed": false,
+     "score": 0.5
+    },
+    {
+     "costUsd": 0.314,
+     "durationSeconds": 33,
      "error": null,
      "graders": {
       "one-item-then-wait": false,
@@ -825,7 +836,7 @@
      "score": 0
     },
     {
-     "costUsd": 0.392,
+     "costUsd": 0.378,
      "durationSeconds": 28,
      "error": null,
      "graders": {
@@ -834,83 +845,84 @@
      },
      "passed": false,
      "score": 0
-    },
-    {
-     "costUsd": 0.248,
-     "durationSeconds": 27,
-     "error": null,
-     "graders": {
-      "one-item-then-wait": false,
-      "opens-the-method-first": true
-     },
-     "passed": false,
-     "score": 0.5
     }
    ]
   },
   "orch-023": {
    "with": [
     {
-     "costUsd": 0.104,
-     "durationSeconds": 20,
+     "costUsd": 0.114,
+     "durationSeconds": 24,
      "error": null,
      "graders": {
-      "nothing-unread-stated": false
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": false,
-     "score": 0
+     "score": 0.6666666666666666
     },
     {
-     "costUsd": 0.112,
-     "durationSeconds": 20,
-     "error": null,
-     "graders": {
-      "nothing-unread-stated": false
-     },
-     "passed": false,
-     "score": 0
-    },
-    {
-     "costUsd": 0.3,
+     "costUsd": 0.11,
      "durationSeconds": 23,
      "error": null,
      "graders": {
-      "nothing-unread-stated": false
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": false,
-     "score": 0
+     "score": 0.6666666666666666
+    },
+    {
+     "costUsd": 0.113,
+     "durationSeconds": 24,
+     "error": null,
+     "graders": {
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
+     },
+     "passed": false,
+     "score": 0.6666666666666666
     }
    ],
    "without": [
     {
-     "costUsd": 0.084,
-     "durationSeconds": 18,
+     "costUsd": 0.095,
+     "durationSeconds": 19,
      "error": null,
      "graders": {
-      "nothing-unread-stated": false
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": false,
-     "score": 0
+     "score": 0.6666666666666666
     },
     {
-     "costUsd": 0.097,
-     "durationSeconds": 20,
+     "costUsd": 0.088,
+     "durationSeconds": 19,
      "error": null,
      "graders": {
-      "nothing-unread-stated": false
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": false,
-     "score": 0
+     "score": 0.6666666666666666
     },
     {
-     "costUsd": 0.098,
-     "durationSeconds": 18,
+     "costUsd": 0.095,
+     "durationSeconds": 22,
      "error": null,
      "graders": {
-      "nothing-unread-stated": false
+      "count-marked-unverified": false,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": false,
-     "score": 0
+     "score": 0.6666666666666666
     }
    ]
   },
@@ -989,27 +1001,17 @@
   "orch-029": {
    "with": [
     {
-     "costUsd": 0.394,
-     "durationSeconds": 61,
+     "costUsd": 0.415,
+     "durationSeconds": 58,
      "error": null,
      "graders": {
-      "stop-and-ask": false
+      "stop-and-ask": true
      },
-     "passed": false,
-     "score": 0
+     "passed": true,
+     "score": 1
     },
     {
-     "costUsd": 0.359,
-     "durationSeconds": 55,
-     "error": null,
-     "graders": {
-      "stop-and-ask": false
-     },
-     "passed": false,
-     "score": 0
-    },
-    {
-     "costUsd": 0.385,
+     "costUsd": 0.392,
      "durationSeconds": 57,
      "error": null,
      "graders": {
@@ -1017,11 +1019,31 @@
      },
      "passed": false,
      "score": 0
+    },
+    {
+     "costUsd": 0.366,
+     "durationSeconds": 51,
+     "error": null,
+     "graders": {
+      "stop-and-ask": true
+     },
+     "passed": true,
+     "score": 1
     }
    ],
    "without": [
     {
-     "costUsd": 0.101,
+     "costUsd": 0.096,
+     "durationSeconds": 25,
+     "error": null,
+     "graders": {
+      "stop-and-ask": false
+     },
+     "passed": false,
+     "score": 0
+    },
+    {
+     "costUsd": 0.129,
      "durationSeconds": 27,
      "error": null,
      "graders": {
@@ -1031,17 +1053,7 @@
      "score": 0
     },
     {
-     "costUsd": 0.136,
-     "durationSeconds": 26,
-     "error": null,
-     "graders": {
-      "stop-and-ask": false
-     },
-     "passed": false,
-     "score": 0
-    },
-    {
-     "costUsd": 0.103,
+     "costUsd": 0.108,
      "durationSeconds": 29,
      "error": null,
      "graders": {
@@ -1139,8 +1151,8 @@
   "orch-050-052-053-068-168-179-220": {
    "with": [
     {
-     "costUsd": 0.517,
-     "durationSeconds": 73,
+     "costUsd": 0.486,
+     "durationSeconds": 75,
      "error": null,
      "graders": {
       "address-handshake-silence": false,
@@ -1151,88 +1163,52 @@
       "never-end-turn-waiting": true,
       "no-host-variable": true,
       "not-backgrounded": true,
-      "timeout-and-tail": false
+      "timeout-and-tail": true
      },
      "passed": false,
-     "score": 0.6666666666666666
+     "score": 0.7777777777777778
     },
     {
-     "costUsd": 0.518,
-     "durationSeconds": 64,
+     "costUsd": 0.481,
+     "durationSeconds": 57,
      "error": null,
      "graders": {
       "address-handshake-silence": true,
       "brief-written": true,
       "context-gate": true,
       "exact-address": true,
-      "gauge-absolute-path": false,
+      "gauge-absolute-path": true,
+      "never-end-turn-waiting": true,
+      "no-host-variable": true,
+      "not-backgrounded": true,
+      "timeout-and-tail": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.567,
+     "durationSeconds": 82,
+     "error": null,
+     "graders": {
+      "address-handshake-silence": true,
+      "brief-written": true,
+      "context-gate": true,
+      "exact-address": true,
+      "gauge-absolute-path": true,
       "never-end-turn-waiting": true,
       "no-host-variable": true,
       "not-backgrounded": false,
       "timeout-and-tail": false
      },
      "passed": false,
-     "score": 0.6666666666666666
-    },
-    {
-     "costUsd": 0.48,
-     "durationSeconds": 70,
-     "error": null,
-     "graders": {
-      "address-handshake-silence": true,
-      "brief-written": true,
-      "context-gate": false,
-      "exact-address": true,
-      "gauge-absolute-path": false,
-      "never-end-turn-waiting": true,
-      "no-host-variable": true,
-      "not-backgrounded": true,
-      "timeout-and-tail": false
-     },
-     "passed": false,
-     "score": 0.6666666666666666
+     "score": 0.7777777777777778
     }
    ],
    "without": [
     {
-     "costUsd": 0.146,
-     "durationSeconds": 31,
-     "error": null,
-     "graders": {
-      "address-handshake-silence": false,
-      "brief-written": true,
-      "context-gate": false,
-      "exact-address": true,
-      "gauge-absolute-path": false,
-      "never-end-turn-waiting": false,
-      "no-host-variable": true,
-      "not-backgrounded": true,
-      "timeout-and-tail": false
-     },
-     "passed": false,
-     "score": 0.4444444444444444
-    },
-    {
-     "costUsd": 0.183,
-     "durationSeconds": 32,
-     "error": null,
-     "graders": {
-      "address-handshake-silence": false,
-      "brief-written": true,
-      "context-gate": false,
-      "exact-address": true,
-      "gauge-absolute-path": false,
-      "never-end-turn-waiting": false,
-      "no-host-variable": true,
-      "not-backgrounded": true,
-      "timeout-and-tail": false
-     },
-     "passed": false,
-     "score": 0.4444444444444444
-    },
-    {
      "costUsd": 0.142,
-     "durationSeconds": 35,
+     "durationSeconds": 30,
      "error": null,
      "graders": {
       "address-handshake-silence": false,
@@ -1247,13 +1223,49 @@
      },
      "passed": false,
      "score": 0.4444444444444444
+    },
+    {
+     "costUsd": 0.137,
+     "durationSeconds": 29,
+     "error": null,
+     "graders": {
+      "address-handshake-silence": false,
+      "brief-written": true,
+      "context-gate": false,
+      "exact-address": true,
+      "gauge-absolute-path": false,
+      "never-end-turn-waiting": false,
+      "no-host-variable": true,
+      "not-backgrounded": true,
+      "timeout-and-tail": false
+     },
+     "passed": false,
+     "score": 0.4444444444444444
+    },
+    {
+     "costUsd": 0.151,
+     "durationSeconds": 36,
+     "error": null,
+     "graders": {
+      "address-handshake-silence": false,
+      "brief-written": true,
+      "context-gate": false,
+      "exact-address": false,
+      "gauge-absolute-path": false,
+      "never-end-turn-waiting": false,
+      "no-host-variable": true,
+      "not-backgrounded": true,
+      "timeout-and-tail": false
+     },
+     "passed": false,
+     "score": 0.3333333333333333
     }
    ]
   },
   "orch-055": {
    "with": [
     {
-     "costUsd": 0.275,
+     "costUsd": 0.279,
      "durationSeconds": 22,
      "error": null,
      "graders": {
@@ -1263,8 +1275,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.273,
-     "durationSeconds": 23,
+     "costUsd": 0.287,
+     "durationSeconds": 24,
      "error": null,
      "graders": {
       "subscribes-to-idle": true
@@ -1273,8 +1285,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.282,
-     "durationSeconds": 25,
+     "costUsd": 0.284,
+     "durationSeconds": 24,
      "error": null,
      "graders": {
       "subscribes-to-idle": true
@@ -1285,7 +1297,7 @@
    ],
    "without": [
     {
-     "costUsd": 0.06,
+     "costUsd": 0.063,
      "durationSeconds": 12,
      "error": null,
      "graders": {
@@ -1295,8 +1307,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.058,
-     "durationSeconds": 10,
+     "costUsd": 0.059,
+     "durationSeconds": 11,
      "error": null,
      "graders": {
       "subscribes-to-idle": false
@@ -1305,8 +1317,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.057,
-     "durationSeconds": 11,
+     "costUsd": 0.056,
+     "durationSeconds": 10,
      "error": null,
      "graders": {
       "subscribes-to-idle": false
@@ -1319,8 +1331,8 @@
   "orch-056-183-189": {
    "with": [
     {
-     "costUsd": 0.401,
-     "durationSeconds": 40,
+     "costUsd": 0.396,
+     "durationSeconds": 35,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1333,8 +1345,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.387,
-     "durationSeconds": 34,
+     "costUsd": 0.397,
+     "durationSeconds": 36,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1347,8 +1359,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.385,
-     "durationSeconds": 34,
+     "costUsd": 0.415,
+     "durationSeconds": 46,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1363,8 +1375,8 @@
    ],
    "without": [
     {
-     "costUsd": 0.098,
-     "durationSeconds": 25,
+     "costUsd": 0.109,
+     "durationSeconds": 36,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1377,8 +1389,8 @@
      "score": 0.4
     },
     {
-     "costUsd": 0.11,
-     "durationSeconds": 32,
+     "costUsd": 0.094,
+     "durationSeconds": 24,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1391,8 +1403,8 @@
      "score": 0.4
     },
     {
-     "costUsd": 0.111,
-     "durationSeconds": 32,
+     "costUsd": 0.103,
+     "durationSeconds": 28,
      "error": null,
      "graders": {
       "agent-p8-addressed": true,
@@ -1709,37 +1721,43 @@
   "orch-101-102-103-105": {
    "with": [
     {
-     "costUsd": 0.297,
-     "durationSeconds": 26,
-     "error": null,
-     "graders": {
-      "fixed-at-verified-head": true,
-      "ready-at-verified-head": true,
-      "ready-on-the-record": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.288,
-     "durationSeconds": 22,
-     "error": null,
-     "graders": {
-      "fixed-at-verified-head": true,
-      "ready-at-verified-head": true,
-      "ready-on-the-record": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.313,
+     "costUsd": 0.347,
      "durationSeconds": 31,
      "error": null,
      "graders": {
       "fixed-at-verified-head": true,
+      "fixed-before-ready": true,
       "ready-at-verified-head": true,
-      "ready-on-the-record": true
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.347,
+     "durationSeconds": 29,
+     "error": null,
+     "graders": {
+      "fixed-at-verified-head": true,
+      "fixed-before-ready": true,
+      "ready-at-verified-head": true,
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.352,
+     "durationSeconds": 31,
+     "error": null,
+     "graders": {
+      "fixed-at-verified-head": true,
+      "fixed-before-ready": true,
+      "ready-at-verified-head": true,
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": true
      },
      "passed": true,
      "score": 1
@@ -1747,40 +1765,46 @@
    ],
    "without": [
     {
-     "costUsd": 0.089,
-     "durationSeconds": 22,
+     "costUsd": 0.168,
+     "durationSeconds": 33,
      "error": null,
      "graders": {
       "fixed-at-verified-head": false,
+      "fixed-before-ready": false,
       "ready-at-verified-head": false,
-      "ready-on-the-record": true
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": false
      },
      "passed": false,
-     "score": 0.3333333333333333
+     "score": 0.2
     },
     {
-     "costUsd": 0.098,
-     "durationSeconds": 24,
+     "costUsd": 0.156,
+     "durationSeconds": 34,
      "error": null,
      "graders": {
       "fixed-at-verified-head": false,
+      "fixed-before-ready": false,
       "ready-at-verified-head": false,
-      "ready-on-the-record": true
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": false
      },
      "passed": false,
-     "score": 0.3333333333333333
+     "score": 0.2
     },
     {
-     "costUsd": 0.114,
-     "durationSeconds": 31,
+     "costUsd": 0.164,
+     "durationSeconds": 33,
      "error": null,
      "graders": {
       "fixed-at-verified-head": false,
+      "fixed-before-ready": false,
       "ready-at-verified-head": false,
-      "ready-on-the-record": true
+      "ready-on-the-record": true,
+      "ready-only-on-exit-0": false
      },
      "passed": false,
-     "score": 0.3333333333333333
+     "score": 0.2
     }
    ]
   },
@@ -2237,80 +2261,92 @@
   "orch-157-191-192": {
    "with": [
     {
-     "costUsd": 0.388,
-     "durationSeconds": 33,
+     "costUsd": 0.436,
+     "durationSeconds": 42,
      "error": null,
      "graders": {
       "handed-over": true,
-      "hands-over-and-ends": false
+      "leaves-60-to-successor": false,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": true
      },
      "passed": false,
-     "score": 0.5
+     "score": 0.75
     },
     {
-     "costUsd": 0.392,
-     "durationSeconds": 33,
+     "costUsd": 0.451,
+     "durationSeconds": 52,
      "error": null,
      "graders": {
       "handed-over": true,
-      "hands-over-and-ends": false
-     },
-     "passed": false,
-     "score": 0.5
-    },
-    {
-     "costUsd": 0.375,
-     "durationSeconds": 29,
-     "error": null,
-     "graders": {
-      "handed-over": true,
-      "hands-over-and-ends": true
+      "leaves-60-to-successor": true,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": true
      },
      "passed": true,
      "score": 1
+    },
+    {
+     "costUsd": 0.432,
+     "durationSeconds": 39,
+     "error": null,
+     "graders": {
+      "handed-over": true,
+      "leaves-60-to-successor": false,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": true
+     },
+     "passed": false,
+     "score": 0.75
     }
    ],
    "without": [
     {
-     "costUsd": 0.082,
-     "durationSeconds": 20,
+     "costUsd": 0.155,
+     "durationSeconds": 37,
      "error": null,
      "graders": {
       "handed-over": false,
-      "hands-over-and-ends": false
+      "leaves-60-to-successor": true,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": false
      },
      "passed": false,
-     "score": 0
+     "score": 0.5
     },
     {
-     "costUsd": 0.081,
-     "durationSeconds": 19,
+     "costUsd": 0.107,
+     "durationSeconds": 27,
      "error": null,
      "graders": {
       "handed-over": false,
-      "hands-over-and-ends": false
+      "leaves-60-to-successor": false,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": false
      },
      "passed": false,
-     "score": 0
+     "score": 0.25
     },
     {
-     "costUsd": 0.085,
-     "durationSeconds": 22,
+     "costUsd": 0.127,
+     "durationSeconds": 31,
      "error": null,
      "graders": {
       "handed-over": false,
-      "hands-over-and-ends": false
+      "leaves-60-to-successor": true,
+      "no-close-own-tab": true,
+      "nothing-after-handed-over": false
      },
      "passed": false,
-     "score": 0
+     "score": 0.5
     }
    ]
   },
   "orch-158-167": {
    "with": [
     {
-     "costUsd": 0.504,
-     "durationSeconds": 54,
+     "costUsd": 0.525,
+     "durationSeconds": 51,
      "error": null,
      "graders": {
       "gate-and-readings": true,
@@ -2320,8 +2356,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.537,
-     "durationSeconds": 64,
+     "costUsd": 0.495,
+     "durationSeconds": 52,
      "error": null,
      "graders": {
       "gate-and-readings": true,
@@ -2331,8 +2367,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.472,
-     "durationSeconds": 54,
+     "costUsd": 0.511,
+     "durationSeconds": 49,
      "error": null,
      "graders": {
       "gate-and-readings": true,
@@ -2344,8 +2380,8 @@
    ],
    "without": [
     {
-     "costUsd": 0.121,
-     "durationSeconds": 34,
+     "costUsd": 0.115,
+     "durationSeconds": 28,
      "error": null,
      "graders": {
       "gate-and-readings": false,
@@ -2355,8 +2391,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.127,
-     "durationSeconds": 35,
+     "costUsd": 0.112,
+     "durationSeconds": 25,
      "error": null,
      "graders": {
       "gate-and-readings": false,
@@ -2366,8 +2402,8 @@
      "score": 0
     },
     {
-     "costUsd": 0.125,
-     "durationSeconds": 33,
+     "costUsd": 0.117,
+     "durationSeconds": 31,
      "error": null,
      "graders": {
       "gate-and-readings": false,
@@ -2381,8 +2417,8 @@
   "orch-177-178": {
    "with": [
     {
-     "costUsd": 0.372,
-     "durationSeconds": 62,
+     "costUsd": 0.413,
+     "durationSeconds": 73,
      "error": null,
      "graders": {
       "lists-all-prs": true,
@@ -2392,8 +2428,8 @@
      "score": 1
     },
     {
-     "costUsd": 0.346,
-     "durationSeconds": 46,
+     "costUsd": 0.353,
+     "durationSeconds": 56,
      "error": null,
      "graders": {
       "lists-all-prs": true,
@@ -2403,21 +2439,21 @@
      "score": 1
     },
     {
-     "costUsd": 0.401,
+     "costUsd": 0.427,
      "durationSeconds": 70,
      "error": null,
      "graders": {
-      "lists-all-prs": true,
-      "refresh-then-stop-merged": true
+      "lists-all-prs": false,
+      "refresh-then-stop-merged": false
      },
-     "passed": true,
-     "score": 1
+     "passed": false,
+     "score": 0
     }
    ],
    "without": [
     {
-     "costUsd": 0.118,
-     "durationSeconds": 34,
+     "costUsd": 0.145,
+     "durationSeconds": 44,
      "error": null,
      "graders": {
       "lists-all-prs": true,
@@ -2427,8 +2463,8 @@
      "score": 0.5
     },
     {
-     "costUsd": 0.137,
-     "durationSeconds": 43,
+     "costUsd": 0.146,
+     "durationSeconds": 41,
      "error": null,
      "graders": {
       "lists-all-prs": true,
@@ -2438,8 +2474,8 @@
      "score": 0.5
     },
     {
-     "costUsd": 0.134,
-     "durationSeconds": 34,
+     "costUsd": 0.16,
+     "durationSeconds": 35,
      "error": null,
      "graders": {
       "lists-all-prs": true,
@@ -2621,34 +2657,34 @@
   "route-047": {
    "with": [
     {
-     "costUsd": 0.304,
-     "durationSeconds": 30,
+     "costUsd": 0.294,
+     "durationSeconds": 23,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": true
+      "writes-review-record": true
      },
      "passed": true,
      "score": 1
     },
     {
-     "costUsd": 0.29,
-     "durationSeconds": 24,
+     "costUsd": 0.321,
+     "durationSeconds": 36,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": true
+      "writes-review-record": true
      },
      "passed": true,
      "score": 1
     },
     {
-     "costUsd": 0.298,
-     "durationSeconds": 25,
+     "costUsd": 0.308,
+     "durationSeconds": 29,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": true
+      "writes-review-record": true
      },
      "passed": true,
      "score": 1
@@ -2656,34 +2692,34 @@
    ],
    "without": [
     {
-     "costUsd": 0.09,
-     "durationSeconds": 20,
+     "costUsd": 0.078,
+     "durationSeconds": 17,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": false
+      "writes-review-record": false
      },
      "passed": false,
      "score": 0.5
     },
     {
      "costUsd": 0.086,
-     "durationSeconds": 22,
+     "durationSeconds": 19,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": false
+      "writes-review-record": false
      },
      "passed": false,
      "score": 0.5
     },
     {
-     "costUsd": 0.09,
-     "durationSeconds": 23,
+     "costUsd": 0.085,
+     "durationSeconds": 20,
      "error": null,
      "graders": {
       "no-norms-none": true,
-      "records-the-review": false
+      "writes-review-record": false
      },
      "passed": false,
      "score": 0.5
@@ -2691,6 +2727,7 @@
    ]
   }
  },
- "costUsd": 65.36,
- "judge": "deep tier"
+ "costUsd": 66.04,
+ "judge": "deep tier",
+ "measured_at": "73ad100350d37fd509808482962444b679909982"
 }
