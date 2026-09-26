@@ -2761,6 +2761,10 @@ variant contra.md 's/| drop? |/| contradiction? |/'
 check "trace: contradiction? is a proposal, skipped" "ok=4 missing=0 skipped=1" "$(trace targets contra.md | tail -1)"
 variant scriptc.md 's/| drop? |/| script-candidate? |/'
 check "trace: script-candidate? is a proposal, skipped" "ok=4 missing=0 skipped=1" "$(trace targets scriptc.md | tail -1)"
+variant ruleddrop.md 's/| drop? |/| drop |/'
+check "trace: a ruled drop is skipped" "ok=4 missing=0 skipped=1" "$(trace targets ruleddrop.md | tail -1)"
+check "trace: a ruled drop whose signature is absent is not named" "0" \
+  "$(trace targets ruleddrop.md | grep -c 'FIX-005')"
 
 # Merges: a merge names one existing row other than itself, and that row is the anchor.
 variant nomerge.md 's/| merge->FIX-001 |/| merge->FIX-999 |/'
