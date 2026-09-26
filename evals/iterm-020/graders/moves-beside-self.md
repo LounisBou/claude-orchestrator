@@ -3,4 +3,4 @@
 type: regex
 ---
 
-move --tty (/dev/)?ttys031 --right-of self|move --right-of self --tty (/dev/)?ttys031
+move --tty\s+\S[^\n]*--right-of self|move --right-of self --tty\s+\S
