@@ -266,8 +266,8 @@ check "the comments brief carries a decided list" "1" "$(grep -c 'DECIDED_ITEMS'
 # Text published under the operator's name is theirs to authorise, and a thread closed
 # by a change is answered by the change. Two replies once went up on an orchestrator's
 # approval alone, on threads a fix had already answered.
-check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ORCH_REFS/review.md")"
-check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ORCH_REFS/review.md")"
+check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ROOT/skills/orchestrator/SKILL.md")"
 check "the comments brief drafts nothing on a fixed thread" "1" "$(grep -c 'draft nothing and post nothing there' "$ROOT/templates/agent-comments-brief.md")"
 check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --title "Agent : <subject>" --prompt' "$ORCH_REFS/lifecycle.md")"
 
@@ -980,9 +980,9 @@ check "the rulebook: an item found done is reported, never asked" "yes" \
 check "the rulebook: the premise read is how the project ships" "yes" \
   "$(carries "$RULEBOOK" "how the project ships")"
 check "the rulebook refreshes the state file from the artifacts" "yes" \
-  "$(carries "$ORCH_REFS/lifecycle.md" "Refresh the state from the artifacts, never from your own file")"
+  "$(carries "$RULEBOOK" "Refresh the state from the artifacts, never from your own file")"
 check "a merged or closed pull request stops the work in flight on it" "yes" \
-  "$(carries "$ORCH_REFS/lifecycle.md" "A pull request found merged or closed stops the work in flight on it at once")"
+  "$(carries "$RULEBOOK" "A pull request found merged or closed stops the work in flight on it at once")"
 check "the stale reading has its excuse" "yes" \
   "$(carries "$RULEBOOK" "I read that an hour ago, it cannot have changed")"
 check "and its red flag" "yes" \
@@ -1604,7 +1604,9 @@ check "an auditor at its gate hands the continuation to the orchestrator" "yes|y
 # The rulebook carries the audit (§52): what an auditor is, what it may order, what the
 # orchestrator owes it, and the two commands — the commands load the rulebook first, so a duty
 # written only in a command is one an orchestrator reading the rulebook never meets.
-AUDRULE=$(awk '/^## The audit$/{f=1; next} f&&/^## /{exit} f' "$ORCH_REFS/audit.md")
+# The audit's rules: its reference's section, and what the orchestrator owes an auditor at
+# every message, which the rulebook carries itself.
+AUDRULE=$(awk '/^## The audit$/{f=1; next} f&&/^## /{exit} f' "$ORCH_REFS/audit.md"; awk '/^## Carried at every step$/{f=1; next} f&&/^## /{exit} f' "$ROOT/skills/orchestrator/SKILL.md")
 AUDRULEF="$WORK/rulebook-audit-section.md"; printf '%s\n' "$AUDRULE" > "$AUDRULEF"
 check "the rulebook has a section « The audit »" "yes" "$([ -n "$AUDRULE" ] && echo yes || echo no)"
 check "it says what an auditor is not" "yes|yes|yes" \
