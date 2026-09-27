@@ -1,6 +1,6 @@
 # Lifecycle
 
-Read before spawning, closing, rotating or handing over — an agent's session, a review or comments session, or your own.
+Read before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over — an agent's session, a review or comments session, or your own.
 
 - The agents' lifecycle is yours — launch, verify, control, terminate, replace
 - Context rotation

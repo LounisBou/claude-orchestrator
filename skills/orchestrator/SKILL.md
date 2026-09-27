@@ -89,13 +89,13 @@ plan → brief → launch → verify → review → terminate → replace. The r
 
 1. **Plan.** The prerequisites and the phase rules above: contracts exact, one kind of change per phase, a checkout per phase.
 2. **Brief.** **Before writing a brief, read `references/briefs.md`** — the prompt recipe, the standing rules every prompt carries, the lint before the spawn, the tier the dispatch names.
-3. **Launch.** **Before spawning, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief.
-4. **Verify.** The spawn on the artifact, then the handshake; every report's context against the gate below (`references/lifecycle.md`).
-5. **Review.** **Before a verdict on a delivery, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
-6. **Terminate.** The verdict closes the agent's tab and its checkout (`references/lifecycle.md`).
-7. **Replace.** At the gate, the agent rotates; you hand over to a successor (`references/lifecycle.md`).
+3. **Launch.** **Before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief.
+4. **Verify.** The spawn on the artifact, then the handshake; every report's context against the gate below — all of it under step 3's instruction to read `references/lifecycle.md`.
+5. **Review.** **Before dispatching a review or comments round, before a verdict on a delivery, and before the rebase and push once ready, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
+6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
+7. **Replace.** At the gate, the agent rotates; you hand over to a successor — both under step 3's instruction to read `references/lifecycle.md`.
 
-Across the loop: **before a heavy run or a parallel dispatch, read `references/machine.md`**; **when the operator launches or ends an audit, or an auditor's message reaches you, read `references/audit.md`**. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
+Across the loop: **before a heavy run, a parallel dispatch, a brief on a shared machine, or relaying a round, read `references/machine.md`**; **when the operator launches or ends an audit, or an auditor's message reaches you, read `references/audit.md`**. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
 
 ## Carried at every step
 
