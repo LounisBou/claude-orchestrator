@@ -269,7 +269,7 @@ check "the comments brief carries a decided list" "1" "$(grep -c 'DECIDED_ITEMS'
 check "outward-facing text needs the operator" "1" "$(grep -c "may draft it, never authorise it" "$ROOT/skills/orchestrator/SKILL.md")"
 check "a fix answers its own thread" "1" "$(grep -c 'answered by the change' "$ROOT/skills/orchestrator/SKILL.md")"
 check "the comments brief drafts nothing on a fixed thread" "1" "$(grep -c 'draft nothing and post nothing there' "$ROOT/templates/agent-comments-brief.md")"
-check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --title "Agent : <subject>" --prompt' "$ORCH_REFS/lifecycle.md")"
+check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-of self --title "Agent : <subject>" --brief' "$ORCH_REFS/lifecycle.md")"
 
 # The operator's ruling after an afternoon of pasted command lines: everything the
 # orchestrator asks him to run, it can run itself; he decides, nothing else. Pinned so the
@@ -851,7 +851,7 @@ check "the missing non-goals are named" "1" "$(bash "$LINT" "$B/noaddr.md" 2>&1 
 # orchestrator nothing to record, and the readiness gate then refuses a head whose round did
 # read it. The rule lived in prose on both sides of the round and was skipped twice in one
 # day, so the brief is read for it before the dispatch rather than after.
-review_brief() { printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is `p-1 [a1b2c3]`.\n' > "$1"; }
+review_brief() { printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is `p-1 [a1b2c3]`.\n\nGauge: run `%s`.\n' "$ROOT/skills/context-gauge/scripts/context-gauge.sh" > "$1"; }
 
 review_brief "$B/review.md"
 printf 'End the report with `norms-check: tool <head>` or `norms-check: none <head>`.\n' >> "$B/review.md"
@@ -866,6 +866,151 @@ check "the shipped review template raises no norms-check finding" "0" \
 
 check_status "a brief that does not exist is an error" 1 bash "$LINT" "$B/absent.md"
 check_status "no argument is an error" 1 bash "$LINT"
+
+# An instruction to run something in the background, `run_in_background`, or a command
+# ending in ` &` costs an agent its turn: the host never wakes it back up, and the work is
+# picked up hours later by hand. A clause that FORBIDS it reads the opposite way and must
+# raise nothing, including when the forbidding word sits on the very same line.
+ok_brief "$B/bg-phrase.md"; printf 'Run the coverage suite in the background while you continue.\n' >> "$B/bg-phrase.md"
+check_status "an instruction to run in the background is a finding" 1 bash "$LINT" "$B/bg-phrase.md"
+check "the background instruction is named" "1" "$(bash "$LINT" "$B/bg-phrase.md" 2>&1 | grep -c 'background')"
+
+ok_brief "$B/bg-token.md"; printf 'Pass run_in_background: true to the tool call.\n' >> "$B/bg-token.md"
+check_status "the run_in_background token is a finding" 1 bash "$LINT" "$B/bg-token.md"
+check "the token is named" "1" "$(bash "$LINT" "$B/bg-token.md" 2>&1 | grep -c 'run_in_background')"
+
+ok_brief "$B/bg-amp.md"; printf 'Start it with `long-task.sh &` and move on.\n' >> "$B/bg-amp.md"
+check_status "a command ending in an ampersand is a finding" 1 bash "$LINT" "$B/bg-amp.md"
+check "the trailing ampersand is named" "1" "$(bash "$LINT" "$B/bg-amp.md" 2>&1 | grep -c 'ending in')"
+
+ok_brief "$B/bg-fence.md"; printf '```\nlong-task.sh &\n```\n' >> "$B/bg-fence.md"
+check_status "a fenced command ending in an ampersand is a finding" 1 bash "$LINT" "$B/bg-fence.md"
+
+ok_brief "$B/bg-neg1.md"; printf 'Never run anything in the background.\n' >> "$B/bg-neg1.md"
+check_status "a clause forbidding the background is not a finding" 0 bash "$LINT" "$B/bg-neg1.md"
+
+ok_brief "$B/bg-neg2.md"; printf 'There is no background run allowed here.\n' >> "$B/bg-neg2.md"
+check_status "a clause naming no background run is not a finding" 0 bash "$LINT" "$B/bg-neg2.md"
+
+ok_brief "$B/bg-neg3.md"; printf 'Never end a command with `&`.\n' >> "$B/bg-neg3.md"
+check_status "a clause naming a forbidden ampersand is not a finding" 0 bash "$LINT" "$B/bg-neg3.md"
+
+ok_brief "$B/bg-neg4.md"; printf 'Never run `sleep 5 &` under any circumstance.\n' >> "$B/bg-neg4.md"
+check_status "a forbidding word on the same line as the ampersand raises nothing" 0 bash "$LINT" "$B/bg-neg4.md"
+
+# The forbidding word counts only inside the trigger's own clause, before it: a line that
+# forbids one thing and then orders a background run is an order. And a tool parameter set
+# to false is the very opposite of one.
+ok_brief "$B/bg-clause.md"; printf 'Never skip tests; run the suite in the background.\n' >> "$B/bg-clause.md"
+check_status "a negation in an earlier clause does not cancel the trigger" 1 bash "$LINT" "$B/bg-clause.md"
+ok_brief "$B/bg-dont.md"; printf -- "- Don't run the suite in the background.\n" >> "$B/bg-dont.md"
+check_status "don't forbids the background" 0 bash "$LINT" "$B/bg-dont.md"
+ok_brief "$B/bg-donot.md"; printf -- '- Do not start the coverage run in the background, ever.\n' >> "$B/bg-donot.md"
+check_status "do not forbids the background" 0 bash "$LINT" "$B/bg-donot.md"
+ok_brief "$B/bg-false.md"; printf -- '- Every call carries `run_in_background: false`.\n- Or `run_in_background = false`.\n' >> "$B/bg-false.md"
+check_status "run_in_background set to false is not a finding" 0 bash "$LINT" "$B/bg-false.md"
+ok_brief "$B/bg-second.md"; printf 'Never run the lint in the background, and run the suite in the background.\n' >> "$B/bg-second.md"
+check_status "a second trigger on a line is read in its own clause" 1 bash "$LINT" "$B/bg-second.md"
+
+check "the shipped templates raise no background finding" "0" \
+  "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'background|run_in_background|ending in')"
+
+# An agent brief (implementer or review — the two classes the lint already tells apart;
+# comments and rotation briefs carry no marker of their own and are left out) without an
+# absolute, existing path to context-gauge.sh cannot measure context: self-estimates ran 13
+# points high in observed runs. A host-expanded variable in its place is ALREADY a finding
+# (check 2) — this must not double it.
+nogauge_brief() {
+  cat > "$1" <<BRIEF
+# scratch — Phase 1: thing
+
+You are the implementer for this phase.
+
+## 1. Required reading
+
+1. Spec: \`$WORK/briefs\`
+
+## 3. Scope
+
+Non-goals:
+
+- Nothing outside this list.
+- If you believe something outside this list is needed, STOP and ask the orchestrator first.
+
+## 6. Communication
+
+- Your orchestrator is the session **\`project-70 [a1b2c3]\`** and no other session.
+BRIEF
+}
+nogauge_brief "$B/nogauge.md"
+check_status "an agent brief without a gauge path is a finding" 1 bash "$LINT" "$B/nogauge.md"
+check "the missing gauge path is named" "1" "$(bash "$LINT" "$B/nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+gaugevar_brief() {
+  cat > "$1" <<BRIEF
+# scratch — Phase 1: thing
+
+You are the implementer for this phase.
+
+## 1. Required reading
+
+1. Spec: \`$WORK/briefs\`
+
+## 3. Scope
+
+Non-goals:
+
+- Nothing outside this list.
+- If you believe something outside this list is needed, STOP and ask the orchestrator first.
+
+## 6. Communication
+
+- Your orchestrator is the session **\`project-70 [a1b2c3]\`** and no other session.
+- Every report ends with your measured context: run \`\${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh\`.
+BRIEF
+}
+gaugevar_brief "$B/gaugevar.md"
+check_status "a variable in place of the gauge path is a finding" 1 bash "$LINT" "$B/gaugevar.md"
+check "exactly one finding fires for the variable gauge path, not two" "1" \
+  "$(bash "$LINT" "$B/gaugevar.md" 2>&1 | grep -c "^$B/gaugevar.md:")"
+
+check "a review brief without a gauge path is also a finding" "1" \
+  "$(printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/review-nogauge.md"; bash "$LINT" "$B/review-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+# The gauge rule holds for every class the lint can tell apart, comments and rotation
+# included: both sessions report their own context like any other (suite ruling 2).
+check "a comments brief without a gauge path is also a finding" "1" \
+  "$(printf '# round\n\nYou are the COMMENTS agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/comments-nogauge.md"; bash "$LINT" "$B/comments-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+check "a rotation brief without a gauge path is also a finding" "1" \
+  "$(printf '# resume\n\nYou are the ROTATION agent, replacing a previous implementer.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/rotation-nogauge.md"; bash "$LINT" "$B/rotation-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+# Any line may carry the path: prose naming the tool before or after the line that cites it
+# is no finding, in either order, and a path cited inside a non-goal clause is cited.
+GAUGEABS="$ROOT/skills/context-gauge/scripts/context-gauge.sh"
+nogauge_brief "$B/gauge-prose-first.md"
+printf -- '- Measure with context-gauge.sh, never an estimate.\n- Run `%s`.\n' "$GAUGEABS" >> "$B/gauge-prose-first.md"
+check_status "a prose mention before the cited path is no finding" 0 bash "$LINT" "$B/gauge-prose-first.md"
+nogauge_brief "$B/gauge-prose-after.md"
+printf -- '- Run `%s`.\n- context-gauge.sh is the only source of the figure.\n' "$GAUGEABS" >> "$B/gauge-prose-after.md"
+check_status "a prose mention after the cited path is no finding" 0 bash "$LINT" "$B/gauge-prose-after.md"
+nogauge_brief "$B/gauge-nongoal.md"
+printf -- '- Non-goal: never estimate the context instead of running `%s`.\n' "$GAUGEABS" >> "$B/gauge-nongoal.md"
+check_status "a path cited inside a non-goal clause counts as cited" 0 bash "$LINT" "$B/gauge-nongoal.md"
+nogauge_brief "$B/gauge-prose-only.md"; printf -- '- Measure with context-gauge.sh.\n' >> "$B/gauge-prose-only.md"
+check "prose alone still leaves the path uncited, named at its line" "1" \
+  "$(bash "$LINT" "$B/gauge-prose-only.md" 2>&1 | grep -c 'is not cited by an absolute path')"
+
+# The class is the role declared at the start of a line, not the phrase anywhere: a review
+# brief or a memo that quotes an implementer brief is not one.
+review_brief "$B/review-quotes.md"
+printf 'End the report with `norms-check: tool <head>`.\nThe phase brief opens with "You are the implementer for this phase." and the agent obeyed it.\n' >> "$B/review-quotes.md"
+check_status "a review brief quoting the implementer line gets no implementer finding" 0 bash "$LINT" "$B/review-quotes.md"
+printf '# memo\nThe brief said "You are the implementer for this phase." inline, and You are the REVIEW agent too.\n' > "$B/memo.md"
+check_status "a memo quoting role lines inline is no agent brief" 0 bash "$LINT" "$B/memo.md"
+
+check "the shipped templates raise no new gauge-path finding" "0" \
+  "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'no absolute, existing path to context-gauge\.sh|is not cited by an absolute path')"
 
 echo "== briefs are readable where they are read =="
 
@@ -1125,7 +1270,12 @@ cmd=${out#*launch=}; cmd=${cmd%%$'\n'*}
 file=${out#*prompt_file=}; file=${file%%$'\n'*}
 check "the launch stays short whatever the prompt" "short" "$([ "${#cmd}" -lt 500 ] && echo short || echo "${#cmd} chars typed")"
 check "the launch reads the prompt from its file" "1" "$(printf '%s' "$cmd" | grep -c '"\$(cat ')"
-check "the prompt file holds the prompt byte for byte" "$prompt" "$(cat "$file")"
+# The dry run names the file and writes none; the writer is driven directly for the bytes.
+check "the prompt file holds the prompt byte for byte" "$prompt" \
+  "$(LC_ALL=C ORCHESTRATOR_STATE_DIR="$ISTATE" "$(command -v python3)" -c "
+import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+print(open(ia.write_prompt_file(sys.argv[1], sys.argv[2]), encoding='utf-8').read(), end='')" "$prompt" "Agent : B-1 — é")"
 check "the prompt file lives under the state directory" "yes" "$([ "${file#"$ISTATE"/prompts/}" != "$file" ] && echo yes || echo "$file")"
 # §45: the prompt file carries its kind in its name, so the three files a launch leaves
 # under prompts/ sort by kind like the two already did.
@@ -1133,6 +1283,9 @@ check "the prompt file's name carries its kind" "1" "$(basename "$file" | grep -
 check "the launch carries the decision mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto')"
 check "no tier and no map: no model argument" "0" "$(printf '%s' "$cmd" | grep -c -- '--model')"
 check "the launch changes into the working directory" "1" "$(printf '%s' "$cmd" | grep -c "^cd $WORK && ")"
+# Every spawn marks the session as launcher-spawned: the push-guard hook is active only
+# where this is set, and the operator's own sessions never carry it (phase 3 ruling 5).
+check "the launch marks the session launcher-spawned" "1" "$(printf '%s' "$out" | grep -c 'export ORCHESTRATOR_SPAWNED=1')"
 # Named absolutely even though the tab now runs a login shell: a dotfile that breaks PATH
 # must not be able to kill the launch, and the session dies before its tty can be read
 # when the name does not resolve.
@@ -1242,17 +1395,23 @@ nocat() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_M
   bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1; }
 # The file the launch names is read back, not assumed: the launch line says a path, the
 # content says which servers the session will actually load.
-mcp_keys() { "$py" -c "
+# A dry run writes no file, so the definitions a real launch would write are produced by
+# the same writer, driven directly with the same catalogue and the same names.
+mcp_keys() { ORCHESTRATOR_STATE_DIR="$WORK/mcp-written" ORCHESTRATOR_MCP_CATALOGUE="$CAT" "$py" -c "
 import json, sys
-print(','.join(json.load(open(sys.argv[1]))['mcpServers'].keys()))" "$1"; }
+sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+cat = ia.read_catalogue()
+path = ia.write_mcp_file(ia.select_servers(sys.argv[1:], cat), cat, 'x')
+print(','.join(json.load(open(path))['mcpServers'].keys()))" "$@"; }
 mcp_file_of() { printf '%s' "$1" | sed -n 's/^mcp_file=//p'; }
 
 check "the default set is loaded, from a file the launch names" "1|1|a|a" \
-  "$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--strict-mcp-config')|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')|$(mcpd | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd)")")"
+  "$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--strict-mcp-config')|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')|$(mcpd | sed -n 's/^mcp=//p')|$(mcp_keys)"
 check "--mcp adds a catalogued server for the agent that needs it" "a,b|a,b" \
-  "$(mcpd --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp b)")")"
+  "$(mcpd --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys b)"
 check "several names travel comma-separated or as repeated options, each once" "a,b|a,b|a,b|a,b" \
-  "$(mcpd --mcp a,b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp a,b)")")|$(mcpd --mcp a --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp a --mcp b)")")"
+  "$(mcpd --mcp a,b | sed -n 's/^mcp=//p')|$(mcp_keys a,b)|$(mcpd --mcp a --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys a b)"
 check "--mcp none loads nothing, and writes no file" "none|none|0" \
   "$(mcpd --mcp none | sed -n 's/^mcp=//p')|$(mcpd --mcp none | sed -n 's/^mcp_file=//p')|$(mcpd --mcp none | sed -n 's/^launch=//p' | grep -c -- '--mcp-config')"
 check "--mcp none among others still loads nothing" "none" \
@@ -1728,6 +1887,7 @@ audclose() { eval "set -- $AUDCLOSE"; ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" close
 check "its close line is one the launcher runs, guarded on the audit title" "close=/dev/ttys950 expect_title=Audit :" \
   "$(if [ -n "$AUDCLOSE" ]; then audclose; else echo 'no close line'; fi)"
 
+printf 'a prompt\n' > "$file"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt-file "$file" 2>&1)
 check "--prompt-file reuses the given file" "1" "$(printf '%s' "$out" | grep -c "prompt_file=$file")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" 2>&1)
@@ -1824,6 +1984,67 @@ check "a different title still does not match" "no" "$(title_in 'autre' '✳ Lir
 # The shell of a fresh tab is read before anything is typed into it: a startup question
 # waiting for a keystroke ate the first character of a command twice in one night.
 # Twice: once before the first typing, once before the single retry.
+
+echo "== iterm-agents spawn --brief (dry run) =="
+
+# `spawn --brief` builds the startup prompt itself and lints the brief BEFORE any tab
+# exists, so a specification defect is caught before the dispatch rather than after the
+# round. `--brief` reuses the clean and the defective fixtures from the brief-lint section.
+ORCHREF='project-70 [a1b2c3]'
+# The brief's own directory, normalised the way `os.path.abspath` normalises it: the
+# double slash the test's own $TMPDIR can carry is collapsed, but no symlink is resolved
+# (unlike `pwd -P`, which would turn `/tmp` into `/private/tmp` and never match).
+BABS=$(cd "$B" && pwd)
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
+check_status "a lint-clean brief spawns" 0 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF"
+check "the built prompt reads exactly" "1" \
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF; handshake first, silence rule 15 min.")"
+check "the lint verdict is shown" "1" "$(printf '%s\n' "$out" | grep -c '^lint=brief-lint: .*0 findings$')"
+
+# A relative brief path still resolves to the absolute one the fresh session can open.
+# A relative path goes through `os.getcwd()`, which the OS resolves PHYSICALLY (symlinks
+# followed) — `pwd -P`, not the `pwd` used above for an already-absolute path, which
+# `os.path.abspath` only normalises lexically and never touches a symlink in.
+BPHYS=$(cd "$B" && pwd -P)
+out=$(cd "$B" && ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief good.md --orchestrator "$ORCHREF" 2>&1)
+check "a relative brief path resolves absolute in the prompt" "1" \
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BPHYS/good.md.")"
+
+check_status "--brief with --prompt is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt x
+check_status "--brief with --prompt-file is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt-file "$B/good.md"
+check_status "--brief without --orchestrator is refused" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md"
+check_status "a brief that does not exist refuses the spawn" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/absent.md" --orchestrator "$ORCHREF"
+
+# A brief with a lint finding refuses the spawn and prints the finding — before any tab
+# exists, and before a prompt file is written for a spawn that will never happen.
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1); code=$?
+check "a brief with a lint finding refuses the spawn" "1" "$code"
+check "the finding is printed" "1" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
+
+D9STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" >/dev/null 2>&1
+check "the lint refusal leaves no prompt file" "0" \
+  "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$D9STATE"
+
+# A dry run touches nothing: a passing `spawn --brief`, a `--prompt` and a spawn with
+# servers each name the files a real launch would write, and none is written.
+D11STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
+check "a passing brief dry run writes nothing under the state directory" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^prompt_file=$D11STATE/prompts/prompt-")"
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt p >/dev/null 2>&1
+check "a --prompt dry run writes nothing either" "0" "$(find "$D11STATE" -type f | wc -l | tr -d ' ')"
+D11CAT="$D11STATE-cat.json"
+printf '{"servers":{"a":{"command":"a-cmd"}},"default":["a"]}\n' > "$D11CAT"
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" ORCHESTRATOR_MCP_CATALOGUE="$D11CAT" bash "$AGENT" spawn --dir "$WORK" --title "Agent : mcp" --prompt p 2>&1)
+check "nor a dry run with servers, which still names its file" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^mcp_file=$D11STATE/prompts/mcp-")"
+rm -rf "$D11STATE" "$D11CAT"
 
 echo "== model tiers =="
 
@@ -1984,6 +2205,103 @@ printf '{"type":"assistant","message":{"model":"b-model","usage":{"input_tokens"
 check "a changed model is said once, naming both" "1" "$(gate g-drift | grep -c 'MODEL DRIFT: this session now answers as b-model; it answered as a-model until now')"
 check "and not again while it holds" "" "$(gate g-drift)"
 rm -rf "$GH"
+
+echo "== push guard hook =="
+# Active only in a session the launcher spawned (ORCHESTRATOR_SPAWNED, set by build_command
+# in the launch script): the operator's own sessions carry no such marker and are never
+# touched. Refuses `git push` carrying `--force`, `-f`, a `+<refspec>`, or
+# `--force-with-lease` without the `<branch>:<sha>` form (phase 3 ruling 5).
+GUARD="$ROOT/hooks/push-guard.sh"
+guard_payload() {  # tool_name command
+  "$py" -c "import json,sys; json.dump({'tool_name': sys.argv[1], 'tool_input': {'command': sys.argv[2]}}, sys.stdout)" "$1" "$2"
+}
+guard() { guard_payload "$1" "$2" | env ORCHESTRATOR_SPAWNED="${3-}" bash "$GUARD"; }
+
+check_status "a marked session refuses a forced push" 2 guard Bash "git push --force origin main" 1
+check "the refusal names the flag it will accept" "1" \
+  "$(guard Bash 'git push --force origin main' 1 2>&1 | grep -c -- '--force-with-lease=<branch>:<sha>')"
+check_status "a marked session refuses -f" 2 guard Bash "git push -f origin main" 1
+check_status "a marked session refuses a +refspec" 2 guard Bash "git push origin +feature:main" 1
+check_status "a marked session refuses a bare --force-with-lease" 2 guard Bash "git push --force-with-lease origin main" 1
+check_status "a marked session refuses --force-with-lease without a colon" 2 guard Bash "git push --force-with-lease=main origin main" 1
+check_status "a marked session accepts --force-with-lease=<branch>:<sha>" 0 guard Bash "git push --force-with-lease=main:$(printf 'a%.0s' $(seq 1 40)) origin main" 1
+check_status "a marked session accepts a plain push" 0 guard Bash "git push origin main" 1
+check_status "a marked session accepts an unrelated command" 0 guard Bash "git status" 1
+check_status "a forced push earlier in the line, unrelated to the push, is not read as forcing it" 0 \
+  guard Bash "git fetch -f && git push origin main" 1
+
+check_status "an unmarked session is untouched by a forced push" 0 guard Bash "git push --force origin main" ""
+check_status "a non-Bash tool is untouched" 0 guard Write "git push --force origin main" 1
+
+# A push is git in command position — bare or by an absolute path, behind git's own global
+# options, assignments or a wrapper that runs it — then `push`. The first matching read
+# `git push` as two adjacent words and let every one of these through.
+SHA40=$(printf 'a%.0s' $(seq 1 40))
+for c in "git -C /tmp/r push --force" "git -C . push --force-with-lease" "git -c x=y push -f" \
+         "git --no-pager push -f" "/usr/bin/git push -f origin main" \
+         "git --git-dir=/tmp/r/.git --work-tree /tmp/r push -f" "FOO=1 git push -f" \
+         "timeout 60 git push --force origin main" "env -u X git push -f"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+# `-f` inside a cluster of short flags is a force; `-o` takes a value, so what follows it
+# is not a cluster member nor a refspec.
+for c in "git push -uf origin main" "git push -fu origin main" "git push -vf" "git push -nf"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+check_status "a push option's value is not a flag or a refspec" 0 guard Bash "git push -o +foo origin main" 1
+check_status "nor when it is glued to -o" 0 guard Bash "git push -o+foo -v origin main" 1
+# Quotes and shell punctuation are the shell's, not the flag's: unquoted, split on the
+# operators, the words git receives are the ones read.
+for c in "(cd x && git push -f)" "git push -f)" 'git push "-f"' 'git push origin "+main"' \
+         "git push origin 'a:b' '+x'" 'git push -f`true`' "git push -f>out" "{ git push -f; }" \
+         "git push origin main 2>/dev/null --force"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+check_status "refused: a force behind a line continuation" 2 guard Bash 'git push \
+  --force origin main' 1
+# Every lease is read, not the first one: one unpinned lease beside a pinned one is a force.
+check_status "refused: a pinned lease beside a bare one" 2 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease origin main" 1
+check_status "refused: a pinned lease beside one with no sha" 2 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease=other origin main" 1
+check_status "two pinned leases pass" 0 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease=dev:$SHA40 origin main dev" 1
+check_status "a pinned lease with its output redirected passes" 0 guard Bash "git push --force-with-lease=main:$SHA40 origin main 2>&1 | tail -3" 1
+# The other forms that overwrite a remote: --mirror, and the abbreviations of --force git
+# accepts.
+for c in "git push --mirror origin" "git push --fo origin main" "git push --for origin main" "git push --forc origin main"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+# Text about a push is not a push. The first matching refused a commit message that
+# mentioned one: a quoted argument of another command, a heredoc body and a comment are
+# the shell's data, never a command.
+check_status "a commit message quoting a forced push passes" 0 guard Bash 'git commit -m "fix; git push -f later"' 1
+check_status "a pull request body quoting a forced push passes" 0 guard Bash 'gh pr create --body "rebase && git push --force is refused"' 1
+check_status "a heredoc body naming a forced push passes" 0 guard Bash "git commit -F - <<'EOF'
+subject
+
+git push --force
+EOF" 1
+check_status "a heredoc inside a quoted substitution, with a stray quote in it, passes" 0 guard Bash "git commit -m \"\$(cat <<'EOF'
+say \"why; git push -f is refused
+EOF
+)\"" 1
+check_status "a comment after a plain push passes" 0 guard Bash "git push origin main # --force" 1
+check_status "and a forced push after a heredoc is still read" 2 guard Bash "cat <<EOF
+text
+EOF
+git push -f" 1
+check_status "a forced push inside a command substitution is read" 2 guard Bash 'echo "$(git push -f)"' 1
+# The refusal is the host's documented denial: a plain reason on stderr, exit 2, ending on
+# the way out for a command that only mentions a push.
+refusal=$(guard Bash "git push -f" 1 2>&1 >/dev/null)
+check "the refusal is plain text, not a JSON object" "0" "$(printf '%s' "$refusal" | grep -c '^{')"
+check "the refusal ends on the way out" "1" \
+  "$(printf '%s' "$refusal" | grep -c 'put text that mentions a push in a file (`git commit -F`, `gh … --body-file`)\.$')"
+# The guard that cannot read its input says so and lets the call through: it never blocks
+# every command of a session because a tool is missing.
+NOJQ="$WORK/nojq-bin"; mkdir -p "$NOJQ"
+guard_payload Bash "git push -f" > "$WORK/nojq-payload.json"
+nojq_out=$(env PATH="$NOJQ" ORCHESTRATOR_SPAWNED=1 "$(command -v bash)" "$GUARD" < "$WORK/nojq-payload.json" 2>&1); nojq_code=$?
+check "without jq a marked session is let through, with one warning line" "0|1|1" \
+  "$nojq_code|$(printf '%s\n' "$nojq_out" | grep -c .)|$(printf '%s' "$nojq_out" | grep -c 'jq')"
 
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.

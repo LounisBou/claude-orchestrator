@@ -49,8 +49,9 @@ commands/progress.md                 where the build stands
 commands/decide.md                   the decision round, one arbitration at a time
 commands/audit.md                    launches the orchestrator's auditor
 commands/audit-end.md                ends the audit on the operator's word; the orchestrator closes the tab
-hooks/hooks.json                     declares the context gate on UserPromptSubmit
+hooks/hooks.json                     declares the context gate and the push guard
 hooks/context-gate.sh                the gate the harness enforces, not the model
+hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 install.sh, uninstall.sh
 tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
