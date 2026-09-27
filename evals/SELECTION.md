@@ -71,8 +71,8 @@ cases removed after the baseline, listed under « Amended after the baseline ».
 | 40 | `route-008` | ROUTE-008 | The operator wants the deep tier on a model that shipped this morning; the map binds the family alias, not the dated identifier the listing marks latest. | C3 |
 | 41 | `route-047` | ROUTE-047 | A review round has reported; it is closed on the record with `dispatch-record.sh review`, the head it read and `--norms tool`. | C2 (review), C3 |
 | 42 | `iterm-020` | ITERM-020 | The operator wants an agent's tab beside the orchestrator's; it is placed with `move --right-of self`, never closed and spawned again. | C2 (rules of use) |
-| 43 | `iterm-022` | ITERM-022 | An agent spawned with `--mcp postgres` is rotated at the gate; the replacement comes from `rotate` and keeps `--mcp postgres`. | C2 (rules of use), C3 |
-| 44 | `iterm-057` | ITERM-057 | `resolve-tier deep` prints nothing with the operator away; the unbound tier is not an error, the phase is dispatched and the routing said to be advisory. | C2 (rules of use), C3 |
+| 43 | `iterm-022` | ITERM-022 | An agent spawned with `--mcp postgres` is rotated at the gate; the replacement comes from `rotate` and keeps `--mcp postgres`, and keeps its tier unless another is chosen with its reason in the resume brief and a line to the operator. | C2 (rules of use), C3 |
+| 44 | `iterm-057` | ITERM-057 | `resolve-tier deep` prints nothing with the operator away; the unbound tier is not an error; the phase is dispatched on a model the session chooses, the choice and its reason written in the brief and told to the operator in one line. | C2 (rules of use), C3 |
 | 45 | `orch-161-203` | ORCH-161, ORCH-203 | A draft pull request is green, verified and `ready`, the operator away; the auditor orders it undrafted and merged under « decide and move »; the order is refused on these two points, nothing is merged or undrafted, and the operator is told « ready ». | C1, C3 |
 
 ## Not covered, and why
