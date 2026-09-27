@@ -898,6 +898,20 @@ check_status "a clause naming a forbidden ampersand is not a finding" 0 bash "$L
 ok_brief "$B/bg-neg4.md"; printf 'Never run `sleep 5 &` under any circumstance.\n' >> "$B/bg-neg4.md"
 check_status "a forbidding word on the same line as the ampersand raises nothing" 0 bash "$LINT" "$B/bg-neg4.md"
 
+# The forbidding word counts only inside the trigger's own clause, before it: a line that
+# forbids one thing and then orders a background run is an order. And a tool parameter set
+# to false is the very opposite of one.
+ok_brief "$B/bg-clause.md"; printf 'Never skip tests; run the suite in the background.\n' >> "$B/bg-clause.md"
+check_status "a negation in an earlier clause does not cancel the trigger" 1 bash "$LINT" "$B/bg-clause.md"
+ok_brief "$B/bg-dont.md"; printf -- "- Don't run the suite in the background.\n" >> "$B/bg-dont.md"
+check_status "don't forbids the background" 0 bash "$LINT" "$B/bg-dont.md"
+ok_brief "$B/bg-donot.md"; printf -- '- Do not start the coverage run in the background, ever.\n' >> "$B/bg-donot.md"
+check_status "do not forbids the background" 0 bash "$LINT" "$B/bg-donot.md"
+ok_brief "$B/bg-false.md"; printf -- '- Every call carries `run_in_background: false`.\n- Or `run_in_background = false`.\n' >> "$B/bg-false.md"
+check_status "run_in_background set to false is not a finding" 0 bash "$LINT" "$B/bg-false.md"
+ok_brief "$B/bg-second.md"; printf 'Never run the lint in the background, and run the suite in the background.\n' >> "$B/bg-second.md"
+check_status "a second trigger on a line is read in its own clause" 1 bash "$LINT" "$B/bg-second.md"
+
 check "the shipped templates raise no background finding" "0" \
   "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'background|run_in_background|ending in')"
 
@@ -970,6 +984,30 @@ check "a comments brief without a gauge path is also a finding" "1" \
 
 check "a rotation brief without a gauge path is also a finding" "1" \
   "$(printf '# resume\n\nYou are the ROTATION agent, replacing a previous implementer.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/rotation-nogauge.md"; bash "$LINT" "$B/rotation-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+# Any line may carry the path: prose naming the tool before or after the line that cites it
+# is no finding, in either order, and a path cited inside a non-goal clause is cited.
+GAUGEABS="$ROOT/skills/context-gauge/scripts/context-gauge.sh"
+nogauge_brief "$B/gauge-prose-first.md"
+printf -- '- Measure with context-gauge.sh, never an estimate.\n- Run `%s`.\n' "$GAUGEABS" >> "$B/gauge-prose-first.md"
+check_status "a prose mention before the cited path is no finding" 0 bash "$LINT" "$B/gauge-prose-first.md"
+nogauge_brief "$B/gauge-prose-after.md"
+printf -- '- Run `%s`.\n- context-gauge.sh is the only source of the figure.\n' "$GAUGEABS" >> "$B/gauge-prose-after.md"
+check_status "a prose mention after the cited path is no finding" 0 bash "$LINT" "$B/gauge-prose-after.md"
+nogauge_brief "$B/gauge-nongoal.md"
+printf -- '- Non-goal: never estimate the context instead of running `%s`.\n' "$GAUGEABS" >> "$B/gauge-nongoal.md"
+check_status "a path cited inside a non-goal clause counts as cited" 0 bash "$LINT" "$B/gauge-nongoal.md"
+nogauge_brief "$B/gauge-prose-only.md"; printf -- '- Measure with context-gauge.sh.\n' >> "$B/gauge-prose-only.md"
+check "prose alone still leaves the path uncited, named at its line" "1" \
+  "$(bash "$LINT" "$B/gauge-prose-only.md" 2>&1 | grep -c 'is not cited by an absolute path')"
+
+# The class is the role declared at the start of a line, not the phrase anywhere: a review
+# brief or a memo that quotes an implementer brief is not one.
+review_brief "$B/review-quotes.md"
+printf 'End the report with `norms-check: tool <head>`.\nThe phase brief opens with "You are the implementer for this phase." and the agent obeyed it.\n' >> "$B/review-quotes.md"
+check_status "a review brief quoting the implementer line gets no implementer finding" 0 bash "$LINT" "$B/review-quotes.md"
+printf '# memo\nThe brief said "You are the implementer for this phase." inline, and You are the REVIEW agent too.\n' > "$B/memo.md"
+check_status "a memo quoting role lines inline is no agent brief" 0 bash "$LINT" "$B/memo.md"
 
 check "the shipped templates raise no new gauge-path finding" "0" \
   "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'no absolute, existing path to context-gauge\.sh|is not cited by an absolute path')"
