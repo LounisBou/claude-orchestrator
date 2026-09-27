@@ -1328,6 +1328,8 @@ def cmd_spawn(argv):
     p.add_argument("--no-remote-control", dest="remote_control", action="store_false", default=True)
     p.add_argument("--prompt", default="")
     p.add_argument("--prompt-file", dest="prompt_file", default="")
+    p.add_argument("--brief", default="")
+    p.add_argument("--orchestrator", default="")
     p.add_argument("--left-of", dest="left_of", default="")
     p.add_argument("--right-of", dest="right_of", default="")
     p.add_argument("--no-verify", dest="verify", action="store_false", default=True)
@@ -1381,6 +1383,31 @@ def cmd_spawn(argv):
         die("spawn: directory not found: %s" % args.dir)
     if args.prompt and args.prompt_file:
         die("spawn: --prompt and --prompt-file are exclusive")
+    if args.brief and (args.prompt or args.prompt_file):
+        die("spawn: --brief and --prompt/--prompt-file are mutually exclusive")
+    if args.brief and not args.orchestrator:
+        die('spawn: --brief without --orchestrator is refused: pass --orchestrator '
+            '"<name [ref]>"')
+    brief_prompt = ""
+    lint_verdict = ""
+    if args.brief:
+        # Before any tab exists: a brief is this plugin's whole specification act, and the
+        # two defects that reached a live agent before anything read the file are exactly
+        # what the lint catches. A refusal here leaves nothing behind — no trust record
+        # touched, no prompt file written.
+        if not os.path.isfile(args.brief):
+            die("spawn: brief not found: %s" % args.brief)
+        brief_abs = os.path.abspath(args.brief)
+        lint_sh = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
+                                "orchestrator", "scripts", "brief-lint.sh")
+        lint = subprocess.run(["bash", lint_sh, brief_abs], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT)
+        lint_verdict = lint.stdout.decode("utf-8", "replace").strip()
+        if lint.returncode != 0:
+            sys.stderr.write(lint_verdict + "\n")
+            die("spawn: refused: brief-lint found findings in %s" % brief_abs)
+        brief_prompt = ("Read and execute %s. Your orchestrator is %s; handshake first, "
+                         "silence rule 15 min." % (brief_abs, args.orchestrator))
     if args.tier and args.model:
         die("spawn: --tier and --model are mutually exclusive")
     if args.inherit and (args.tier or args.model):
@@ -1491,7 +1518,9 @@ def cmd_spawn(argv):
     prompt_file = args.prompt_file
     if prompt_file and not os.path.isfile(prompt_file):
         die("spawn: prompt file not found: %s" % prompt_file)
-    if args.prompt:
+    if args.brief:
+        prompt_file = write_prompt_file(brief_prompt, title)
+    elif args.prompt:
         prompt_file = write_prompt_file(args.prompt, title)
 
     remote_control = title if ((args.successor and args.remote_control) or args.auditor) else ""
@@ -1501,6 +1530,9 @@ def cmd_spawn(argv):
     if DRY_RUN:
         print("launch=%s" % launch)
         print("prompt_file=%s" % prompt_file)
+        if args.brief:
+            print("prompt=%s" % brief_prompt)
+            print("lint=%s" % lint_verdict)
         print("self=%s" % own)
         print("anchor=%s" % ("self" if anchor == own else anchor))
         print("trust=%s" % trust_state)
