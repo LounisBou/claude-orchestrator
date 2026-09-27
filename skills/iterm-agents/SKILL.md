@@ -21,7 +21,7 @@ Its commands are `list`, `spawn`, `verify`, `screen`, `close`, `move`, `rotate`,
 
 ## An agent is an iTerm2 tab, always
 
-A session that is not a tab in the window the operator reads is not an agent he can see, place or close, and a launcher that hands him one has hidden the fault rather than repaired it. **Never spawn an agent outside iTerm2** — not through tmux, not through `screen`, not by hand. When the app does not answer, the launcher names the cause and its remedy and stops: stopping loudly on a fault whose remedy is known IS the repair.
+A session that is not a tab in the window the operator reads is not an agent he can see, place or close, and a launcher that hands him one has hidden the fault rather than repaired it. **Never spawn an agent outside iTerm2** — not through tmux, not through `screen`, not by hand. When both rungs are down, the app itself is wedged, and that has a one-keystroke remedy: the launcher names it and stops. Stopping loudly on a fault whose remedy is known IS the repair.
 
 **One agent = one tab, never a pane.** A pane shares a tab's title and its fate; the tooling closes sessions, but a layout the operator reads is not a place to put an agent.
 
@@ -44,14 +44,14 @@ So **always name an anchor**, and name the one you actually know:
 1. The brief exists at a path the fresh session can open on this machine. Say in the agent's brief which servers it was given: it cannot see the file.
 2. `spawn` with the one-line prompt naming the brief's path and the orchestrator's exact `ListAgents` name and reference — nothing the brief already says — and with `--right-of self`, so the tab lands beside yours rather than at the end of a window you do not own.
 3. Read the result: the script has already waited for the host CLI on the new tty, but the artifact decides — `list` (the tab), `verify --tty` (the process), `ListAgents` (the peer session, a few seconds later).
-4. **No startup dialog may stand between the launch and the brief.** Two are known: the workspace-trust question, refused before the tab exists unless `--trust` says the directory is one you prepared; and the question about servers. The launch is strict and carries a configuration file written for that session, so the host asks nothing and loads exactly what the file names — the catalogue's default set, plus whatever `--mcp` added; a fresh session parked on « enable these MCP servers? » never reads its brief and nobody sits at that keyboard. Any other startup question the launch cannot pre-answer (a trust prompt, a migration notice) is read in the tab's contents and answered by the orchestrator through the tab — a session stuck on a dialog is not launched, whatever the script printed.
+4. **No startup dialog may stand between the launch and the brief.** Two are known: the workspace-trust question, refused before the tab exists unless `--trust` says so — right for a checkout you prepared yourself and wrong for anything else; and the question about servers. The launch is strict and carries a configuration file written for that session, so the host asks nothing and loads exactly what the file names — the catalogue's default set, plus whatever `--mcp` added; a fresh session parked on « enable these MCP servers? » never reads its brief and nobody sits at that keyboard. Any other startup question the launch cannot pre-answer (a trust prompt, a migration notice) is read in the tab's contents and answered by the orchestrator through the tab — a session stuck on a dialog is not launched, whatever the script printed.
 5. Wait for the handshake. An agent that has not messaged within minutes is inspected, not waited for: `verify` for the process, `list` for the tab, and `screen --tty` for what that tab is showing right now — how you inspect an agent that has not shaken hands, instead of waiting for one that is stopped on a question.
 
 **A tier nobody bound is not an error.** `spawn` then types no model argument and the host applies its default, so a half-filled map never silently routes deep work to a cheap model — it routes it to whatever the operator's host already runs. Read the map with `resolve-tier` before dispatching a wave, not after it comes back wrong.
 
 ## Tab hygiene
 
-**A finished agent's tab is closed, not left open.** The approval that closes a phase stands the agent down and closes its tab in the same move (`list`, `close --tty --expect-title`, `ps`). An implementer is stood down at the verification of its delivery, never kept through its review round; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable. The only tabs open at any time are the orchestrator's and its running implementers'.
+**A finished agent's tab is closed, not left open.** The approval that closes a phase stands the agent down and closes its tab in the same move (`list`, `close --tty --expect-title`, `ps`). An implementer is stood down at the verification of its delivery, never kept through its review round; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable. The only tabs open at any time are the orchestrator's and its running implementers'. `close --tty` on a hidden agent closes its session alone — its tab and its review pane stay open (`references/commands.md`, the hidden-pane entry).
 
 **A tab is closed by its tty with `--expect-title`, never by title alone or by tab position** — the title read from `list` seconds before (« Safety order for a live rotation » says why a rotation takes none). The first character of a title is an activity glyph that flips on its own. Match on words, never on the glyph.
 
@@ -71,7 +71,7 @@ Prompt and launch files accumulate under the state directory's `prompts/`; they 
 ## Common mistakes
 
 - Handing the user a brief path and an invocation to paste: the orchestrator spawns (Overview).
-- Trusting the printed tty: launch step 3.
+- Trusting the printed tty: launch steps 3 and 5.
 - Closing by title alone or by tab position: « Tab hygiene ».
 - Spawning without an anchor: « Tab layout convention ».
 - Reading a process that runs in a directory the host never opened as a launched agent: it is stopped on a question — launch steps 4 and 5.
