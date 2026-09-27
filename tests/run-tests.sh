@@ -2532,13 +2532,13 @@ PAYLOAD='{"session_id":"s-1","transcript_path":"/t/s-1.jsonl","context_window":{
 STATE="$WORK/state"
 
 out=$(printf '%s' "$PAYLOAD" | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
-check "no wrapped command: one-line render" "ctx: 36% │ 5h: 3% │ 7d: 1%" "$out"
-check "file written with every field" \
-  '{"session_id":"s-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":1788560000,"seven_day_percent":1,"seven_day_resets_at":1788900000,"transcript_path":"/t/s-1.jsonl","model_id":null}' \
+check "no wrapped command: one-line render, context only" "ctx: 36%" "$out"
+check "file written with every field, no rate-limit field even though the payload carries one" \
+  '{"session_id":"s-1","context_percent":36.4,"context_used":91000,"context_total":250000,"transcript_path":"/t/s-1.jsonl","model_id":null}' \
   "$(jq -c 'del(.updated_epoch)' "$STATE/ctx/s-1.json")"
 out=$(printf '{"session_id":"s-early","context_window":{"used_percentage":0}}' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
 check "early payload without usage or transcript: nulls, no crash" \
-  '{"session_id":"s-early","context_percent":0,"context_used":null,"context_total":null,"five_hour_percent":null,"five_hour_resets_at":null,"seven_day_percent":null,"seven_day_resets_at":null,"transcript_path":null,"model_id":null}' \
+  '{"session_id":"s-early","context_percent":0,"context_used":null,"context_total":null,"transcript_path":null,"model_id":null}' \
   "$(jq -c 'del(.updated_epoch)' "$STATE/ctx/s-early.json")"
 # The model in use travels with the context figures: a succession hands it to the
 # successor, and the launch line is not it — the operator may have switched since (§27).
@@ -2563,7 +2563,7 @@ out=$(printf 'not json' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP" "$WORK/ech
 check "invalid stdin still reaches the wrapped command" "not json" "$out"
 check "invalid stdin writes no file" "2" "$(ls "$STATE/ctx" | wc -l | tr -d ' ')"
 out=$(printf '' | ORCHESTRATOR_STATE_DIR="$STATE" bash "$TAP")
-check "empty stdin renders a placeholder" "ctx: ~ │ 5h: ~ │ 7d: ~" "$out"
+check "empty stdin renders a placeholder" "ctx: ~" "$out"
 
 touch -t 202001010000 "$STATE/ctx/old.json"
 # The gate writes a marker beside the context files so it says "unmeasured" once per
@@ -2586,43 +2586,33 @@ GAUGE="$ROOT/skills/context-gauge/scripts/context-gauge.sh"
 GSTATE="$WORK/gstate"
 mkdir -p "$GSTATE/ctx" "$WORK/projects/p1"
 cp "$ROOT/tests/fixtures/transcript.jsonl" "$WORK/projects/p1/g-1.jsonl"
-printf '{"session_id":"g-1","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":null,"seven_day_percent":1,"seven_day_resets_at":null,"transcript_path":null,"updated_epoch":%s}\n' \
+printf '{"session_id":"g-1","context_percent":36.4,"context_used":91000,"context_total":250000,"transcript_path":null,"updated_epoch":%s}\n' \
   "$(date +%s)" > "$GSTATE/ctx/g-1.json"
 gauge() { ORCHESTRATOR_STATE_DIR="$GSTATE" ORCHESTRATOR_TRANSCRIPTS_DIR="$WORK/projects" bash "$GAUGE" "$@"; }
 
 # g-2 has no transcript under the projects directory: only the path recorded in
 # its stale tap file can lead to it.
-printf '{"session_id":"g-2","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":null,"five_hour_resets_at":null,"seven_day_percent":null,"seven_day_resets_at":null,"transcript_path":"%s","updated_epoch":0}\n' \
+printf '{"session_id":"g-2","context_percent":36.4,"context_used":91000,"context_total":250000,"transcript_path":"%s","updated_epoch":0}\n' \
   "$WORK/projects/p1/g-1.jsonl" > "$GSTATE/ctx/g-2.json"
 check "stale tap file: transcript found through its recorded path" "context_percent=36.0
 context_tokens=90000
 context_window=250000
 context_window_source=tap-file
-five_hour_percent=unavailable
-seven_day_percent=unavailable
 model=a-model
 model_source=transcript
 source=transcript" "$(gauge g-2)"
 
-# A fresh tap whose payload carried no quota figures says so in the same word as the
-# transcript tier. `commands/status.md` and the routing skill both tell a reader to keep
-# the `five_hour_percent=` line; a line that is absent, or that reads `null`, is one a
-# careless reader takes for zero — and zero means "no budget pressure, dispatch at full
-# tier" exactly when the opposite is true.
-printf '{"session_id":"g-3","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":null,"seven_day_percent":null,"transcript_path":null,"updated_epoch":%s}\n' \
+# A tap file carrying a rate-limit field (a payload from before this build, or a host
+# that still sends one) is read for context and model alone — no five_hour_percent, no
+# seven_day_percent, in either tier's output.
+printf '{"session_id":"g-3","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"seven_day_percent":1,"transcript_path":null,"updated_epoch":%s}\n' \
   "$(date +%s)" > "$GSTATE/ctx/g-3.json"
-check "a fresh tap without quota figures says unavailable" "context_percent=36.4
-context_tokens=91000
-context_window=250000
-five_hour_percent=unavailable
-seven_day_percent=unavailable
-model=unavailable
-model_source=unavailable
-source=tap" "$(gauge g-3)"
+check "a tap file carrying a rate-limit field: no budget line in the output" "0" \
+  "$(gauge g-3 | grep -cE '^(five_hour|seven_day)_percent=')"
 rm -f "$GSTATE/ctx/g-3.json"
 
 # No transcript reachable: the tap's declared model is the reading, said as the tap's.
-printf '{"session_id":"g-4","context_percent":36.4,"context_used":91000,"context_total":250000,"five_hour_percent":3,"five_hour_resets_at":null,"seven_day_percent":1,"seven_day_resets_at":null,"transcript_path":null,"model_id":"t-model","updated_epoch":%s}\n' \
+printf '{"session_id":"g-4","context_percent":36.4,"context_used":91000,"context_total":250000,"transcript_path":null,"model_id":"t-model","updated_epoch":%s}\n' \
   "$(date +%s)" > "$GSTATE/ctx/g-4.json"
 check "no transcript: the model comes from the tap, and says so" "model=t-model
 model_source=tap" "$(gauge g-4 | grep '^model')"
@@ -2631,8 +2621,6 @@ rm -f "$GSTATE/ctx/g-4.json"
 check "fresh tap file wins" "context_percent=36.4
 context_tokens=91000
 context_window=250000
-five_hour_percent=3
-seven_day_percent=1
 model=a-model
 model_source=transcript
 source=tap" "$(gauge g-1)"
@@ -2641,8 +2629,6 @@ check "stale tap file: transcript with the file's window" "context_percent=36.0
 context_tokens=90000
 context_window=250000
 context_window_source=tap-file
-five_hour_percent=unavailable
-seven_day_percent=unavailable
 model=a-model
 model_source=transcript
 source=transcript" "$(gauge g-1 --max-age 0)"
@@ -2652,8 +2638,6 @@ check "no tap file: --window" "context_percent=45.0
 context_tokens=90000
 context_window=200000
 context_window_source=flag
-five_hour_percent=unavailable
-seven_day_percent=unavailable
 model=a-model
 model_source=transcript
 source=transcript" "$(gauge g-1 --window 200000)"
