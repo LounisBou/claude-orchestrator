@@ -21,6 +21,8 @@ skills/orchestrator/references/machine.md    the shared machine as an instrument
 skills/orchestrator/references/audit.md      the audit
 skills/orchestrator/references/incidents.md  the observed incidents behind the rules, by rule id
 skills/iterm-agents/SKILL.md         tab management on macOS
+skills/iterm-agents/references/commands.md   the script's commands, how it builds a tab, when iTerm2 does not answer
+skills/iterm-agents/references/incidents.md  the observed incidents behind the tab rules, by rule id
 skills/iterm-agents/scripts/iterm-agent.sh   entry point: resolves an interpreter
 skills/iterm-agents/scripts/iterm_agent.py   the implementation, over the app API
 skills/orchestrator/scripts/brief-lint.sh   refuses a brief before it is dispatched
@@ -28,6 +30,7 @@ skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the ro
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's rhythm figures, from git alone
 skills/model-routing/SKILL.md        which capability tier a dispatch gets
+skills/model-routing/references/incidents.md the observed incidents behind the routing rules, by rule id
 skills/context-gauge/SKILL.md        how a session reads its own context fill
 skills/context-gauge/scripts/context-gauge.sh
 skills/context-gauge/scripts/statusline-tap.sh
