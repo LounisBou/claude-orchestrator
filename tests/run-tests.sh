@@ -227,8 +227,9 @@ check "and so does the rulebook" "1|0" \
   "$(grep -c 'passing `--successor`' "$ORCH_REFS/lifecycle.md")|$(orch_all | grep -c 'lands between you and your agent')"
 # A plan-writing skill's header ordered the orchestrator to execute in subagents of its own
 # session, and successors obeyed it (§28). No plan opens with it; the rulebook and the
-# succession template carry the rule instead.
-check "no plan opens with the foreign execution header" "0" "$(grep -l '^> \*\*For agentic workers' "$ROOT"/docs/superpowers/plans/*.md | wc -l | tr -d ' ')"
+# succession template carry the rule instead. Delivered plans leave the tree, so every
+# document under docs/ is read: a plan added later is held the same way.
+check "no plan opens with the foreign execution header" "0" "$(grep -rl --include='*.md' '^> \*\*For agentic workers' "$ROOT/docs" | wc -l | tr -d ' ')"
 check "the rulebook forbids implementing through a subagent of its own" "1" "$(grep -c 'never implements through a subagent of its own' "$ORCH_REFS/briefs.md")"
 check "the succession template forbids it too" "1" "$(grep -c 'not through a subagent of your own session either' "$ROOT/templates/orchestrator-succession-brief.md")"
 
