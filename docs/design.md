@@ -1060,8 +1060,7 @@ model that produced it.
 its last assistant entry's `model` is the one certain trace of what answered, and the
 gauge already opens the transcript for the computed tier; the tap's `model_id` (what the
 status line declared, since 0.22.0) is the fallback when no transcript is reachable;
-`unavailable` otherwise, in the same word as the quota figures and for the same reason: an
-absent line is one a reader takes for « fine ».
+`unavailable` otherwise: an absent line is one a reader takes for « fine ».
 
 **The gate says it once per change.** The context gate already runs on every prompt and
 already puts in front of the session what the session must not be left to remember. It
