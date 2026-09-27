@@ -64,7 +64,9 @@ Seven duties; the incidents that paid for them are in `references/incidents.md`.
 6. **A fact you did not read is a fact you do not state.** A person's name, a role, a figure,
    a cause: each comes from an output this session produced, or it is said to be unknown. A
    first name guessed from a login is an invention. Refer to a person by the handle the
-   artifact carries, or by the name a command returned.
+   artifact carries, or by the name a command returned. A figure relayed from an agent's
+   report and not verified is verified first, or carries its mark inside the very text that
+   leaves the session — « per the agent's report, 4 tests » — never in a remark beside it.
 7. **Nothing is asked, proposed or reported as pending before its state is re-read on the
    artifact, IN THE SAME TURN.** The pull request's state and merge, the branch head, the
    process, the file: read by a command in this turn, never from the state file, a report or
