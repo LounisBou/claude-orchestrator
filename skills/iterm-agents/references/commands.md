@@ -19,7 +19,14 @@ $SCRIPT list
     # without one), then `self` on YOUR OWN tab.
 
 $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --inherit-model] [--permission-mode auto] \
-    --title "Agent : <subject>" --prompt "Read and execute <brief-path>. Your orchestrator is <name [ref]>." [--right-of self | --successor] [--mcp <name>]
+    --title "Agent : <subject>" --brief <brief-path> --orchestrator "<name [ref]>" [--right-of self | --successor] [--mcp <name>]
+    # --brief lints the brief (skills/orchestrator/scripts/brief-lint.sh) before any tab
+    # exists and refuses the spawn on any finding; on a clean brief it builds the startup
+    # prompt itself, exactly "Read and execute <absolute brief path>. Your orchestrator is
+    # <name [ref]>; handshake first, silence rule 15 min." --brief needs --orchestrator and
+    # is exclusive with --prompt/--prompt-file, which stay for a spawn that carries no brief
+    # (`--prompt "Read and execute <path>. Your orchestrator is <name [ref]>."` hand-built,
+    # unlinted).
     # --title has a SHAPE — `Orch : <subject>` for an orchestrator and its successor,
     # `Agent : <subject>` for anything you spawn, the subject at most 25 characters —
     # because it is the session's name in every listing and the operator reads that listing.
