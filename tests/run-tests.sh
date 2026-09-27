@@ -144,6 +144,15 @@ check "the audit reference keeps merge and undraft out of its list" "1" \
 check "the audit brief keeps merge and undraft out of its list" "1" \
   "$(grep -c 'draft are in no such list: they are the operator.s, on his clear and explicit request' "$ROOT/templates/agent-audit-brief.md")"
 
+# Independent readers are one lens each inside the round's one review session, not one
+# reviewer session per lens (the round is one session fanning out its lenses); and an agent
+# pipelines into PR N+1 only when N+1 is dispatched to it, or it would outlive the
+# verification that stands it down.
+check "the independent readers sit inside the round's one review session" "1" \
+  "$(grep -c "one lens each, inside the round's ONE review session the ORCHESTRATOR dispatches" "$ROOT/skills/orchestrator/references/review.md")"
+check "pipelining needs N+1 dispatched to the same agent" "1" \
+  "$(grep -c 'An agent may pipeline only when PR N+1 is dispatched to that same agent' "$ROOT/skills/orchestrator/SKILL.md")"
+
 # A spawned session inherits a decision mode: the command line the script types
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
