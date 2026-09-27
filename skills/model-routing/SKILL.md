@@ -5,7 +5,7 @@ description: Use when this session is about to dispatch another one — an imple
 
 # Model routing
 
-**This skill is a decision aid for the orchestrator.** Its table, its readings, its escalation and its record are inputs to your own judgment: you decide the tier or the model, and you write the choice and its reason in the brief. They inform the choice of a tier and do not replace it. What is not a choice of tier — how the map is bound, the mode an unattended session runs in, how a round is recorded, never de-escalating inside a phase, never cascading a phase, one tier below the row and never two, the false-economy reversion, reading the record's summary before a wave and reverting what it names, and the budget section, which a later change rewrites — holds as written. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
+**This skill is a decision aid for the orchestrator.** Its table, its readings, its escalation and its record are inputs to your own judgment: you decide the tier or the model, and you write the choice and its reason in the brief. They inform the choice of a tier and do not replace it. What is not a choice of tier — how the map is bound, the mode an unattended session runs in, how a round is recorded, never de-escalating inside a phase, never cascading a phase, one tier below the row and never two, the false-economy reversion, and reading the record's summary before a wave and reverting what it names — holds as written. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
 
 ## The principle
 
@@ -97,16 +97,6 @@ it away costs one short session:
 
 This is the rule that keeps the table from drifting downward. Without it every drop looks free at the moment it is taken, and its cost lands two rounds later where nobody attributes it — the same shape as « it passed alone three times, it's flaky ».
 
-## Budget pressure, measured
-
-Before every dispatch, read `five_hour_percent` and `seven_day_percent` from `orchestrator:context-gauge`. Measure, never estimate — the same rule as context.
-
-- **At or above ~70 % on either**: every class drops one tier EXCEPT the rows the principle protects — you and your successor, contract-defining phases, the final verification. Tell the operator in one line: a degraded wave is a fact they own.
-- **At or above ~90 %**: dispatch nothing new. Finish what is in flight, queue the rest. A wave that dies mid-phase is redone from a cold session that remembers none of what it had decided, which is the most expensive outcome available.
-- **Unreadable figures**: both read `unavailable` when the answer came from the transcript or the payload never carried them. Say so and route on the table alone — a gate that cannot measure does not hold a run, and an absent figure is never read as zero.
-
-Pressure modifies one dispatch. It never rewrites the table.
-
 ## A second reader, armed by evidence and not by default
 
 The published measurements of model judges are lopsided in a way that matters here: a
@@ -168,7 +158,6 @@ signal=n-bis at light averages 2 rounds: the drop did not pay, revert it for thi
 | "The last drop went fine, drop the next class too" | One round is not a measurement of a class. Drop from the record (« The record »), not from a mood. |
 | "The round failed, but the tier was not the reason" | Name the mechanism, or revert the drop: « The false economy ». |
 | "Escalate now, the agent is struggling" | An escalation is a rotation: « Escalate on evidence ». |
-| "The quota is high, drop everything a tier" | Not the contracts and not yourself. A cheap orchestrator produces expensive waves, and a cheap contract is paid by every later phase. |
 | "The map is empty but the tiers are in the briefs" | Then nothing is routed and the host decides everything. Run `resolve-tier`, and say the routing is advisory until the operator binds it. |
 | "Cascading saved 90% in the papers, so cascade the phases too" | Never cascade a phase: « Cascade where a retry is cheap ». |
 | "The review found nothing, so the code is clean" | It found nothing it read; a miss exists only once recorded: « A second reader ». |
@@ -184,5 +173,4 @@ signal=n-bis at light averages 2 rounds: the drop did not pay, revert it for thi
 - A tier chosen from how hard the phase feels rather than from the five readings.
 - A second corrective round on a class you dropped, and the drop still standing (« The false economy »).
 - An escalation attempted inside a live session instead of as a rotation.
-- Budget pressure applied to yourself, to a contract-defining phase or to the final verification.
 - A wave dispatched without reading the map, then reported as routed.
