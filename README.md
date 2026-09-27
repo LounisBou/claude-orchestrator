@@ -22,6 +22,7 @@ session can read without depending on a particular status bar.
 | `/orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
 | `/orchestrator:succeed` | Runs the orchestrator succession. |
 | hook `UserPromptSubmit` | The context gate enforced by the harness: at or past 60 % (`ORCHESTRATOR_CONTEXT_GATE`), every prompt carries the line that orders the succession or the stop; unmeasured, it says so once. |
+| hook `PreToolUse` | The push guard enforced by the harness, in sessions the launcher spawned only: a `git push` that forces is refused unless its lease is pinned (`--force-with-lease=<branch>:<sha>`); the operator's own sessions are untouched. |
 | `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
 | `/orchestrator:progress` | Where the build stands: done, in flight, remaining, decisions pending, and the orchestrator's own context. |
 | `/orchestrator:decide` | Runs a decision round with the user: every open question one at a time — context, choices with their cost, one recommendation — each ruling recorded and relayed before the next; a question is re-presented in full after any interruption. |
