@@ -113,7 +113,7 @@ check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.c
 
 # The operator manages the usage budget; the plugin does not read it, report it or route
 # on it (phase 3 ruling 4). No replacement sentence either — the plugin says nothing of it.
-hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits' -- skills/ commands/ templates/ hooks/ README.md || true)
+hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day' -- skills/ commands/ templates/ hooks/ README.md docs/design.md || true)
 check "no budget reference in the plugin" "" "$hits"
 
 # A spawned session inherits a decision mode: the command line the script types
