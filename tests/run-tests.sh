@@ -111,6 +111,11 @@ hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run
 check "the old command namespace is gone" "" "$hits"
 check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.claude-plugin/plugin.json")"
 
+# The operator manages the usage budget; the plugin does not read it, report it or route
+# on it (phase 3 ruling 4). No replacement sentence either — the plugin says nothing of it.
+hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits' -- skills/ commands/ templates/ hooks/ README.md || true)
+check "no budget reference in the plugin" "" "$hits"
+
 # A spawned session inherits a decision mode: the command line the script types
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
