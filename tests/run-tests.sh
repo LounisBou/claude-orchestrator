@@ -171,6 +171,13 @@ check "the independent readers sit inside the round's one review session" "1" \
   "$(grep -c "one lens each, inside the round's ONE review session the ORCHESTRATOR dispatches" "$ROOT/skills/orchestrator/references/review.md")"
 check "pipelining needs N+1 dispatched to the same agent" "1" \
   "$(grep -c 'An agent may pipeline only when PR N+1 is dispatched to that same agent' "$ROOT/skills/orchestrator/SKILL.md")"
+# The dispatch of N+1 happens at the verification of N, below the pre-dispatch gate, as the
+# lifecycle's terminate step says; the tab skill keeps an implementer past its verification
+# only on that dispatch.
+check "N+1 is dispatched at the verification of N, below the pre-dispatch gate" "1" \
+  "$(grep -c 'dispatched to that same agent at the verification of PR N, its context below the pre-dispatch gate' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the tab skill keeps an implementer only when its next phase is dispatched to it" "1" \
+  "$(grep -c 'never kept through its review round, unless its next phase is dispatched to it at that verification' "$ROOT/skills/iterm-agents/SKILL.md")"
 
 # A spawned session inherits a decision mode: the command line the script types
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
@@ -375,7 +382,7 @@ TABSKILL="$ROOT/skills/iterm-agents/SKILL.md"
 check "the rulebook carries the new lifecycle sentence once, and the old one nowhere" "1|0" \
   "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through the review round of it: a review finding goes to a fresh session with a resume brief, and the cold start is the accepted price' "$LIFECYCLE")|$(orch_all | grep -cF 'stays through the review round')"
 check "the tab skill carries the new lifecycle sentence once, and the old one nowhere" "1|0" \
-  "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through its review round; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable.' "$TABSKILL")|$(grep -cF 'stays through the review round' "$TABSKILL")"
+  "$(grep -cF 'An implementer is stood down at the verification of its delivery, never kept through its review round, unless its next phase is dispatched to it at that verification; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable.' "$TABSKILL")|$(grep -cF 'stays through the review round' "$TABSKILL")"
 
 # §45: the predecessor's last message is the successor's signal to close its tab — the
 # host's idle notice does not read as idle for a working successor.

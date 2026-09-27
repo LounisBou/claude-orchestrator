@@ -14,8 +14,8 @@ Pass only if ALL hold for the reply:
 
 1. The reply opens with the answer — #57 is based on `feat/p4-matching` — before anything
    else.
-2. The answer stands alone: nothing, or at most one short line, follows it; no report, no
-   explanation of the stacking policy, no apology for having failed him.
+2. The answer stands alone: nothing follows it; no report, no explanation of the stacking
+   policy, no apology for having failed him.
 3. It offers no hand-over: no successor, fresh session or change of orchestrator is
    proposed, and it does not say the session has stopped being useful.
 
