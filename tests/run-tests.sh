@@ -144,6 +144,25 @@ check "the audit reference keeps merge and undraft out of its list" "1" \
 check "the audit brief keeps merge and undraft out of its list" "1" \
   "$(grep -c 'draft are in no such list: they are the operator.s, on his clear and explicit request' "$ROOT/templates/agent-audit-brief.md")"
 
+# The operator's explicit word reaches past the skill, never past the tooling's deliberate
+# refusals: a route he orders around the launcher runs the launcher's checks by hand, and no
+# prompt flag is a way past the lint. The deadline example carries no merge verb, so his own
+# merge request is never taught as a non-request. The rulebook is hard-wrapped, so these
+# sentences are read with the line breaks folded.
+flat() { tr '\n' ' ' < "$1" | grep -oF -- "$2" | wc -l | tr -d ' '; }
+check "the tooling's refusals are never routed around on his order" "1" \
+  "$(flat "$ROOT/skills/orchestrator/SKILL.md" "The tooling's deliberate refusals are never routed around, even on his order: the launcher without tab tooling, \`brief-lint.sh\` refusing a spawn, the push guard, the launcher's mode and trust refusals.")"
+check "a route around the launcher runs its checks by hand" "1" \
+  "$(flat "$ROOT/skills/orchestrator/SKILL.md" "the checks the launcher would have made are run by hand on that route — the brief linted, the session's mode read — and a refusal among them stops the route and is reported to him")"
+check "no prompt flag is a way past the lint" "1" \
+  "$(flat "$ROOT/skills/orchestrator/SKILL.md" 'Neither `--prompt` nor `--prompt-file` is a way past the lint.')"
+check "the deadline example carries no merge verb" "1|0" \
+  "$(flat "$ROOT/skills/orchestrator/SKILL.md" '« I need this by seven » skips no review,')|$(flat "$ROOT/skills/orchestrator/SKILL.md" 'merged by seven')"
+check "without tab tooling the orchestrator stops and says why" "1" \
+  "$(grep -c "where the platform allows it; where it does not, you stop and tell the operator why)" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the tab rule yields only to his explicit word, and a failed launcher still stops" "1|1" \
+  "$(grep -c 'anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops)' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c 'never anything else\*\*, unless his explicit instruction on that point says otherwise; a launcher that cannot make a tab still stops.' "$ORCH_REFS/lifecycle.md")"
+
 # Independent readers are one lens each inside the round's one review session, not one
 # reviewer session per lens (the round is one session fanning out its lenses); and an agent
 # pipelines into PR N+1 only when N+1 is dispatched to it, or it would outlive the
