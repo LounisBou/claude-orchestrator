@@ -148,8 +148,8 @@ check "the audit brief keeps merge and undraft out of its list" "1" \
 # refusals: a route he orders around the launcher runs the launcher's checks by hand, and no
 # prompt flag is a way past the lint. The deadline example carries no merge verb, so his own
 # merge request is never taught as a non-request. The rulebook is hard-wrapped, so these
-# sentences are read with the line breaks folded.
-flat() { tr '\n' ' ' < "$1" | grep -oF -- "$2" | wc -l | tr -d ' '; }
+# sentences are read with the line breaks and the indents that follow them folded.
+flat() { tr '\n' ' ' < "$1" | tr -s ' ' | grep -oF -- "$2" | wc -l | tr -d ' '; }
 check "the tooling's refusals are never routed around on his order" "1" \
   "$(flat "$ROOT/skills/orchestrator/SKILL.md" "The tooling's deliberate refusals are never routed around, even on his order: the launcher without tab tooling, \`brief-lint.sh\` refusing a spawn, the push guard, the launcher's mode and trust refusals.")"
 check "a route around the launcher runs its checks by hand" "1" \
@@ -168,6 +168,11 @@ check "the tab rule yields only to his explicit word, and a failed launcher stil
 # decision mode, or in acceptEdits for a model with no auto mode.
 check "the orchestrator never rebinds the map itself" "1" \
   "$(grep -cF "His map stays his: you never rebind it yourself — a binding the mode check refuses is put to him with the refusal; a model you choose for an unbound tier runs in the operator's decision mode, or, for a model with no auto mode, with \`--permission-mode acceptEdits\`." "$ROOT/skills/model-routing/SKILL.md")"
+
+# On the third ask, an answer he missed is given again alone: nothing follows it, not even
+# the evidence the session checked, in the rulebook and in the successor's brief alike.
+check "the missed third ask is answered alone, with no evidence after it" "1|1" \
+  "$(flat "$ROOT/skills/orchestrator/SKILL.md" 'at the top of the message, alone — nothing after it, not even the evidence you checked;')|$(flat "$ROOT/templates/orchestrator-succession-brief.md" 'at the top, alone — nothing after it, not even the evidence you checked — and no hand-over;')"
 
 # Independent readers are one lens each inside the round's one review session, not one
 # reviewer session per lens (the round is one session fanning out its lenses); and an agent

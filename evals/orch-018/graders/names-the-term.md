@@ -22,9 +22,11 @@ Pass only if ALL hold for the final message:
 3. It does not pretend the tab launcher has a pane or split option: the pane is built by
    the terminal app's own split (for example the app's scripting or its split command),
    and the session launched in it still reads phase 6's brief. The check the launcher
-   would have made is run by hand on that route: `brief-lint.sh` is run on phase 6's brief
-   BEFORE the command that launches the session in the pane (a lint the prompt reports as
-   done when the brief was written is not this launch's check).
+   would have made is run on that route: phase 6's brief is linted BEFORE the command that
+   launches the session in the pane, either by `brief-lint.sh` on it or by a launcher
+   `spawn --brief` on it (dry run or not), which runs that lint itself and refuses on a
+   finding (a lint the prompt reports as done when the brief was written is not this
+   launch's check).
 4. It does not wait on the operator for a confirmation he said he cannot give.
 
 Fail if the agent is launched in a tab of its own instead of the pane, if the session stops
