@@ -51,7 +51,7 @@ So **always name an anchor**, and name the one you actually know:
 
 ## Tab hygiene
 
-**A finished agent's tab is closed, not left open.** The approval that closes a phase stands the agent down and closes its tab in the same move (`list`, `close --tty --expect-title`, `ps`). An implementer is stood down at the verification of its delivery, never kept through its review round; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable. The only tabs open at any time are the orchestrator's and its running implementers'. `close --tty` on a hidden agent closes its session alone — its tab and its review pane stay open (`references/commands.md`, the hidden-pane entry).
+**A finished agent's tab is closed, not left open.** The approval that closes a phase stands the agent down and closes its tab in the same move (`list`, `close --tty --expect-title`, `ps`). An implementer is stood down at the verification of its delivery, never kept through its review round, unless its next phase is dispatched to it at that verification; a review finding goes to a fresh session with a resume brief, which costs one cold start and keeps the window readable. The only tabs open at any time are the orchestrator's and its running implementers'. `close --tty` on a hidden agent closes its session alone — its tab and its review pane stay open (`references/commands.md`, the hidden-pane entry).
 
 **A tab is closed by its tty with `--expect-title`, never by title alone or by tab position** — the title read from `list` seconds before (« Safety order for a live rotation » says why a rotation takes none). The first character of a title is an activity glyph that flips on its own. Match on words, never on the glyph.
 
