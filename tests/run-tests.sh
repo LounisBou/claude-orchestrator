@@ -1282,6 +1282,50 @@ check "a date with a time is passed as given, and the header says what was read"
 check "the usage says that a bare date is read from its midnight" "1" \
   "$(rhythm "$RREPO" --bogus x | grep -c 'a bare YYYY-MM-DD means its midnight')"
 
+echo "== triggering set =="
+
+# A skill's description is judged on the rate its triggering set measures, so a case that
+# names no skill, or grades another skill than its name says, or a side left with too few
+# queries, would let a description be rewritten on a rate that measures nothing.
+trigger_set_drift() {  # <trigger dir> <skills dir>: one line per problem
+  python3 - "$1" "$2" <<'PY'
+import glob, os, re, sys
+
+cases, skills_dir = sys.argv[1], sys.argv[2]
+skills = sorted(d for d in os.listdir(skills_dir) if os.path.isfile(os.path.join(skills_dir, d, 'SKILL.md')))
+count = {(s, k): 0 for s in skills for k in ('trigger', 'no-trigger')}
+for case in sorted(d for d in os.listdir(cases) if os.path.isdir(os.path.join(cases, d))):
+    m = re.fullmatch(r'(.+?)-(no-trigger|trigger)-\d{2}', case)
+    if not m or m.group(1) not in skills:
+        print('unknown:' + case)
+        continue
+    skill, kind = m.groups()
+    bound = 'min: 1' if kind == 'trigger' else 'max: 0'
+    graders = [open(g).read() for g in glob.glob(os.path.join(cases, case, 'graders', '*.md'))]
+    if not any('(orchestrator:)?' + skill + '\\""' in g and bound in g.splitlines() for g in graders):
+        print('grader:' + case)
+        continue
+    count[(skill, kind)] += 1
+for (skill, kind), n in sorted(count.items()):
+    if n < 6:
+        print('few:%s:%s:%d' % (skill, kind, n))
+PY
+}
+check "every triggering case names an existing skill, and each skill has six cases of each kind" "" \
+  "$(trigger_set_drift "$ROOT/trigger-evals" "$ROOT/skills")"
+
+TSET="$WORK/trigger-evals"
+cp -R "$ROOT/trigger-evals" "$TSET"
+rm -rf "$TSET/context-gauge-trigger-01"
+cp -R "$TSET/orchestrator-trigger-01" "$TSET/no-such-skill-trigger-01"
+sed 's/max: 0/max: 1/' "$ROOT/trigger-evals/model-routing-no-trigger-01/graders/skill-not-loaded.md" \
+  > "$TSET/model-routing-no-trigger-01/graders/skill-not-loaded.md"
+sed 's/)?iterm-agents/)?model-routing/' "$ROOT/trigger-evals/iterm-agents-trigger-01/graders/skill-loaded.md" \
+  > "$TSET/iterm-agents-trigger-01/graders/skill-loaded.md"
+check "a case naming no skill, a grader of the wrong skill or bound, and a short side are each named" \
+  "few:context-gauge:trigger:5|few:iterm-agents:trigger:5|few:model-routing:no-trigger:5|grader:iterm-agents-trigger-01|grader:model-routing-no-trigger-01|unknown:no-such-skill-trigger-01" \
+  "$(trigger_set_drift "$TSET" "$ROOT/skills" | sort | tr '\n' '|' | sed 's/|$//')"
+
 echo "== design layout =="
 
 # The design document opens with a tree of the repository. Nothing kept it honest, so it
