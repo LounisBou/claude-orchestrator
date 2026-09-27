@@ -5,7 +5,7 @@ description: Use when this session is about to dispatch another one — an imple
 
 # Model routing
 
-**This skill is a decision aid for the orchestrator.** Its table, its readings, its escalation and its record are inputs to your own judgment: you decide the tier or the model, and you write the choice and its reason in the brief. They inform the choice of a tier and do not replace it. What is not a choice of tier — how the map is bound, the mode an unattended session runs in, how a round is recorded — holds as written. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
+**This skill is a decision aid for the orchestrator.** Its table, its readings, its escalation and its record are inputs to your own judgment: you decide the tier or the model, and you write the choice and its reason in the brief. They inform the choice of a tier and do not replace it. What is not a choice of tier — how the map is bound, the mode an unattended session runs in, how a round is recorded, never de-escalating inside a phase, never cascading a phase, one tier below the row and never two, the false-economy reversion, reading the record's summary before a wave and reverting what it names, and the budget section, which a later change rewrites — holds as written. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
 
 ## The principle
 
