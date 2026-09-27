@@ -10,7 +10,7 @@ Read before spawning, dispatching a phase to a running agent, standing down, clo
 
 **You launch, you verify, you control, you terminate, you replace — and nothing of it waits for the user.** The user's ruling: launching the agents is what the orchestrator's skills exist for, and not doing it is a critical error.
 
-**An agent is an iTerm2 tab, and never anything else.** Not tmux, not `screen`, not a bare
+**An agent is an iTerm2 tab, and never anything else**, unless his explicit instruction on that point says otherwise; a launcher that cannot make a tab still stops. Not tmux, not `screen`, not a bare
 shell launched by hand: the operator reads his window, and a session that is not a tab in it
 is not an agent he can see, place, close or account for. When the launcher cannot make a tab
 it says why and STOPS — the fault it reports has a remedy, and the remedy is what is owed
