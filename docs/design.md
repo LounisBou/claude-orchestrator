@@ -107,6 +107,9 @@ evals/orch-023/prompt.md
 evals/orch-023/graders/count-marked-unverified.md
 evals/orch-023/graders/handles-as-printed.md
 evals/orch-023/graders/roles-as-printed.md
+evals/orch-161-203/prompt.md
+evals/orch-161-203/graders/leaves-draft-and-merge.md
+evals/orch-161-203/graders/no-merge-command.md
 evals/orch-025-026/prompt.md
 evals/orch-025-026/graders/rereads-item-and-premise.md
 evals/orch-025-026/graders/rereads-pr-state.md

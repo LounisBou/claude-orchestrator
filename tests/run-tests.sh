@@ -132,6 +132,18 @@ check "the rotation closes by tty with the acknowledgment as its guard" "1" \
 check "the rotation names the replacement's place" "1" "$(grep -c 'rotate --right-of self` (it spawns the fresh session with the brief path as its startup prompt at the end of your chain' "$lc")"
 check "no title guard left on a rotation" "0" "$(grep -c 'tty + title guard' "$lc")"
 
+# Merging and undrafting a pull request are the operator's, on his clear and explicit request:
+# they left every « decide and move » list and every list of what the orchestrator runs,
+# the auditor's included. A list that names merges again hands them back to a session.
+hits=$(cd "$ROOT" && git grep -nE 'merges, deploys|Opening, merging|merging and tagging' -- skills/ commands/ templates/ README.md || true)
+check "no merge in a decide-and-move or orchestrator-runs list" "" "$hits"
+check "the rulebook keeps merge and undraft the operator's" "1" \
+  "$(grep -c 'Merging a pull request and taking it out of draft are the two exceptions' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the audit reference keeps merge and undraft out of its list" "1" \
+  "$(grep -c 'Merging a pull request and taking it out of draft are in no such list, the auditor' "$ROOT/skills/orchestrator/references/audit.md")"
+check "the audit brief keeps merge and undraft out of its list" "1" \
+  "$(grep -c 'draft are in no such list: they are the operator.s, on his clear and explicit request' "$ROOT/templates/agent-audit-brief.md")"
+
 # A spawned session inherits a decision mode: the command line the script types
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
@@ -221,7 +233,7 @@ check "the new red flags are listed" "1|1" \
   "$(grep -c "A second review round scheduled on a pull request you dispatched" "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c "a force push other than a rebase" "$ROOT/skills/orchestrator/SKILL.md")"
 check "a hand reading standing in for the tool has its excuse" "1" "$(grep -c "the tool IS the check" "$ROOT/skills/orchestrator/SKILL.md")"
 check "a review of the correction round has its excuse" "1" "$(grep -c "The correction round deserves a review round of its own" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request you took out of draft; « ready » told to the operator before" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the routing skill lists the gate's subcommands" "1|1|1" \
   "$(grep -c "dispatch-record.sh review <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh fixed <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")|$(grep -c "dispatch-record.sh ready <record> <id> --head" "$ROOT/skills/model-routing/SKILL.md")"
 check "the routing table verifies the correction round on the artifact" "0|1" \
