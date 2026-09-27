@@ -116,6 +116,22 @@ check "the plugin is named orchestrator" "orchestrator" "$(jq -r .name "$ROOT/.c
 hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day' -- skills/ commands/ templates/ hooks/ README.md docs/design.md || true)
 check "no budget reference in the plugin" "" "$hits"
 
+# Without tab tooling the orchestrator stops and says why: handing the operator a brief path
+# and a launch line to paste was a fallback the operator ruled out, and it crossed the rules
+# that a launcher which cannot make a tab stops and that no command is handed to him.
+hits=$(cd "$ROOT" && git grep -inE 'launch instruction|hand (the user|the operator|him) the brief path' -- skills/ commands/ templates/ README.md || true)
+check "no launch-line fallback handed to the operator" "" "$hits"
+
+# A rotation closes the old tab by its tty, the stood-down acknowledgment being the guard:
+# a title read before the ten-second spawn is stale after it, and the tab skill forbids
+# --expect-title on a rotation. The orchestrator's text once said « tty + title guard ».
+# The replacement lands at the end of the caller's chain, where --right-of self puts it.
+lc="$ROOT/skills/orchestrator/references/lifecycle.md"
+check "the rotation closes by tty with the acknowledgment as its guard" "1" \
+  "$(grep -c 'closes the old tab by its tty — the stood-down acknowledgment is the guard, and a rotation takes no title guard' "$lc")"
+check "the rotation names the replacement's place" "1" "$(grep -c 'rotate --right-of self` (it spawns the fresh session with the brief path as its startup prompt at the end of your chain' "$lc")"
+check "no title guard left on a rotation" "0" "$(grep -c 'tty + title guard' "$lc")"
+
 # A spawned session inherits a decision mode: the command line the script types
 # carries --permission-mode, defaulting to auto, on spawn and on rotate.
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
