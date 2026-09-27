@@ -1827,6 +1827,52 @@ check "a different title still does not match" "no" "$(title_in 'autre' '✳ Lir
 # waiting for a keystroke ate the first character of a command twice in one night.
 # Twice: once before the first typing, once before the single retry.
 
+echo "== iterm-agents spawn --brief (dry run) =="
+
+# `spawn --brief` builds the startup prompt itself and lints the brief BEFORE any tab
+# exists, so a specification defect is caught before the dispatch rather than after the
+# round. `--brief` reuses the clean and the defective fixtures from the brief-lint section.
+ORCHREF='project-70 [a1b2c3]'
+# The brief's own directory, normalised the way `os.path.abspath` normalises it: the
+# double slash the test's own $TMPDIR can carry is collapsed, but no symlink is resolved
+# (unlike `pwd -P`, which would turn `/tmp` into `/private/tmp` and never match).
+BABS=$(cd "$B" && pwd)
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
+check_status "a lint-clean brief spawns" 0 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF"
+check "the built prompt reads exactly" "1" \
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF; handshake first, silence rule 15 min.")"
+check "the lint verdict is shown" "1" "$(printf '%s\n' "$out" | grep -c '^lint=brief-lint: .*0 findings$')"
+
+# A relative brief path still resolves to the absolute one the fresh session can open.
+# A relative path goes through `os.getcwd()`, which the OS resolves PHYSICALLY (symlinks
+# followed) — `pwd -P`, not the `pwd` used above for an already-absolute path, which
+# `os.path.abspath` only normalises lexically and never touches a symlink in.
+BPHYS=$(cd "$B" && pwd -P)
+out=$(cd "$B" && ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief good.md --orchestrator "$ORCHREF" 2>&1)
+check "a relative brief path resolves absolute in the prompt" "1" \
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BPHYS/good.md.")"
+
+check_status "--brief with --prompt is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt x
+check_status "--brief with --prompt-file is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt-file "$B/good.md"
+check_status "--brief without --orchestrator is refused" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md"
+check_status "a brief that does not exist refuses the spawn" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/absent.md" --orchestrator "$ORCHREF"
+
+# A brief with a lint finding refuses the spawn and prints the finding — before any tab
+# exists, and before a prompt file is written for a spawn that will never happen.
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1); code=$?
+check "a brief with a lint finding refuses the spawn" "1" "$code"
+check "the finding is printed" "1" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
+
+D9STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" >/dev/null 2>&1
+check "the lint refusal leaves no prompt file" "0" \
+  "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$D9STATE"
+
 echo "== model tiers =="
 
 # The plugin binds capability tiers, never model names. `a-model` is the repository's
