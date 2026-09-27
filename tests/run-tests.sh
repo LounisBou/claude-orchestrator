@@ -219,6 +219,10 @@ check "the succession spawns with --successor" "yes|0" \
 check "the succession types no title" "0" "$(grep -c -- '--title' "$ROOT/commands/succeed.md")"
 check "the succession says where the successor's name comes from" "1" \
   "$(grep -c "takes THIS session's own name" "$ROOT/commands/succeed.md")"
+# ORCH-043: the succession brief was spawned with --prompt and never linted, unlike the
+# audit brief. The lint step must precede the spawn line, not merely exist somewhere in it.
+check "the succession command lints its brief before spawning it" "1|1" \
+  "$(grep -c 'brief-lint.sh <brief path>' "$ROOT/commands/succeed.md")|$([ "$(grep -n 'brief-lint.sh <brief path>' "$ROOT/commands/succeed.md" | head -1 | cut -d: -f1)" -lt "$(grep -n -- '--successor --prompt' "$ROOT/commands/succeed.md" | head -1 | cut -d: -f1)" ] && echo 1 || echo 0)"
 check "the tab skill's rotation line forwards the trust flag" "1" \
   "$(grep -c -- 'rotate --dir <workdir> --old-tty <tty> \[--trust\] \[--tier <tier>\]' "$ITERM_REFS/commands.md")"
 check "the tab skill spawns the successor the same way" "1|0" \
@@ -359,7 +363,7 @@ check "the rulebook spawns beside the orchestrator" "1" "$(grep -c -- '--right-o
 check "the rulebook keeps running to the orchestrator" "1" "$(grep -c '^## The operator decides; the orchestrator runs' "$ROOT/skills/orchestrator/SKILL.md")"
 check "a runnable command is the orchestrator's" "1" "$(grep -c "A command the orchestrator could run is the orchestrator's to run" "$ROOT/skills/orchestrator/SKILL.md")"
 
-# Two readings the rulebook left open (§36): an implementer's own delivery reading is
+# The detached-worktree reader (§36): an implementer's own delivery reading is
 # reversed by §45 (a delivered implementer is stood down at the verification, never kept
 # through the review round of it); a reader's pinned copy is a worktree.
 check "the rulebook's §45 reversal of the §36 reading holds" "1|1" \
@@ -1282,15 +1286,40 @@ echo "== design layout =="
 
 # The design document opens with a tree of the repository. Nothing kept it honest, so it
 # lost the hooks, three commands, two briefs and the test fixture while still reading as
-# current to whoever opens it next — the exact shape of a directive that outlives what it
-# described. Every tracked file must appear in that block; the plan and spec directories
-# are excluded because they are workflow artifacts, not shipped layout.
-layout=$(awk '/^## 2\. Layout/{f=1} f&&/^```$/{c++; if(c==2) exit} f&&c==1' "$ROOT/docs/design.md")
-undocumented=""
-for f in $(cd "$ROOT" && git ls-files | grep -vE '^docs/superpowers/|^LICENSE$|^\.gitignore$'); do
-  printf '%s' "$layout" | grep -qF "$f" || undocumented="$undocumented $f"
-done
-check "every shipped file is in the design's layout" "" "$undocumented"
+# current to whoever opens it next, and it once named a grader deleted from evals/ that
+# stayed in the block just as long — the exact shape of a directive that outlives what it
+# described, either way. Two-way: every tracked file must appear in the block, and every
+# file the block names must still be tracked. The plan and spec directories are excluded
+# because they are workflow artifacts, not shipped layout.
+layout_of() { awk '/^## 2\. Layout/{f=1; next} f&&/^```$/{c++; if(c==2) exit; next} f&&c==1' "$1"; }
+layout_paths() {  # <design file>: one path per layout entry; "a, b" lists several, a path
+                   # followed by prose (space-separated, no comma before it) names only one
+  layout_of "$1" | awk 'NF==0{next} {
+    n = split($0, parts, ", ")
+    for (i = 1; i <= n; i++) {
+      split(parts[i], w, /[ \t]+/)
+      print w[1]
+      if (parts[i] != w[1]) break
+    }
+  }'
+}
+layout_drift() {  # <design file> <tracked-files, one per line>: prints every mismatch, both ways
+  local design=$1 tracked=$2 f layout
+  layout=$(layout_of "$design")
+  for f in $(printf '%s\n' "$tracked" | grep -vE '^docs/superpowers/|^LICENSE$|^\.gitignore$'); do
+    printf '%s' "$layout" | grep -qF "$f" || echo "missing:$f"
+  done
+  for f in $(layout_paths "$design"); do
+    printf '%s\n' "$tracked" | grep -qxF "$f" || echo "stale:$f"
+  done
+}
+TRACKED_FILES=$(cd "$ROOT" && git ls-files)
+check "the design's layout matches the tracked files, both ways" "" "$(layout_drift "$ROOT/docs/design.md" "$TRACKED_FILES")"
+
+DLSTALE="$WORK/design-layout-stale.md"
+{ printf '## 2. Layout\n\n```\n'; layout_of "$ROOT/docs/design.md"; printf 'evals/gone-007/graders/gone.md   a grader deleted from evals/\n```\n'; } > "$DLSTALE"
+check "a layout line naming a file no longer tracked falls the check, and only that one" "1|0" \
+  "$(layout_drift "$DLSTALE" "$TRACKED_FILES" | grep -c '^stale:evals/gone-007/graders/gone\.md$')|$(layout_drift "$DLSTALE" "$TRACKED_FILES" | grep -vc '^stale:evals/gone-007/graders/gone\.md$')"
 
 echo "== documentation links =="
 
@@ -1702,7 +1731,7 @@ PSSHORT="$WORK/ps-short.txt"
 printf '/dev/ttys900 /opt/x/host --name Orch : %s --permission-mode auto\n' "$(printf 'x%.0s' $(seq 1 25))" > "$PSSHORT"
 PSLONGSUB="$WORK/ps-long-subject.txt"
 printf '/dev/ttys900 /opt/x/host --name Orch : %s --permission-mode auto\n' "$(printf 'x%.0s' $(seq 1 26))" > "$PSLONGSUB"
-# §48 changed this refusal's WORDS and not its verdict: a launch line is past anything a
+# §39 changed this refusal's WORDS and not its verdict: a launch line is past anything a
 # name can be, so it is not read back as one at all, and « does not read Orch : <subject> »
 # was saying the wrong thing about a string nobody could read in the first place.
 check "a derived name that is a launch line is refused as unreadable" "1|1" \
