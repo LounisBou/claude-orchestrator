@@ -1272,7 +1272,12 @@ cmd=${out#*launch=}; cmd=${cmd%%$'\n'*}
 file=${out#*prompt_file=}; file=${file%%$'\n'*}
 check "the launch stays short whatever the prompt" "short" "$([ "${#cmd}" -lt 500 ] && echo short || echo "${#cmd} chars typed")"
 check "the launch reads the prompt from its file" "1" "$(printf '%s' "$cmd" | grep -c '"\$(cat ')"
-check "the prompt file holds the prompt byte for byte" "$prompt" "$(cat "$file")"
+# The dry run names the file and writes none; the writer is driven directly for the bytes.
+check "the prompt file holds the prompt byte for byte" "$prompt" \
+  "$(LC_ALL=C ORCHESTRATOR_STATE_DIR="$ISTATE" "$(command -v python3)" -c "
+import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+print(open(ia.write_prompt_file(sys.argv[1], sys.argv[2]), encoding='utf-8').read(), end='')" "$prompt" "Agent : B-1 — é")"
 check "the prompt file lives under the state directory" "yes" "$([ "${file#"$ISTATE"/prompts/}" != "$file" ] && echo yes || echo "$file")"
 # §45: the prompt file carries its kind in its name, so the three files a launch leaves
 # under prompts/ sort by kind like the two already did.
@@ -1392,17 +1397,23 @@ nocat() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_M
   bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1; }
 # The file the launch names is read back, not assumed: the launch line says a path, the
 # content says which servers the session will actually load.
-mcp_keys() { "$py" -c "
+# A dry run writes no file, so the definitions a real launch would write are produced by
+# the same writer, driven directly with the same catalogue and the same names.
+mcp_keys() { ORCHESTRATOR_STATE_DIR="$WORK/mcp-written" ORCHESTRATOR_MCP_CATALOGUE="$CAT" "$py" -c "
 import json, sys
-print(','.join(json.load(open(sys.argv[1]))['mcpServers'].keys()))" "$1"; }
+sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+cat = ia.read_catalogue()
+path = ia.write_mcp_file(ia.select_servers(sys.argv[1:], cat), cat, 'x')
+print(','.join(json.load(open(path))['mcpServers'].keys()))" "$@"; }
 mcp_file_of() { printf '%s' "$1" | sed -n 's/^mcp_file=//p'; }
 
 check "the default set is loaded, from a file the launch names" "1|1|a|a" \
-  "$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--strict-mcp-config')|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')|$(mcpd | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd)")")"
+  "$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--strict-mcp-config')|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')|$(mcpd | sed -n 's/^mcp=//p')|$(mcp_keys)"
 check "--mcp adds a catalogued server for the agent that needs it" "a,b|a,b" \
-  "$(mcpd --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp b)")")"
+  "$(mcpd --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys b)"
 check "several names travel comma-separated or as repeated options, each once" "a,b|a,b|a,b|a,b" \
-  "$(mcpd --mcp a,b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp a,b)")")|$(mcpd --mcp a --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys "$(mcp_file_of "$(mcpd --mcp a --mcp b)")")"
+  "$(mcpd --mcp a,b | sed -n 's/^mcp=//p')|$(mcp_keys a,b)|$(mcpd --mcp a --mcp b | sed -n 's/^mcp=//p')|$(mcp_keys a b)"
 check "--mcp none loads nothing, and writes no file" "none|none|0" \
   "$(mcpd --mcp none | sed -n 's/^mcp=//p')|$(mcpd --mcp none | sed -n 's/^mcp_file=//p')|$(mcpd --mcp none | sed -n 's/^launch=//p' | grep -c -- '--mcp-config')"
 check "--mcp none among others still loads nothing" "none" \
@@ -1878,6 +1889,7 @@ audclose() { eval "set -- $AUDCLOSE"; ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" close
 check "its close line is one the launcher runs, guarded on the audit title" "close=/dev/ttys950 expect_title=Audit :" \
   "$(if [ -n "$AUDCLOSE" ]; then audclose; else echo 'no close line'; fi)"
 
+printf 'a prompt\n' > "$file"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt-file "$file" 2>&1)
 check "--prompt-file reuses the given file" "1" "$(printf '%s' "$out" | grep -c "prompt_file=$file")"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" 2>&1)
@@ -2020,6 +2032,21 @@ ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --d
 check "the lint refusal leaves no prompt file" "0" \
   "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
 rm -rf "$D9STATE"
+
+# A dry run touches nothing: a passing `spawn --brief`, a `--prompt` and a spawn with
+# servers each name the files a real launch would write, and none is written.
+D11STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
+check "a passing brief dry run writes nothing under the state directory" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^prompt_file=$D11STATE/prompts/prompt-")"
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt p >/dev/null 2>&1
+check "a --prompt dry run writes nothing either" "0" "$(find "$D11STATE" -type f | wc -l | tr -d ' ')"
+D11CAT="$D11STATE-cat.json"
+printf '{"servers":{"a":{"command":"a-cmd"}},"default":["a"]}\n' > "$D11CAT"
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" ORCHESTRATOR_MCP_CATALOGUE="$D11CAT" bash "$AGENT" spawn --dir "$WORK" --title "Agent : mcp" --prompt p 2>&1)
+check "nor a dry run with servers, which still names its file" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^mcp_file=$D11STATE/prompts/mcp-")"
+rm -rf "$D11STATE" "$D11CAT"
 
 echo "== model tiers =="
 
