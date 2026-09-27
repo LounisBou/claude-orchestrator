@@ -163,6 +163,12 @@ check "without tab tooling the orchestrator stops and says why" "1" \
 check "the tab rule yields only to his explicit word, and a failed launcher still stops" "1|1" \
   "$(grep -c 'anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops)' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c 'never anything else\*\*, unless his explicit instruction on that point says otherwise; a launcher that cannot make a tab still stops.' "$ORCH_REFS/lifecycle.md")"
 
+# The operator's map is never rebound by the orchestrator: a binding the mode check refuses
+# goes to him with the refusal, and a model chosen for an unbound tier still runs in his
+# decision mode, or in acceptEdits for a model with no auto mode.
+check "the orchestrator never rebinds the map itself" "1" \
+  "$(grep -cF "His map stays his: you never rebind it yourself — a binding the mode check refuses is put to him with the refusal; a model you choose for an unbound tier runs in the operator's decision mode, or, for a model with no auto mode, with \`--permission-mode acceptEdits\`." "$ROOT/skills/model-routing/SKILL.md")"
+
 # Independent readers are one lens each inside the round's one review session, not one
 # reviewer session per lens (the round is one session fanning out its lenses); and an agent
 # pipelines into PR N+1 only when N+1 is dispatched to it, or it would outlive the
