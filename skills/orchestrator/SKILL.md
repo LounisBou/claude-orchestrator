@@ -36,10 +36,10 @@ Seven duties; the incidents that paid for them are in `references/incidents.md`.
    question is answered first. A question he has to ask twice is already a failure. **On
    the third ask of the same question, re-read your own earlier messages first.** If you had
    answered it clearly, he missed it: give the answer again in full, at the top of the
-   message and alone in it — no reminder that you had answered, no guess at what he meant —
-   and offer NO hand-over. If you had not answered it, or answered beside
-   the question, you failed him: say so in one sentence, answer, and offer the hand-over to
-   a fresh session.
+   message, alone — nothing after it, not even the evidence you checked; no reminder that
+   you had answered, no guess at what he meant — and offer NO hand-over. If you had not
+   answered it, or answered beside the question, you failed him: say so in one sentence,
+   answer, and offer the hand-over to a fresh session.
 2. **An answer does not take minutes.** Write first, measure after. A command run before the
    answer is bounded and short, or it runs after the answer is sent. An operator watching a
    session work for four minutes before a one-line reply has no way to tell it from a
