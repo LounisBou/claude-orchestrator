@@ -23,8 +23,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 # The model that answered last. The transcript is the one certain trace: the host can
 # switch a session's model under it (its own fallback after a refusal or an outage) and
 # neither the launch line nor the status line shows it — only each answer's own entry
-# does (§32). The tap's declared model is the fallback reading; unavailable otherwise,
-# in the same word as the quota figures and for the same reason.
+# does (§32). The tap's declared model is the fallback reading; unavailable otherwise.
 read_model() {
   model="" model_source="unavailable"
   [ -n "$transcript" ] || transcript=$(ls "$TRANSCRIPTS_DIR"/*/"$session_id".jsonl 2>/dev/null | head -1)

@@ -69,8 +69,8 @@ gauge then answers from the transcript alone.
 ## How the gauge works
 
 The host exposes the exact context fill in one place: the JSON it sends to the
-status line command on stdin (`context_window.used_percentage`, the 5-hour and
-7-day quotas, and `session_id`). Hooks do not carry it, and a plugin cannot
+status line command on stdin (`context_window.used_percentage` and
+`session_id`). Hooks do not carry it, and a plugin cannot
 declare a status line. So the installer prepends a tap to whatever status line
 you already run:
 
