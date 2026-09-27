@@ -98,6 +98,54 @@ if grep -q 'You are the REVIEW agent' "$brief" 2>/dev/null; then
         || say 1 "no norms-check: report line: the round's report must end on 'norms-check: tool <head>' or 'norms-check: none <head>', which is what the orchestrator records"
 fi
 
+# 7. An agent that ends its turn waiting for a run loses the work: the single most
+#    expensive failure mode observed. A clause that FORBIDS the background reads the
+#    opposite way and must raise nothing, even when the forbidding word sits on the line
+#    that also carries the trigger — "never", "no", "not", "forbid(den)" and "don't" name it.
+in_fence=0
+lineno=0
+while IFS= read -r bgline || [ -n "$bgline" ]; do
+    lineno=$((lineno + 1))
+    if printf '%s' "$bgline" | grep -qE '^[[:space:]]*```'; then
+        in_fence=$((1 - in_fence))
+        continue
+    fi
+    lower=$(printf '%s' "$bgline" | tr '[:upper:]' '[:lower:]')
+    negated=0
+    printf '%s' "$lower" | grep -qE '\b(never|no|not|forbid(den)?|don.t)\b' && negated=1
+
+    trigger=$(printf '%s' "$lower" | grep -oE 'in the background|run_in_background' | head -1)
+    if [ -n "$trigger" ]; then
+        [ "$negated" = 1 ] || say "$lineno" "instructs a background run ($trigger): never end a turn waiting for one"
+    fi
+
+    bg_cmd=0
+    [ "$in_fence" = 1 ] && printf '%s' "$bgline" | grep -qE '[[:space:]]&[[:space:]]*$' && bg_cmd=1
+    printf '%s' "$bgline" | grep -qE '`[^`]*[[:space:]]&[[:space:]]*`' && bg_cmd=1
+    if [ "$bg_cmd" = 1 ] && [ "$negated" = 0 ]; then
+        say "$lineno" "a command line ending in ' &': never end a turn waiting for a run"
+    fi
+done < "$brief"
+
+# 8. The orchestrator measures its own context from the gauge script, never an estimate;
+#    self-estimates ran 13 points high in observed runs. An implementer or a review brief —
+#    the two classes this lint already tells apart — must cite it by an absolute, existing
+#    path. A host-expanded variable or an unfilled `{{GAUGE}}` placeholder in its place is
+#    ALREADY a finding above; this does not double it.
+if grep -q 'You are the implementer' "$brief" 2>/dev/null || grep -q 'You are the REVIEW agent' "$brief" 2>/dev/null; then
+    gauge_line=$(grep -n 'context-gauge\.sh\|{{GAUGE}}' "$brief" 2>/dev/null | head -1)
+    if [ -z "$gauge_line" ]; then
+        say 1 "no absolute, existing path to context-gauge.sh: an agent brief must cite the plugin's installed copy, which is how context is measured rather than estimated"
+    else
+        gauge_n=${gauge_line%%:*}
+        gauge_text=${gauge_line#*:}
+        if ! printf '%s' "$gauge_text" | grep -qE '\{\{GAUGE\}\}|\$\{[A-Z]|\$[A-Z][A-Z0-9_]{2,}'; then
+            printf '%s' "$gauge_text" | grep -qE '`/[^`]*context-gauge\.sh`' \
+                || say "$gauge_n" "context-gauge.sh is not cited by an absolute path this machine can open"
+        fi
+    fi
+fi
+
 if [ "$findings" = 0 ]; then
     echo "brief-lint: $brief: 0 findings"
     exit 0

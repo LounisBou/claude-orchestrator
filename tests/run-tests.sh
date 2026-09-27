@@ -851,7 +851,7 @@ check "the missing non-goals are named" "1" "$(bash "$LINT" "$B/noaddr.md" 2>&1 
 # orchestrator nothing to record, and the readiness gate then refuses a head whose round did
 # read it. The rule lived in prose on both sides of the round and was skipped twice in one
 # day, so the brief is read for it before the dispatch rather than after.
-review_brief() { printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is `p-1 [a1b2c3]`.\n' > "$1"; }
+review_brief() { printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is `p-1 [a1b2c3]`.\n\nGauge: run `%s`.\n' "$ROOT/skills/context-gauge/scripts/context-gauge.sh" > "$1"; }
 
 review_brief "$B/review.md"
 printf 'End the report with `norms-check: tool <head>` or `norms-check: none <head>`.\n' >> "$B/review.md"
@@ -866,6 +866,108 @@ check "the shipped review template raises no norms-check finding" "0" \
 
 check_status "a brief that does not exist is an error" 1 bash "$LINT" "$B/absent.md"
 check_status "no argument is an error" 1 bash "$LINT"
+
+# An instruction to run something in the background, `run_in_background`, or a command
+# ending in ` &` costs an agent its turn: the host never wakes it back up, and the work is
+# picked up hours later by hand. A clause that FORBIDS it reads the opposite way and must
+# raise nothing, including when the forbidding word sits on the very same line.
+ok_brief "$B/bg-phrase.md"; printf 'Run the coverage suite in the background while you continue.\n' >> "$B/bg-phrase.md"
+check_status "an instruction to run in the background is a finding" 1 bash "$LINT" "$B/bg-phrase.md"
+check "the background instruction is named" "1" "$(bash "$LINT" "$B/bg-phrase.md" 2>&1 | grep -c 'background')"
+
+ok_brief "$B/bg-token.md"; printf 'Pass run_in_background: true to the tool call.\n' >> "$B/bg-token.md"
+check_status "the run_in_background token is a finding" 1 bash "$LINT" "$B/bg-token.md"
+check "the token is named" "1" "$(bash "$LINT" "$B/bg-token.md" 2>&1 | grep -c 'run_in_background')"
+
+ok_brief "$B/bg-amp.md"; printf 'Start it with `long-task.sh &` and move on.\n' >> "$B/bg-amp.md"
+check_status "a command ending in an ampersand is a finding" 1 bash "$LINT" "$B/bg-amp.md"
+check "the trailing ampersand is named" "1" "$(bash "$LINT" "$B/bg-amp.md" 2>&1 | grep -c 'ending in')"
+
+ok_brief "$B/bg-fence.md"; printf '```\nlong-task.sh &\n```\n' >> "$B/bg-fence.md"
+check_status "a fenced command ending in an ampersand is a finding" 1 bash "$LINT" "$B/bg-fence.md"
+
+ok_brief "$B/bg-neg1.md"; printf 'Never run anything in the background.\n' >> "$B/bg-neg1.md"
+check_status "a clause forbidding the background is not a finding" 0 bash "$LINT" "$B/bg-neg1.md"
+
+ok_brief "$B/bg-neg2.md"; printf 'There is no background run allowed here.\n' >> "$B/bg-neg2.md"
+check_status "a clause naming no background run is not a finding" 0 bash "$LINT" "$B/bg-neg2.md"
+
+ok_brief "$B/bg-neg3.md"; printf 'Never end a command with `&`.\n' >> "$B/bg-neg3.md"
+check_status "a clause naming a forbidden ampersand is not a finding" 0 bash "$LINT" "$B/bg-neg3.md"
+
+ok_brief "$B/bg-neg4.md"; printf 'Never run `sleep 5 &` under any circumstance.\n' >> "$B/bg-neg4.md"
+check_status "a forbidding word on the same line as the ampersand raises nothing" 0 bash "$LINT" "$B/bg-neg4.md"
+
+check "the shipped templates raise no background finding" "0" \
+  "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'background|run_in_background|ending in')"
+
+# An agent brief (implementer or review — the two classes the lint already tells apart;
+# comments and rotation briefs carry no marker of their own and are left out) without an
+# absolute, existing path to context-gauge.sh cannot measure context: self-estimates ran 13
+# points high in observed runs. A host-expanded variable in its place is ALREADY a finding
+# (check 2) — this must not double it.
+nogauge_brief() {
+  cat > "$1" <<BRIEF
+# scratch — Phase 1: thing
+
+You are the implementer for this phase.
+
+## 1. Required reading
+
+1. Spec: \`$WORK/briefs\`
+
+## 3. Scope
+
+Non-goals:
+
+- Nothing outside this list.
+- If you believe something outside this list is needed, STOP and ask the orchestrator first.
+
+## 6. Communication
+
+- Your orchestrator is the session **\`project-70 [a1b2c3]\`** and no other session.
+BRIEF
+}
+nogauge_brief "$B/nogauge.md"
+check_status "an agent brief without a gauge path is a finding" 1 bash "$LINT" "$B/nogauge.md"
+check "the missing gauge path is named" "1" "$(bash "$LINT" "$B/nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+gaugevar_brief() {
+  cat > "$1" <<BRIEF
+# scratch — Phase 1: thing
+
+You are the implementer for this phase.
+
+## 1. Required reading
+
+1. Spec: \`$WORK/briefs\`
+
+## 3. Scope
+
+Non-goals:
+
+- Nothing outside this list.
+- If you believe something outside this list is needed, STOP and ask the orchestrator first.
+
+## 6. Communication
+
+- Your orchestrator is the session **\`project-70 [a1b2c3]\`** and no other session.
+- Every report ends with your measured context: run \`\${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh\`.
+BRIEF
+}
+gaugevar_brief "$B/gaugevar.md"
+check_status "a variable in place of the gauge path is a finding" 1 bash "$LINT" "$B/gaugevar.md"
+check "exactly one finding fires for the variable gauge path, not two" "1" \
+  "$(bash "$LINT" "$B/gaugevar.md" 2>&1 | grep -c "^$B/gaugevar.md:")"
+
+check "a review brief without a gauge path is also a finding" "1" \
+  "$(printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/review-nogauge.md"; bash "$LINT" "$B/review-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+check "a comments brief is not held to the gauge-path check" "0" \
+  "$(printf '# round\n\nYou are the COMMENTS agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/comments-nogauge.md"; bash "$LINT" "$B/comments-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+check "the shipped templates raise no new gauge-path finding" "0" \
+  "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'no absolute, existing path to context-gauge\.sh|is not cited by an absolute path')"
 
 echo "== briefs are readable where they are read =="
 
