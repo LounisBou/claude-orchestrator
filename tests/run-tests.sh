@@ -2170,6 +2170,76 @@ check_status "a forced push earlier in the line, unrelated to the push, is not r
 check_status "an unmarked session is untouched by a forced push" 0 guard Bash "git push --force origin main" ""
 check_status "a non-Bash tool is untouched" 0 guard Write "git push --force origin main" 1
 
+# A push is git in command position — bare or by an absolute path, behind git's own global
+# options, assignments or a wrapper that runs it — then `push`. The first matching read
+# `git push` as two adjacent words and let every one of these through.
+SHA40=$(printf 'a%.0s' $(seq 1 40))
+for c in "git -C /tmp/r push --force" "git -C . push --force-with-lease" "git -c x=y push -f" \
+         "git --no-pager push -f" "/usr/bin/git push -f origin main" \
+         "git --git-dir=/tmp/r/.git --work-tree /tmp/r push -f" "FOO=1 git push -f" \
+         "timeout 60 git push --force origin main" "env -u X git push -f"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+# `-f` inside a cluster of short flags is a force; `-o` takes a value, so what follows it
+# is not a cluster member nor a refspec.
+for c in "git push -uf origin main" "git push -fu origin main" "git push -vf" "git push -nf"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+check_status "a push option's value is not a flag or a refspec" 0 guard Bash "git push -o +foo origin main" 1
+check_status "nor when it is glued to -o" 0 guard Bash "git push -o+foo -v origin main" 1
+# Quotes and shell punctuation are the shell's, not the flag's: unquoted, split on the
+# operators, the words git receives are the ones read.
+for c in "(cd x && git push -f)" "git push -f)" 'git push "-f"' 'git push origin "+main"' \
+         "git push origin 'a:b' '+x'" 'git push -f`true`' "git push -f>out" "{ git push -f; }" \
+         "git push origin main 2>/dev/null --force"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+check_status "refused: a force behind a line continuation" 2 guard Bash 'git push \
+  --force origin main' 1
+# Every lease is read, not the first one: one unpinned lease beside a pinned one is a force.
+check_status "refused: a pinned lease beside a bare one" 2 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease origin main" 1
+check_status "refused: a pinned lease beside one with no sha" 2 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease=other origin main" 1
+check_status "two pinned leases pass" 0 guard Bash "git push --force-with-lease=main:$SHA40 --force-with-lease=dev:$SHA40 origin main dev" 1
+check_status "a pinned lease with its output redirected passes" 0 guard Bash "git push --force-with-lease=main:$SHA40 origin main 2>&1 | tail -3" 1
+# The other forms that overwrite a remote: --mirror, and the abbreviations of --force git
+# accepts.
+for c in "git push --mirror origin" "git push --fo origin main" "git push --for origin main" "git push --forc origin main"; do
+  check_status "refused: $c" 2 guard Bash "$c" 1
+done
+# Text about a push is not a push. The first matching refused a commit message that
+# mentioned one: a quoted argument of another command, a heredoc body and a comment are
+# the shell's data, never a command.
+check_status "a commit message quoting a forced push passes" 0 guard Bash 'git commit -m "fix; git push -f later"' 1
+check_status "a pull request body quoting a forced push passes" 0 guard Bash 'gh pr create --body "rebase && git push --force is refused"' 1
+check_status "a heredoc body naming a forced push passes" 0 guard Bash "git commit -F - <<'EOF'
+subject
+
+git push --force
+EOF" 1
+check_status "a heredoc inside a quoted substitution, with a stray quote in it, passes" 0 guard Bash "git commit -m \"\$(cat <<'EOF'
+say \"why; git push -f is refused
+EOF
+)\"" 1
+check_status "a comment after a plain push passes" 0 guard Bash "git push origin main # --force" 1
+check_status "and a forced push after a heredoc is still read" 2 guard Bash "cat <<EOF
+text
+EOF
+git push -f" 1
+check_status "a forced push inside a command substitution is read" 2 guard Bash 'echo "$(git push -f)"' 1
+# The refusal is the host's documented denial: a plain reason on stderr, exit 2, ending on
+# the way out for a command that only mentions a push.
+refusal=$(guard Bash "git push -f" 1 2>&1 >/dev/null)
+check "the refusal is plain text, not a JSON object" "0" "$(printf '%s' "$refusal" | grep -c '^{')"
+check "the refusal ends on the way out" "1" \
+  "$(printf '%s' "$refusal" | grep -c 'put text that mentions a push in a file (`git commit -F`, `gh … --body-file`)\.$')"
+# The guard that cannot read its input says so and lets the call through: it never blocks
+# every command of a session because a tool is missing.
+NOJQ="$WORK/nojq-bin"; mkdir -p "$NOJQ"
+guard_payload Bash "git push -f" > "$WORK/nojq-payload.json"
+nojq_out=$(env PATH="$NOJQ" ORCHESTRATOR_SPAWNED=1 "$(command -v bash)" "$GUARD" < "$WORK/nojq-payload.json" 2>&1); nojq_code=$?
+check "without jq a marked session is let through, with one warning line" "0|1|1" \
+  "$nojq_code|$(printf '%s\n' "$nojq_out" | grep -c .)|$(printf '%s' "$nojq_out" | grep -c 'jq')"
+
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.
 # The stub is the smallest app that tells the two apart; the live round reads the real one.
