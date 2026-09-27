@@ -963,8 +963,13 @@ check "exactly one finding fires for the variable gauge path, not two" "1" \
 check "a review brief without a gauge path is also a finding" "1" \
   "$(printf '# round 2\n\nYou are the REVIEW agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/review-nogauge.md"; bash "$LINT" "$B/review-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
 
-check "a comments brief is not held to the gauge-path check" "0" \
+# The gauge rule holds for every class the lint can tell apart, comments and rotation
+# included: both sessions report their own context like any other (suite ruling 2).
+check "a comments brief without a gauge path is also a finding" "1" \
   "$(printf '# round\n\nYou are the COMMENTS agent for this round.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/comments-nogauge.md"; bash "$LINT" "$B/comments-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
+
+check "a rotation brief without a gauge path is also a finding" "1" \
+  "$(printf '# resume\n\nYou are the ROTATION agent, replacing a previous implementer.\n\nYour orchestrator is \`p-1 [a1b2c3]\`.\n' > "$B/rotation-nogauge.md"; bash "$LINT" "$B/rotation-nogauge.md" 2>&1 | grep -c 'context-gauge.sh')"
 
 check "the shipped templates raise no new gauge-path finding" "0" \
   "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'no absolute, existing path to context-gauge\.sh|is not cited by an absolute path')"

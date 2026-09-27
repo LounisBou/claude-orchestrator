@@ -101,38 +101,44 @@ fi
 # 7. An agent that ends its turn waiting for a run loses the work: the single most
 #    expensive failure mode observed. A clause that FORBIDS the background reads the
 #    opposite way and must raise nothing, even when the forbidding word sits on the line
-#    that also carries the trigger — "never", "no", "not", "forbid(den)" and "don't" name it.
-in_fence=0
-lineno=0
-while IFS= read -r bgline || [ -n "$bgline" ]; do
-    lineno=$((lineno + 1))
-    if printf '%s' "$bgline" | grep -qE '^[[:space:]]*```'; then
-        in_fence=$((1 - in_fence))
-        continue
-    fi
-    lower=$(printf '%s' "$bgline" | tr '[:upper:]' '[:lower:]')
-    negated=0
-    printf '%s' "$lower" | grep -qE '\b(never|no|not|forbid(den)?|don.t)\b' && negated=1
+#    that also carries the trigger — "never", "no", "not" and "forbid(den)" name it. One
+#    awk pass over the file, not a shell loop that forks a handful of processes per line:
+#    the per-line version measurably slowed the suite, which lints the same templates
+#    dozens of times over.
+while IFS=$'\t' read -r bg_n bg_msg; do
+    [ -n "${bg_n:-}" ] || continue
+    say "$bg_n" "$bg_msg"
+done < <(awk '
+    BEGIN { infence = 0 }
+    {
+        line = $0
+        lower = tolower(line)
+        if (lower ~ /^[[:space:]]*```/) { infence = !infence; next }
+        negated = (lower ~ /(^|[^a-z])(never|no|not|forbidden|forbid)([^a-z]|$)/)
+        trigger = ""
+        if (lower ~ /in the background/) trigger = "in the background"
+        else if (lower ~ /run_in_background/) trigger = "run_in_background"
+        if (trigger != "" && !negated) {
+            printf "%d\tinstructs a background run (%s): never end a turn waiting for one\n", NR, trigger
+        }
+        bg = 0
+        if (infence && line ~ /[[:space:]]&[[:space:]]*$/) bg = 1
+        if (line ~ /`[^`]*[[:space:]]&[[:space:]]*`/) bg = 1
+        if (bg && !negated) {
+            printf "%d\ta command line ending in an ampersand: never end a turn waiting for a run\n", NR
+        }
+    }
+' "$brief" 2>/dev/null || true)
 
-    trigger=$(printf '%s' "$lower" | grep -oE 'in the background|run_in_background' | head -1)
-    if [ -n "$trigger" ]; then
-        [ "$negated" = 1 ] || say "$lineno" "instructs a background run ($trigger): never end a turn waiting for one"
-    fi
-
-    bg_cmd=0
-    [ "$in_fence" = 1 ] && printf '%s' "$bgline" | grep -qE '[[:space:]]&[[:space:]]*$' && bg_cmd=1
-    printf '%s' "$bgline" | grep -qE '`[^`]*[[:space:]]&[[:space:]]*`' && bg_cmd=1
-    if [ "$bg_cmd" = 1 ] && [ "$negated" = 0 ]; then
-        say "$lineno" "a command line ending in ' &': never end a turn waiting for a run"
-    fi
-done < "$brief"
-
-# 8. The orchestrator measures its own context from the gauge script, never an estimate;
-#    self-estimates ran 13 points high in observed runs. An implementer or a review brief —
-#    the two classes this lint already tells apart — must cite it by an absolute, existing
-#    path. A host-expanded variable or an unfilled `{{GAUGE}}` placeholder in its place is
-#    ALREADY a finding above; this does not double it.
-if grep -q 'You are the implementer' "$brief" 2>/dev/null || grep -q 'You are the REVIEW agent' "$brief" 2>/dev/null; then
+# 8. Every session measures its own context from the gauge script, never an estimate;
+#    self-estimates ran 13 points high in observed runs. An implementer, review, comments
+#    or rotation brief — every class this lint tells apart by its own marker line — must
+#    cite it by an absolute, existing path. A host-expanded variable or an unfilled
+#    `{{GAUGE}}` placeholder in its place is ALREADY a finding above; this does not double it.
+if grep -q 'You are the implementer' "$brief" 2>/dev/null \
+    || grep -q 'You are the REVIEW agent' "$brief" 2>/dev/null \
+    || grep -q 'You are the COMMENTS agent' "$brief" 2>/dev/null \
+    || grep -q 'You are the ROTATION agent' "$brief" 2>/dev/null; then
     gauge_line=$(grep -n 'context-gauge\.sh\|{{GAUGE}}' "$brief" 2>/dev/null | head -1)
     if [ -z "$gauge_line" ]; then
         say 1 "no absolute, existing path to context-gauge.sh: an agent brief must cite the plugin's installed copy, which is how context is measured rather than estimated"
