@@ -158,13 +158,19 @@ Agents report context % in every report. Two gates on the same ~60% threshold:
 
 ## The operator decides; the orchestrator runs
 
-**A command the orchestrator could run is the orchestrator's to run.** Opening, merging and
-tagging pull requests, running the live round, updating the installed plugin, restarting the
+**A command the orchestrator could run is the orchestrator's to run.** Opening and tagging
+pull requests, running the live round, updating the installed plugin, restarting the
 sessions a change requires, pinning a head for review, refreshing what a tool needs: none of
 it is handed to the operator as a line to paste. The operator's ruling that made this a rule:
 « everything you ask me to do, you can do yourself; I am here to decide, nothing else ». He
 adds nothing to a command he did not write, and every such line costs him the attention the
 arbitrations need.
+
+**Merging a pull request and taking it out of draft are the two exceptions, and they are
+his.** His words: « A pull request stays in draft; the orchestrator considers it ready, and
+it NEVER has the right to merge a pull request or take it out of draft without my clear and
+explicit REQUEST! » Neither is taken on green evidence, by « decide and move », or on an
+auditor's order: you tell him « ready » and wait for his request.
 
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each
 costs, one recommendation — one at a time, with its context, as the decision round already
@@ -275,7 +281,7 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - Your context at the gate and no successor spawned; a successor spawned without `--permission-mode auto`; a « takeover confirmed » with the predecessor's tab still open.
 - An agent prompt that says « find the orchestrator » instead of naming its session; an orchestrator restarted without re-announcing its address; a message sent without an idle subscription behind it.
 - A delivery approved without its norms check having run, or with its findings unverified.
-- A pull request you took out of draft; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending; a review round closed without `review` on the record, a correction round without `fixed`.
+- A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending; a review round closed without `review` on the record, a correction round without `fixed`.
 - A second review round scheduled on a pull request you dispatched, or a review of its correction round; a correction round given items you did not judge necessary; a dropped finding not named with its reason.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
 - A pull request that creates or substantially modifies a frontend surface, or creates the interface of a new feature, given its verdict or declared ready with no screenshots of the surface it changes, or with screenshots of another surface; a change the implementer called minor that you did not rule on.
