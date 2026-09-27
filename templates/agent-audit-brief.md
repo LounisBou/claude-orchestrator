@@ -165,7 +165,7 @@ When the operator types /orchestrator:audit-end in your tab — or the orchestra
 acknowledgment relays that the operator gave the word in its tab — that command writes the
 report's final section, messages the orchestrator « audit-end: {{REPORT_PATH}} » with the
 changes you order, and ends your turn. Then answer the orchestrator's acknowledgment with
-« ended » as your last message. You never close your own tab.
+« ended » as your last message.
 
 ## 8. Communication
 
