@@ -1240,6 +1240,9 @@ check "the prompt file's name carries its kind" "1" "$(basename "$file" | grep -
 check "the launch carries the decision mode" "1" "$(printf '%s' "$cmd" | grep -c -- '--permission-mode auto')"
 check "no tier and no map: no model argument" "0" "$(printf '%s' "$cmd" | grep -c -- '--model')"
 check "the launch changes into the working directory" "1" "$(printf '%s' "$cmd" | grep -c "^cd $WORK && ")"
+# Every spawn marks the session as launcher-spawned: the push-guard hook is active only
+# where this is set, and the operator's own sessions never carry it (phase 3 ruling 5).
+check "the launch marks the session launcher-spawned" "1" "$(printf '%s' "$out" | grep -c 'export ORCHESTRATOR_SPAWNED=1')"
 # Named absolutely even though the tab now runs a login shell: a dotfile that breaks PATH
 # must not be able to kill the launch, and the session dies before its tty can be read
 # when the name does not resolve.
@@ -2137,6 +2140,33 @@ printf '{"type":"assistant","message":{"model":"b-model","usage":{"input_tokens"
 check "a changed model is said once, naming both" "1" "$(gate g-drift | grep -c 'MODEL DRIFT: this session now answers as b-model; it answered as a-model until now')"
 check "and not again while it holds" "" "$(gate g-drift)"
 rm -rf "$GH"
+
+echo "== push guard hook =="
+# Active only in a session the launcher spawned (ORCHESTRATOR_SPAWNED, set by build_command
+# in the launch script): the operator's own sessions carry no such marker and are never
+# touched. Refuses `git push` carrying `--force`, `-f`, a `+<refspec>`, or
+# `--force-with-lease` without the `<branch>:<sha>` form (phase 3 ruling 5).
+GUARD="$ROOT/hooks/push-guard.sh"
+guard_payload() {  # tool_name command
+  "$py" -c "import json,sys; json.dump({'tool_name': sys.argv[1], 'tool_input': {'command': sys.argv[2]}}, sys.stdout)" "$1" "$2"
+}
+guard() { guard_payload "$1" "$2" | env ORCHESTRATOR_SPAWNED="${3-}" bash "$GUARD"; }
+
+check_status "a marked session refuses a forced push" 2 guard Bash "git push --force origin main" 1
+check "the refusal names the flag it will accept" "1" \
+  "$(guard Bash 'git push --force origin main' 1 2>&1 | grep -c -- '--force-with-lease=<branch>:<sha>')"
+check_status "a marked session refuses -f" 2 guard Bash "git push -f origin main" 1
+check_status "a marked session refuses a +refspec" 2 guard Bash "git push origin +feature:main" 1
+check_status "a marked session refuses a bare --force-with-lease" 2 guard Bash "git push --force-with-lease origin main" 1
+check_status "a marked session refuses --force-with-lease without a colon" 2 guard Bash "git push --force-with-lease=main origin main" 1
+check_status "a marked session accepts --force-with-lease=<branch>:<sha>" 0 guard Bash "git push --force-with-lease=main:$(printf 'a%.0s' $(seq 1 40)) origin main" 1
+check_status "a marked session accepts a plain push" 0 guard Bash "git push origin main" 1
+check_status "a marked session accepts an unrelated command" 0 guard Bash "git status" 1
+check_status "a forced push earlier in the line, unrelated to the push, is not read as forcing it" 0 \
+  guard Bash "git fetch -f && git push origin main" 1
+
+check_status "an unmarked session is untouched by a forced push" 0 guard Bash "git push --force origin main" ""
+check_status "a non-Bash tool is untouched" 0 guard Write "git push --force origin main" 1
 
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.
