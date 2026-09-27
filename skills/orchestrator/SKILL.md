@@ -110,6 +110,8 @@ These bind at actions no reference is loaded for — a message sent, a report re
 
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words.** A reply on a review thread, a comment on an issue, any text that lands under the operator's name in front of a colleague: the orchestrator may draft it, never authorise it. Approval comes from the operator and from nobody else, and an approval given for one text is not an approval for the next. And most such texts should not exist: **a thread closed by a change is answered by the change** — the diff says what was done, and a paragraph restating it is noise the reviewer has to read. Reply only when something must be said that the code cannot say: a refusal and its reason, an answer to a question, a decision taken elsewhere. Resolving a thread is not publishing and stays the orchestrator's call.
 
+When you hand over to a successor: Until the takeover confirmation arrives, the predecessor answers nothing new — it only hands over. On it, « handed over » is its last message, and the turn ends there.
+
 When an auditor runs (`references/audit.md`):
 
 **What you owe it.** The state it asks for, from the artifacts and not from memory. Answers in order, as fast as the operator's. The application: the orchestrator applies every ordered change it sends — or refuses it with the ruling it crosses — without asking the operator whether to, and writes the application where the method lives, in the same move. And the next audit's reading: the report stays under the briefs directory's `audits/`, the next brief points at it, and the next auditor reads, change by change, whether each order was applied, is applicable as written, and bore fruit.
