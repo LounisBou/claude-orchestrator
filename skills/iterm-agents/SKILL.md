@@ -37,7 +37,7 @@ So **always name an anchor**, and name the one you actually know:
 - spawning your successor: `--successor` — immediately right of your own tab, the chain ignored, so it lands between you and your first agent; the launcher hands it your chain (your agents' entries move under its tty and session) and writes it into no chain, because a successor is not an agent. It closes your tab once the takeover is confirmed and ends up immediately left of your first agent, and its `--right-of self` resolves to your last agent from then on.
 - spawning your auditor: `--auditor --title "Audit : <subject>"` — immediately right of your own tab like a successor, and it touches no chain: your agents stay yours, your next `--right-of self` still lands after your last agent, and the auditor is not something `rotate` or `move` will take for one of yours without `--force`. It never closes your tab; you close its tab when the audit ends (`/orchestrator:audit-end`).
 - `--left-of <tty>` remains for the case where the anchor you know is on the other side.
-- `move` repairs the layout after the fact, with the same three forms; it places only what is yours, `self` or your chain.
+- `move` repairs the layout after the fact, with the same three forms — but for `move`, `self` is your own tab, never the end of your chain: `move --tty <tty> --right-of self` puts that tab immediately right of yours; it places only what is yours, `self` or your chain.
 
 ## Safety order for a launch
 
