@@ -1,8 +1,8 @@
 ---
-# intent: routing tickets with a classifier
-max_turns: 3
-timeout_seconds: 180
+# intent: what the tiers are, asked as a concept, with nothing to dispatch
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Train a small classifier that routes support tickets to the right team.
+Explain the difference between the capability tiers in plain words: what does a deeper model do better, and why does it cost more per token?

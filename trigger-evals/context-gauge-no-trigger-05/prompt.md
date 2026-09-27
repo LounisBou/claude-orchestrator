@@ -1,8 +1,8 @@
 ---
-# intent: sibling: spawning a session in a new tab
-max_turns: 3
-timeout_seconds: 180
+# intent: sibling: listing the tabs that hold agents
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Launch a new implementer session in a new iTerm2 tab with the startup prompt 'Read and execute briefs/phase-2.md', and check it really started.
+Which of my iTerm2 tabs have an agent running in them right now?

@@ -1,8 +1,8 @@
 ---
-# intent: replacing a saturated agent with a fresh tab
-max_turns: 3
-timeout_seconds: 180
+# intent: a worn-out implementer swapped for a new one in its own tab
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-My implementer's context is at 80%. Replace it with a fresh session in a new tab that picks up from its last report.
+The implementer is sitting at 80% and slowing down. Swap it for a new one in its own tab that carries on from where its last report left off.

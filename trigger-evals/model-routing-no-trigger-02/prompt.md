@@ -1,8 +1,8 @@
 ---
-# intent: HTTP request routing
-max_turns: 3
-timeout_seconds: 180
+# intent: choosing models per request inside a product, not for a dispatch
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Set up request routing in our Express app so /api/v2 goes to the new handlers.
+Our app calls a language model on every request. Add routing so easy requests go to a small model and hard ones to a large one, with a daily cost cap.

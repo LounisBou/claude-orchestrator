@@ -1,8 +1,8 @@
 ---
-# intent: the cheapest model that closes a corrective in one round
-max_turns: 3
-timeout_seconds: 180
+# intent: whether a lighter model is enough for a small fix-up about to go out
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Choose the cheapest model that will still get this corrective follow-up done in a single round, before I dispatch it.
+The fix-up for the two review comments is small. Can a lighter model handle it first time, or is that false economy? I'm sending it out next.

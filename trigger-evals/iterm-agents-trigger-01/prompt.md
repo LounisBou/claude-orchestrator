@@ -1,8 +1,8 @@
 ---
-# intent: spawning an agent tab with a startup prompt and verifying it
-max_turns: 3
-timeout_seconds: 180
+# intent: another agent started in a new tab on a brief, and seen to come up
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Open a new iTerm2 tab running a fresh agent session in /work/app with the startup prompt 'Read and execute briefs/phase-2.md', and confirm it actually started.
+Fire up another agent in a new iTerm2 tab, working in /work/app, and have it start on briefs/phase-2.md. Tell me once you've seen it come up.

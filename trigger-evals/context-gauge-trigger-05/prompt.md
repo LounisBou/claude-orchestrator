@@ -1,8 +1,8 @@
 ---
-# intent: a pre-dispatch gate on the supervising session's own fill
-max_turns: 3
-timeout_seconds: 180
+# intent: a supervising session checks its own fill against its gate before sending work out
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-Before you dispatch the next phase to an implementer, check that your own context is still below the 60% gate.
+Hold on before sending phase 3 out to the implementer: are you under 60% yourself? Check, don't guess.

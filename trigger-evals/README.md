@@ -10,20 +10,39 @@ the session, reading the skills' `description` lines, pick that skill for this r
 Per skill, two kinds of query, one case each:
 
 - `<skill>-trigger-NN` — a realistic request a user or a supervising session would type,
-  that the skill is for. It never names the skill, its command or its scripts: a query that
-  names the skill measures reading, not triggering.
-- `<skill>-no-trigger-NN` — a near miss: the same vocabulary for a different need, or a
-  request meant for a sibling skill of this plugin.
+  that the skill is for, in that person's own words. It never names the skill, its command
+  or its scripts, and shares no run of three words with the skill's `description`: a query
+  that names the skill, or echoes its description, measures reading, not triggering.
+- `<skill>-no-trigger-NN` — a near miss: the skill's vocabulary for a different need, or a
+  request meant for a sibling skill of this plugin that plainly lacks this skill's own
+  trigger.
 
 Each prompt's frontmatter carries the query's intent in one comment line. Every skill has
-at least six cases of each kind; `tests/run-tests.sh` checks that, and that every case names
-an existing skill.
+at least six cases of each kind; `tests/run-tests.sh` checks that, that every case names an
+existing skill and has a prompt, that its graders have the shape described below, and that
+no prompt names a skill, a command or a script of this plugin.
 
 The deciding grader is a `tool_used` grader on the `Skill` tool whose `input_match` is the
 skill's full name, anchored on both quotes (`"skill": "orchestrator:<skill>"`, the plugin
 prefix optional), so a sibling's invocation never satisfies it. A trigger case passes when
-the skill is loaded at least once; a no-trigger case passes when it is never loaded. A
-case is capped at three turns: the choice is made on the first tool call.
+the skill is loaded at least once (`min: 1`); a no-trigger case passes when it is never
+loaded (`min: 0`, `max: 0`).
+
+A skill never loaded is also what a run that errors, times out or never starts looks like,
+so every no-trigger case carries a second grader, `answered.md`: an `llm` grader on the
+last message that passes only when the session answered or acted on the query. It is not
+"any tool used at least once": a question such as "explain a context window" is rightly
+answered with no tool at all.
+
+Every grader states `arm: both`. The evaluation command's default ablation runs a
+no-plugin arm beside the plugin arm, and under it a `tool_used` grader on `Skill` that
+states no arm becomes a display-only indicator, unscored, as soon as the case has another
+scored grader. Stating `arm: both` keeps the deciding grader scored in the plugin arm
+whatever the ablation; the rate below reads the plugin arm only.
+
+A case allows five turns and 300 seconds: the choice is usually made on the first tool
+call, but a session that looks around before loading a skill must not be cut off into a
+silent no-trigger pass or a false miss.
 
 ## Running it
 

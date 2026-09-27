@@ -1,8 +1,8 @@
 ---
-# intent: closing a stood-down agent's tab
-max_turns: 3
-timeout_seconds: 180
+# intent: the tab of a finished and released implementer shut
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-The implementer in the tab to the right of mine has finished and been stood down. Close its tab.
+Phase 4's implementer is done and I've released it. Shut its tab, the one right after mine.

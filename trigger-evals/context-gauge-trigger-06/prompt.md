@@ -1,8 +1,8 @@
 ---
-# intent: the token count and the window size, measured
-max_turns: 3
-timeout_seconds: 180
+# intent: the loaded token count and the ceiling, read rather than guessed
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-How many tokens are in your context right now, and out of what window size? Measure it, don't estimate.
+How many tokens have you got loaded at the moment, and what's the ceiling? Read it off, no ballpark.

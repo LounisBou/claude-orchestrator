@@ -1,8 +1,8 @@
 ---
-# intent: an implementer past the context gate in the middle of its phase
-max_turns: 3
-timeout_seconds: 180
+# intent: another agent past its limit halfway through its phase
+max_turns: 5
+timeout_seconds: 300
 allowed_tools: [Read, Glob, Grep, Skill]
 ---
 
-You supervise the implementer agents on this project. The phase 2 agent just reported 72% context halfway through its phase. What do you do?
+The agent doing phase 2 just told me it's at 72% context and only halfway through. What should happen now?
