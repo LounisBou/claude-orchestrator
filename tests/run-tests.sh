@@ -1292,6 +1292,121 @@ for f in $(cd "$ROOT" && git ls-files | grep -vE '^docs/superpowers/|^LICENSE$|^
 done
 check "every shipped file is in the design's layout" "" "$undocumented"
 
+echo "== documentation links =="
+
+# The design points at the skills instead of restating them, so a pointer that dangles is a
+# rule the reader can no longer reach, and it reads as current. Every relative link in the
+# documents resolves: a markdown link, a backticked `path#anchor`, and a backticked
+# repository path, with the « heading » or bold paragraph lead named after it. Paths are
+# read from the repository root, the file's own directory or its parent, and a skill's
+# `references/` from any skill.
+dead_links() {  # <root> <markdown file>...: prints one line per dead relative link
+  python3 - "$@" <<'PY'
+import os, re, sys
+
+root = sys.argv[1]
+ROOTS = ('README.md', 'docs/', 'skills/', 'commands/', 'templates/', 'evals/', 'tests/', 'hooks/', 'references/')
+
+
+def heads(path):
+    out = []
+    fence = False
+    for line in open(path, encoding='utf-8'):
+        if line.startswith('```'):
+            fence = not fence
+        elif not fence and re.match(r'#{1,6} ', line):
+            out.append(line.lstrip('#').strip().strip('#').strip())
+        elif not fence:
+            # a paragraph's bold lead is a place a pointer may name too
+            out += [t.rstrip('.') for t in re.findall(r'^\*\*([^*]+)\*\*', line.lstrip('-0123456789. '))]
+    return out
+
+
+def slug(text):
+    text = re.sub(r'[^\w\- ]', '', text.lower().replace('`', ''))
+    return text.replace(' ', '-')
+
+
+def resolve(src, target):
+    target = target.replace('${CLAUDE_PLUGIN_ROOT}/', '')
+    here = os.path.dirname(src)
+    bases = [root, here, os.path.dirname(here)]
+    if target.startswith('references/'):
+        # a skill's own reference, named from a command, a template or the design
+        bases += sorted(os.path.join(root, 'skills', d) for d in os.listdir(os.path.join(root, 'skills')))
+    for base in bases:
+        cand = os.path.normpath(os.path.join(base, target))
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+for src in sys.argv[2:]:
+    rel = os.path.relpath(src, root)
+    fence = False
+    for n, line in enumerate(open(src, encoding='utf-8'), 1):
+        if line.startswith('```'):
+            fence = not fence
+            continue
+        if fence:
+            continue
+        found = []
+        for m in re.finditer(r'(?<!!)\[[^\]]*\]\(([^)\s]+)\)', line):
+            t = m.group(1)
+            if not re.match(r'[a-z]+:', t) and not t.startswith('#'):
+                path, _, anchor = t.partition('#')
+                found.append((path, anchor, None))
+        for m in re.finditer(r'`([^`\s]+)`((?:,| in) « ([^»]+) »)?', line):
+            t, heading = m.group(1), m.group(3)
+            path, _, anchor = t.partition('#')
+            if re.search(r'[*<>{}|]|\$(?!\{CLAUDE_PLUGIN_ROOT\})', path) or not path.replace('${CLAUDE_PLUGIN_ROOT}/', '').startswith(ROOTS):
+                continue
+            if not (anchor or '/' in path or path.endswith('.md')):
+                continue
+            found.append((path, anchor, heading))
+        for path, anchor, heading in found:
+            target = resolve(src, path)
+            if target is None:
+                print(f'{rel}:{n}: {path}: no such file')
+                continue
+            if (anchor or heading) and os.path.isfile(target) and target.endswith('.md'):
+                hs = heads(target)
+                if anchor and anchor not in [slug(h) for h in hs]:
+                    print(f'{rel}:{n}: {path}#{anchor}: no such heading')
+                if heading and heading not in hs:
+                    print(f'{rel}:{n}: {path}: no heading « {heading} »')
+PY
+}
+DOCFILES=()
+while IFS= read -r f; do DOCFILES+=("$ROOT/$f"); done < <(cd "$ROOT" && git ls-files -- README.md 'docs/*.md' 'skills/*.md' 'commands/*.md' 'templates/*.md')
+check "no dead relative link in the documents" "" "$(dead_links "$ROOT" "${DOCFILES[@]}")"
+LK="$WORK/links"; mkdir -p "$LK/docs"
+printf '# B heading\n\n**A lead.** Text.\n' > "$LK/docs/b.md"
+printf '# A\n\nSee [b](b.md#b-heading), `docs/b.md`, « B heading », `docs/b.md`, « A lead ».\nSee [gone](gone.md), [c](b.md#c-heading), `docs/b.md`, « Nowhere », `docs/none.md`.\n' > "$LK/docs/a.md"
+check "the link check names each planted dead link and passes the live ones" "4|0" \
+  "$(dead_links "$LK" "$LK/docs/a.md" | grep -c ':4: ')|$(dead_links "$LK" "$LK/docs/a.md" | grep -c ':3: ')"
+
+# The scripts, the commands and this suite cite the design's decisions by section number,
+# so a section that leaves the design strands every citation of it. Each number cited
+# outside docs/ names a `## N.` heading of the design; templates/ is not read, because a
+# brief's own sections are numbered too and its citations name them.
+uncited_sections() {  # <design> <file>...: prints every cited section the design lacks
+  local design=$1 f n; shift
+  for f in "$@"; do
+    grep -oE '§ ?[0-9]+' "$f" 2>/dev/null | tr -dc '0-9\n' | sort -u | while read -r n; do
+      grep -q "^## $n\. " "$design" || echo "${f#"$ROOT"/} §$n"
+    done
+  done
+}
+SECFILES=()
+while IFS= read -r f; do SECFILES+=("$ROOT/$f"); done < <(cd "$ROOT" && git ls-files | grep -vE '^(docs|templates)/')
+check "every section number cited outside docs/ names a section of the design" "" \
+  "$(uncited_sections "$ROOT/docs/design.md" "${SECFILES[@]}")"
+printf 'see \302\2472 and \302\24799\n' > "$WORK/cites.txt"
+printf '## 2. Layout\n' > "$WORK/design-two.md"
+check "the section check names a planted citation the design lacks, and only that one" "1|1" \
+  "$(uncited_sections "$WORK/design-two.md" "$WORK/cites.txt" | wc -l | tr -d ' ')|$(uncited_sections "$WORK/design-two.md" "$WORK/cites.txt" | grep -c '99$')"
+
 echo "== version =="
 
 # The same fact lives in three fields. A branch cut from a stale main set the plugin
