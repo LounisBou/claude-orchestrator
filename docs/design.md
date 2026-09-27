@@ -14,6 +14,12 @@ Everything here was extracted from a working setup: the skills existed as loose 
 .claude-plugin/plugin.json           name claude-orchestrator, semver, MIT
 .claude-plugin/marketplace.json      single-plugin marketplace, source "./"
 skills/orchestrator/SKILL.md         the rulebook
+skills/orchestrator/references/briefs.md     the agent prompt recipe, the standing rules, the lint, the tier
+skills/orchestrator/references/review.md     review on evidence, disposable review sessions, the cost of a round, the rebase
+skills/orchestrator/references/lifecycle.md  launch, verify, control, terminate, replace; rotation; succession
+skills/orchestrator/references/machine.md    the shared machine as an instrument
+skills/orchestrator/references/audit.md      the audit
+skills/orchestrator/references/incidents.md  the observed incidents behind the rules, by rule id
 skills/iterm-agents/SKILL.md         tab management on macOS
 skills/iterm-agents/scripts/iterm-agent.sh   entry point: resolves an interpreter
 skills/iterm-agents/scripts/iterm_agent.py   the implementation, over the app API
