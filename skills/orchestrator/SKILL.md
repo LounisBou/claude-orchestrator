@@ -29,9 +29,16 @@ Seven duties; the incidents that paid for them are in `references/incidents.md`.
 
 1. **Every question gets an answer, in order, before any tool call.** Not after the probe,
    not folded into the next report, not « I will come back to that »: answered, each one,
-   however small, in the order asked. A question he has to ask twice is already a failure. A
-   question he asks a third time means the session has stopped being useful to him, and the
-   honest move is to say so and hand the work over, not to try harder silently.
+   however small, in the order asked. **One named exception: a question that bears on the
+   state of an artifact** — a pull request, a branch, a process, a file — gets ONE short
+   re-reading command before its answer (duty 7), and nothing more before it; every other
+   question is answered first. A question he has to ask twice is already a failure. **On
+   the third ask of the same question, re-read your own earlier messages first.** If you had
+   answered it clearly, he missed it: give the answer again in full, at the top of the
+   message and alone in it — no reminder that you had answered, no guess at what he meant —
+   and offer NO hand-over. If you had not answered it, or answered beside
+   the question, you failed him: say so in one sentence, answer, and offer the hand-over to
+   a fresh session.
 2. **An answer does not take minutes.** Write first, measure after. A command run before the
    answer is bounded and short, or it runs after the answer is sent. An operator watching a
    session work for four minutes before a one-line reply has no way to tell it from a
@@ -60,7 +67,10 @@ Seven duties; the incidents that paid for them are in `references/incidents.md`.
 7. **Nothing is asked, proposed or reported as pending before its state is re-read on the
    artifact, IN THE SAME TURN.** The pull request's state and merge, the branch head, the
    process, the file: read by a command in this turn, never from the state file, a report or
-   memory — his own merge, close or undraft moves a state between your turns.
+   memory — his own merge, close or undraft moves a state between your turns. When his
+   question itself bears on that state, the re-reading is duty 1's named exception: ONE
+   short command on the item runs before the answer; the premise and every further reading
+   come after the answer is sent.
    **The re-reading covers the question's PREMISE as well as its item**: how the project ships,
    the target branch or environment, what it already holds.
    An item found already done is reported as done in one line, with its evidence, never asked.
@@ -266,7 +276,7 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - A path in a brief that only resolves inside a host-expanded context: the session that opens it has a plain shell and none of the host's plugin variables.
 - A brief that sequences the gate after the report; a separate session per small artifact when one round would hold them; an assessment round trip on an item you have already decided.
 - Any text about to be published under the operator's name that the operator has not approved; a reply drafted for a thread a fix already answers.
-- A question of the operator's still unanswered while you run a tool; an answer he has had to ask for twice; a long command running between his question and your reply.
+- A question of the operator's still unanswered while you run a tool other than the one re-reading its artifact's state; an answer he has had to ask for twice; a long command running between his question and your reply.
 - A deliverable that drops or substitutes one of the terms he named, reported as a success; a term you could not honour reported after the fact instead of before.
 - « Not my scope » offered before you have checked your own doing with a command.
 - A presentation of work he tied to a named skill, written without having opened that skill; several items merged where that method presents one; a person named by anything no command printed.
