@@ -208,20 +208,18 @@ Skills reach their scripts through `${CLAUDE_PLUGIN_ROOT}`; a relative path does
 
 ### 3.1 Why two tiers
 
-The host exposes the exact context fill in one place only: the JSON it writes to the status line command's stdin (`context_window.used_percentage`, `context_window.context_window_size`, a `current_usage` token breakdown, the 5-hour and 7-day quotas, `session_id` and `transcript_path` — field names read from a captured payload, not from documentation). Hooks do not carry it, and a plugin cannot declare a status line. A session can also compute its fill from its own transcript: the last `usage` block's input plus cache tokens is the context sent on the last turn, within half a point of the host's figure. The transcript needs the window size, which the payload carries as `context_window_size`.
+The host exposes the exact context fill in one place only: the JSON it writes to the status line command's stdin (`context_window.used_percentage`, `context_window.context_window_size`, a `current_usage` token breakdown, `session_id` and `transcript_path` — field names read from a captured payload, not from documentation). Hooks do not carry it, and a plugin cannot declare a status line. A session can also compute its fill from its own transcript: the last `usage` block's input plus cache tokens is the context sent on the last turn, within half a point of the host's figure. The transcript needs the window size, which the payload carries as `context_window_size`.
 
 So the gauge has a harness-exact tier fed by a status-line tap, and a computed tier from the transcript that needs no wiring at all. An idle session stops rendering its status line, so its tap file ages; the gauge then falls back to the transcript and says so.
 
 ### 3.2 The tap
 
-`statusline-tap.sh [wrapped command...]` reads the payload from stdin, writes one file per session, then feeds the untouched payload to the wrapped command and exits with its status. With no wrapped command it prints a one-line `ctx: N% │ 5h: N% │ 7d: N%` so a user without a status bar still sees something.
+`statusline-tap.sh [wrapped command...]` reads the payload from stdin, writes one file per session, then feeds the untouched payload to the wrapped command and exits with its status. With no wrapped command it prints a one-line `ctx: N%` so a user without a status bar still sees something.
 
 The file is `${CLAUDE_CONFIG_DIR:-~/.claude}/claude-orchestrator/ctx/<session-id>.json`:
 
 ```json
 {"session_id": "...", "context_percent": 36.4, "context_used": 91000, "context_total": 250000,
- "five_hour_percent": 3, "five_hour_resets_at": 1788560000,
- "seven_day_percent": 1, "seven_day_resets_at": 1788900000,
  "transcript_path": "/path/to/session.jsonl", "updated_epoch": 1788553115}
 ```
 
@@ -240,18 +238,10 @@ twenty-six against nineteen, the oldest four days old.
 context_percent=36.4
 context_tokens=91000
 context_window=250000
-five_hour_percent=3
-seven_day_percent=1
 model=a-model         # the model that answered last (§32)
 model_source=transcript   # or tap, or unavailable
 source=tap            # or transcript
 ```
-
-The two quota figures are printed in BOTH tiers, and read `unavailable` when the payload
-never carried them or when the answer comes from the transcript, which has no trace of
-them. They are never omitted: the callers that read this output are told to keep those
-lines, and a missing line is one a reader takes for zero — "no budget pressure" exactly
-when the pressure cannot be measured.
 
 The session id defaults to `CLAUDE_CODE_SESSION_ID`, which the host sets in every session's environment. The tap file is used when younger than `--max-age` (default 120 s). Otherwise the transcript — the path recorded in the tap file when there is one, else `<config>/projects/*/<session-id>.jsonl` — is scanned backwards for the last `usage` block. The window for that computation comes, in order, from the stale tap file's `context_total`, `--window`, or the default 200000, and `context_window_source=` names which. No tap file and no transcript is an error with exit 1.
 
@@ -346,10 +336,9 @@ version: an existing installation routes to the host default until the map is fi
 
 `skills/model-routing/SKILL.md` carries the table by class of work, the five readings for
 a phase that does not sit on a row, escalation as a rotation (a model does not change
-inside a live session), the false-economy rule that reverts a drop which cost a second
-round, and budget pressure read from the gauge's quota figures rather than estimated. The
-briefs carry the tier down to each session, because an agent can only report that the
-work outgrew its brief if it knows what the brief assumed.
+inside a live session), and the false-economy rule that reverts a drop which cost a second
+round. The briefs carry the tier down to each session, because an agent can only report
+that the work outgrew its brief if it knows what the brief assumed.
 
 Design: `docs/superpowers/specs/2026-09-08-model-routing-design.md`.
 
