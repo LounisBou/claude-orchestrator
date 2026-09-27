@@ -1,6 +1,6 @@
 # The machine
 
-Read before a heavy run or a parallel dispatch: the shared machine is the one resource every session draws on at once.
+Read before a heavy run, a parallel dispatch, a brief on a shared machine, or relaying a round: the shared machine is the one resource every session draws on at once.
 
 ## The machine is an instrument
 
