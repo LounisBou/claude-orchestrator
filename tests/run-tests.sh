@@ -11,6 +11,8 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 # the file that carries it, and a sentence that must be nowhere is read in all of them.
 ORCH_REFS="$ROOT/skills/orchestrator/references"
 orch_all() { cat "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS"/*.md; }
+# The tab skill's command reference: the synopses and what the launcher does are read there.
+ITERM_REFS="$ROOT/skills/iterm-agents/references"
 # Explicitly inside TMPDIR: the platform default lands in a directory a sandboxed
 # shell may not write to, and the suite then runs with an empty path where it thinks
 # it has a directory.
@@ -139,7 +141,7 @@ check "the succession types no title" "0" "$(grep -c -- '--title' "$ROOT/command
 check "the succession says where the successor's name comes from" "1" \
   "$(grep -c "takes THIS session's own name" "$ROOT/commands/succeed.md")"
 check "the tab skill's rotation line forwards the trust flag" "1" \
-  "$(grep -c -- 'rotate --dir <workdir> --old-tty <tty> \[--trust\] \[--tier <tier>\]' "$ROOT/skills/iterm-agents/SKILL.md")"
+  "$(grep -c -- 'rotate --dir <workdir> --old-tty <tty> \[--trust\] \[--tier <tier>\]' "$ITERM_REFS/commands.md")"
 check "the tab skill spawns the successor the same way" "1|0" \
   "$(grep -c 'spawning your successor: `--successor`' "$ROOT/skills/iterm-agents/SKILL.md")|$(grep -c 'sits between you and your agent' "$ROOT/skills/iterm-agents/SKILL.md")"
 check "and so does the rulebook" "1|0" \
@@ -339,7 +341,7 @@ check "the repository's own marketplace install line survives nowhere outside do
 check "the rulebook spells the short roles and the cap" "yes|yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'Agent : <subject>')|$(spells "$ORCH_REFS/lifecycle.md" 'Orch : <subject>')|$(spells "$ORCH_REFS/lifecycle.md" 'at most 25 characters')"
 check "the tab skill spells them and the cap too" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'Agent : <subject>')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'Orch : <subject>')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'at most 25 characters')"
+  "$(spells "$ITERM_REFS/commands.md" 'Agent : <subject>')|$(spells "$ITERM_REFS/commands.md" 'Orch : <subject>')|$(spells "$ITERM_REFS/commands.md" 'at most 25 characters')"
 check "the succession command spells the short role" "yes" \
   "$(spells "$ROOT/commands/succeed.md" 'Orch : <subject>')"
 # The pattern is assembled from its two halves so this guard does not count itself. The
@@ -379,7 +381,7 @@ check "both documents say the launch is strict with the session's own file" "yes
 check "the rulebook says the default set is loaded and --mcp adds to it" "yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" "the catalogue's default set")|$(spells "$ORCH_REFS/lifecycle.md" '--mcp <name>')"
 check "the tab skill's reference carries the option and what none does" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/iterm-agents/SKILL.md" '[--mcp <name>]')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'mcp.json')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" '--mcp none')"
+  "$(spells "$ITERM_REFS/commands.md" '[--mcp <name>]')|$(spells "$ITERM_REFS/commands.md" 'mcp.json')|$(spells "$ITERM_REFS/commands.md" '--mcp none')"
 check "the catalogue is named where the tier map is" "yes|yes|yes" \
   "$(spells "$ROOT/commands/install.md" 'mcp.json')|$(spells "$ROOT/commands/uninstall.md" 'mcp.json')|$(spells "$ROOT/README.md" 'mcp.json')"
 # The uninstall command names three files as the operator's own: the tier map, the
@@ -387,7 +389,7 @@ check "the catalogue is named where the tier map is" "yes|yes|yes" \
 check "uninstall says three files are the operator's own" "yes" \
   "$(spells "$ROOT/commands/uninstall.md" 'three of those files')"
 check "the tab skill says an agent comes up with remote control off" "yes" \
-  "$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'remote control off')"
+  "$(spells "$ITERM_REFS/commands.md" 'remote control off')"
 
 # The mode a session came up in (§43), one literal per document. The routing skill carries
 # the rule the measurement produced — a tier bound to a model the host does not run in the
@@ -400,11 +402,11 @@ check "the routing skill carries the unattended rule and the repair" "yes|yes" \
 check "the rulebook says the launcher reads the mode" "yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" "reads the session's mode on its transcript")"
 check "the tab skill says the mode is read and the screen read from the bottom" "yes|yes" \
-  "$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'the mode the session came up in')|$(spells "$ROOT/skills/iterm-agents/SKILL.md" 'the last N lines')"
+  "$(spells "$ITERM_REFS/commands.md" 'the mode the session came up in')|$(spells "$ITERM_REFS/commands.md" 'the last N lines')"
 # A synopsis and the sentence under it drifted apart once already: the rotation's still
 # read `[--mcp]` after the option took a value.
 check "every synopsis spells the server option the way its sentence does" "0|2" \
-  "$(grep -c -- '\[--mcp\]' "$ROOT/skills/iterm-agents/SKILL.md")|$(grep -c -- '\[--mcp <name>\]' "$ROOT/skills/iterm-agents/SKILL.md")"
+  "$(grep -c -- '\[--mcp\]' "$ITERM_REFS/commands.md")|$(grep -c -- '\[--mcp <name>\]' "$ITERM_REFS/commands.md")"
 
 # A brief that does not say which servers its session was given lets an agent reach for a
 # tool it never had: the phase brief carries the list itself, beside the tier, as a
