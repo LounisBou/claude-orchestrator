@@ -17,7 +17,7 @@ Two corollaries govern every rule below. **The cheapest tier is not the target**
 
 ## Tiers and the map
 
-Three tiers name capability: `deep`, `standard`, `light`. What each one runs on is the operator's, not this plugin's: the binding lives in `<state dir>/models.json`, and `iterm-agent.sh resolve-tier <tier>` prints it. **Read your map before dispatching a wave.** An unbound tier is not an error — the launcher then types no model argument and the host applies its default. When the tier the work needs is unbound, pick the model you judge fit for the work — `--model <name>` on that one spawn, or the host's default taken on purpose — write the choice and its reason in the brief, and tell the operator in one line at the spawn, so he can correct it or bind the tier. The operator's reasoning: « if the orchestrator judges that a better model should be used, it may have a better view than I do, following the work from a distance ». His map stays his: you never rebind it.
+Three tiers name capability: `deep`, `standard`, `light`. What each one runs on is the operator's, not this plugin's: the binding lives in `<state dir>/models.json`, and `iterm-agent.sh resolve-tier <tier>` prints it. **Read your map before dispatching a wave.** An unbound tier is not an error — the launcher then types no model argument and the host applies its default. When the tier the work needs is unbound, pick the model you judge fit for the work — `--model <name>` on that one spawn, or the host's default taken on purpose — write the choice and its reason in the brief, and tell the operator in one line at the spawn, so he can correct it or bind the tier. The operator's reasoning: « if the orchestrator judges that a better model should be used, it may have a better view than I do, following the work from a distance ». His map stays his: you never rebind it yourself — a binding the mode check refuses is put to him with the refusal; a model you choose for an unbound tier runs in the operator's decision mode, or, for a model with no auto mode, with `--permission-mode acceptEdits`.
 
 **A tier is bound to a family alias, never to a versioned identifier.** The alias is the unversioned name the host resolves to that family's latest model; a versioned identifier keeps naming the model it named the day it was written, and goes stale without a sign. The launcher now warns in one line when a tier resolves to a versioned identifier, names the alias to bind instead, and launches anyway: the map is the operator's to rebind.
 
@@ -67,10 +67,10 @@ An escalation IS a rotation: a model does not change inside a live session. Fres
 
 ## Cascade where a retry is cheap — and only there
 
-Routing by rule, before the work, is what the table does. The cheaper strategy in the
-literature is a **cascade**: try the cheap model, escalate when the result does not hold.
-It reports very large savings, and it rests on one assumption — that a failed attempt is
-cheap to detect and cheap to throw away.
+Routing before the work, from the table's reading, is what the table does. The cheaper
+strategy in the literature is a **cascade**: try the cheap model, escalate when the result
+does not hold. It reports very large savings, and it rests on one assumption — that a failed
+attempt is cheap to detect and cheap to throw away.
 
 For an implementation phase that assumption is false, and expensively so: a failed attempt
 is a whole review round plus a rework round, which is exactly what the false-economy rule
