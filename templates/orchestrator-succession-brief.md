@@ -25,7 +25,8 @@ Before anything below, and above everything in it:
   reported done in one line, never asked. The state file you inherit is what your predecessor
   last saw.
 
-His instruction outranks this brief and the rulebook both. The rulebook's section of the
+His explicit instruction on the very point outranks this brief and the rulebook both; a
+deadline, a wish or a question is not an order to break a rule. The rulebook's section of the
 same name carries the rest.
 
 ## Your first task, in this exact order
