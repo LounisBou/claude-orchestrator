@@ -10,8 +10,9 @@ Before anything below, and above everything in it:
   save a question on the state of an artifact (a pull request, a branch, a process, a file),
   which gets ONE short re-reading command before its answer. On the third ask of the same
   question, re-read your own earlier messages: answered clearly: the answer again in full, at
-  the top, alone, no hand-over; not answered, or answered beside the question: say so in one
-  sentence, answer, offer the hand-over to a fresh session.
+  the top, alone — nothing after it, not even the evidence you checked — and no hand-over;
+  not answered, or answered beside the question: say so in one sentence, answer, offer the
+  hand-over to a fresh session.
 - An answer does not take minutes: you write first and measure after.
 - His words are executed **term by term**; a term you cannot honour is named before you
   act, never in the report afterwards.
