@@ -4028,18 +4028,20 @@ check "trace: sources at HEAD sees the shortened file" "exit 1" "$(trace_status 
 check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sources inventory.md --ref HEAD~1)"
 
 # A rule added after the commit the inventory is checked at cites a file that commit never
-# had: its citation carries its own commit, `path:line@<commit>`, and is read there.
-variant srcat.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
-check "trace: a citation naming its commit is read at that commit, not at HEAD" "" \
-  "$(row FIX-004 sources srcat.md)"
+# had: its citation reads 'path:line@HEAD', the literal current head, and is read there
+# instead of failing as absent. No other suffix survives a rebase, so `@HEAD` is the only
+# one accepted; a commit sha or any other ref is refused rather than read.
 variant srcathead.md 's/| beta.md:3 |/| beta.md:3@HEAD |/'
-check "trace: a citation's own commit overrides --ref" "FIX-004 past-end:beta.md:3@HEAD beta.md" \
+check "trace: a citation suffixed @HEAD is read at the literal head, overriding --ref" \
+  "FIX-004 past-end:beta.md:3@HEAD beta.md" \
   "$(trace sources srcathead.md --ref HEAD~1 | grep '^FIX-004 ')"
-variant srcatpast.md 's/| beta.md:3 |/| beta.md:9@HEAD~1 |/'
-check "trace: a citation past the end at its own commit is named" "FIX-004 past-end:beta.md:9@HEAD~1 beta.md" \
-  "$(row FIX-004 sources srcatpast.md)"
-variant srcatref.md 's/| beta.md:3 |/| beta.md:3@no-such-ref |/'
-check "trace: a citation naming an unknown commit is named" "FIX-004 bad-ref:beta.md:3@no-such-ref beta.md" \
+variant srcatsha.md 's/| beta.md:3 |/| beta.md:3@2f2e22b |/'
+check "trace: a citation suffixed with a commit sha is refused" \
+  "FIX-004 bad-suffix:beta.md:3@2f2e22b beta.md" \
+  "$(row FIX-004 sources srcatsha.md)"
+variant srcatref.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
+check "trace: a citation suffixed with anything but HEAD is refused" \
+  "FIX-004 bad-suffix:beta.md:3@HEAD~1 beta.md" \
   "$(row FIX-004 sources srcatref.md)"
 check "trace: a plain citation is still read at --ref" "FIX-004 past-end:beta.md:3 beta.md" \
   "$(row FIX-004 sources inventory.md)"
