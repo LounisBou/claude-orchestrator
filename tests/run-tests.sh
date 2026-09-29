@@ -2019,7 +2019,8 @@ check "a coordinator-successor under an agent's or an orchestrator's title is re
 check "a Coord title is refused without --coordinator-successor: plain, anchored, free, successor" "1|1|1|1" \
   "$(crd --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')|$(crd --title 'Coord : x' --right-of self | grep -c 'a "Coord :" title is the coordinator')|$(crd --title-free --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')|$(crd --successor --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')"
 check "and that refusal exits 1" "1" "$(crd --title 'Coord : x' >/dev/null 2>&1; echo $?)"
-for CRDFLAG in --successor --auditor '--left-of /dev/ttys555' '--right-of self'; do
+for CRDFLAG in --successor --auditor '--left-of /dev/ttys555' '--right-of self' \
+    --title-free '--tier deep' '--model m' --no-remote-control; do
   # shellcheck disable=SC2086 # the flag and its value are two words on purpose
   check "a coordinator-successor refuses $CRDFLAG" "1|1" \
     "$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG | grep -c "is not a coordinator-successor's")"

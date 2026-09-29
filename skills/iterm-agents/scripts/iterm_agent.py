@@ -1419,7 +1419,10 @@ def cmd_spawn(argv):
         # so it takes no anchor either. Checked BEFORE the auditor's own block, so a caller
         # naming both flags reads which one was theirs to give up.
         for flag, given in (("--successor", args.successor), ("--auditor", args.auditor),
-                            ("--left-of", args.left_of), ("--right-of", args.right_of)):
+                            ("--left-of", args.left_of), ("--right-of", args.right_of),
+                            ("--title-free", args.title_free), ("--tier", args.tier),
+                            ("--model", args.model),
+                            ("--no-remote-control", not args.remote_control)):
             if given:
                 die("spawn: refused: %s is not a coordinator-successor's: it lands at the "
                     "first place of your window, reads \"Coord : <subject>\", runs on your "
