@@ -48,15 +48,27 @@ once your predecessor is gone. Nothing below is reordered.
    The script says « replaced a stale record: {{PREDECESSOR}} » — your predecessor's record,
    stale since step 4. The script's `lookup` then prints your name: the proof. A refusal
    stops you here, reported to the operator verbatim.
-6. **Announce yourself** to every session to re-announce to — {{SESSIONS}} — and to every
-   other `Orch :` or `Audit :` session a fresh `ListAgents` shows: one `SendMessage` each, with
-   `notify_when_idle: true`, carrying the coordinator command's announcement with your address
-   in place of the old one, and asking for a one-line acknowledgment. A session silent after
-   fifteen minutes gets it again after a fresh `ListAgents`, marked as a re-send; still
-   silent, it is named to the operator.
+6. **Announce yourself** to every `Orch :` or `Audit :` session a fresh `ListAgents` shows —
+   the senders the queue names among them: one `SendMessage` each, with
+   `notify_when_idle: true`, this text verbatim, the brackets filled with your own address and
+   the time:
+
+   > Coordinator: `<your exact name and reference>` coordinates this machine from
+   > <date -u +%FT%TZ>. While it runs you no longer speak to the operator: your questions,
+   > « ready », the stops that are his, your end-of-phase reports and « audit ready » come to
+   > this address, and his answers and orders come back from it, verbatim and dated. Before
+   > each dispatch, run `coordinator.sh declare` and send me the id it prints, then wait for
+   > « go »; at the end of the phase, `coordinator.sh release <id>` and tell me. When
+   > `coordinator.sh lookup` prints nothing, the coordinator is gone: speak to the operator
+   > directly again. Acknowledge with one line: « acknowledged ».
+
+   A session silent after fifteen minutes gets it again after a fresh `ListAgents`, marked as
+   a re-send; still silent, it is named to the operator.
 7. **Tell the operator**, in one short message: you took over from `{{PREDECESSOR}}`, its tab
-   is closed, the queue holds N questions, the open declarations and who waits. Then present
-   the queue's first question, in the rulebook's form.
+   is closed, the queue holds N questions, the open declarations and who waits. That message
+   ends your turn. The queue's first question comes in a message of its own, after it: the
+   rulebook's form, under its prefix, with `{{QUEUE_FILE}}` and the question's own state
+   re-read in the turn that presents it.
 
 ## Standing context — pointers, not status
 

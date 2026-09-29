@@ -20,7 +20,9 @@ Preconditions, verify each before acting:
   prints nothing. A name printed is a coordinator that runs: tell the operator which, and
   stop. A stale record named on the error stream is not a refusal: `register` replaces it
   and says so;
-- the subject is at most 25 characters: it becomes the title `Coord : <subject>`.
+- the subject is at most 25 characters and neither begins nor ends with a space: it becomes
+  the title `Coord : <subject>`, and the launcher refuses any other shape of that title, so a
+  subject it would refuse passes here and fails your successor's spawn at the 80 % gate.
 
 Then:
 
@@ -46,8 +48,13 @@ Then:
    It prints « registered <name> ». Refused — another registration running, a live
    coordinator recorded — tell the operator the refusal verbatim and stop. « replaced a stale
    record: <name> » is said to him in one line. Then `coordinator.sh lookup` prints your name:
-   the proof. Create the queue's directory, `mkdir -p <state dir>/coordinator`, and write an
-   empty `queue.md` there (the skill's « Overview »).
+   the proof. Create the queue's directory, `mkdir -p <state dir>/coordinator`. Then the
+   queue: never overwrite an existing `queue.md` — a coordinator that ended without its end
+   command, or a succession cut short, left open items in it. Read it, put its open items
+   before the operator first — each question under its prefix in queue order, each wait in
+   one line; a list he reads, not questions he answers now: they come to him one at a time
+   afterwards, as the skill says — keep the file as your queue, then continue with step 4.
+   Only when there is none, write an empty `queue.md` there (the skill's « Overview »).
 4. **Leftmost.** Your tab goes to the first place of its window:
 
    ```
