@@ -2193,21 +2193,21 @@ coord_announcement() { sed -n '/^   > Coordinator: /,/^   > .*« acknowledged »
 check "the successor's brief carries the start command's announcement, word for word" "yes|yes" \
   "$([ -n "$(coord_announcement "$COORDCMD")" ] && echo yes || echo no)|$([ "$(coord_announcement "$COORDCMD")" = "$(coord_announcement "$COORDTPL")" ] && echo yes || echo no)"
 check "the successor's status ends its turn; the queue's first question comes in its own message" "yes|yes" \
-  "$(spells "$COORDTPL" 'That message ends your turn.')|$(spells "$COORDTPL" 'comes in a message of its own')"
+  "$(spells "$COORDTPL" 'ends your turn. The queue'"'"'s first question comes in a message of its own')|$(spells "$COORDTPL" 'comes in a message of its own')"
 
 # The exit codes the rulebook reads, as the script's header states them: an exit 1 with no
 # overlap and no busy checkout is a refusal or a usage error, a busy checkout names its holder,
 # and a heavy run beside a running one is its own ruled wait.
 check "exit 0 beside a running heavy run is a ruled wait, told and woken on ps" "yes|yes" \
-  "$(spells "$COORDSKILL" '**Exit 0 beside a running heavy run → « wait for <that run> ».**')|$(spells "$COORDSKILL" 'woken when that pid is gone from `ps`')"
+  "$(spells "$COORDSKILL" '**Exit 0 beside a running heavy run → « wait for <that run> ».**')|$(spells "$COORDSKILL" 'when that pid is gone from `ps`')"
 check "exit 1 without an overlap or a busy checkout line is read as exit 2" "yes|yes" \
   "$(spells "$COORDSKILL" '**Exit 1 with no `overlap` and no `busy checkout` line is exit 2**')|$(spells "$COORDSKILL" '**A `busy checkout <path>` → « wait for » its holder**')"
 check "a ledger fault is named to the operator, never repaired by the coordinator" "yes" \
-  "$(spells "$COORDSKILL" 'you edit no line of `claims.jsonl`')"
+  "$(spells "$COORDSKILL" 'by hand or by any command but the script'"'"'s own `release`')"
 check "the queue file is re-read after a compaction and before every question" "yes" \
   "$(spells "$COORDSKILL" '**Re-read `queue.md` after a compaction and before every question you present.**')"
 check "after handed over, the predecessor forwards everything until its tab closes" "yes" \
-  "$(spells "$COORDSKILL" 'until your tab closes, every message that still reaches you is forwarded')"
+  "$(spells "$COORDSKILL" 'From then until your tab closes, every message')"
 
 # The start never loses a queue, and refuses a subject the launcher would refuse at the gate.
 check "the start never overwrites an existing queue: its open items go to the operator first" "yes" \
@@ -2219,7 +2219,7 @@ check "the start refuses a subject that begins or ends with a space" "yes" \
 check "the end checks this session is the recorded coordinator before it clears" "yes|1" \
   "$(spells "$COORDEND" '**This session is the recorded coordinator.**')|$([ "$(COORDLINE "$COORDEND" '**This session is the recorded coordinator.**')" -lt "$(COORDLINE "$COORDEND" 'coordinator.sh clear')" ] 2>/dev/null && echo 1 || echo 0)"
 check "the end tells a waiting orchestrator that no go will come" "yes" \
-  "$(spells "$COORDEND" 'no « go » will come from me')"
+  "$(spells "$COORDEND" 'no « go » will come')"
 
 # `/orchestrator:audit` (§52): the brief instantiated and linted, the auditor spawned with
 # the launcher's own flag, verified on the artifact, recorded where `audit-end` finds it.
