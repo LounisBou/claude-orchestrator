@@ -1921,6 +1921,13 @@ check "--leftmost is exclusive with --left-of and --right-of" "1|1" \
 check "no anchor at all is refused, naming all three forms" "1|1" \
   "$(mv_ --tty /dev/ttys900 >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys900 | grep -c -- '--left-of, --right-of or --leftmost is required')"
 
+# The guard that refuses a stranger's tab applies to `--leftmost` exactly as it does to
+# `--left-of` and `--right-of`: the anchor form changes, not whose tab this is.
+check "--leftmost refuses a tab out of the caller's chain, and the refusal names it" "1|1" \
+  "$(mv_ --tty /dev/ttys901 --leftmost >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --leftmost | grep -c "move: refused: /dev/ttys901 is neither this session's tab nor in its chain (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says what it moved" "0|1" \
+  "$(mv_ --tty /dev/ttys901 --leftmost --force >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --leftmost --force | grep -c "^move: forced: /dev/ttys901 is not in this session's chain$")"
+
 # An AUDITOR is neither a successor nor an agent (§52). It is placed immediately LEFT of
 # its caller, the chain ignored — on the caller's model and under remote control under its
 # own title; but it takes no chain and joins none: the orchestrator it audits keeps its
@@ -1986,6 +1993,10 @@ check "an auditor's tab is not moved, even with a stale chain entry naming it" "
   "$(audmv --tty /dev/ttys950 --right-of self >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --right-of self | grep -c "move: refused: /dev/ttys950 is an auditor's tab ('Audit : tm'), not this session's to place (pass --force to move it anyway)")"
 check "--force moves it, and says so" "0|1" \
   "$(audmv --tty /dev/ttys950 --right-of self --force >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --right-of self --force | grep -c "^move: forced: /dev/ttys950 is an auditor's tab")"
+check "an auditor's tab is not moved leftmost either" "1|1" \
+  "$(audmv --tty /dev/ttys950 --leftmost >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --leftmost | grep -c "move: refused: /dev/ttys950 is an auditor's tab ('Audit : tm'), not this session's to place (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says so" "0|1" \
+  "$(audmv --tty /dev/ttys950 --leftmost --force >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --leftmost --force | grep -c "^move: forced: /dev/ttys950 is an auditor's tab")"
 check "an agent of the chain still moves" "1" "$(audmv --tty /dev/ttys901 --right-of self | grep -c '^move=/dev/ttys901 right_of=/dev/ttys900$')"
 check "an auditor places its own tab" "1" \
   "$(AUDSELF=/dev/ttys950 audmv --tty /dev/ttys950 --right-of /dev/ttys900 | grep -c '^move=/dev/ttys950 right_of=/dev/ttys900$')"
@@ -2051,6 +2062,10 @@ check "the coordinator's tab is not moved, even with a stale chain entry naming 
   "$(crdmv --tty /dev/ttys950 --right-of self >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --right-of self | grep -c "move: refused: /dev/ttys950 is the coordinator's tab ('Coord : ops'), not this session's to place (pass --force to move it anyway)")"
 check "--force moves it, and says so" "0|1" \
   "$(crdmv --tty /dev/ttys950 --right-of self --force >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --right-of self --force | grep -c "^move: forced: /dev/ttys950 is the coordinator's tab")"
+check "the coordinator's tab is not moved leftmost either" "1|1" \
+  "$(crdmv --tty /dev/ttys950 --leftmost >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --leftmost | grep -c "move: refused: /dev/ttys950 is the coordinator's tab ('Coord : ops'), not this session's to place (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says so" "0|1" \
+  "$(crdmv --tty /dev/ttys950 --leftmost --force >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --leftmost --force | grep -c "^move: forced: /dev/ttys950 is the coordinator's tab")"
 check "an agent of the chain still moves" "1" "$(crdmv --tty /dev/ttys901 --right-of self | grep -c '^move=/dev/ttys901 right_of=/dev/ttys900$')"
 check "the coordinator's own tab moves leftmost, by itself" "1" \
   "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys950 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move --tty /dev/ttys950 --leftmost | grep -c '^move=/dev/ttys950 left_of=leftmost$')"
