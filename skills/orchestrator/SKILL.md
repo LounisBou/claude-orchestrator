@@ -110,7 +110,10 @@ never from an announcement you remember or a state file.
   - **An address printed**: the message goes to that session with `SendMessage`, and you tell
     him nothing directly. A question goes in the decision round's shape
     (`commands/decide.md`, step 2), one per message; a report or « ready » goes verbatim, as
-    you would have written it to him. Subscribe to its idle notice.
+    you would have written it to him. Subscribe to its idle notice. The message is written
+    once, as you would put it to him — a question keeps his choices, their cost and your
+    recommendation — and only its recipient changes: the coordinator is never asked to
+    decide or act in his place, its own logistics rulings excepted.
   - **Nothing printed**: you speak to him directly, as everywhere else in this skill.
   - **A stale-record line on the error stream**: the coordinator fell. Tell him so in one
     line, and speak to him directly. Any other error of the script is said to him in one
@@ -307,6 +310,7 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The coordinator announced itself this morning, so I write to it" | An announcement is a memory; `lookup` reads the process table. Run it in the turn you speak, or you may be writing to a session that fell. |
 | "The branch is free, I can spawn and tell the coordinator after" | Your reading of the branches is not its « go ». Declare, send the id, and spawn nothing until the answer. |
 | "The coordinator is only a relay; my question is urgent, I will ask him here" | While `lookup` prints an address, everything you would tell him goes to it, urgency included. |
+| "The coordinator can sort this out with the other orchestration" | It carries his question; the decision stays his. Write the question you would put to him, choices, cost and recommendation, and change only its recipient. |
 
 ## Red flags: STOP
 
