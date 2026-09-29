@@ -109,6 +109,7 @@ evals/SELECTION.md                   the cases chosen, and the criteria that cho
 evals/baseline-0.34.0.json           the first baseline run, with and without the plugin
 evals/baseline-0.36.0.json           the current baseline the suite is compared against
 evals/coord-027-028-032/prompt.md
+evals/coord-027-028-032/graders/arrival-order.md
 evals/coord-027-028-032/graders/blocking-first.md
 evals/coord-027-028-032/graders/one-question-with-prefix.md
 evals/coord-037-044/prompt.md
