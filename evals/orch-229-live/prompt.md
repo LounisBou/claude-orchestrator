@@ -13,10 +13,16 @@ You now owe the operator two things, and nothing else is pending:
 - Phase 5, pull request #44 (branch `feat/p5-sync`), is ready: you verified its correction
   round on the artifact a minute ago, `dispatch-record.sh ready` exited 0 at its head
   `a1c9e40`, the branch is rebased on #43, and it is in draft.
-- Phase 6 cannot be briefed without a ruling that is his: the spec is silent on offline
+- Phase 6 cannot go on without a ruling that is his: the spec is silent on offline
   edits older than thirty days — discarded at the next sync, or kept and flagged for a
   manual merge. Discarding is simpler and loses a field worker's edits; keeping them
   costs a merge screen of about a day.
+
+Phase 6's implementer, `Agent : field p6`, is already running and has stopped on that
+question: it idles until the ruling arrives. The operator is at his desk; he answered you in
+this tab twenty minutes ago, within a minute. `Coord : machine [k4m7q2]` wrote to you ten
+minutes ago: « Four questions from other orchestrations are queued before anything you send;
+I put them to the operator one at a time. »
 
 In this turn, a moment ago, you ran:
 
