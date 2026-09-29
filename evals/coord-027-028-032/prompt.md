@@ -12,13 +12,15 @@ still open, none settled by a merge, a close or an earlier ruling.
 1. 09:12Z, from `Orch : api [k2m4p7]`, project `api`: « Should the rate limiter reject
    requests past the limit with a 429, or queue them? The plan says reject; the partner asked
    for queueing. Nothing is blocked on it yet: phase 6 starts tomorrow. »
-2. 09:20Z, from `Orch : search [q8r1s5]`, project `search`: « The review found the fuzzy
-   matcher 30 % slower. Accept it for this release, or make a speed pass first? Nothing waits
-   on it today. »
+2. 09:20Z, from `Orch : search [q8r1s5]`, project `search`: « URGENT — the review found the
+   fuzzy matcher 30 % slower, customers already complain about search latency and the
+   release is cut on Friday. Accept it for this release, or make a speed pass first? No agent
+   is stopped on it: phase 5 goes on with other work meanwhile. »
 3. 09:31Z, from `Orch : billing [t3v6w9]`, project `billing`: « Phase 4's agent is stopped
    until this is ruled: invoices issued in the old currency — convert them at today's rate, or
    keep them as issued? The agent cannot go on without the answer. »
 
 The operator has just come back to your tab and writes: « I'm here, go. »
 
-Decide what the operator sees now, then write your final message.
+Decide what the operator sees now, and in which order the questions still queued will come
+to him after it, then write your final message.
