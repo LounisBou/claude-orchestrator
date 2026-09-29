@@ -6,7 +6,9 @@
 #
 # sources: every 'path:line' of every row exists at <ref> (default HEAD): a regular file at
 #          that commit, a single line number (no range) within its length. A citation
-#          written 'path:line@<commit>' is read at that commit instead of <ref>.
+#          written 'path:line@HEAD' is read at the literal current head instead of <ref> —
+#          the only suffix accepted; anything else (a commit sha, a symbolic ref) is refused,
+#          since a commit hash does not survive a rebase or a squash-merge.
 # targets: every row whose fate is keep, merge-> or move-> has its signature found by a
 #          fixed-string search in its target, in the working tree, exactly once. Rows
 #          awaiting a ruling (drop?, contradiction?, script-candidate?) and rows whose drop
@@ -194,14 +196,17 @@ while IFS="$SEP" read -r id sources fate target signature cells shape why; do
         for s in ${refs[@]+"${refs[@]}"}; do
             s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
             [ -n "$s" ] || continue
-            path="${s%:*}"; line="${s##*:}"; at="$ref"
-            # A rule added after <ref> cites a file <ref> never had: its citation names the
-            # commit it describes, and is read there rather than failing as absent.
+            path="${s%:*}"; line="${s##*:}"; at="$ref"; suffix=""
+            # A rule added after <ref> cites a file <ref> never had: its citation reads
+            # 'path:line@HEAD', the literal current head, rather than failing as absent. No
+            # other suffix survives a rebase, so none but HEAD is accepted.
             if [ "$path" != "$s" ] && [ "${line#*@}" != "$line" ]; then
-                at="${line#*@}"; line="${line%%@*}"
+                suffix="${line#*@}"; line="${line%%@*}"; at="HEAD"
             fi
             if [ "$path" = "$s" ] || ! [[ "$line" =~ ^[1-9][0-9]*$ ]]; then
                 bad="${bad:+$bad,}bad-source:$s"
+            elif [ -n "$suffix" ] && [ "$suffix" != HEAD ]; then
+                bad="${bad:+$bad,}bad-suffix:$s"
             elif ! git -C "$root" rev-parse --verify -q "$at^{commit}" >/dev/null; then
                 bad="${bad:+$bad,}bad-ref:$s"
             elif ! len=$(lines_at "$path" "$at"); then
