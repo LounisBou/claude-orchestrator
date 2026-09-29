@@ -3781,6 +3781,23 @@ printf '# Beta\n' > "$TR/beta.md"
 check "trace: sources at HEAD sees the shortened file" "exit 1" "$(trace_status sources inventory.md)"
 check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sources inventory.md --ref HEAD~1)"
 
+# A rule added after the commit the inventory is checked at cites a file that commit never
+# had: its citation carries its own commit, `path:line@<commit>`, and is read there.
+variant srcat.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
+check "trace: a citation naming its commit is read at that commit, not at HEAD" "" \
+  "$(row FIX-004 sources srcat.md)"
+variant srcathead.md 's/| beta.md:3 |/| beta.md:3@HEAD |/'
+check "trace: a citation's own commit overrides --ref" "FIX-004 past-end:beta.md:3@HEAD beta.md" \
+  "$(trace sources srcathead.md --ref HEAD~1 | grep '^FIX-004 ')"
+variant srcatpast.md 's/| beta.md:3 |/| beta.md:9@HEAD~1 |/'
+check "trace: a citation past the end at its own commit is named" "FIX-004 past-end:beta.md:9@HEAD~1 beta.md" \
+  "$(row FIX-004 sources srcatpast.md)"
+variant srcatref.md 's/| beta.md:3 |/| beta.md:3@no-such-ref |/'
+check "trace: a citation naming an unknown commit is named" "FIX-004 bad-ref:beta.md:3@no-such-ref beta.md" \
+  "$(row FIX-004 sources srcatref.md)"
+check "trace: a plain citation is still read at --ref" "FIX-004 past-end:beta.md:3 beta.md" \
+  "$(row FIX-004 sources inventory.md)"
+
 check "trace: the real inventory holds every signature" "exit 0" \
   "$( ( cd "$ROOT" && bash "$TRACE" targets docs/rules-inventory.md >/dev/null 2>&1 ); echo "exit $?")"
 # The inventory cites its sources as they stood before the directives were rewritten; a
