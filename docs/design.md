@@ -393,7 +393,7 @@ Requirements: `jq` for the tap and the installer, `python3` for the transcript s
 
 ### 3.5 The context gate
 
-`hooks/context-gate.sh` runs on every prompt. At or past the gate (60 %, `ORCHESTRATOR_CONTEXT_GATE`) it puts one line in front of the session: an orchestrator succeeds at the next quiet boundary, an implementer finishes its unit and stops. Below it, it prints nothing; unable to measure, it says so once per session instead of staying silent as if the fill were low. It exists because the rule « succession is yours to trigger » lived in the skill and was not applied: a sentence the model must remember can be rationalised away, a line the harness puts in front of every prompt cannot. It also says, once per change, when the model answering the session has changed under it (section 32). The thresholds it enforces are the rulebook's: `skills/orchestrator/SKILL.md`, « Thresholds ».
+`hooks/context-gate.sh` runs on every prompt. At or past the gate (80 %, `ORCHESTRATOR_CONTEXT_GATE`) it puts one line in front of the session: an orchestrator succeeds at the next quiet boundary, an implementer finishes its unit and stops. Below it, it prints nothing; unable to measure, it says so once per session instead of staying silent as if the fill were low. It exists because the rule « succession is yours to trigger » lived in the skill and was not applied: a sentence the model must remember can be rationalised away, a line the harness puts in front of every prompt cannot. It also says, once per change, when the model answering the session has changed under it (section 32). The thresholds it enforces are the rulebook's: `skills/orchestrator/SKILL.md`, « Thresholds ».
 
 ## 4. The parts
 

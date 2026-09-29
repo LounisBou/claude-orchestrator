@@ -19,9 +19,9 @@ session can read without depending on a particular status bar.
 | script `rhythm.sh` | An audit's rhythm figures read from git alone: merges per week by conventional-commit type, `feat` commits per week, lines under product globs against instrument globs, open entries of a Markdown register — and the one reading git does not hold, said rather than estimated. |
 | `/orchestrator:install` | Wires the gauge's tap in front of your status line. Idempotent, reversible. |
 | `/orchestrator:uninstall` | Restores the previous status line. |
-| `/orchestrator:status` | Live sessions and their context fill, the ones past the 60% gate flagged. |
+| `/orchestrator:status` | Live sessions and their context fill, the ones past the 80% gate flagged. |
 | `/orchestrator:succeed` | Runs the orchestrator succession. |
-| hook `UserPromptSubmit` | The context gate enforced by the harness: at or past 60 % (`ORCHESTRATOR_CONTEXT_GATE`), every prompt carries the line that orders the succession or the stop; unmeasured, it says so once. |
+| hook `UserPromptSubmit` | The context gate enforced by the harness: at or past 80 % (`ORCHESTRATOR_CONTEXT_GATE`), every prompt carries the line that orders the succession or the stop; unmeasured, it says so once. |
 | hook `PreToolUse` | The push guard enforced by the harness, in sessions the launcher spawned only: a `git push` that forces is refused unless its lease is pinned (`--force-with-lease=<branch>:<sha>`); the operator's own sessions are untouched. |
 | `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
 | `/orchestrator:progress` | Where the build stands: done, in flight, remaining, decisions pending, and the orchestrator's own context. |
@@ -108,7 +108,7 @@ session. Measured beats estimated: in observed runs, agents' self-estimates ran
 1. You orchestrate; you never implement. Implementers run in separate sessions, one agent, one phase, one draft PR stacked on the previous phase's branch head. Merges are never awaited.
 2. Every brief is a file the fresh session can open, with contracts verbatim, a non-goals list ending in "STOP and ask", state-verification commands, and the gauge invocation.
 3. Review on evidence: diff it yourself, re-run the one command that decides the verdict, treat every claim — cleanup claims included — as a claim. Heavy reading goes to a review session spawned for the round (it fans out read-only readers and reports once); the verdict stays with you, and the session is closed when the round is judged.
-4. Context is a gate at ~60%: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
+4. Context is a gate at ~80%: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
 5. Succession is the orchestrator's to trigger, at a quiet moment, with a standing pointer-based brief; the successor verifies the state on the artifacts, re-identifies itself to the agents, confirms the takeover, then closes the predecessor's tab.
 
 ## Tab layout
