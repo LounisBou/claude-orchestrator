@@ -1,6 +1,6 @@
 ---
 description: Run a decision round with the user — every open question one at a time, with its context, its choices and their cost, one recommendation, and each ruling recorded and relayed before the next
-allowed-tools: Read, Write, Edit, ListAgents, SendMessage, Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(date:*)
+allowed-tools: Read, Write, Edit, ListAgents, SendMessage, Bash(${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(date:*)
 ---
 
 Run a DECISION ROUND with the user. Use it when an agent has sent a STOP that is the
@@ -8,6 +8,18 @@ user's to decide, when an entry in the project's register or plan carries a prop
 owner or a proposed reading, when a review returned an arbitration, or when the user
 says « one question at a time ». The user arbitrates scope; you decide nothing that is
 theirs, and you never ask two things in one message.
+
+## 0. Whom the round speaks to
+
+Run `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh lookup` first, and
+again immediately before each message the round sends the user. An address printed: a
+coordinator runs, and every message below that goes to the user — the count, each
+question, each « Recorded: » — goes to that session with `SendMessage` instead, one
+question per message exactly as the user would have read it; its answer, the user's
+ruling relayed verbatim and dated, is the answer of step 3. Nothing printed: the user,
+directly. A stale-record line on its error stream: the coordinator fell; tell the user so
+in one line, and run the round with them directly (`orchestrator:orchestrator`, « While a
+coordinator runs »).
 
 ## 1. Collect first, then announce the count
 

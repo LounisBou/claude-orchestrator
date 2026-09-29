@@ -1,6 +1,6 @@
 ---
 description: Hand the orchestration over to a fresh successor session
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/brief-lint.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Read, Write, Edit, ListAgents, SendMessage
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/brief-lint.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Read, Write, Edit, ListAgents, SendMessage
 ---
 
 Execute the orchestrator succession described in
@@ -12,7 +12,12 @@ Preconditions, verify each before acting:
 - the project state file is current — status lives once, there;
 - the standing succession brief exists; otherwise instantiate
   `${CLAUDE_PLUGIN_ROOT}/templates/orchestrator-succession-brief.md` into the
-  project's briefs directory, filling every `{{PLACEHOLDER}}`.
+  project's briefs directory, filling every `{{PLACEHOLDER}}`;
+- the brief's coordinator is current: run
+  `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh lookup` now and write
+  what it prints on the brief's « Coordinator at the trigger » line (`{{COORDINATOR_ADDRESS}}`
+  in the template), or « none » when it prints nothing — the successor then knows whom to
+  announce itself to and whose declarations to carry.
 
 Then:
 
