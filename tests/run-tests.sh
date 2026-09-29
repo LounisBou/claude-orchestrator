@@ -2122,7 +2122,7 @@ check "it re-reads a question before presenting it and answers a settled one its
   "$(spells "$COORDSKILL" '**Re-read before presenting.**')|$(spells "$COORDSKILL" 'question found settled is answered by you, never asked')"
 check "a question blocking a working agent goes first" "yes" "$(spells "$COORDSKILL" 'a question that blocks a working agent')"
 check "every declaration is crossed by the script, and each exit code has its answer" "yes|yes|yes|yes" \
-  "$(spells "$COORDSKILL" '**Run `coordinator.sh conflicts <id>` yourself**')|$(spells "$COORDSKILL" '**Exit 0 → « go »**')|$(spells "$COORDSKILL" '**Exit 1 → you rule who goes first, then act, then tell.**')|$(spells "$COORDSKILL" '**Exit 2 → neither « go » nor « wait ».**')"
+  "$(spells "$COORDSKILL" '**Run `coordinator.sh conflicts <id>` yourself**')|$(spells "$COORDSKILL" '**Exit 0 → « go »**')|$(spells "$COORDSKILL" 'line → you rule who goes first, then')|$(spells "$COORDSKILL" '**Exit 2 → neither « go » nor « wait ».**')"
 check "a release wakes those that waited" "yes" "$(spells "$COORDSKILL" '**On a release**')"
 check "ready, reports and audit ready are relayed unjudged, and ready is not a merge" "yes|yes" \
   "$(spells "$COORDSKILL" 'are relayed as they are, unjudged')|$(spells "$COORDSKILL" '**« Ready » is not a merge.**')"
@@ -2170,12 +2170,56 @@ check "the successor closes its predecessor's tab before it registers" "yes|1|ye
   "$(spells "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}} --expect-title "Coord :"')|$([ "$(COORDLINE "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}}')" -lt "$(COORDLINE "$COORDTPL" 'register --name')" ] 2>/dev/null && echo 1 || echo 0)|$(spells "$COORDTPL" '**THEN register**')"
 check "it waits for handed over and proves the close on ps" "yes|yes" \
   "$(spells "$COORDTPL" '« takeover confirmed »')|$(spells "$COORDTPL" '`ps -t <that tty without /dev/>`')"
+# Filled as the predecessor fills it: its own address, a subject, real paths. The brief holds
+# exactly one session reference, the predecessor's, so a placeholder that lists sessions by
+# their exact addresses would put a second one beside it and the lint would block the
+# succession: the sessions to re-announce to come from the successor's own `ListAgents`.
 COORDFILLED="$WORK/coordinator-brief-filled.md"
+mkdir -p "$WORK/coord-fill/coordinator"; : > "$WORK/coord-fill/coordinator/queue.md"; : > "$WORK/coord-fill/gauge.sh"
 if [ -f "$COORDTPL" ]; then
-  sed -E -e 's#\{\{PREDECESSOR\}\}#Coord : ops [a1b2c3]#g' -e 's#\{\{PREDECESSOR_TTY\}\}#/dev/ttys950#g' -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$COORDTPL" > "$COORDFILLED"
+  sed -E -e 's#\{\{PREDECESSOR\}\}#Coord : ops [a1b2c3]#g' -e 's#\{\{PREDECESSOR_TTY\}\}#/dev/ttys950#g' -e 's#\{\{SUBJECT\}\}#ops#g' \
+    -e "s#\{\{STATE_DIR\}\}#$WORK/coord-fill#g" -e "s#\{\{QUEUE_FILE\}\}#$WORK/coord-fill/coordinator/queue.md#g" \
+    -e "s#\{\{COORDINATOR_SH\}\}#$ROOT/skills/coordinator/scripts/coordinator.sh#g" -e "s#\{\{ITERM_AGENT_SH\}\}#$AGENT#g" \
+    -e "s#\{\{GAUGE\}\}#$WORK/coord-fill/gauge.sh#g" -e 's#\{\{SESSIONS\}\}#`Orch : api [k2m4p7]`, `Audit : ops [d4e5f6]`#g' \
+    -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$COORDTPL" > "$COORDFILLED"
 fi
-check "the coordinator's succession brief, every placeholder filled, lints clean" "yes|0" \
+check "the coordinator's succession brief, filled with a real predecessor's values, lints clean" "yes|0" \
   "$([ -s "$COORDFILLED" ] && echo yes || echo no)|$(bash "$ROOT/skills/orchestrator/scripts/brief-lint.sh" "$COORDFILLED" >/dev/null 2>&1; echo $?)"
+check "the successor's brief lists no session by address: its own ListAgents supplies them" "0|yes" \
+  "$(grep -c '{{SESSIONS}}' "$COORDTPL")|$(spells "$COORDTPL" 'every `Orch :` or `Audit :` session a fresh `ListAgents` shows')"
+# The successor cannot find « the coordinator command's announcement »: its text travels in
+# the brief, word for word the start command's.
+coord_announcement() { sed -n '/^   > Coordinator: /,/^   > .*« acknowledged »\.$/p' "$1" | sed 's/^ *> //'; }
+check "the successor's brief carries the start command's announcement, word for word" "yes|yes" \
+  "$([ -n "$(coord_announcement "$COORDCMD")" ] && echo yes || echo no)|$([ "$(coord_announcement "$COORDCMD")" = "$(coord_announcement "$COORDTPL")" ] && echo yes || echo no)"
+check "the successor's status ends its turn; the queue's first question comes in its own message" "yes|yes" \
+  "$(spells "$COORDTPL" 'That message ends your turn.')|$(spells "$COORDTPL" 'comes in a message of its own')"
+
+# The exit codes the rulebook reads, as the script's header states them: an exit 1 with no
+# overlap and no busy checkout is a refusal or a usage error, a busy checkout names its holder,
+# and a heavy run beside a running one is its own ruled wait.
+check "exit 0 beside a running heavy run is a ruled wait, told and woken on ps" "yes|yes" \
+  "$(spells "$COORDSKILL" '**Exit 0 beside a running heavy run → « wait for <that run> ».**')|$(spells "$COORDSKILL" 'woken when that pid is gone from `ps`')"
+check "exit 1 without an overlap or a busy checkout line is read as exit 2" "yes|yes" \
+  "$(spells "$COORDSKILL" '**Exit 1 with no `overlap` and no `busy checkout` line is exit 2**')|$(spells "$COORDSKILL" '**A `busy checkout <path>` → « wait for » its holder**')"
+check "a ledger fault is named to the operator, never repaired by the coordinator" "yes" \
+  "$(spells "$COORDSKILL" 'you edit no line of `claims.jsonl`')"
+check "the queue file is re-read after a compaction and before every question" "yes" \
+  "$(spells "$COORDSKILL" '**Re-read `queue.md` after a compaction and before every question you present.**')"
+check "after handed over, the predecessor forwards everything until its tab closes" "yes" \
+  "$(spells "$COORDSKILL" 'until your tab closes, every message that still reaches you is forwarded')"
+
+# The start never loses a queue, and refuses a subject the launcher would refuse at the gate.
+check "the start never overwrites an existing queue: its open items go to the operator first" "yes" \
+  "$(spells "$COORDCMD" 'never overwrite an existing `queue.md`')"
+check "the start refuses a subject that begins or ends with a space" "yes" \
+  "$(spells "$COORDCMD" 'neither begins nor ends with a space')"
+
+# The end runs only in the recorded coordinator, and releases those waiting on its word.
+check "the end checks this session is the recorded coordinator before it clears" "yes|1" \
+  "$(spells "$COORDEND" '**This session is the recorded coordinator.**')|$([ "$(COORDLINE "$COORDEND" '**This session is the recorded coordinator.**')" -lt "$(COORDLINE "$COORDEND" 'coordinator.sh clear')" ] 2>/dev/null && echo 1 || echo 0)"
+check "the end tells a waiting orchestrator that no go will come" "yes" \
+  "$(spells "$COORDEND" 'no « go » will come from me')"
 
 # `/orchestrator:audit` (§52): the brief instantiated and linted, the auditor spawned with
 # the launcher's own flag, verified on the artifact, recorded where `audit-end` finds it.
