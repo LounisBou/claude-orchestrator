@@ -115,7 +115,9 @@ never from an announcement you remember or a state file.
     Subscribe to its idle notice. The message is written
     once, as you would put it to him — a question keeps his choices, their cost and your
     recommendation — and only its recipient changes: the coordinator is never asked to
-    decide or act in his place, its own logistics rulings excepted.
+    decide or act in his place, its own logistics rulings excepted. **Ending a process or
+    changing the machine is never logistics**: it stays his STOP-and-ask, put to him through
+    the coordinator as one question.
   - **Nothing printed**: you speak to him directly, as everywhere else in this skill.
   - **A stale-record line on the error stream**: the coordinator fell. Tell him so in one
     line the first time you read it, and speak to him directly; the same line read again

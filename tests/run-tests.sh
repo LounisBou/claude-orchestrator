@@ -2263,6 +2263,8 @@ check "the operator's word relayed by the coordinator ends an audit, and the aud
   "$(spells "$CHAUDBRIEF" 'relayed by the coordinator, verbatim and dated, reaches you')|$(grep -cE 'relayed by the coordinator, verbatim and dated|word relayed by the$' "$CHAUDEND")|$(spells "$CHAUDBRIEF" '**Whose word a coordinator carries.**')"
 check "the auditor's leftovers route through the coordinator" "yes|yes|yes" \
   "$(spells "$CHAUDBRIEF" 'in your own tab — or through the coordinator while one runs')|$(spells "$CHAUDBRIEF" 'coordinator while `lookup` prints one (below) — and stop waiting')|$(spells "$CHAUDREF" 'messages nobody but you and, while one runs, the coordinator')"
+check "ending a process or changing the machine is never logistics, on either side" "yes|yes" \
+  "$(spells "$CHRULE" '**Ending a process or')|$(spells "$CHCOORD" 'Your logistics never include ending a process or changing the')"
 check "both audit commands may run the coordinator's script" "1|1" \
   "$(sed -n '1,5p' "$CHAUDCMD" | grep -c '^allowed-tools: .*coordinator/scripts/coordinator\.sh:\*')|$(sed -n '1,5p' "$CHAUDEND" | grep -c '^allowed-tools: .*coordinator/scripts/coordinator\.sh:\*')"
 
