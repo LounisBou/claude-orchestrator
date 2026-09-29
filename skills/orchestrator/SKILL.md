@@ -146,10 +146,10 @@ When an auditor runs (`references/audit.md`):
 
 They hold at every step of the loop, whatever a reference adds.
 
-Agents report context % in every report. Two gates on the same ~60% threshold:
+Agents report context % in every report. Two gates on the same ~80% threshold:
 
-- **Pre-dispatch gate**: never assign a new phase to an agent already past ~60%: it must have room to FINISH the phase without saturating mid-work. Rotate first. **Read the number when it arrives** — an agent reporting 71% with a phase done is an agent that gets its N-bis and nothing after it.
-- **Mid-work gate**: an agent crossing ~60% finishes the in-progress unit, then stops.
+- **Pre-dispatch gate**: never assign a new phase to an agent already past ~80%: it must have room to FINISH the phase without saturating mid-work. Rotate first. **Read the number when it arrives** — an agent reporting 83% with a phase done is an agent that gets its N-bis and nothing after it.
+- **Mid-work gate**: an agent crossing ~80% finishes the in-progress unit, then stops.
 
 **One writer per checkout** — stated in the phase rules above.
 
