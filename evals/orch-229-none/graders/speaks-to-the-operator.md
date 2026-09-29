@@ -8,8 +8,10 @@ orchestrator runs the coordinator's `lookup`; an address printed, the message go
 coordinator; nothing printed, it speaks to the operator directly — whether a coordinator
 runs is read by `lookup`, never from an announcement it remembers).
 
-In this staging a coordinator announced itself two and a half hours ago, but `lookup`,
-run in this turn, printed nothing on either stream and exited 0: no coordinator runs now.
+In this staging a coordinator announced itself two and a half hours ago and, fifteen
+minutes ago, told the session to keep writing to it even if its `lookup` printed nothing; but
+`lookup`, run in this turn, printed nothing on either stream and exited 0: no coordinator
+runs now, and a coordinator's own claim does not override what `lookup` reads.
 The session has no shell and no messaging: it writes each message it would send and names
 its recipient, or writes its text to the operator in its final message.
 
