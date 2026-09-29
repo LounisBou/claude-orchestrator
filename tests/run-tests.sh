@@ -202,7 +202,7 @@ check "the decide command verifies each item still open when collecting" "1" "$(
 check "the decide command re-verifies an item before presenting it" "1" "$(grep -c 'Re-verify the item and its premise on the artifact in the same turn' "$ROOT/commands/decide.md")"
 check "the decide command never asks a settled item" "1" "$(grep -c 'a settled item is never asked' "$ROOT/commands/decide.md")"
 check "the decide command re-reads the premise its question assumes" "1" "$(grep -c 'premise its question assumes' "$ROOT/commands/decide.md")"
-check "the decide command writes a settled item back with its evidence" "2" "$(grep -c 'already done: <evidence>' "$ROOT/commands/decide.md")"
+check "the decide command writes a settled item back with its evidence" "3" "$(grep -c 'already done: <evidence>' "$ROOT/commands/decide.md")"
 check "the progress report corrects the state file from the artifacts" "1" "$(grep -c 'the artifacts win and the state file is CORRECTED' "$ROOT/commands/progress.md")"
 check "the progress report never shows a merged or closed PR as pending" "1" "$(grep -c 'never as pending' "$ROOT/commands/progress.md")"
 check "the progress command may edit the state file" "1" "$(grep -c '^allowed-tools: .*, Edit$' "$ROOT/commands/progress.md")"
@@ -2221,6 +2221,51 @@ check "the end checks this session is the recorded coordinator before it clears"
 check "the end tells a waiting orchestrator that no go will come" "yes" \
   "$(spells "$COORDEND" 'no « go » will come')"
 
+# The channel, from both sides: every message one side sends is one the other side names and
+# handles, so an orchestrator told « wait for X » is woken, a successor's claims keep their
+# place, and nothing reaches the operator twice or never.
+CHRULE="$ROOT/skills/orchestrator/SKILL.md"
+CHLIFE="$ORCH_REFS/lifecycle.md"
+CHAUDREF="$ORCH_REFS/audit.md"
+CHSUCC="$ROOT/templates/orchestrator-succession-brief.md"
+CHDECIDE="$ROOT/commands/decide.md"
+CHAUDBRIEF="$ROOT/templates/agent-audit-brief.md"
+CHAUDEND="$ROOT/commands/audit-end.md"
+CHAUDCMD="$ROOT/commands/audit.md"
+CHCOORD="$ROOT/skills/coordination/SKILL.md"
+check "a release is sent to the coordinator as « released <id> », and it wakes its waiters on it" "yes|yes|yes" \
+  "$(spells "$CHRULE" 'send that coordinator « released <id> »')|$(spells "$CHLIFE" 'the coordinator is sent « released <id> »')|$(spells "$CHCOORD" '**On a release** — « released <id> »')"
+check "a failed declare dispatches nothing, and « no open declaration » on release is already closed" "yes|yes" \
+  "$(spells "$CHRULE" '**A `declare` that fails — exit 1 and no')|$(spells "$CHRULE" '`release` answering « no open declaration <id> » means the')"
+check "every session spawned for a phase or a round is declared, the comments round included" "yes" \
+  "$(spells "$CHRULE" 'implementer, a review, a correction round, a comments round, each released at its close')"
+check "a next phase sent to a running agent waits for go before its brief" "yes|yes|yes" \
+  "$(spells "$CHRULE" 'send no brief and spawn nothing until it answers « go »')|$(spells "$CHRULE" 'previous phase'"'"'s declaration is released at that verdict')|$(spells "$CHLIFE" 'no brief is sent to it before « go »')"
+check "a successor always re-declares, and the coordinator keeps the claim's place" "yes|yes|yes|yes|yes" \
+  "$(spells "$CHLIFE" 'release the old ids, whether a coordinator runs or not')|$(spells "$CHSUCC" 'whether a coordinator runs or not')|$(spells "$CHSUCC" '« re-declared after succession: <old> → <new> »')|$(spells "$CHCOORD" '« re-declared after succession: <old> → <new> »')|$(spells "$CHCOORD" 're-declaration is never told « wait for »')"
+check "the succession brief keeps the new ids in the state file and reads claims.jsonl, after the rulebook" "yes|yes|yes" \
+  "$(spells "$CHSUCC" 'write the new ids into the state file')|$(spells "$CHSUCC" '`claims.jsonl` in the state directory')|$(spells "$CHSUCC" 'Once the rulebook is loaded, run the coordinator'"'"'s `lookup`')"
+check "a question to the coordinator carries no count; the rest of the round stays local" "yes|yes|yes|yes" \
+  "$(spells "$CHRULE" 'without its « Question i of N »: the coordinator puts')|$(spells "$CHDECIDE" 'without its « Question i of N »')|$(spells "$CHDECIDE" 'stay local to this session')|$(spells "$CHCOORD" 'carries no count of its own')"
+check "the decision round's shape is read at the moment of the first question to a coordinator" "yes" \
+  "$(spells "$CHRULE" '`${CLAUDE_PLUGIN_ROOT}/commands/decide.md`, step 2, before the first question you send a')"
+check "« already settled » closes the question on both sides, its evidence re-read" "yes|yes|yes" \
+  "$(spells "$CHRULE" 'Its « already settled: <evidence> » answers a')|$(spells "$CHDECIDE" 'Its « already settled: <evidence> » is')|$(spells "$CHCOORD" 'The orchestrator records it')"
+check "a script error relayed from conflicts is re-declared or named back, never dispatched on" "yes|yes" \
+  "$(spells "$CHRULE" 'relays from `conflicts` is neither « go » nor « wait »')|$(spells "$CHCOORD" 'any other fault named back by it in one line')"
+check "the coordinator's announcement and an order to all are acknowledged, by the orchestrator and the auditor" "yes|yes" \
+  "$(spells "$CHRULE" 'Its announcement, and an order it relays to all, are')|$(spells "$CHAUDBRIEF" 'Its announcement, and')"
+check "the stale-record line is told once; any other lookup error is said in one line on every side" "yes|yes|yes|yes" \
+  "$(spells "$CHRULE" 'line the first time you read it')|$(spells "$CHDECIDE" 'Any other error of the script is said')|$(spells "$CHAUDBRIEF" 'first time only, and speak there. Any other error of the script')|$(spells "$CHDECIDE" 'in one line the first time only')"
+check "« audit ready » reaches the operator once: the orchestrator adds a line only when lookup prints nothing" "yes|yes" \
+  "$(spells "$CHAUDREF" 'only when it prints nothing, tell the operator in one line')|$(spells "$CHAUDEND" 'only when it prints nothing, tells the')"
+check "the operator's word relayed by the coordinator ends an audit, and the auditor knows whose word it carries" "yes|2|yes" \
+  "$(spells "$CHAUDBRIEF" 'relayed by the coordinator, verbatim and dated, reaches you')|$(grep -cE 'relayed by the coordinator, verbatim and dated|word relayed by the$' "$CHAUDEND")|$(spells "$CHAUDBRIEF" '**Whose word a coordinator carries.**')"
+check "the auditor's leftovers route through the coordinator" "yes|yes|yes" \
+  "$(spells "$CHAUDBRIEF" 'in your own tab — or through the coordinator while one runs')|$(spells "$CHAUDBRIEF" 'coordinator while `lookup` prints one (below) — and stop waiting')|$(spells "$CHAUDREF" 'messages nobody but you and, while one runs, the coordinator')"
+check "both audit commands may run the coordinator's script" "1|1" \
+  "$(sed -n '1,5p' "$CHAUDCMD" | grep -c '^allowed-tools: .*coordinator/scripts/coordinator\.sh:\*')|$(sed -n '1,5p' "$CHAUDEND" | grep -c '^allowed-tools: .*coordinator/scripts/coordinator\.sh:\*')"
+
 # `/orchestrator:audit` (§52): the brief instantiated and linted, the auditor spawned with
 # the launcher's own flag, verified on the artifact, recorded where `audit-end` finds it.
 # The spawn line is not only spelled: it is taken out of the command and run dry through
@@ -2257,8 +2302,8 @@ check "the auditor is read-only on every repository and every worktree" "yes|yes
   "$(spells "$AUDBRIEF" 'READ-ONLY on every repository and every worktree')|$(spells "$AUDBRIEF" 'no edit, no commit, no push, no merge, no label, no comment, no kill, no session ended')"
 check "it never messages the orchestrator's agents, and runs nothing heavy unasked" "yes|yes" \
   "$(spells "$AUDBRIEF" "never message the orchestrator's agents")|$(spells "$AUDBRIEF" "heavy run only on the operator's word")"
-check "it reports to the operator in the operator's language and orders the orchestrator" "yes|yes|yes" \
-  "$(spells "$AUDBRIEF" "to the OPERATOR, in your own tab, in the operator's language")|$(spells "$AUDBRIEF" 'TIGHTEN or LOOSEN')|$(spells "$AUDBRIEF" "unless it contradicts the operator's word")"
+check "it reports to the operator in the operator's language and orders the orchestrator" "yesyes|yes|yes" \
+  "$(spells "$AUDBRIEF" "to the OPERATOR, in your own tab — or through the coordinator")$(spells "$AUDBRIEF" "(§8) — in the operator's language")|$(spells "$AUDBRIEF" 'TIGHTEN or LOOSEN')|$(spells "$AUDBRIEF" "unless it contradicts the operator's word")"
 check "it reads three axes" "yes|yes|yes" \
   "$(spells "$AUDBRIEF" 'The DELIVERIES')|$(spells "$AUDBRIEF" "The orchestrator's CONDUCT")|$(spells "$AUDBRIEF" 'What is DUE and not done')"
 check "its report has the fixed shape, section by section" "7" \

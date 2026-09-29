@@ -13,13 +13,18 @@ theirs, and you never ask two things in one message.
 
 Run `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh lookup` first, and
 again immediately before each message the round sends the user. An address printed: a
-coordinator runs, and every message below that goes to the user — the count, each
-question, each « Recorded: » — goes to that session with `SendMessage` instead, one
-question per message exactly as the user would have read it; its answer, the user's
-ruling relayed verbatim and dated, is the answer of step 3. Nothing printed: the user,
-directly. A stale-record line on its error stream: the coordinator fell; tell the user so
-in one line, and run the round with them directly (`orchestrator:orchestrator`, « While a
-coordinator runs »).
+coordinator runs, and the round sends it only the questions, with `SendMessage`, one
+question per message in step 2's shape without its « Question i of N » — the coordinator
+puts its own count before it presents one. The announcement of the count, each
+« Recorded: », each « already done » line and the end line stay local to this session,
+written to `decision-round.md` and sent to nobody. The coordinator's relay of the user's
+ruling, verbatim and dated, is the answer of step 3. Its « already settled: <evidence> » is
+recorded as « already done: <evidence> », the evidence re-read on its artifact in the same
+turn (`orchestrator:orchestrator`, duty 7), and closes the question. Nothing printed: the
+user, directly. A stale-record line on its error stream: the coordinator fell; tell the user
+so in one line the first time only, and run the round with them directly. Any other error of the script is said
+to the user in one line the same way, and the round runs with them directly
+(`orchestrator:orchestrator`, « While a coordinator runs »).
 
 ## 1. Collect first, then announce the count
 

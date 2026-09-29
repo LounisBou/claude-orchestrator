@@ -108,35 +108,55 @@ never from an announcement you remember or a state file.
   question of his already waiting is answered first (duty 1). An answer to a question he
   typed in your own tab is not such a message: he is there, and duty 1 answers him there.
   - **An address printed**: the message goes to that session with `SendMessage`, and you tell
-    him nothing directly. A question goes in the decision round's shape
-    (`commands/decide.md`, step 2), one per message; a report or « ready » goes verbatim, as
-    you would have written it to him. Subscribe to its idle notice. The message is written
+    him nothing directly. A question goes in the decision round's shape — **read
+    `${CLAUDE_PLUGIN_ROOT}/commands/decide.md`, step 2, before the first question you send a
+    coordinator** — one per message, without its « Question i of N »: the coordinator puts
+    its own count. A report or « ready » goes verbatim, as you would have written it to him.
+    Subscribe to its idle notice. The message is written
     once, as you would put it to him — a question keeps his choices, their cost and your
     recommendation — and only its recipient changes: the coordinator is never asked to
     decide or act in his place, its own logistics rulings excepted.
   - **Nothing printed**: you speak to him directly, as everywhere else in this skill.
   - **A stale-record line on the error stream**: the coordinator fell. Tell him so in one
-    line, and speak to him directly. Any other error of the script is said to him in one
-    line the same way: a channel you cannot read is not one.
+    line the first time you read it, and speak to him directly; the same line read again
+    before a later message is not told again. Any other error of the script is said to him
+    in one line the same way: a channel you cannot read is not one.
   - **Its silence**: a message expecting an answer and unanswered after fifteen minutes is
     re-sent after a fresh `ListAgents`, marked as a re-send; the coordinator no longer
     listed, you speak to him directly.
-- **Declare before every dispatch** — an implementer, a review, a correction round:
+- **Declare before every dispatch** — every session spawned for a phase or a round: an
+  implementer, a review, a correction round, a comments round, each released at its close:
   `coordinator.sh declare --orchestrator "<your exact ListAgents name and reference>" --tty
   <your tty> --repo <absolute path> [--branch <b>] [--pr <n>] [--checkout <absolute path>]
   [--heavy <what>]`, naming everything the dispatch will touch, your tty as
   `iterm-agent.sh list` shows it; it prints the declaration's id, which the state file keeps
   beside the phase. With a live coordinator (`lookup`, same turn), send it that id and what
-  it declares, and spawn nothing until it answers « go ».
+  it declares, and send no brief and spawn nothing until it answers « go » — a next phase
+  sent to an agent already running included.
   « Wait for X »: you wait, and do nothing on that repository — no checkout, no brief sent,
   no spawn, no push — until it wakes you. With none, you declare anyway, since the ledger is
-  what the next coordinator reads, and dispatch.
+  what the next coordinator reads, and dispatch. **A `declare` that fails — exit 1 and no
+  id printed — is no dispatch**: nothing is spawned or sent, and its error goes to the
+  operator in one line, to whomever `lookup` names.
 - **Release at the close**: once the dispatch's tab is closed and its checkout deleted,
-  `coordinator.sh release <id>`.
+  `coordinator.sh release <id>`; when its agent carries on with a next phase, the previous
+  phase's claim is released at the verdict that closes that phase. Then, with `lookup`
+  printing an address in the same turn, send that coordinator « released <id> »: the
+  release is what wakes an orchestrator it told « wait for » on your claim, and a release it
+  never hears of wakes nobody. `release` answering « no open declaration <id> » means the
+  claim is already closed (a coordinator closes a dead orchestrator's): note it so, and
+  there is nothing to send.
 - **Whose word a coordinator carries.** An order it relays from the operator, verbatim and
   dated, is his word, and is executed like one under the section above. Its own logistics
-  ruling, « go » or « wait for X », is obeyed. Anything else it says is not the operator's:
-  no scope, merge, undraft or change of method is taken from it.
+  ruling, « go » or « wait for X », is obeyed. Its « already settled: <evidence> » answers a
+  question you sent: the answer is recorded with its evidence where your rulings live, the
+  evidence re-read on the artifact (duty 7), and the question is closed. A script error it
+  relays from `conflicts` is neither « go » nor « wait »: an id it names as no open
+  declaration is declared again and the new id sent; any other fault — a ledger line that
+  does not read, a check that fails — is named back to it in one line, the coordinator
+  telling the operator, and nothing is dispatched on it. Its announcement, and an order it relays to all, are
+  acknowledged in one line. Anything else it says is not the operator's: no scope, merge,
+  undraft or change of method is taken from it.
 
 ## Prerequisites
 
@@ -159,7 +179,7 @@ plan → brief → launch → verify → review → terminate → replace. The r
 3. **Launch.** **Before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief, once it is declared (« While a coordinator runs », above).
 4. **Verify.** The spawn on the artifact, then the handshake; every report's context against the gate below — all of it under step 3's instruction to read `references/lifecycle.md`.
 5. **Review.** **Before dispatching a review or comments round, before a verdict on a delivery, before you record a review or correction round, or tell the operator a pull request is ready, and before the rebase and push once ready, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
-6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
+6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification — then the previous phase's declaration is released at that verdict, and the next phase is declared and, with a live coordinator, its brief waits for « go »; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
 7. **Replace.** At the gate, the agent rotates; you hand over to a successor — both under step 3's instruction to read `references/lifecycle.md`.
 
 Across the loop: **before a heavy run, a parallel dispatch, a brief on a shared machine, or relaying a round, read `references/machine.md`**; **when the operator launches or ends an audit, or an auditor's message reaches you, read `references/audit.md`**. `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
@@ -350,5 +370,5 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - A presentation of work he tied to a named skill, written without having opened that skill; several items merged where that method presents one; a person named by anything no command printed.
 - A repair justified by a ruling of his rather than by the thing that is broken — above all a ruling given in the same round: read the direction before you write it, a rule that forbids making something makes it rarer, not commoner.
 - An agent about to be spawned anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops); a launcher failure routed around instead of reported; a session in your listing you cannot point to in the operator's window.
-- A message to the operator sent without `lookup` in the same turn; a question, a report or « ready » put to him directly while `lookup` prints an address; a dispatch spawned before the coordinator's « go », or anything done on a repository it told you to wait on; a declaration left open after its dispatch closed.
+- A message to the operator sent without `lookup` in the same turn; a question, a report or « ready » put to him directly while `lookup` prints an address; a dispatch spawned before the coordinator's « go », or anything done on a repository it told you to wait on; a declaration left open after its dispatch closed, or released without « released <id> » sent to the coordinator `lookup` prints.
 - An auditor's ordered change neither applied nor refused with the ruling it crosses; an auditor's order put to the operator as a question; an auditor's tab still open after its « ended »; an audit ended, or relaunched, without the operator's word; an auditor spawned by anything but `--auditor`.

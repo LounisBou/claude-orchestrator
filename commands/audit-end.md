@@ -1,6 +1,6 @@
 ---
 description: End an audit, on the operator's word only — in the auditor's tab, finish the report and send the ordered changes; in the orchestrator's, acknowledge them and close the auditor's tab
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Bash(ps:*), Bash(ls:*), Bash(rm:*), Bash(date:*), Read, Write, Edit, ListAgents, SendMessage
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Bash(ps:*), Bash(ls:*), Bash(rm:*), Bash(date:*), Read, Write, Edit, ListAgents, SendMessage
 ---
 
 End the AUDIT described in `orchestrator:orchestrator`, its reference `references/audit.md`.
@@ -11,7 +11,9 @@ The operator launches the audit and the operator ends it: no session starts this
 itself, and a session that ends an audit by itself is the defect. The auditor's
 « audit ready: <report path> » message only invites the operator to end it
 (`references/audit.md`, « Its end »). An « audit ready » message is not the word to end:
-the orchestrator tells the operator in one line and waits too. Neither is a report you judge complete, an « audit at 80 % » message, or an idle
+the orchestrator runs the coordinator's `lookup` and, only when it prints nothing, tells the
+operator in one line; while it prints an address, the auditor's own message to that
+coordinator is the one, and the orchestrator adds none. It waits too. Neither is a report you judge complete, an « audit at 80 % » message, or an idle
 notice.
 
 It does a different half in each session. Read which one you are before acting: an
@@ -21,7 +23,8 @@ is named `Orch : <subject>` and holds a record under the state directory's `audi
 ## From the auditor
 
 Typed by the operator in your tab — or relayed by the orchestrator's acknowledgment, when
-the operator gave the word in the orchestrator's tab.
+the operator gave the word in the orchestrator's tab, or the operator's word relayed by the
+coordinator, verbatim and dated.
 
 1. **Finish the report.** Write its last section — « 7. Method and limits » — and re-read
    the whole file against the fixed shape of your brief: seven sections, in order, every
@@ -49,9 +52,9 @@ the operator gave the word in the orchestrator's tab.
 
 ## From the orchestrator
 
-Typed by the operator in your tab, or on the auditor's « audit-end: <report path> » message —
-which the auditor sends only once the operator typed the command in its tab. Nothing else
-starts it.
+Typed by the operator in your tab, on the auditor's « audit-end: <report path> » message —
+which the auditor sends only once the operator gave it the word — or on the operator's word
+relayed by the coordinator, verbatim and dated. Nothing else starts it.
 
 1. **Find the audit.** Read
    `${CLAUDE_CONFIG_DIR:-~/.claude}/claude-orchestrator/audits/<CLAUDE_CODE_SESSION_ID>.json`
@@ -65,7 +68,8 @@ starts it.
    « scheduled: <when> » or « not applied: <the operator's ruling> », and one line for the
    method-and-decisions file the auditor brought up to date: « method file: lands in <the
    project's docs pull request, or where the repository's rule puts it>, <when> ». When the operator gave
-   the word in your tab and no « audit-end » message has come, that message says so — the
+   the word in your tab, or through the coordinator, and no « audit-end » message has come,
+   that message says so — the
    operator ended the audit — and asks the auditor to finish its report and send « ended ».
 4. **Wait for « ended ».** Five minutes without it: read the tab with
    `iterm-agent.sh screen --tty <auditor tty>`, and close only on a prompt with nothing in
