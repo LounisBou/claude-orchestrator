@@ -64,7 +64,7 @@ skills/orchestrator/scripts/brief-lint.sh   refuses a brief before it is dispatc
 skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the routing signal
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's rhythm figures, from git alone
-skills/coordinator/SKILL.md          the coordinator: one question at a time, relays, logistics rulings, its succession
+skills/coordination/SKILL.md         the coordinator: one question at a time, relays, logistics rulings, its succession
 skills/coordinator/scripts/coordinator.sh  the coordinator's address and the claims ledger: register, clear, lookup, declare, release, conflicts
 skills/model-routing/SKILL.md        which capability tier a dispatch gets
 skills/model-routing/references/incidents.md the observed incidents behind the routing rules, by rule id
@@ -275,36 +275,36 @@ trigger-evals/context-gauge-trigger-05/prompt.md
 trigger-evals/context-gauge-trigger-05/graders/skill-loaded.md
 trigger-evals/context-gauge-trigger-06/prompt.md
 trigger-evals/context-gauge-trigger-06/graders/skill-loaded.md
-trigger-evals/coordinator-no-trigger-01/prompt.md
-trigger-evals/coordinator-no-trigger-01/graders/answered.md
-trigger-evals/coordinator-no-trigger-01/graders/skill-not-loaded.md
-trigger-evals/coordinator-no-trigger-02/prompt.md
-trigger-evals/coordinator-no-trigger-02/graders/answered.md
-trigger-evals/coordinator-no-trigger-02/graders/skill-not-loaded.md
-trigger-evals/coordinator-no-trigger-03/prompt.md
-trigger-evals/coordinator-no-trigger-03/graders/answered.md
-trigger-evals/coordinator-no-trigger-03/graders/skill-not-loaded.md
-trigger-evals/coordinator-no-trigger-04/prompt.md
-trigger-evals/coordinator-no-trigger-04/graders/answered.md
-trigger-evals/coordinator-no-trigger-04/graders/skill-not-loaded.md
-trigger-evals/coordinator-no-trigger-05/prompt.md
-trigger-evals/coordinator-no-trigger-05/graders/answered.md
-trigger-evals/coordinator-no-trigger-05/graders/skill-not-loaded.md
-trigger-evals/coordinator-no-trigger-06/prompt.md
-trigger-evals/coordinator-no-trigger-06/graders/answered.md
-trigger-evals/coordinator-no-trigger-06/graders/skill-not-loaded.md
-trigger-evals/coordinator-trigger-01/prompt.md
-trigger-evals/coordinator-trigger-01/graders/skill-loaded.md
-trigger-evals/coordinator-trigger-02/prompt.md
-trigger-evals/coordinator-trigger-02/graders/skill-loaded.md
-trigger-evals/coordinator-trigger-03/prompt.md
-trigger-evals/coordinator-trigger-03/graders/skill-loaded.md
-trigger-evals/coordinator-trigger-04/prompt.md
-trigger-evals/coordinator-trigger-04/graders/skill-loaded.md
-trigger-evals/coordinator-trigger-05/prompt.md
-trigger-evals/coordinator-trigger-05/graders/skill-loaded.md
-trigger-evals/coordinator-trigger-06/prompt.md
-trigger-evals/coordinator-trigger-06/graders/skill-loaded.md
+trigger-evals/coordination-no-trigger-01/prompt.md
+trigger-evals/coordination-no-trigger-01/graders/answered.md
+trigger-evals/coordination-no-trigger-01/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-02/prompt.md
+trigger-evals/coordination-no-trigger-02/graders/answered.md
+trigger-evals/coordination-no-trigger-02/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-03/prompt.md
+trigger-evals/coordination-no-trigger-03/graders/answered.md
+trigger-evals/coordination-no-trigger-03/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-04/prompt.md
+trigger-evals/coordination-no-trigger-04/graders/answered.md
+trigger-evals/coordination-no-trigger-04/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-05/prompt.md
+trigger-evals/coordination-no-trigger-05/graders/answered.md
+trigger-evals/coordination-no-trigger-05/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-06/prompt.md
+trigger-evals/coordination-no-trigger-06/graders/answered.md
+trigger-evals/coordination-no-trigger-06/graders/skill-not-loaded.md
+trigger-evals/coordination-trigger-01/prompt.md
+trigger-evals/coordination-trigger-01/graders/skill-loaded.md
+trigger-evals/coordination-trigger-02/prompt.md
+trigger-evals/coordination-trigger-02/graders/skill-loaded.md
+trigger-evals/coordination-trigger-03/prompt.md
+trigger-evals/coordination-trigger-03/graders/skill-loaded.md
+trigger-evals/coordination-trigger-04/prompt.md
+trigger-evals/coordination-trigger-04/graders/skill-loaded.md
+trigger-evals/coordination-trigger-05/prompt.md
+trigger-evals/coordination-trigger-05/graders/skill-loaded.md
+trigger-evals/coordination-trigger-06/prompt.md
+trigger-evals/coordination-trigger-06/graders/skill-loaded.md
 trigger-evals/iterm-agents-no-trigger-01/prompt.md
 trigger-evals/iterm-agents-no-trigger-01/graders/answered.md
 trigger-evals/iterm-agents-no-trigger-01/graders/skill-not-loaded.md

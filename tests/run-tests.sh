@@ -2088,12 +2088,30 @@ check "the entry point's header lists both new forms" "yes|yes" \
 # line the prose hands the session is one the tooling runs: the succession's spawn line and
 # the start's leftmost move are taken out of the text and run dry through the launcher, and
 # the successor's brief, every placeholder filled, lints clean.
-COORDSKILL="$ROOT/skills/coordinator/SKILL.md"
+COORDSKILL="$ROOT/skills/coordination/SKILL.md"
 COORDCMD="$ROOT/commands/coordinator.md"
 COORDEND="$ROOT/commands/coordinator-end.md"
 COORDTPL="$ROOT/templates/coordinator-succession-brief.md"
 check "the coordinator's skill is named and says when it is used" "1|1" \
-  "$(grep -c '^name: coordinator$' "$COORDSKILL")|$(grep -c '^description: Use when this session is the machine.s coordinator' "$COORDSKILL")"
+  "$(grep -c '^name: coordination$' "$COORDSKILL")|$(grep -c '^description: Use when this session is the machine.s coordinator' "$COORDSKILL")"
+# A skill and a command of one plugin share one address, `orchestrator:<name>`, and the host
+# resolves it to the command: a skill named like a command is never loaded by its name, and a
+# command that says « load that skill first » loads itself. The coordinator's skill was first
+# named like its start command, and a staged coordinator read the start steps as its rulebook.
+name_collisions() {  # <skills dir> <commands dir>: one line per name both carry
+  local s n
+  for s in "$1"/*/SKILL.md; do
+    n=$(sed -n 's/^name: //p' "$s" | head -1)
+    [ -f "$2/$n.md" ] && echo "collision:$n"
+    [ -f "$2/$(basename "$(dirname "$s")").md" ] && echo "collision:$(basename "$(dirname "$s")")"
+  done | sort -u
+}
+check "no skill and no command of the plugin share a name" "" "$(name_collisions "$ROOT/skills" "$ROOT/commands")"
+NCCMDS="$WORK/collision-commands"; mkdir -p "$NCCMDS"; cp "$ROOT"/commands/*.md "$NCCMDS"/; cp "$COORDCMD" "$NCCMDS/coordination.md"
+check "a command planted under a skill's name falls the check, and names it" "collision:coordination" \
+  "$(name_collisions "$ROOT/skills" "$NCCMDS")"
+check "both coordinator commands and the successor's brief load the coordination skill" "yes|yes|yes" \
+  "$(spells "$COORDCMD" 'described in `orchestrator:coordination`')|$(spells "$COORDEND" 'described in `orchestrator:coordination`')|$(spells "$COORDTPL" '`orchestrator:coordination` FIRST')"
 check "each coordinator command carries its description and its allowed tools" "1|1|1|1" \
   "$(sed -n '1,5p' "$COORDCMD" | grep -c '^description: ')|$(sed -n '1,5p' "$COORDCMD" | grep -c '^allowed-tools: .*coordinator\.sh')|$(sed -n '1,5p' "$COORDEND" | grep -c '^description: ')|$(sed -n '1,5p' "$COORDEND" | grep -c '^allowed-tools: .*coordinator\.sh')"
 check "the coordinator puts one question per message, in the round's shape, under its prefix" "yes|yes|yes" \
