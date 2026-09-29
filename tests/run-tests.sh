@@ -3633,6 +3633,12 @@ check "a liveness check that fails is not read as dead" \
   "$(cvar "$WORK/coord-verify-err" lookup 2>&1)|$(cvar_status "$WORK/coord-verify-err" lookup)"
 check "nor as a stale claim" "|exit 2" \
   "$(cvar "$WORK/coord-verify-err" conflicts "$b" 2>/dev/null | grep '^stale')|$(cvar_status "$WORK/coord-verify-err" conflicts "$b")"
+# The lock's holder writes its pid and its operation into it: read here from inside the
+# lock, by a liveness check that register runs while it holds it.
+printf '#!/bin/bash\ncat "$ORCHESTRATOR_STATE_DIR/coordinator.lock/holder" > "$COORD_PEEK"\nexit 1\n' > "$WORK/coord-verify-peek"
+chmod +x "$WORK/coord-verify-peek"
+COORD_PEEK="$WORK/coord-peek" cvar "$WORK/coord-verify-peek" register --name "Coord : seven [ggg777]" --tty /dev/ttys108 >/dev/null 2>&1
+check "the lock's holder records its pid and its operation" "1" "$(grep -cE '^[0-9]+ registration$' "$WORK/coord-peek" 2>/dev/null)"
 # A check that reads its standard input must not eat the declarations still to be read.
 printf '#!/bin/bash\ncat >/dev/null\n[ "$1" = --tty ] && grep -qxF "$2" "$COORD_LIVE"\n' > "$WORK/coord-verify-cat"
 chmod +x "$WORK/coord-verify-cat"
