@@ -48,7 +48,9 @@ Then:
      directory), and the previous report's path, or « none »;
    - the gauge: the absolute path of the plugin's installed
      `skills/context-gauge/scripts/context-gauge.sh`, resolved now — the auditor's shell
-     carries none of your variables; the same for `skills/orchestrator/scripts/rhythm.sh`;
+     carries none of your variables; the same for `skills/orchestrator/scripts/rhythm.sh`,
+     and for `skills/coordinator/scripts/coordinator.sh`, the coordinator's script, which
+     fills `{{COORDINATOR}}`;
    - the resource envelope the machine runs under today.
 2. **Lint it.** `${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/brief-lint.sh <brief path> --expect-created <report path> [--expect-created <method file>]`;
    the report path, and the method-and-decisions file while the project has none yet, are

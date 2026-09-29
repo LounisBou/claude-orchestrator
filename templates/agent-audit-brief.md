@@ -161,8 +161,12 @@ its seven sections written, section 7 as far as it goes:
 2. message the orchestrator ONCE, the first line « audit ready: {{REPORT_PATH}} », followed
    by the changes you ORDER, numbered, each with its measurement, and the line for the
    operator;
-3. tell the operator, in your own tab, in one short paragraph, that the audit can be ended —
-   by the slash command /orchestrator:audit-end, typed by the operator;
+3. run `{{COORDINATOR}}` with `lookup` (§8). An address printed: send that coordinator the
+   same message, « audit ready: {{REPORT_PATH}} » first, the orders to rule and the line for
+   the operator unfiltered, saying that the operator ends the audit with
+   /orchestrator:audit-end, and say nothing in your own tab. Nothing printed: tell the
+   operator, in your own tab, in one short paragraph, that the audit can be ended — by the
+   slash command /orchestrator:audit-end, typed by the operator;
 4. WAIT. Until the operator's word, you run no command and close nothing; a question of the
    operator's or of the orchestrator's is answered as ever.
 
@@ -180,11 +184,18 @@ changes you order, and ends your turn. Then answer the orchestrator's acknowledg
 - **Silence rule**: a message that expects an answer and has none after fifteen minutes is
   re-sent after a fresh `ListAgents`, to the session whose NAME matches, marked as a re-send.
   If that name is not listed, tell the operator in your own tab and stop waiting.
+- **While a coordinator runs, the operator is reached through it.** Immediately before you
+  invite the operator or report anything to the operator, run `{{COORDINATOR}}` with
+  `lookup`. An address printed: what you would have told the operator goes to that session,
+  and nothing of it to your own tab; the report stays a file, and /orchestrator:audit-end
+  stays the operator's. Nothing printed: your own tab. A stale-record line on its error
+  stream: the coordinator fell; say so to the operator in your own tab in one line, and
+  speak there. A question the operator types in your own tab is answered there.
 - Every message to the orchestrator ends with your measured context: run `{{GAUGE}}` and
   paste its `context_percent=` and `source=` lines. At 80 %, finish the section in progress,
   write the report's state into the report, message the orchestrator
-  « audit at 80 %: {{REPORT_PATH}}, continue from <section> », tell the operator in your own
-  tab, and WAIT for the operator's word. You spawn nothing and end nothing: an auditor launches no session. On
+  « audit at 80 %: {{REPORT_PATH}}, continue from <section> », tell the operator — in your
+  own tab, or through the coordinator while `lookup` prints one — and WAIT for the operator's word. You spawn nothing and end nothing: an auditor launches no session. On
   the operator's word the ORCHESTRATOR relaunches the audit with the scope « continue from
   {{REPORT_PATH}} », and the new brief's previous report is this one.
 
