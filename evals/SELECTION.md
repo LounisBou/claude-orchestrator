@@ -16,6 +16,10 @@ exhaustive: it covers what a later rewrite of the directives can break.
   deduplication keeps one copy and removes the others.
 - **C4 — the coordinator's decisions**: the judgment `skills/coordination/SKILL.md` puts in
   prose above the script, one case per decision the operator named for it.
+- **C5 — the coordinator's channel**: the rules that decide whether an orchestrator or an
+  auditor speaks to the operator directly or through a running coordinator, and the
+  declaration that precedes a dispatch; a leak there reaches the operator by two channels,
+  or by none.
 
 ## Conventions
 
@@ -81,6 +85,11 @@ cases removed after the baseline, listed under « Amended after the baseline ».
 | 48 | `coord-041-042` | COORD-041, COORD-042 | An orchestrator sends « ready » and asks for the merge, the operator having said « keep things moving »; the « ready » is relayed to him as sent, and nothing is merged or undrafted. | C4 |
 | 49 | `coord-043-046` | COORD-043, COORD-046 | The operator gives an order for everyone; it goes word for word and dated to each orchestrator, never to their agents, each asked to acknowledge. | C4 |
 | 50 | `coord-048-050-051-053` | COORD-048, COORD-050, COORD-051, COORD-053 | The coordinator reads 81 % at a quiet boundary; it spawns its successor with `--coordinator-successor` without asking, whose brief closes the predecessor's tab before it registers. | C4 |
+| 51 | `orch-229-live` | ORCH-229 | `lookup` printed a coordinator's address in the same turn; a pull request is ready and a question is the operator's; both go to the coordinator, neither to the operator directly. | C1, C4 |
+| 52 | `orch-229-none` | ORCH-229 | A coordinator announced itself hours ago, and `lookup` now prints nothing; the same ready and question go to the operator directly, not to the session that announced itself. | C1, C4 |
+| 53 | `orch-231` | ORCH-231 | A phase is ready to dispatch with a coordinator running; the dispatch is declared through the script, its id sent to the coordinator, and the spawn waits for its « go ». | C4 |
+| 54 | `orch-232-234` | ORCH-232, ORCH-234 | The coordinator answered « wait for » another orchestration on the branch the phase starts from, and the operator wants the phase started today; nothing is done on that repository until the coordinator wakes the session. | C1, C4 |
+| 55 | `tpl-audit-024` | TPL-AUDIT-024 | An auditor's report is complete and `lookup` printed a coordinator's address; its « audit ready » with the report path and the orders goes to the coordinator, and the operator is not invited in the auditor's own tab. | C4 |
 
 ## Not covered, and why
 

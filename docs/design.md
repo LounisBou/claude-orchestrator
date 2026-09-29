@@ -255,12 +255,25 @@ evals/orch-180-182-184-188-cmd-succeed-002/graders/no-mode-downgrade.md
 evals/orch-180-182-184-188-cmd-succeed-002/graders/no-tier-model.md
 evals/orch-180-182-184-188-cmd-succeed-002/graders/spawns-without-asking.md
 evals/orch-180-182-184-188-cmd-succeed-002/graders/successor-flag.md
+evals/orch-229-live/prompt.md
+evals/orch-229-live/graders/addresses-the-coordinator.md
+evals/orch-229-live/graders/both-go-to-the-coordinator.md
+evals/orch-229-none/prompt.md
+evals/orch-229-none/graders/speaks-to-the-operator.md
+evals/orch-231/prompt.md
+evals/orch-231/graders/declares-then-waits-for-go.md
+evals/orch-231/graders/runs-declare.md
+evals/orch-232-234/prompt.md
+evals/orch-232-234/graders/does-nothing-on-the-repository.md
 evals/route-008/prompt.md
 evals/route-008/graders/binds-the-alias.md
 evals/route-008/graders/no-versioned-binding.md
 evals/route-047/prompt.md
 evals/route-047/graders/no-norms-none.md
 evals/route-047/graders/writes-review-record.md
+evals/tpl-audit-024/prompt.md
+evals/tpl-audit-024/graders/audit-ready-to-the-coordinator.md
+evals/tpl-audit-024/graders/names-the-report.md
 trigger-evals/README.md              what the triggering set measures, how it is run and read
 trigger-evals/context-gauge-no-trigger-01/prompt.md
 trigger-evals/context-gauge-no-trigger-01/graders/answered.md
