@@ -108,6 +108,22 @@ evals/README.md                      how the behaviour suite is staged, run and 
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
 evals/baseline-0.34.0.json           the first baseline run, with and without the plugin
 evals/baseline-0.36.0.json           the current baseline the suite is compared against
+evals/coord-027-028-032/prompt.md
+evals/coord-027-028-032/graders/blocking-first.md
+evals/coord-027-028-032/graders/one-question-with-prefix.md
+evals/coord-037-044/prompt.md
+evals/coord-037-044/graders/ruled-then-told.md
+evals/coord-041-042/prompt.md
+evals/coord-041-042/graders/no-merge-no-undraft.md
+evals/coord-041-042/graders/relayed-unjudged.md
+evals/coord-043-046/prompt.md
+evals/coord-043-046/graders/orchestrators-not-agents.md
+evals/coord-043-046/graders/verbatim-dated-to-each.md
+evals/coord-048-050-051-053/prompt.md
+evals/coord-048-050-051-053/graders/brief-closes-then-registers.md
+evals/coord-048-050-051-053/graders/coordinator-successor-spawn.md
+evals/coord-048-050-051-053/graders/no-orchestrator-successor.md
+evals/coord-048-050-051-053/graders/succeeds-without-asking.md
 evals/gauge-007/prompt.md
 evals/gauge-007/graders/measured-not-estimated.md
 evals/gauge-007/graders/runs-the-gauge.md
