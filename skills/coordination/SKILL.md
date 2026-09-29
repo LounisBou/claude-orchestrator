@@ -58,7 +58,9 @@ reference and its project:
 
 > **From `Orch : inventory [a3k9c2]` — project `inventory`. Question 1 of 3 — …**
 
-N is the length of your queue; it moves as questions arrive and leave. Anything else shown
+N is the length of your queue; it moves as questions arrive and leave. A question an
+orchestrator sends you carries no count of its own — its round's announcement, « Recorded: »
+and end line stay with it — and the count you put is yours. Anything else shown
 to him between a question and his answer — a relay, a one-line logistics note — means the
 question is presented again IN FULL when you return to it, never « as above ».
 
@@ -74,11 +76,11 @@ question.
 
 | It sends | You |
 |---|---|
-| a question for the operator | re-read, then queue it or answer it with the evidence (« The queue ») |
+| a question for the operator, in the round's shape without a count | re-read, then queue it or answer it with the evidence (« The queue ») |
 | a declaration before a dispatch | `conflicts`, then « go » or « wait for X » (« Declarations ») |
-| a release at the end of a phase | wake those that waited on it (« Declarations ») |
+| « released <id> » at the end of a phase | wake those that waited on it (« Declarations ») |
 | « ready », an end-of-phase report, a STOP that is his, « audit ready » | relay it unjudged (« Relays ») |
-| its succession | the successor's address replaces the predecessor's in the queue and in your messages |
+| its succession, and « re-declared after succession: <old> → <new> » | the successor's address replaces the predecessor's in the queue and in your messages; the new id takes the old one's place (« Declarations ») |
 | the operator's order meant for them | relay it verbatim and dated, collect the acknowledgments (« An order to all ») |
 | a status request from the operator | re-read the facts (« Its limits ») |
 
@@ -100,7 +102,8 @@ one line.
   message. His own merge, close or order moves a state between two of your turns. **A
   question found settled is answered by you, never asked**: `SendMessage` to the orchestrator,
   « already settled: <the evidence, with the command that read it> », the item dropped from
-  the queue and N with it, the next question presented instead.
+  the queue and N with it, the next question presented instead. The orchestrator records it
+  with its evidence, re-reads that evidence, and the question is closed on its side too.
 - **A question for him is his.** You never answer an orchestrator's question from your own
   judgment, however obvious: you answer only what the facts settle, and you say which fact.
 - **The queue is written before it is presented**: every arrival, answer, drop and wait goes
@@ -157,8 +160,8 @@ order of work it decides is yours to rule, not the operator's to be asked. On ea
 5. **Exit 2 → neither « go » nor « wait ».** The answer could not be known: an id that names
    no open declaration, a ledger line that does not read, a liveness check or a workspace
    listing that failed. Read its error and send it verbatim to the declarer: a mistyped id is
-   re-declared by it. Tell the operator in one line, and name a fault — a ledger line that
-   does not read, a check that fails — to him as his to repair: you edit no line of
+   re-declared by it, any other fault named back by it in one line, and nothing dispatched on
+   it. Tell the operator in one line, and name a fault — a ledger line that does not read, a check that fails — to him as his to repair: you edit no line of
    `claims.jsonl`, by hand or by any command but the script's own `release`. An orchestrator
    told nothing does not dispatch; an orchestrator told « go » on an unread answer is how two
    sessions push to one branch.
@@ -166,9 +169,17 @@ order of work it decides is yours to rule, not the operator's to be asked. On ea
    blocks nobody, and you close it with `coordinator.sh release <id>` and name it in your line
    to the operator.
 
-**On a release**, sent by the orchestrator at the end of its phase: for every orchestrator
-waiting on that declaration, run `conflicts` again on the waiter's own id and answer it as
-steps 2 to 5 say: « go » and its wait leaves the queue, or it keeps waiting, now on what still
+**A re-declaration after a succession** — « re-declared after succession: <old> → <new> »,
+sent by the successor for each claim its predecessor left open — keeps the old claim's place
+and its waiters: every wait written on `<old>` is rewritten on `<new>` in the queue. A
+re-declaration is never told « wait for », whatever `conflicts` prints on it: the phase it
+covers had its « go » and is under way, and a phase under way is never paused; one whose
+« go » had not come yet keeps its own wait, rewritten on `<new>` like the others. It needs no
+new « go », and nobody is woken by it.
+
+**On a release** — « released <id> », sent by the orchestrator at the end of its phase: for
+every orchestrator waiting on that declaration, run `conflicts` again on the waiter's own id
+and answer it as steps 2 to 5 say: « go » and its wait leaves the queue, or it keeps waiting, now on what still
 overlaps.
 
 ## Relays
