@@ -190,7 +190,7 @@ def unread_refusal(dir_, timeout):
     """What was checked, for how long, why it may have happened, and what to look at next.
     A named exception to "a gate that cannot measure lets the run through and says so"
     (§29): a session whose mode is unread may be parked on a dialog or hung at start, which
-    the plugin already calls "not launched" (§46) — so the tab this spawn made is closed
+    the plugin already calls "not launched" (§43) — so the tab this spawn made is closed
     rather than left for the operator to find blank."""
     return ("spawn: refused: no transcript for %s carrying a mode after %ss: the session may "
             "be parked on a dialog or hung at start; the tab was closed. Read it next time "
