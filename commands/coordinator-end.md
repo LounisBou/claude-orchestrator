@@ -3,7 +3,7 @@ description: End the machine's coordinator, on the operator's word only — the 
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh:*), Bash(ls:*), Bash(rm:*), Bash(date:*), Read, ListAgents, SendMessage
 ---
 
-End the COORDINATOR described in `orchestrator:coordinator`. Load that skill first.
+End the COORDINATOR described in `orchestrator:coordination`. Load that skill first.
 
 This command runs ONLY when the operator types it in the coordinator's tab — a session named
 `Coord : <subject>`. The operator starts the coordinator and the operator ends it: no session

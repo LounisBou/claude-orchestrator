@@ -8,7 +8,7 @@ Run on the operator's word only, in a session HE opened for it: the operator sta
 coordinator and the operator ends it, with `/orchestrator:coordinator-end`. No orchestrator,
 auditor or agent starts a coordinator, and no session runs this command by itself.
 
-Start the COORDINATOR described in `orchestrator:coordinator`. Load that skill first.
+Start the COORDINATOR described in `orchestrator:coordination`. Load that skill first.
 
 Usage: `/orchestrator:coordinator <subject>`.
 
