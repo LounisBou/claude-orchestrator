@@ -155,6 +155,8 @@ cmd_declare() {
         || die "declare: --orchestrator, --tty and --repo are required"
     [ -z "$pr" ] || printf '%s' "$pr" | grep -qE '^[0-9]+$' || die "declare: --pr must be a number: $pr"
     lock "refused: another declaration is running"
+    # The next id is one above the highest in the file, never a count of its lines: a
+    # ledger pruned by hand would otherwise hand out an id already given.
     local n=1
     if [ -s "$CLAIMS" ]; then
         n=$(jq -s '[.[].id | ltrimstr("c") | tonumber] | (max // 0) + 1' "$CLAIMS") \
@@ -179,6 +181,8 @@ cmd_release() {
     local id="${1:-}"
     [ -n "$id" ] && [ $# -eq 1 ] || die "release: usage: release <id>"
     lock "refused: another declaration is running"
+    # Only an open declaration is closed: releasing one twice would move its closing time,
+    # and the waiters it woke were woken by the first.
     [ -n "$(open_claim "$id")" ] || die "no open declaration $id"
     jq -c --arg i "$id" --arg at "$(now)" 'if .id == $i and .released == null then .released = $at else . end' \
         "$CLAIMS" | write_atomic "$CLAIMS"
@@ -195,6 +199,8 @@ cmd_conflicts() {
     # overlap they share with this one, tab-separated.
     while IFS=$'\t' read -r oid otty oorch kinds; do
         [ -n "$oid" ] || continue
+        # A claim whose orchestrator is gone blocks nobody: it is named so the coordinator
+        # closes it, never counted as an overlap.
         if ! alive "$otty"; then
             echo "stale $oid $oorch"
             continue
