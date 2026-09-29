@@ -2541,16 +2541,39 @@ echo "== context threshold sweep =="
 # a portable non-digit lookaround: this git's -E engine does not honor \b (confirmed: it drops
 # every \b-anchored match silently instead of erroring). This file is excluded from the swept
 # tree: it necessarily carries the retired figure in the pattern below and in its own fixture.
+# The three keywords (gate, threshold, context) are matched in both orders around the figure,
+# and a bash default-value assignment on a GATE-named variable is matched in its three common
+# spellings (:-, :=, =), case-insensitively, since a stray env default is as live a threshold
+# as prose is.
 OLD_FIGURE=60
-THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|GATE:-${OLD_FIGURE}|gate.{0,20}${OLD_FIGURE}|${OLD_FIGURE}.{0,20}(gate|threshold|context)"
+THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|(gate|threshold|context).{0,20}${OLD_FIGURE}|${OLD_FIGURE}.{0,20}(gate|threshold|context)|GATE ?(:-|:=|=) ?${OLD_FIGURE}"
 check "no context threshold other than 80 % remains in the tracked tree" "" \
-  "$(cd "$ROOT" && git grep -n -E "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
+  "$(cd "$ROOT" && git grep -n -E -i "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
 
-# Proof the sweep still catches a stale figure, planted only into a scratch copy.
+# Proof the sweep still catches a stale figure, planted only into a scratch copy — one file
+# per new spelling this broadening adds, plus the original one it already caught.
 SWEEP="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-sweep-XXXXXX")"
 printf 'Mark sessions past %s%%\n' "$OLD_FIGURE" > "$SWEEP/note.md"
+printf 'the threshold sits above %s still\n' "$OLD_FIGURE" > "$SWEEP/threshold-first.md"
+printf 'the context reads %s during setup\n' "$OLD_FIGURE" > "$SWEEP/context-first.md"
+printf 'GATE:-%s\n' "$OLD_FIGURE" > "$SWEEP/gate-default.sh"
+printf 'export GATE:=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-walrus.sh"
+printf 'export GATE=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-eq.sh"
+printf 'export gate=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-lower.sh"
 check "the sweep catches a figure planted in a scratch copy" "1" \
-  "$(grep -rn -E "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"
+check "the sweep catches the threshold-before-figure order" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'threshold sits above')"
+check "the sweep catches the context-before-figure order" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'context reads')"
+check "the sweep catches a GATE:- default" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'GATE:-60')"
+check "the sweep catches a GATE:= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'GATE:=60')"
+check "the sweep catches a GATE= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export GATE=60')"
+check "the sweep catches a lowercase gate= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export gate=60')"
 rm -rf "$SWEEP"
 
 echo "== push guard hook =="
