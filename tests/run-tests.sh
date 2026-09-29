@@ -2536,19 +2536,21 @@ check "and not again while it holds" "" "$(gate g-drift)"
 rm -rf "$GH"
 
 echo "== context threshold sweep =="
-# The operator's ruling (2026-09-29): every context limit is 80 %, the old 60 % figure nowhere
+# The operator's ruling (2026-09-29): every context limit is 80 %, the previous figure nowhere
 # left as a context threshold. Same pattern as item 1's occurrence grep, its \b rewritten as
 # a portable non-digit lookaround: this git's -E engine does not honor \b (confirmed: it drops
-# every \b-anchored match silently instead of erroring).
-THRESHOLD_RE='([^0-9]|^)60 ?%|~60|sixty|GATE:-60|gate.{0,20}60|60.{0,20}(gate|threshold|context)'
+# every \b-anchored match silently instead of erroring). This file is excluded from the swept
+# tree: it necessarily carries the retired figure in the pattern below and in its own fixture.
+OLD_FIGURE=60
+THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|GATE:-${OLD_FIGURE}|gate.{0,20}${OLD_FIGURE}|${OLD_FIGURE}.{0,20}(gate|threshold|context)"
 check "no context threshold other than 80 % remains in the tracked tree" "" \
-  "$(cd "$ROOT" && git grep -n -E "$THRESHOLD_RE" 2>/dev/null)"
+  "$(cd "$ROOT" && git grep -n -E "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
 
 # Proof the sweep still catches a stale figure, planted only into a scratch copy.
 SWEEP="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-sweep-XXXXXX")"
-printf 'Mark sessions past 60%%\n' > "$SWEEP/note.md"
+printf 'Mark sessions past %s%%\n' "$OLD_FIGURE" > "$SWEEP/note.md"
 check "the sweep catches a figure planted in a scratch copy" "1" \
-  "$(grep -rn -E "$THRESHOLD_RE" "$SWEEP" | grep -c 'past 60')"
+  "$(grep -rn -E "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"
 rm -rf "$SWEEP"
 
 echo "== push guard hook =="
