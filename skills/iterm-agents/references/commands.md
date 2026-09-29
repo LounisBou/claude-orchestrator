@@ -46,8 +46,10 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # refuses a session that came up in another one — closing the tab it just made and
     # naming both modes, the model, and the two repairs: rebind the tier, or pass
     # --permission-mode acceptEdits for an agent that only edits. A transcript that has
-    # not appeared within ORCHESTRATOR_MODE_TIMEOUT (20s) lets the launch through and says
-    # the mode is unread. --no-verify skips it, with the CLI check.
+    # not appeared within ORCHESTRATOR_MODE_TIMEOUT (20s) refuses the spawn too, the tab
+    # closed the same way, naming the checkout, the timeout, and the remedy: read the tab
+    # with `screen` before retrying, or raise ORCHESTRATOR_MODE_TIMEOUT if the machine is
+    # only slow. --no-verify skips it, with the CLI check.
     # writes the prompt to a file under the plugin's state directory, writes the launch
     # to a second file, asks the app to run it in a new tab AT AN INDEX, WAITS until the
     # host CLI is running on the new tty (30 s, ORCHESTRATOR_SPAWN_TIMEOUT), and prints
