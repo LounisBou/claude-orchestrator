@@ -64,6 +64,7 @@ skills/orchestrator/scripts/brief-lint.sh   refuses a brief before it is dispatc
 skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the routing signal
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's rhythm figures, from git alone
+skills/coordinator/scripts/coordinator.sh  the coordinator's address and the claims ledger: register, clear, lookup, declare, release, conflicts
 skills/model-routing/SKILL.md        which capability tier a dispatch gets
 skills/model-routing/references/incidents.md the observed incidents behind the routing rules, by rule id
 skills/context-gauge/SKILL.md        how a session reads its own context fill
