@@ -2201,8 +2201,8 @@ check "audit-end runs only when the operator types it, and « audit ready » is 
   "$(spells "$AUDEND" 'ONLY when the operator types it')|$(spells "$AUDEND" '« audit ready: <report path> »')|$(spells "$AUDEND" '« audit ready » message is not the word')"
 check "the auditor invites the operator to end the audit, and waits" "yes|yes|yes" \
   "$(spells "$AUDBRIEF" '« audit ready: {{REPORT_PATH}} »')|$(spells "$AUDBRIEF" 'the audit can be ended')|$(spells "$AUDBRIEF" 'you run no command and close nothing')"
-check "at 60 % the auditor reports, tells the operator, and waits for the operator's word" "yes|yes|0" \
-  "$(spells "$AUDBRIEF" '« audit at 60 %: {{REPORT_PATH}}, continue from <section> »')|$(spells "$AUDBRIEF" 'WAIT for the operator')|$(grep -cE '(^|[^/])orchestrator:audit-end' "$AUDBRIEF")"
+check "at 80 % the auditor reports, tells the operator, and waits for the operator's word" "yes|yes|0" \
+  "$(spells "$AUDBRIEF" '« audit at 80 %: {{REPORT_PATH}}, continue from <section> »')|$(spells "$AUDBRIEF" 'WAIT for the operator')|$(grep -cE '(^|[^/])orchestrator:audit-end' "$AUDBRIEF")"
 check "the rulebook and the design say who launches and who ends, and name the defect" "yes|yes|yes|yes" \
   "$(carries "$AUDRULEF" 'the operator launches the audit and the operator ends it')|$(carries "$AUDRULEF" 'a session that ends an audit by itself is the defect')|$(carries "$AUDDESIGNF" 'the operator launches the audit and the operator ends it')|$(carries "$AUDDESIGNF" 'a session that ends an audit by itself is the defect')"
 check "the README's two entries say whose word launches and ends the audit" "2" \
@@ -2508,15 +2508,18 @@ check "an unresolvable tier stops the rotation, and nothing runs after it" \
   "ERROR: resolve-tier: unknown tier: bogus (expected deep, standard or light)" "$(printf '%s' "$rot" | tail -1)"
 
 echo "== context gate hook =="
-# A fake config dir with a tap file: at 70 % the hook orders the succession, at 30 % it
-# prints nothing, and with no tap file it says « unmeasured » exactly once.
+# A fake config dir with a tap file: at 85 % the hook orders the succession, at 30 % it
+# prints nothing, and with no tap file it says « unmeasured » exactly once. The default gate
+# is 80, not the old 60: a figure of 70 must stay under it and stay silent.
 GH="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")"; mkdir -p "$GH/claude-orchestrator/ctx"
 now=$(date +%s)
-printf '{"session_id":"g-hi","context_percent":70,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-hi.json"
+printf '{"session_id":"g-hi","context_percent":85,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-hi.json"
 printf '{"session_id":"g-lo","context_percent":30,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-lo.json"
+printf '{"session_id":"g-under","context_percent":70,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-under.json"
 gate() { printf '{"session_id":"%s"}' "$1" | CLAUDE_CONFIG_DIR="$GH" bash "$ROOT/hooks/context-gate.sh"; }
 check "past the gate the hook orders the succession" "1" "$(gate g-hi | grep -c 'SUCCEEDS at the next quiet boundary')"
 check "under the gate the hook is silent" "" "$(gate g-lo)"
+check "the default gate is 80, not 60: 70 stays under it" "" "$(gate g-under)"
 check "unmeasured says so once" "1" "$(gate g-none | grep -c 'unmeasured'; )"
 check "unmeasured stays silent the second time" "" "$(gate g-none)"
 
@@ -2531,6 +2534,22 @@ printf '{"type":"assistant","message":{"model":"b-model","usage":{"input_tokens"
 check "a changed model is said once, naming both" "1" "$(gate g-drift | grep -c 'MODEL DRIFT: this session now answers as b-model; it answered as a-model until now')"
 check "and not again while it holds" "" "$(gate g-drift)"
 rm -rf "$GH"
+
+echo "== context threshold sweep =="
+# The operator's ruling (2026-09-29): every context limit is 80 %, the old 60 % figure nowhere
+# left as a context threshold. Same pattern as item 1's occurrence grep, its \b rewritten as
+# a portable non-digit lookaround: this git's -E engine does not honor \b (confirmed: it drops
+# every \b-anchored match silently instead of erroring).
+THRESHOLD_RE='([^0-9]|^)60 ?%|~60|sixty|GATE:-60|gate.{0,20}60|60.{0,20}(gate|threshold|context)'
+check "no context threshold other than 80 % remains in the tracked tree" "" \
+  "$(cd "$ROOT" && git grep -n -E "$THRESHOLD_RE" 2>/dev/null)"
+
+# Proof the sweep still catches a stale figure, planted only into a scratch copy.
+SWEEP="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-sweep-XXXXXX")"
+printf 'Mark sessions past 60%%\n' > "$SWEEP/note.md"
+check "the sweep catches a figure planted in a scratch copy" "1" \
+  "$(grep -rn -E "$THRESHOLD_RE" "$SWEEP" | grep -c 'past 60')"
+rm -rf "$SWEEP"
 
 echo "== push guard hook =="
 # Active only in a session the launcher spawned (ORCHESTRATOR_SPAWNED, set by build_command
