@@ -310,6 +310,9 @@ trigger-evals/coordination-no-trigger-05/graders/skill-not-loaded.md
 trigger-evals/coordination-no-trigger-06/prompt.md
 trigger-evals/coordination-no-trigger-06/graders/answered.md
 trigger-evals/coordination-no-trigger-06/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-07/prompt.md
+trigger-evals/coordination-no-trigger-07/graders/answered.md
+trigger-evals/coordination-no-trigger-07/graders/skill-not-loaded.md
 trigger-evals/coordination-trigger-01/prompt.md
 trigger-evals/coordination-trigger-01/graders/skill-loaded.md
 trigger-evals/coordination-trigger-02/prompt.md
