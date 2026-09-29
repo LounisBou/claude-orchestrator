@@ -20,5 +20,6 @@ declaration is answered. Your queue, /srv/orch-state/coordinator/queue.md, holds
 question from `Orch : api` not yet presented, and `Orch : search` waits for `Orch : api` on
 the branch release/2.3 (declarations c5 and c7, open in /srv/orch-state/claims.jsonl).
 
-If your decision needs a brief, write it to `briefs/coord-succession.md` in your working
-directory. Decide what you do now, then write your final message.
+This session writes only inside its working directory: a file you would write anywhere
+else, write it under your working directory instead. Decide what you do now, then write your
+final message.

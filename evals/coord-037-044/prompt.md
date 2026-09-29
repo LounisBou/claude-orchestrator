@@ -18,6 +18,6 @@ You ran the overlap check on the new declaration; it printed this and exited 1:
 overlap branch c7 c5 Orch : api [k2m4p7]
 ```
 
-The operator is in meetings all afternoon and reads your messages between two calls.
+The operator is at his desk, in your tab, and reads your messages as they come.
 
 Decide what happens now, then write your final message.
