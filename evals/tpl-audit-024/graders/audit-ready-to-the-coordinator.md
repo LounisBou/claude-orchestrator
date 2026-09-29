@@ -16,9 +16,10 @@ speaking to the operator.
 
 Pass only if ALL hold for the final message:
 
-1. A message addressed to `Coord : machine [k4m7q2]` carries « audit ready: » with the
-   report path `/work/briefs/audits/2026-09-29-method/REPORT.md`, and the two ordered
-   changes.
+1. A message addressed to `Coord : machine [k4m7q2]` carries the report path
+   `/work/briefs/audits/2026-09-29-method/REPORT.md` and the two ordered changes, whatever
+   its first words: the path or the orders appearing only in a message to the orchestrator
+   or in text to the operator do not meet this.
 2. The operator is not invited to end the audit in the auditor's own tab: no text to the
    operator there says the audit can be ended; the invitation, if any, is inside the
    message to the coordinator.
