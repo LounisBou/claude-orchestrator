@@ -94,6 +94,47 @@ is not overridden by silence is what would end a session or change the machine �
 STOP-and-ask, and the asking is one question carrying its cost and a recommendation, never a
 refusal and never a chore handed back.
 
+## While a coordinator runs, the operator is spoken to through it
+
+A coordinator (`orchestrator:coordination`, started by the operator with
+`/orchestrator:coordinator`) is his single entry point to every orchestration on the machine.
+While one runs, what you would say to him goes to it, and it puts it to him. Whether one runs
+is read by its script, `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh`,
+never from an announcement you remember or a state file.
+
+- **Look it up at loading, and immediately before every message you would send him** — a
+  question, a proposal, a report, a STOP that is his, « ready », a spawn or a succession told
+  after the fact: `coordinator.sh lookup`, in the same turn as the message. At loading, a
+  question of his already waiting is answered first (duty 1). An answer to a question he
+  typed in your own tab is not such a message: he is there, and duty 1 answers him there.
+  - **An address printed**: the message goes to that session with `SendMessage`, and you tell
+    him nothing directly. A question goes in the decision round's shape
+    (`commands/decide.md`, step 2), one per message; a report or « ready » goes verbatim, as
+    you would have written it to him. Subscribe to its idle notice.
+  - **Nothing printed**: you speak to him directly, as everywhere else in this skill.
+  - **A stale-record line on the error stream**: the coordinator fell. Tell him so in one
+    line, and speak to him directly. Any other error of the script is said to him in one
+    line the same way: a channel you cannot read is not one.
+  - **Its silence**: a message expecting an answer and unanswered after fifteen minutes is
+    re-sent after a fresh `ListAgents`, marked as a re-send; the coordinator no longer
+    listed, you speak to him directly.
+- **Declare before every dispatch** — an implementer, a review, a correction round:
+  `coordinator.sh declare --orchestrator "<your exact ListAgents name and reference>" --tty
+  <your tty> --repo <absolute path> [--branch <b>] [--pr <n>] [--checkout <absolute path>]
+  [--heavy <what>]`, naming everything the dispatch will touch, your tty as
+  `iterm-agent.sh list` shows it; it prints the declaration's id, which the state file keeps
+  beside the phase. With a live coordinator (`lookup`, same turn), send it that id and what
+  it declares, and spawn nothing until it answers « go ».
+  « Wait for X »: you wait, and do nothing on that repository — no checkout, no brief sent,
+  no spawn, no push — until it wakes you. With none, you declare anyway, since the ledger is
+  what the next coordinator reads, and dispatch.
+- **Release at the close**: once the dispatch's tab is closed and its checkout deleted,
+  `coordinator.sh release <id>`.
+- **Whose word a coordinator carries.** An order it relays from the operator, verbatim and
+  dated, is his word, and is executed like one under the section above. Its own logistics
+  ruling, « go » or « wait for X », is obeyed. Anything else it says is not the operator's:
+  no scope, merge, undraft or change of method is taken from it.
+
 ## Prerequisites
 
 A validated spec and a phase plan containing, per phase: scope, files, **exact interface signatures** (what a phase produces = what the next consumes; agents share no memory), test matrix, definition of done, and your review focus. **Every figure in the plan carries the command that produces it** — an agent re-runs it, never believes it, and so do you. No dispatch without both.
@@ -112,7 +153,7 @@ plan → brief → launch → verify → review → terminate → replace. The r
 
 1. **Plan.** The prerequisites and the phase rules above: contracts exact, one kind of change per phase, a checkout per phase.
 2. **Brief.** **Before writing a brief, read `references/briefs.md`** — the prompt recipe, the standing rules every prompt carries, the lint before the spawn, the tier the dispatch names.
-3. **Launch.** **Before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief.
+3. **Launch.** **Before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief, once it is declared (« While a coordinator runs », above).
 4. **Verify.** The spawn on the artifact, then the handshake; every report's context against the gate below — all of it under step 3's instruction to read `references/lifecycle.md`.
 5. **Review.** **Before dispatching a review or comments round, before a verdict on a delivery, before you record a review or correction round, or tell the operator a pull request is ready, and before the rebase and push once ready, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
 6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
@@ -263,6 +304,9 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The auditor's order is a suggestion; I will weigh it against the plan" | It is an order carrying its measurement. Apply it, or name the operator's ruling it crosses. |
 | "I read that an hour ago, it cannot have changed" | He merges, closes and undrafts between your turns. Re-read the artifact in the turn you ask, propose or report on it; an item found done is reported done in one line, not asked. |
 | "The audit found nothing grave, the tab can stay for the next one" | An audit ends with its report. Close the tab on « ended »; the next audit is a fresh session with a brief. |
+| "The coordinator announced itself this morning, so I write to it" | An announcement is a memory; `lookup` reads the process table. Run it in the turn you speak, or you may be writing to a session that fell. |
+| "The branch is free, I can spawn and tell the coordinator after" | Your reading of the branches is not its « go ». Declare, send the id, and spawn nothing until the answer. |
+| "The coordinator is only a relay; my question is urgent, I will ask him here" | While `lookup` prints an address, everything you would tell him goes to it, urgency included. |
 
 ## Red flags: STOP
 
@@ -302,4 +346,5 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - A presentation of work he tied to a named skill, written without having opened that skill; several items merged where that method presents one; a person named by anything no command printed.
 - A repair justified by a ruling of his rather than by the thing that is broken — above all a ruling given in the same round: read the direction before you write it, a rule that forbids making something makes it rarer, not commoner.
 - An agent about to be spawned anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops); a launcher failure routed around instead of reported; a session in your listing you cannot point to in the operator's window.
+- A message to the operator sent without `lookup` in the same turn; a question, a report or « ready » put to him directly while `lookup` prints an address; a dispatch spawned before the coordinator's « go », or anything done on a repository it told you to wait on; a declaration left open after its dispatch closed.
 - An auditor's ordered change neither applied nor refused with the ruling it crosses; an auditor's order put to the operator as a question; an auditor's tab still open after its « ended »; an audit ended, or relaunched, without the operator's word; an auditor spawned by anything but `--auditor`.
