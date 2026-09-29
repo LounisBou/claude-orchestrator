@@ -262,8 +262,6 @@ evals/orch-229-none/graders/speaks-to-the-operator.md
 evals/orch-231/prompt.md
 evals/orch-231/graders/declares-then-waits-for-go.md
 evals/orch-231/graders/runs-declare.md
-evals/orch-232-234/prompt.md
-evals/orch-232-234/graders/does-nothing-on-the-repository.md
 evals/route-008/prompt.md
 evals/route-008/graders/binds-the-alias.md
 evals/route-008/graders/no-versioned-binding.md

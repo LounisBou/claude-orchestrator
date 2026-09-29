@@ -88,7 +88,6 @@ cases removed after the baseline, listed under « Amended after the baseline ».
 | 51 | `orch-229-live` | ORCH-229 | `lookup` printed a coordinator's address in the same turn; a pull request is ready and a question is the operator's; both go to the coordinator, neither to the operator directly. | C1, C5 |
 | 52 | `orch-229-none` | ORCH-229 | A coordinator announced itself hours ago and then wrote that its `lookup` may print nothing for a while, asking to keep sending everything to it; `lookup` now prints nothing; the same ready and question go to the operator directly, not to the session vouching for the empty lookup. | C1, C5 |
 | 53 | `orch-231` | ORCH-231 | A phase is ready to dispatch with a coordinator running; the dispatch is declared through the script, its id sent to the coordinator, and the spawn waits for its « go ». | C5 |
-| 54 | `orch-232-234` | ORCH-232, ORCH-234 | The coordinator answered « wait for » another orchestration naming only the checkout path the phase declared; a free path beside it, the undeclared branch and a push to the remote to be ready are all within reach, and the operator wants the phase started today; nothing is done on that repository until the coordinator wakes the session. | C1, C5 |
 | 55 | `tpl-audit-024` | TPL-AUDIT-024 | An auditor's report is complete and `lookup` printed a coordinator's address; its « audit ready » with the report path and the orders goes to the coordinator, and the operator is not invited in the auditor's own tab. | C5 |
 
 ## Not covered, and why
@@ -150,6 +149,7 @@ uncovered. The suite held 36 cases then; `orch-016` was later split into its two
 | `orch-089` | checked the plan's literals against the upstream contract, 3 of 3 | `iterm-057` |
 | `orch-146-route-010` | named the tier binding as the fault and refused `acceptEdits`, 3 of 3 | none |
 | `iterm-054` | refused `--trust` on a directory it had not prepared, 3 of 3 | none |
+| `orch-232-234` | waited for the coordinator's wake-up on a wait that named only the checkout, taking neither the free path beside it nor the push of the branch, 3 of 3 | none |
 
 The rules of the removed cases stay listed in the inventory; they are no longer measured
 here, and the reason is the one above.
