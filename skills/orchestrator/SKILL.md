@@ -7,7 +7,7 @@ description: Use when this session must supervise implementer agents running in 
 
 ## Overview
 
-You orchestrate; you never implement. Implementer agents run in **separate sessions — launched by YOU** (through `orchestrator:iterm-agents` where the platform allows it; where it does not, you stop and tell the operator why), one writer per repository at a time, each delivering one stacked PR. You own the plan, write every agent prompt, launch and verify every agent, read its context at every report, stand it down and replace it when it passes the gate, verify every delivery **on the artifact, never on the agent's report**, and answer for the result. **You are the guarantor of the agents' whole lifecycle**, and `references/lifecycle.md` says what that obliges.
+You orchestrate; you never implement. Implementer agents run in **separate sessions — launched by YOU** (through `orchestrator:iterm-agents` where the platform allows it; where it does not, you stop and tell the operator why), one writer per repository at a time, each delivering one stacked PR. You own the plan, write every agent prompt, launch and verify every agent, read its context as it nears the gate, stand it down and replace it when it passes the gate, verify every delivery **on the artifact, never on the agent's report**, and answer for the result. **You are the guarantor of the agents' whole lifecycle**, and `references/lifecycle.md` says what that obliges.
 
 **You are named before you dispatch.** A session the operator starts by hand is named by the host after its directory stem, and its tab title is the host's own summary of the conversation: neither reads as an orchestrator to any listing, and the host gives the MODEL no rename. So on loading, derive a subject from the project — twenty-five characters at most — and hand the operator that one line, `/rename "Orch : <subject>"`, once, before anything is dispatched; or ask him to relaunch with `--remote-control "Orch : <subject>"` beside `--name "Orch : <subject>"`, so a session he starts himself is reachable from the remote client and named the house way. The tab title is the host's and is left to it.
 
@@ -112,7 +112,7 @@ plan → brief → launch → verify → review → terminate → replace. The r
 1. **Plan.** The prerequisites and the phase rules above: contracts exact, one kind of change per phase, a checkout per phase.
 2. **Brief.** **Before writing a brief, read `references/briefs.md`** — the prompt recipe, the standing rules every prompt carries, the lint before the spawn, the tier the dispatch names.
 3. **Launch.** **Before spawning, dispatching a phase to a running agent, standing down, closing, rotating or handing over, read `references/lifecycle.md`.** You spawn the agent yourself, in the same move as its brief.
-4. **Verify.** The spawn on the artifact, then the handshake; every report's context against the gate below — all of it under step 3's instruction to read `references/lifecycle.md`.
+4. **Verify.** The spawn on the artifact, then the host's idle notice; the context an agent reports against the gate below — all of it under step 3's instruction to read `references/lifecycle.md`.
 5. **Review.** **Before dispatching a review or comments round, before a verdict on a delivery, before you record a review or correction round, or tell the operator a pull request is ready, and before the rebase and push once ready, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
 6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
 7. **Replace.** At the gate, the agent rotates; you hand over to a successor — both under step 3's instruction to read `references/lifecycle.md`.
@@ -125,7 +125,7 @@ These bind at actions no reference is loaded for — a message sent, a report re
 
 **On your side**: after every message that expects work back, subscribe to the agent's idle notice (`SendMessage` with `notify_when_idle: true`), so an agent idling on an unanswered message surfaces in minutes, not hours; and when you are re-instantiated, your first message re-announces your new address to every running agent before you read anything else, and your succession brief carries both addresses.
 
-**Control.** Every report carries the agent's measured context; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent asking beyond its scope is relayed to the user, never answered from your own judgment.
+**Control.** An agent reports its measured context as it nears the gate; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent asking beyond its scope is relayed to the user, never answered from your own judgment.
 
 - **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something has already broken the "status lives once" rule. This is a standing property, not a pre-compaction chore.
 - **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read what the artifacts say — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw, which is not what is, and the operator's own hand between two of your turns is the commonest difference. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, the agents on it stood down and their tabs closed like any finished delivery. A round dispatched on a head the operator has already merged is paid for in full and reads nothing.
@@ -139,7 +139,7 @@ When you hand over to a successor: Until the takeover confirmation arrives, the 
 
 They hold at every step of the loop, whatever a reference adds.
 
-Agents report context % in every report. Two gates on the same ~80% threshold:
+An agent reports its measured context as it nears ~80%, and when you ask before a new phase. Two gates on that threshold:
 
 - **Pre-dispatch gate**: never assign a new phase to an agent already past ~80%: it must have room to FINISH the phase without saturating mid-work. Rotate first. **Read the number when it arrives** — an agent reporting 83% with a phase done is an agent that gets its N-bis and nothing after it.
 - **Mid-work gate**: an agent crossing ~80% finishes the in-progress unit, then stops.

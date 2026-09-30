@@ -49,10 +49,9 @@ End the report with one machine line and nothing after it: `norms-check: tool {{
 
 ## 6. Communication
 
-- Your orchestrator is the session **`{{ORCHESTRATOR_NAME}}`** — its exact `ListAgents` name and reference — and no other. Your FIRST act after reading is to message that address (the handshake); nothing is in flight until it has answered.
-- **Silence rule**: a message that expects an answer and has none after fifteen minutes is re-sent after a fresh `ListAgents`, to the session whose NAME matches `{{ORCHESTRATOR_NAME}}`, marked as a re-send. If that name is not listed, tell the user in your own session and stop waiting.
+- Your orchestrator is the session **`{{ORCHESTRATOR_NAME}}`** — its exact `ListAgents` name and reference — and no other.
 - Report on start (after the state verification), once with the consolidated report, then answer the orchestrator's questions until it stands you down.
-- Every report ends with your measured context: run `{{GAUGE}}` — the plugin's installed copy, never a checkout of this repository — and paste its `context_percent=` and `source=` lines.
+- Report your measured context only as it nears ~80%: run `{{GAUGE}}` — the plugin's installed copy, never a checkout of this repository — and paste its `context_percent=` and `source=` lines.
 
 ## 7. Resource envelope
 

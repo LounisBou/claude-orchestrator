@@ -24,7 +24,7 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # exists; a finding no longer refuses the spawn — it is printed on stderr as a warning
     # and the launch goes on. It builds the startup prompt itself either way, exactly
     # "Read and execute <absolute brief path>. Your orchestrator is
-    # <name [ref]>; handshake first, silence rule 15 min." --brief needs --orchestrator and
+    # <name [ref]>." --brief needs --orchestrator and
     # is exclusive with --prompt/--prompt-file, which stay for a spawn that carries no brief
     # (`--prompt "Read and execute <path>. Your orchestrator is <name [ref]>."` hand-built,
     # unlinted).

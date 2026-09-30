@@ -38,7 +38,7 @@ Reading a delivery costs context, and judgment must stay in one place. So the he
 - **Publishing under the operator's name**: SKILL.md, « Carried at every step ».
 - **Processing review comments on a pull request.** Spawn a COMMENTS agent (brief from `${CLAUDE_PLUGIN_ROOT}/templates/agent-comments-brief.md`) that assesses every open thread with evidence from the codebase and sends you each assessment BEFORE acting, agreement included. You re-verify the evidence. Agent agrees and you agree: fix and resolve (or resolve alone when the fix already landed) without asking the operator. Anything less on either side: you evaluate, and ask the operator only when the call is theirs. The agent commits locally, one commit per fix, and never pushes: you read the local tree, then say « push » (a plain push, never a force). Then stand it down and close its tab. When the operator has named how the round is presented (a skill's methodology, a format), every assessment reaches him in that format, one item at a time, and the orchestrator reads that format before the first item (duty 5 of « The operator's word comes first », in SKILL.md).
 
-The gauge, the handshake, the silence rule and the STOP-and-ask clause apply to these sessions as to any other.
+The named address, the gauge near the gate and the STOP-and-ask clause apply to these sessions as to any other.
 
 ### The cost of a round
 

@@ -146,7 +146,7 @@ evals/orch-025-026/prompt.md
 evals/orch-025-026/graders/rereads-item-and-premise.md
 evals/orch-025-026/graders/rereads-pr-state.md
 evals/orch-050-052-053-068-168-179-220/prompt.md
-evals/orch-050-052-053-068-168-179-220/graders/address-handshake-silence.md
+evals/orch-050-052-053-068-168-179-220/graders/address-named.md
 evals/orch-050-052-053-068-168-179-220/graders/brief-written.md
 evals/orch-050-052-053-068-168-179-220/graders/context-gate.md
 evals/orch-050-052-053-068-168-179-220/graders/exact-address.md
@@ -423,7 +423,7 @@ Temporary files across the plugin are anchored to `TMPDIR`: the platform default
 
 Six briefs with `{{PLACEHOLDER}}` markers, each carrying the sections the orchestrator skill makes mandatory: `agent-phase-brief.md` (one implementer, one phase, one pull request), `agent-rotation-brief.md` (a fresh implementer resuming a phase), `agent-review-brief.md` (one review round, read-only, one lens per reader), `agent-comments-brief.md` (one pass over a pull request's open threads), `agent-audit-brief.md` (one audit of the method, one report, then stop) and `orchestrator-succession-brief.md` (a successor taking the orchestration over). How a brief is built from them is `skills/orchestrator/references/briefs.md`, « Agent prompt recipe ».
 
-A template is read by an agent that does not load the orchestrator skill, so it keeps in full the rules that agent needs — the handshake, the silence rule, the STOP-and-ask clause, synchronous commands, the gauge in every report — and the skill points at the template rather than restating them. No template points at a plugin path, and none carries a host variable or a session reference (section 11): `brief-lint.sh` refuses a brief that does.
+A template is read by an agent that does not load the orchestrator skill, so it keeps in full the rules that agent needs — the orchestrator's address, the STOP-and-ask clause, synchronous commands, the gauge as its context nears the gate — and the skill points at the template rather than restating them. No template points at a plugin path, and none carries a host variable or a session reference (section 11): `brief-lint.sh` refuses a brief that does.
 
 ## 6. Commands
 
@@ -464,8 +464,8 @@ The orchestrator's core loop — plan, brief, launch, verify, review, terminate,
 - **Plan.** A validated spec and a phase plan with exact contracts, one kind of change per phase, one agent and one draft pull request per phase stacked on the previous branch head: `SKILL.md`, « Prerequisites » and « Phase & PR rules ».
 - **Brief.** Written from a template to a path the fresh session can open, carrying its tier and the reading that chose it (`orchestrator:model-routing`, section 10): `references/briefs.md`.
 - **Launch.** `workspace.sh create` makes the phase's checkout (section 30); `iterm-agent.sh spawn --brief` lints the brief, builds the one-line startup prompt and opens the tab beside the orchestrator's, at the tier the brief names, with the servers chosen for the agent, in a checkout the host trusts (sections 12, 21, 31, 42): `references/lifecycle.md`, « The agents' lifecycle is yours », and `skills/iterm-agents/SKILL.md`, « Safety order for a launch ».
-- **Verify.** The launcher waits for the host CLI on the tty and reads the mode the session came up in (section 43); the orchestrator reads the tab, the process and the listing, then waits for the handshake the brief orders.
-- **Control.** Every report carries the agent's measured context and is read against the gate: `SKILL.md`, « Carried at every step » and « Thresholds ».
+- **Verify.** The launcher waits for the host CLI on the tty and reads the mode the session came up in (section 43); the orchestrator reads the tab, the process and the listing, then relies on the host's idle notice.
+- **Control.** An agent reports its measured context as it nears the gate, and the number is read against it: `SKILL.md`, « Carried at every step » and « Thresholds ».
 - **Terminate.** An implementer is stood down at the verification of its delivery (section 45), its tab closed by tty and proved gone on the process table (section 46), its checkout deleted: `references/lifecycle.md`, step 4, and `skills/iterm-agents/SKILL.md`, « Tab hygiene ».
 
 ### 9.2 The review round
@@ -514,7 +514,7 @@ The suite holds the launcher by checks that read what the launch SAYS. A guard t
 
 ## 15. The round the suite cannot play
 
-`run-tests.sh` proves the plumbing and cannot touch the choreography: it forbids terminal automation, so the acts the tooling exists for — placing a tab, verifying a session, killing it — are out of its reach, and that gap is where the defects of the tab tooling were found. `tests/e2e.sh` plays one real round: a brief instantiated from the template and linted, a dispatch recorded, a session spawned at a tier, the tab placed against its anchor, the title guard exercised, the tab closed, the process confirmed gone, the record closed. It asserts the one thing no dry run can, that the tier named at dispatch is the model the live process carries. It is deliberately NOT part of the default suite. It drives the terminal, starts a session that costs tokens, and needs the app running with its API enabled: a suite that cannot run in a checkout with no window server is a suite people stop running. It skips itself off macOS and stops with a reason when the tooling cannot reach the app. It does not talk to the agent: handshakes, verdicts and reviews need judgment and stay the orchestrator's.
+`run-tests.sh` proves the plumbing and cannot touch the choreography: it forbids terminal automation, so the acts the tooling exists for — placing a tab, verifying a session, killing it — are out of its reach, and that gap is where the defects of the tab tooling were found. `tests/e2e.sh` plays one real round: a brief instantiated from the template and linted, a dispatch recorded, a session spawned at a tier, the tab placed against its anchor, the title guard exercised, the tab closed, the process confirmed gone, the record closed. It asserts the one thing no dry run can, that the tier named at dispatch is the model the live process carries. It is deliberately NOT part of the default suite. It drives the terminal, starts a session that costs tokens, and needs the app running with its API enabled: a suite that cannot run in a checkout with no window server is a suite people stop running. It skips itself off macOS and stops with a reason when the tooling cannot reach the app. It does not talk to the agent: verdicts and reviews need judgment and stay the orchestrator's.
 
 ## 18. A directive that outlives its decision is removed
 

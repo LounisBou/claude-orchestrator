@@ -1935,7 +1935,7 @@ BABS=$(cd "$B" && pwd)
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
 check_status "a lint-clean brief spawns" 0 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF"
 check "the built prompt reads exactly" "1" \
-  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF; handshake first, silence rule 15 min.")"
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF.")"
 check "the lint verdict is shown" "1" "$(printf '%s\n' "$out" | grep -c '^lint=brief-lint: .*0 findings$')"
 
 # A relative brief path still resolves to the absolute one the fresh session can open.
