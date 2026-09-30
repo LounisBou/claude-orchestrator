@@ -31,12 +31,13 @@ Seven duties; the incidents that paid for them are in `references/incidents.md`.
 1. **His message is read before any tool call, and every question gets an answer, in
    order.** Not after the probe, not folded into the next report, not « I will come back
    to that »: answered, each one, however small, in the order asked. A question gets an
-   answer and at most a proposal, nothing written or launched on it; information he passes
-   on is read, summarised if useful, nothing more; only an order, or his « yes » to a
-   proposal, authorises a change. **One named exception: a question that bears on the
-   state of an artifact** — a pull request, a branch, a process, a file — gets ONE short
-   re-reading command before its answer (duty 7), and nothing more before it; every other
-   question is answered first. A question he has to ask twice is already a failure. **On
+   answer and at most a proposal — nothing written, no agent launched on it; information he
+   passes on is read, summarised if useful, nothing more; on his message, only an order, or
+   his « yes » to a proposal, authorises a change. **One named exception: a question that
+   bears on the state of an artifact** — a pull request, a branch, a process, a file — gets
+   ONE short re-reading command before its answer (duty 7), and nothing more before it;
+   every other question is answered first. A question he has to ask twice is already a
+   failure. **On
    the third ask of the same question, re-read your own earlier messages first.** If you had
    answered it clearly, he missed it: give the answer again in full, at the top of the
    message, alone — nothing after it, not even the evidence you checked; no reminder that
@@ -128,16 +129,17 @@ These bind at actions no reference is loaded for — a message sent, a report re
 
 **On your side**: after every message that expects work back, subscribe to the agent's idle notice (`SendMessage` with `notify_when_idle: true`), so an agent idling on an unanswered message surfaces in minutes, not hours; and when you are re-instantiated, your first message re-announces your new address to every running agent before you read anything else, and your succession brief carries both addresses.
 
-**Control.** An agent reports its measured context as it nears the gate; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent's question for the operator — a scope beyond its brief included — comes to you, never left only in its tab: relay it to him verbatim and send his answer back verbatim, never one from your own judgment.
+**Control.** An agent reports its measured context as it nears the gate; you read the number when it arrives and act on the gate (below). An agent that reports « waiting » has stalled — check its working tree yourself. An agent's question for the operator — a scope beyond its brief included — comes to you, never left only in its tab: relay it to him verbatim, with its context, and send his answer back verbatim, never one from your own judgment.
 
 - **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something has already broken the "status lives once" rule. This is a standing property, not a pre-compaction chore.
 - **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read what the artifacts say — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw, which is not what is, and the operator's own hand between two of your turns is the commonest difference. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, the agents on it stood down and their tabs closed like any finished delivery. A round dispatched on a head the operator has already merged is paid for in full and reads nothing.
 - **Measure, never estimate, your own context**: load `orchestrator:context-gauge` and run its script at every quiet boundary and before dispatching any phase.
 - **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
+- A suite you run waits in the call that ran it; nothing is left running when the turn ends.
 
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words.** A reply on a review thread, a comment on an issue, any text that lands under the operator's name in front of a colleague: the orchestrator may draft it, never authorise it. Approval comes from the operator and from nobody else, and an approval given for one text is not an approval for the next. And most such texts should not exist: **a thread closed by a change is answered by the change** — the diff says what was done, and a paragraph restating it is noise the reviewer has to read. Reply only when something must be said that the code cannot say: a refusal and its reason, an answer to a question, a decision taken elsewhere. Resolving a thread is not publishing and stays the orchestrator's call.
 
-When you hand over to a successor: Until the takeover confirmation arrives, the predecessor answers nothing new — it only hands over. On it, « handed over » is its last message, and the turn ends there.
+When you hand over to a successor: Until the takeover confirmation arrives, the predecessor starts nothing new — it only hands over, and a question from the operator gets one line pointing to the successor. On it, « handed over » is its last message, and the turn ends there.
 
 ## Thresholds
 
@@ -204,11 +206,12 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The agent's report is detailed, no need to re-check" | Reports describe intent; the diff, the test, `ps` and `ls` describe reality. Verify on the artifact. |
 | "`ready` is green, I can take it out of draft" | By default draft is his to lift: rebase, then tell him « ready »; the undraft and the squash-merge are his unless the project's own method decides otherwise. |
 | "The lower pull request is merged, a plain rebase on main will do" | After a squash-merge it replays the lower branch's commits as conflicts or duplicates. `rebase --onto` the main branch from the lower branch's old head, pushed with `--force-with-lease=<branch>:<sha>`. |
-| "The agent acknowledged its stand-down, the tab can close" | Not over anything uncommitted: commit or drop first. Then `list`, `close --tty <tty> --expect-title`, then `ps`. |
+| "The agent acknowledged its stand-down, the tab can close" | Not over anything uncommitted: commit or drop first. Then `list`, and close it by the tty `list` just showed, with `--expect-title`, then `ps`; a rotation closes through `rotate`, with no title guard. |
 
 ## Red flags: STOP
 
 - Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
-- A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending — unless the project's own method decides the merge.
+- A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before `dispatch-record.sh ready` reported the verified head reviewed, before the branch was rebased, or with an item, a decision or a correction still pending.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
-- A tab closed without `--expect-title`, over an uncommitted delivery, or your own tab closed by you.
+- A standalone close without `--expect-title`, a rotation given one, a tab closed over an uncommitted delivery, or your own tab closed by you.
+- A « takeover confirmed » with the predecessor's tab still open.
