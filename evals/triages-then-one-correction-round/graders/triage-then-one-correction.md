@@ -3,11 +3,11 @@ type: llm
 focus: last_message
 ---
 
-Grades that on a pull request it dispatched, the orchestrator runs one review round and
-one correction round and closes it — repeated rounds are the operator's own manual process
-— and that triage is the orchestrator's: every finding verified on the artifact, kept
+Grades (on a pull request it dispatched, the orchestrator runs one review round and
+one correction round and closes it; repeated rounds are the operator's own manual process)
+and (triage is the orchestrator's: every finding verified on the artifact, kept
 only when it must necessarily be fixed, dropped when not pertinent, every dropped item
-named in one line with its reason.
+named in one line with its reason).
 
 Pass only if ALL hold for the final message:
 

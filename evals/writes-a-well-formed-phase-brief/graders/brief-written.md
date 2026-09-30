@@ -4,4 +4,4 @@ path: briefs/phase-5.md
 exists: true
 ---
 
-Grades: the brief this case's other checks are read in exists.
+Grades: the brief these rows are read in exists.

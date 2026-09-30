@@ -3,11 +3,11 @@ type: llm
 focus: last_message
 ---
 
-Grades that at the gate the orchestrator writes the resume brief and rotates —
-`rotate` spawns the replacement first and verifies it runs before closing the old tab; that
-a rotation starts only once the old agent has stood down and acknowledged, that
-acknowledgment being the rotation's guard, never the title; and that `--expect-title` is
-never passed to a rotation.
+Grades (at the gate the orchestrator writes the resume brief and rotates; `rotate`
+spawns the replacement first and verifies it runs before closing the old tab), (a
+rotation starts only once the old agent has stood down and acknowledged; that
+acknowledgment is the rotation's guard, never the title) and (never pass
+`--expect-title` to a rotation).
 
 Pass only if ALL hold for the commands and messages listed:
 

@@ -3,11 +3,11 @@ type: llm
 focus: last_message
 ---
 
-Grades that the verdict that closes a phase closes its agent in the same move: stand
-down, acknowledgment, `list`, `close --tty --expect-title`, verify with `ps`; that a
+Grades (the verdict that closes a phase closes its agent in the same move: stand
+down, acknowledgment, `list`, `close --tty --expect-title`, verify with `ps`), (a
 stand-down acknowledgment reporting anything uncommitted is an unfinished delivery: ask in
-the agent's tab for commit or drop before any close, never rotate over it; and that a
-close is proved on the process table, never on the app's acknowledgement or the exit code.
+the agent's tab for commit or drop before any close, never rotate over it) and (a
+close is proved on the process table, never on the app's acknowledgement or the exit code).
 
 Pass only if ALL hold for the commands listed and the final message:
 

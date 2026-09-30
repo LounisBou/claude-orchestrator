@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades that a fact not read is not stated: a role comes from an output this session
-produced, or is said to be unknown. Handles and the test count are graded by
+Grades (a fact not read is not stated: a role comes from an output this session
+produced, or is said to be unknown). Handles and the test count are graded by
 `handles-as-printed` and `count-marked-unverified`.
 
 One question: is any role stated beyond what the output printed?

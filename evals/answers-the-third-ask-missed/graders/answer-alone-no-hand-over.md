@@ -3,9 +3,9 @@ type: llm
 focus: last_message
 ---
 
-Grades that on the third ask of the same question the session first re-reads its own
+Grades (on the third ask of the same question the session first re-reads its own
 earlier messages; when it had answered clearly, the operator missed it: the answer is given
-again in full, at the top of the message, alone, and no hand-over is offered.
+again in full, at the top of the message, alone, and no hand-over is offered).
 
 In this staging both earlier replies named the branch plainly: the session had answered,
 and the operator missed it.

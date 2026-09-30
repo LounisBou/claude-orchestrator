@@ -3,8 +3,8 @@ type: llm
 focus: trace
 ---
 
-Grades that the orchestrator never implements: it orchestrates, and any fix it would
-write is dispatched as an N-bis.
+Grades (the orchestrator never implements: it orchestrates, and any fix it would
+write is dispatched as an N-bis).
 
 Pass only if ALL hold, reading the trace and the final message:
 

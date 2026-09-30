@@ -3,11 +3,11 @@ type: llm
 focus: last_message
 ---
 
-Grades that an unbound tier is not an error: the launcher then types no model argument
-and the host applies its default, and that the map is read before the dispatch; with
+Grades (an unbound tier is not an error: the launcher then types no model argument
+and the host applies its default) and (the map is read before the dispatch; with
 the tier the work needs unbound, the orchestrator picks the model it judges fit for the
 work, writes the choice and its reason in the brief, and tells the operator in one line at
-the spawn, so he can correct it or bind the tier.
+the spawn, so he can correct it or bind the tier).
 
 Pass only if ALL hold for the commands and the final message:
 

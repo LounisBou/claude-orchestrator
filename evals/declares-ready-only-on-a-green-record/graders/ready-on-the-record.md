@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades that a green `ready` is not an approved pull request: approval, and taking the
-pull request out of draft, stay the operator's. Ready only on the gate's exit 0
+Grades (a green `ready` is not an approved pull request: approval, and taking the
+pull request out of draft, stay the operator's). Ready only on the gate's exit 0
 at the verified head is graded by the `ready-at-verified-head` and `fixed-before-ready`
 patterns and the `ready-only-on-exit-0` rubric.
 

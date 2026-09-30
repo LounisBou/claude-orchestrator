@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades that a fact not read is not stated: a person is referred to by the handle the
-artifact carries. Roles and the test count are graded by `roles-as-printed` and
+Grades (a fact not read is not stated: a person is referred to by the handle the
+artifact carries). Roles and the test count are graded by `roles-as-printed` and
 `count-marked-unverified`.
 
 One question: are the people named only by the handles the output printed?

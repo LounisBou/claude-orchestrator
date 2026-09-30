@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades that a launcher that cannot make a tab says why and stops; routing round it is
-not a fallback.
+Grades (a launcher that cannot make a tab says why and stops; routing round it is
+not a fallback).
 
 Pass only if ALL hold for the final message to the operator:
 
