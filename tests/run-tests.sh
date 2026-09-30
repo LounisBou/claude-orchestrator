@@ -2264,6 +2264,8 @@ check "a failed declare dispatches nothing, and « no open declaration » on rel
   "$(spells "$CHRULE" '**A `declare` that fails — exit 1 and no')|$(spells "$CHRULE" '`release` answering « no open declaration <id> » means the')"
 check "the channel adds steps and holds none back: tier map, findings, verified head, the launch now" "yes|yes|yes|yes" \
   "$(spells "$CHRULE" 'still reads the tier map (`iterm-agent.sh resolve-tier`)')|$(spells "$CHRULE" 'finding on the artifact, `fixed` and `ready` still read the verified head')|$(spells "$CHRULE" 'declare, « go » and spawn are one move of that launch')|$(spells "$CHRULE" 'says so in one line and carries on as with nothing printed')"
+check "a relay carries nothing of the coordinator's own reading of the pull request" "yes" \
+  "$(spells "$CHCOORD" 're-read of its state serves your logistics rulings, never the relay')"
 check "every session spawned for a phase or a round is declared, the comments round included" "yes" \
   "$(spells "$CHRULE" 'implementer, a review, a correction round, a comments round, each released at its close')"
 check "a next phase sent to a running agent waits for go before its brief" "yes|yes|yes" \
