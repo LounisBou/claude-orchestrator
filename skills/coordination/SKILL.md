@@ -188,7 +188,7 @@ overlaps.
 ready » with its report path and its orders are relayed as they are, unjudged**: the sender's
 text verbatim, under its prefix, in a message of its own. You add no verdict, no summary and
 no recommendation of your own, and nothing of your own reading of the pull request: what you
-re-read of its state serves your logistics rulings, never the relay. An « audit ready » is
+re-read of its state serves your rulings and your queue, never the relay. An « audit ready » is
 put to him with its report path and every order it carries, since method is the auditor's
 and not yours to filter. A relay is not a
 question: it waits for no answer, and his word on it, when he gives one, goes back verbatim and
