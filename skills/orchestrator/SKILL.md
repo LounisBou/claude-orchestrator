@@ -188,7 +188,7 @@ permission laundering; asking the operator is the same thing with a better excus
 
 ## When a decision changes, the directives change in the same move
 
-A plan, a prompt template or a norms file that outlives the decision it served is read as current by the next session. What loses its subject is removed, not kept « just in case »: machinery nobody can justify becomes machinery nobody dares delete. A fact that exists in two places goes stale in one of them — status lives once, and the other copy is a pointer. A repair is justified by what is broken, never by a rule or a ruling it sounds adjacent to: a ruling that forbids making something makes it rarer, not commoner. A problem — a finding kept in review, a defect found in real use, an agent's failure — is repaired at what produced it: before the fix, ask what produced it, where else it can recur, and what the fix removes or changes.
+A plan, a prompt template or a norms file that outlives the decision it served is read as current by the next session. What loses its subject is removed, not kept « just in case »: machinery nobody can justify becomes machinery nobody dares delete. A fact that exists in two places goes stale in one of them — status lives once, and the other copy is a pointer. A repair is justified by what is broken, never by a rule or a ruling it sounds adjacent to: a ruling that forbids making something makes it rarer, not commoner. A problem — a finding kept in review, a defect found in real use, an agent's failure — gets three questions before its fix: what produced it, where else it can recur, and what the fix removes or changes.
 
 ## Boundaries that stay yours
 
@@ -209,7 +209,7 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 ## Red flags: STOP
 
 - Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
-- A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before the verified head was reviewed, before the branch was rebased, or with an item, a decision or a correction still pending.
+- A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before the head in front of you was reviewed or its correction round verified on the artifact, before the branch was rebased, or with an item, a decision or a correction still pending.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
 - A standalone close without `--expect-title`, a rotation given one, a tab closed over an uncommitted delivery, or your own tab closed by you.
 - A « takeover confirmed » with the predecessor's tab still open.
