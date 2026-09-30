@@ -149,9 +149,13 @@ check "the tab landed immediately right of its anchor" "$((pos_self + 1))" "$pos
 # The second agent goes after the FIRST, not between the orchestrator and it. `self` here
 # is the tab running this script; both probes anchor on it and the chain orders them.
 # The dry run carries --trust because the trust gate runs before the dry-run print (§31)
-# and the sandbox is not yet recorded here: without it the launcher refuses, `me` is
-# empty and the chain block is skipped in silence.
-me=$(ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" spawn --dir "$SANDBOX/repo" --title "Agent : e2e self" --trust --right-of self 2>/dev/null | sed -n 's/^self=//p')
+# and the sandbox is not yet recorded here; it carries --prompt because a promptless
+# launch is refused up front, same as any real one. Either refusal, or this shell simply
+# having no tty of its own to resolve `self` against, leaves `me` empty — two different
+# causes the block below must tell apart instead of reporting one for the other.
+me_err=$(mktemp "$SANDBOX/self-probe.XXXXXX")
+me=$(ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" spawn --dir "$SANDBOX/repo" --title "Agent : e2e self" --trust \
+      --prompt "Do nothing." --right-of self 2>"$me_err" | sed -n 's/^self=//p')
 if [ -n "$me" ]; then
   # The caller's own row, marked: the reading an orchestrator goes without when it takes the
   # last tab in the listing for its own, and moves a stranger's session (§38).
@@ -189,8 +193,14 @@ if [ -n "$me" ]; then
   bash "$AGENT" close --tty "$ONE" >/dev/null 2>&1
   check "a closed agent leaves the chain" "0" "$(grep -c "\"tty\": \"$ONE\"\|\"tty\": \"$TWO\"" "$succ_chain")"
 else
-  echo "  skip the chain: this shell has no tty of its own"
+  self_reason=$(head -1 "$me_err")
+  if [ -n "$self_reason" ]; then
+    echo "  skip the chain: the self probe was refused: $self_reason"
+  else
+    echo "  skip the chain: this shell has no tty of its own"
+  fi
 fi
+rm -f "$me_err"
 
 # A running process is not a launched agent. Until this check existed, every round here
 # passed with its session parked on a question nobody was there to answer.
