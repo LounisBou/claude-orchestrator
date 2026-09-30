@@ -1803,7 +1803,7 @@ def cmd_spawn(argv):
 def cmd_screen(argv):
     """What a tab is showing, right now.
 
-    An agent that has not shaken hands is inspected, not waited for — and inspecting it
+    An agent that has gone quiet is inspected, not waited for — and inspecting it
     means reading what it is stopped on. The typed-command era read this through a
     scripting bridge; dropping that bridge dropped the reading with it, and the round that
     followed spent its sessions parked on a question nobody could see."""
