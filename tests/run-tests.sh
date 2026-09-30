@@ -2140,19 +2140,27 @@ check "an unresolvable tier stops the rotation, and nothing runs after it" \
 
 echo "== context gate hook =="
 # A fake config dir with a tap file: at 85 % the hook orders the succession, at 30 % it
-# prints nothing, and with no tap file it says « unmeasured » exactly once. The default gate
-# is 80, not the old 60: a figure of 70 must stay under it and stay silent.
-GH="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")"; mkdir -p "$GH/claude-orchestrator/ctx"
+# prints nothing, and past the first turn with no tap file it says « unmeasured » exactly
+# once. The default gate is 80, not the old 60: a figure of 70 must stay under it and stay
+# silent.
+GH="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")"; mkdir -p "$GH/claude-orchestrator/ctx" "$GH/transcripts"
 now=$(date +%s)
 printf '{"session_id":"g-hi","context_percent":85,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-hi.json"
 printf '{"session_id":"g-lo","context_percent":30,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-lo.json"
 printf '{"session_id":"g-under","context_percent":70,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-under.json"
+# The first prompt's own transcript carries no assistant entry yet; the shape appears
+# only once a turn has answered — this is what tells the hook its first chance came.
+printf '{"type":"user","message":{"role":"user","content":"hi"}}\n' > "$GH/transcripts/no-turn.jsonl"
+printf '{"type":"user","message":{"role":"user","content":"hi"}}\n{"type":"assistant","message":{"role":"assistant","content":"hey"}}\n' > "$GH/transcripts/past-turn.jsonl"
 gate() { printf '{"session_id":"%s"}' "$1" | CLAUDE_CONFIG_DIR="$GH" bash "$ROOT/hooks/context-gate.sh"; }
+gate_t() { printf '{"session_id":"%s","transcript_path":"%s"}' "$1" "$2" | CLAUDE_CONFIG_DIR="$GH" bash "$ROOT/hooks/context-gate.sh"; }
 check "past the gate the hook orders the succession" "1" "$(gate g-hi | grep -c 'SUCCEEDS at the next quiet boundary')"
 check "under the gate the hook is silent" "" "$(gate g-lo)"
 check "the default gate is 80, not 60: 70 stays under it" "" "$(gate g-under)"
-check "unmeasured says so once" "1" "$(gate g-none | grep -c 'unmeasured'; )"
-check "unmeasured stays silent the second time" "" "$(gate g-none)"
+check "unmeasured with no transcript at all prints nothing yet" "" "$(gate g-none)"
+check "unmeasured with a transcript but no turn answered yet prints nothing" "" "$(gate_t g-none2 "$GH/transcripts/no-turn.jsonl")"
+check "unmeasured past the first turn says so once" "1" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl" | grep -c 'unmeasured')"
+check "unmeasured stays silent the second time" "" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl")"
 
 # The model that answers can be switched under a session by the host's own fallback, and
 # nothing showed it (§32). The gate keeps the last model it read and says a change once —
