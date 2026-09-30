@@ -3123,6 +3123,50 @@ check "a close that raises is said, not thrown, and returns False; one that work
   "False|1|True|False|1" \
   "$(closemade_raise | tail -1)|$(closemade_raise | grep -c -- 'spawn: the refused session could not be closed: kaboom')|$(closemade_ok)|$(closemade_raise_empty | tail -1)|$(closemade_raise_empty | grep -c -- 'spawn: the refused session could not be closed: unknown error')"
 
+# A named exception to "a gate that cannot measure lets the run through and says so" (§29):
+# a session whose mode is unread may be parked on a dialog or hung at start, which the
+# plugin already calls "not launched" — so the timeout no longer prints and lets the launch
+# through, it refuses and closes the tab the spawn made, exactly like a mismatch. The
+# polling loop itself (`find_transcript`/`mode_of_transcript`) is already covered above;
+# what is new is the verdict once the loop ends, so it is tested through `verify_mode` with
+# both stubbed and an injected no-op sleep — fixture driven, never a real tab.
+unread_msg() { "$py" -c "
+import sys; sys.path.insert(0,'$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as m
+print(m.unread_refusal(sys.argv[1], sys.argv[2]))" "$1" "$2"; }
+check "the unread refusal names the checkout, the timeout, and the remedy" "1|1|1|1" \
+  "$(unread_msg /work/dir 20 | grep -c '^spawn: refused: no transcript for /work/dir')|$(unread_msg /work/dir 20 | grep -c 'parked on a dialog or hung at start')|$(unread_msg /work/dir 20 | grep -c 'the tab was closed')|$(unread_msg /work/dir 20 | grep -c 'ORCHESTRATOR_MODE_TIMEOUT')"
+
+# `verify_mode` is the assembled decision the old inline block made: `path` of 'none' fakes
+# a transcript that never appears (or one that never carries a mode, the same branch, per
+# the closing round's ruling on an empty permissionMode); `timeout=1` with a no-op `sleep`
+# makes one polling pass instant instead of a real wait.
+verify_mode_run() { "$py" -c "
+import sys; sys.path.insert(0,'$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as m
+closed = []
+m.close_made = lambda made: closed.append(made) or True
+m.find_transcript = lambda d, since: (None if sys.argv[1] == 'none' else sys.argv[1])
+m.mode_of_transcript = lambda p: sys.argv[2]
+try:
+    line = m.verify_mode('/checkout', 0, sys.argv[3], 'a-model', {'session_id': 'x'},
+                          timeout=1, sleep=lambda s: None)
+    print('ok=' + line)
+except SystemExit as e:
+    print('exit=%s' % e.code)
+print('closed=%s' % bool(closed))" "$1" "$2" "$3"; }
+out_unread=$(verify_mode_run none '' auto 2>/dev/null)
+msg_unread=$(verify_mode_run none '' auto 2>&1 1>/dev/null)
+check "an unread mode is refused, the made tab closed, the remedy said" "exit=1|True|1" \
+  "$(printf '%s' "$out_unread" | sed -n '1p')|$(printf '%s' "$out_unread" | sed -n '2p' | sed 's/closed=//')|$(printf '%s' "$msg_unread" | grep -c 'parked on a dialog or hung at start')"
+out_mismatch=$(verify_mode_run /checkout/t.jsonl default auto 2>/dev/null)
+check "a mismatch is still refused, the made tab still closed" "exit=1|True" \
+  "$(printf '%s' "$out_mismatch" | sed -n '1p')|$(printf '%s' "$out_mismatch" | sed -n '2p' | sed 's/closed=//')"
+out_match=$(verify_mode_run /checkout/t.jsonl auto auto 2>/dev/null)
+check "a readable matching mode still passes, and closes nothing" \
+  "ok=spawn: mode auto read on the transcript|False" \
+  "$(printf '%s' "$out_match" | sed -n '1p')|$(printf '%s' "$out_match" | sed -n '2p' | sed 's/closed=//')"
+
 # `screen --lines N` returned the FIRST N lines of the tab, which on a tall terminal are
 # blank: the blocked agent's prompt sat at the bottom and three reads out of four came back
 # empty while the tooling reported success. Trailing blanks go, interior ones stay — a

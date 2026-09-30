@@ -186,6 +186,44 @@ def mode_refusal(asked, got, model):
             % (got, asked, model or "the host default"))
 
 
+def unread_refusal(dir_, timeout):
+    """What was checked, for how long, why it may have happened, and what to look at next.
+    A named exception to "a gate that cannot measure lets the run through and says so"
+    (§29): a session whose mode is unread may be parked on a dialog or hung at start, which
+    the plugin already calls "not launched" (§43) — so the tab this spawn made is closed
+    rather than left for the operator to find blank."""
+    return ("spawn: refused: no transcript for %s carrying a mode after %ss: the session may "
+            "be parked on a dialog or hung at start; the tab was closed. Read it next time "
+            "with `screen` before retrying, or raise ORCHESTRATOR_MODE_TIMEOUT if the "
+            "machine is only slow" % (dir_, timeout))
+
+
+def verify_mode(dir_, launch_epoch, asked_mode, model, made, timeout=None, sleep=time.sleep):
+    """Poll for the session's own transcript and the first mode it carries, up to `timeout`
+    seconds (MODE_TIMEOUT by default); the line to print once it is read and matches.
+
+    A mode that never gets read is now refused exactly like a mismatch: the tab this spawn
+    made is closed and the process dies on the same exit status, because a session nobody
+    can read is a session waiting for a click, which is not launched either (§43)."""
+    timeout = MODE_TIMEOUT if timeout is None else timeout
+    waited, mode = 0, ""
+    while waited < timeout:
+        path = find_transcript(dir_, launch_epoch)
+        if path:
+            mode = mode_of_transcript(path)
+            if mode:
+                break
+        sleep(1)
+        waited += 1
+    if not mode:
+        close_made(made)
+        die(unread_refusal(dir_, timeout))
+    elif mode != asked_mode:
+        close_made(made)
+        die(mode_refusal(asked_mode, mode, model))
+    return "spawn: mode %s read on the transcript" % mode
+
+
 def last_lines(lines, n):
     """The last `n` lines of a reading, its trailing blanks dropped.
 
@@ -1650,24 +1688,7 @@ def cmd_spawn(argv):
         # that runs and waits for a click is not. The mode asked for is carried on the
         # process line and honoured for some models and not others, so the mode the session
         # actually came up in is read on its own transcript (§43).
-        waited, mode = 0, ""
-        while waited < MODE_TIMEOUT:
-            path = find_transcript(args.dir, launch_epoch)
-            if path:
-                mode = mode_of_transcript(path)
-                if mode:
-                    break
-            time.sleep(1)
-            waited += 1
-        if not mode:
-            # A gate that cannot measure holds nothing, and says so (§29).
-            print("spawn: no transcript for %s after %ss: the session's mode is unread"
-                  % (args.dir, MODE_TIMEOUT), file=sys.stderr)
-        elif mode != args.mode:
-            close_made(made)
-            die(mode_refusal(args.mode, mode, model))
-        else:
-            print("spawn: mode %s read on the transcript" % mode, file=sys.stderr)
+        print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
     print(new_tty)
 
 
