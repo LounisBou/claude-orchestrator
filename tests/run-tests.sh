@@ -62,6 +62,53 @@ spells() { grep -qF -- "$2" "$1" && echo yes || echo no; }
 carries() { grep -qiF "$2" "$1" && echo yes || echo no; }
 
 echo "== repository policy =="
+
+# The product name appears only in load-bearing identifiers: host paths, host
+# environment variables, the plugin name and the manifest directory (CLAUDE.md rule 2).
+# Presence checks pin wording and were dropped; an absence sweep pins none, so it stays.
+#
+# The grep runs from INSIDE the repository, on a relative path. With an absolute one,
+# every result line carries the repository's own path and the exemption for the plugin's
+# name deletes the whole line whatever it said, so this check would report a clean
+# repository without ever reading a single file.
+policy_hits() {
+  ( cd "$ROOT" && grep -rniI 'claude' . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=plans \
+      --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh \
+    | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI|claude-orchestrator|\.claude-plugin|/\.claude/|\.claude\.json|LounisBou/claude-statusbar' || true )
+}
+check "no vendor or product name in prose" "" "$(policy_hits)"
+
+# The guard proves it can still SEE one: a file planted with a violation must show up in
+# the very same function, or "no hits" proves nothing.
+PROBE="$ROOT/.policy-probe-$$.md"
+trap 'rm -rf "$WORK"; rm -f "$PROBE"' EXIT
+printf 'PRODUCT NAME IN PROSE\n' | sed 's/PRODUCT NAME/Claude/' > "$PROBE"
+seen=$(policy_hits | grep -c 'policy-probe' || true)
+rm -f "$PROBE"
+check "the policy guard can see a violation" "1" "$seen"
+
+# The tiers exist so no model family name has to appear here.
+hits=$(grep -rniIE '\b(opus|sonnet|haiku)\b' "$ROOT" --exclude-dir=.git --exclude-dir=.claude --exclude-dir=plans \
+  --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh || true)
+check "no model family name in the plugin" "" "$hits"
+
+# Nothing tied to one machine or one project enters the generic plugin: no absolute home
+# path, no real session reference (the documented example is the six-hex placeholder
+# a1b2c3), no path into a downstream project's tree.
+hits=$(grep -rnIE '/Users/|/home/[a-z]|\[[0-9a-f]{6}\]|docs/reference/|BUGS\.md|IMPLEMENTATION\.md' "$ROOT" --exclude-dir=.git --exclude=.git --exclude-dir=.claude --exclude=plan.md --exclude=run-tests.sh \
+  | grep -vE '\[a1b2c3\]' || true)
+check "nothing project- or machine-specific in the plugin" "" "$hits"
+
+# The namespace is the plugin's name, `orchestrator`: commands and skills are reached as
+# /orchestrator:* and orchestrator:*. The former prefix must not come back in prose.
+hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run-tests.sh || true)
+check "the old command namespace is gone" "" "$hits"
+
+# The operator manages the usage budget; the plugin does not read it, report it or route on
+# it (phase 3 ruling 4, reasserted 2026-09-30). No replacement sentence either.
+hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day' -- skills/ commands/ templates/ hooks/ README.md docs/design.md || true)
+check "no budget reference in the plugin" "" "$hits"
+
 # A rotation closes the old tab by its tty, the stood-down acknowledgment being the guard:
 # a title read before the ten-second spawn is stale after it, and the tab skill forbids
 # --expect-title on a rotation. The orchestrator's text once said « tty + title guard ».
@@ -2102,6 +2149,47 @@ printf '{"type":"assistant","message":{"model":"b-model","usage":{"input_tokens"
 check "a changed model is said once, naming both" "1" "$(gate g-drift | grep -c 'MODEL DRIFT: this session now answers as b-model; it answered as a-model until now')"
 check "and not again while it holds" "" "$(gate g-drift)"
 rm -rf "$GH"
+
+echo "== context threshold sweep =="
+# The operator's ruling: every context limit is 80 %, the previous figure nowhere left as a
+# context threshold, none at all. Same pattern as the repository-policy sweeps above, its
+# \b rewritten as a portable non-digit lookaround: this git's -E engine does not honor \b
+# (confirmed: it drops every \b-anchored match silently instead of erroring). This file is
+# excluded from the swept tree: it necessarily carries the retired figure in the pattern
+# below and in its own fixture. The three keywords (gate, threshold, context) are matched in
+# both orders around the figure, and a bash default-value assignment on a GATE-named variable
+# is matched in its three common spellings (:-, :=, =), case-insensitively, since a stray env
+# default is as live a threshold as prose is.
+OLD_FIGURE=60
+THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|(gate|threshold|context).{0,20}${OLD_FIGURE}|${OLD_FIGURE}.{0,20}(gate|threshold|context)|GATE ?(:-|:=|=) ?${OLD_FIGURE}"
+check "no context threshold other than 80 % remains in the tracked tree" "" \
+  "$(cd "$ROOT" && git grep -n -E -i "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
+
+# Proof the sweep still catches a stale figure, planted only into a scratch copy — one file
+# per spelling it must catch.
+SWEEP="$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-sweep-XXXXXX")"
+printf 'Mark sessions past %s%%\n' "$OLD_FIGURE" > "$SWEEP/note.md"
+printf 'the threshold sits above %s still\n' "$OLD_FIGURE" > "$SWEEP/threshold-first.md"
+printf 'the context reads %s during setup\n' "$OLD_FIGURE" > "$SWEEP/context-first.md"
+printf 'GATE:-%s\n' "$OLD_FIGURE" > "$SWEEP/gate-default.sh"
+printf 'export GATE:=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-walrus.sh"
+printf 'export GATE=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-eq.sh"
+printf 'export gate=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-lower.sh"
+check "the sweep catches a figure planted in a scratch copy" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"
+check "the sweep catches the threshold-before-figure order" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'threshold sits above')"
+check "the sweep catches the context-before-figure order" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'context reads')"
+check "the sweep catches a GATE:- default" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'GATE:-60')"
+check "the sweep catches a GATE:= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'GATE:=60')"
+check "the sweep catches a GATE= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export GATE=60')"
+check "the sweep catches a lowercase gate= assignment" "1" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export gate=60')"
+rm -rf "$SWEEP"
 
 echo "== push guard hook =="
 # Active only in a session the launcher spawned (ORCHESTRATOR_SPAWNED, set by build_command
