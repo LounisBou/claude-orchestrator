@@ -1957,15 +1957,19 @@ check_status "--brief without --orchestrator is refused" 1 \
 check_status "a brief that does not exist refuses the spawn" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/absent.md" --orchestrator "$ORCHREF"
 
-# A brief with a lint finding refuses the spawn and prints the finding — before any tab
-# exists, and before a prompt file is written for a spawn that will never happen.
+# A brief with a lint finding no longer refuses the spawn: the finding prints as a
+# warning on stderr and the launch goes on, prompt built and all.
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1); code=$?
-check "a brief with a lint finding refuses the spawn" "1" "$code"
-check "the finding is printed" "1" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
+check "a brief with a lint finding still spawns" "0" "$code"
+# Twice in the combined stream: once in the stderr warning, once in the dry run's own
+# "lint=" introspection field, which a refusal used to make unreachable.
+check "the finding is printed" "2" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
+check "the finding is a warning on stderr, and the launch still built a prompt" "1|1" \
+  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1 1>/dev/null | grep -c 'unfilled placeholder')|$(printf '%s\n' "$out" | grep -c '^prompt=Read and execute')"
 
 D9STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
 ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" >/dev/null 2>&1
-check "the lint refusal leaves no prompt file" "0" \
+check "a dry run still writes no prompt file, warning or not" "0" \
   "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
 rm -rf "$D9STATE"
 
