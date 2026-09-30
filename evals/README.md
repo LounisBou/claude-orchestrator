@@ -94,7 +94,9 @@ keys added.
 
 `baseline-0.34.0.json` is the first baseline, with the no-plugin arm beside the plugin arm.
 It is not the raw `--json` output, which carries model identifiers, machine paths and whole
-session traces. It is reduced from the raw files of every part of the baseline run by:
+session traces. Its `cases` keys were renamed after the 2026-09-30 reduction to the word
+name of the case they read, the `legacy-*` keys included; every reading is unchanged. It is
+reduced from the raw files of every part of the baseline run by:
 
 ```bash
 python3 -c 'import json,sys; runs=[json.load(open(f)) for f in sys.argv[1:]]; print(json.dumps({"ablation": runs[0]["suite"]["ablation"], "agent": "deep tier", "judge": "deep tier", "costUsd": round(sum(r["costUsd"] for r in runs), 2), "cases": {c["name"]: {arm: [{"score": x["score"], "passed": x["passed"], "costUsd": round(x["costUsd"], 3), "durationSeconds": x["durationSeconds"], "error": x["error"], "graders": {g["name"]: g["passed"] for g in x["graders"]}} for x in xs] for arm, xs in c["arms"].items()} for r in runs for c in r["cases"]}}, indent=1, sort_keys=True))' <out>/*/run.json > evals/baseline-0.34.0.json
