@@ -3359,6 +3359,331 @@ check_status "spawn without --dir fails" 1 bash "$ITERM" spawn --title x
 check_status "unknown subcommand fails" 1 bash "$ITERM" bogus
 check "close error names the option" "ERROR: close: --tty is required" "$(bash "$ITERM" close 2>&1)"
 
+echo "== coordinator =="
+
+# The coordinator's record, its claims ledger and the overlap check are what nothing
+# downstream re-checks: an orchestrator that reads a dead coordinator as alive speaks into
+# the void, and one that reads a live one as dead talks over it. Every liveness answer here
+# comes from the stub standing in for `iterm-agent.sh verify`, which reads a file of live
+# ttys, so no real tab or session is ever needed; the state directory is a temporary one.
+COORD="$ROOT/skills/coordinator/scripts/coordinator.sh"
+CS="$WORK/coord-state"
+CLIVE="$WORK/coord-live"
+CWS="$WORK/coord-ws"
+mkdir -p "$CS" "$CWS"
+: > "$CLIVE"
+cat > "$WORK/coord-verify" <<'EOF'
+#!/bin/bash
+[ "$1" = --tty ] && grep -qxF "$2" "$COORD_LIVE"
+EOF
+chmod +x "$WORK/coord-verify"
+coord() {
+  ORCHESTRATOR_STATE_DIR="$CS" COORDINATOR_VERIFY="$WORK/coord-verify" COORD_LIVE="$CLIVE" \
+    ORCHESTRATOR_WORKSPACES="$CWS" bash "$COORD" "$@"
+}
+coord_status() { coord "$@" >/dev/null 2>&1; echo "exit $?"; }
+live() { printf '%s\n' "$@" > "$CLIVE"; }
+CREC="$CS/coordinator.json"
+CLAIMS="$CS/claims.jsonl"
+
+out=$(coord register --name "Coord : one [aaa111]" --tty /dev/ttys101 2>"$WORK/coord.err")
+check "register prints what it recorded" "registered Coord : one [aaa111]" "$out"
+check "register writes the name and the tty" "Coord : one [aaa111]|/dev/ttys101" \
+  "$(jq -r '[.name,.tty]|join("|")' "$CREC" 2>/dev/null)"
+check "register stamps the start in UTC" "1" \
+  "$(jq -r '.started' "$CREC" 2>/dev/null | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')"
+check "register leaves no lock behind" "0" "$([ -e "$CS/coordinator.lock" ] && echo 1 || echo 0)"
+
+live /dev/ttys101
+check "a second register is refused while the recorded one runs" "exit 1" \
+  "$(coord_status register --name "Coord : two [bbb222]" --tty /dev/ttys102)"
+check "the refusal names the live coordinator" \
+  "coordinator: refused: a live coordinator is recorded: Coord : one [aaa111] on /dev/ttys101" \
+  "$(coord register --name "Coord : two [bbb222]" --tty /dev/ttys102 2>&1 >/dev/null)"
+check "a refused register leaves the live record alone" "Coord : one [aaa111]" "$(jq -r .name "$CREC")"
+
+live
+out=$(coord register --name "Coord : two [bbb222]" --tty /dev/ttys102 2>"$WORK/coord.err")
+check "a record whose tty no longer runs the host is replaced" "registered Coord : two [bbb222]|/dev/ttys102" \
+  "$out|$(jq -r .tty "$CREC")"
+check "and the replacement is said" "coordinator: replaced a stale record: Coord : one [aaa111]" \
+  "$(cat "$WORK/coord.err")"
+
+# The record is written before it is announced: one that cannot be written is no
+# registration, and one that cannot be read is replaced like a stale one.
+cp "$CREC" "$WORK/coord-rec"
+echo 'not json' > "$CREC"
+out=$(coord register --name "Coord : r [r00001]" --tty /dev/ttys110 2>"$WORK/coord.err")
+check "a corrupt record is replaced as an unreadable one" \
+  "registered Coord : r [r00001]|coordinator: replaced a stale record: an unreadable record|Coord : r [r00001]" \
+  "$out|$(cat "$WORK/coord.err")|$(jq -r .name "$CREC")"
+rm -f "$CREC" && mkdir "$CREC"
+out=$(coord register --name "Coord : r [r00001]" --tty /dev/ttys110 2>"$WORK/coord.err"); code=$?
+check "a record that cannot be written is no registration" "|exit 1" "$out|exit $code"
+check "and the failure is said" "coordinator: cannot write $CREC: it is a directory" "$(cat "$WORK/coord.err")"
+rmdir "$CREC" && cp "$WORK/coord-rec" "$CREC"
+
+# The lock: its holder records its pid and its operation inside it; the next caller waits
+# five seconds, then refuses, naming the lock, its holder and whether it still runs, and
+# never removes a lock it does not hold.
+CLOCK="$CS/coordinator.lock"
+mkdir "$CLOCK" && echo "$$ registration" > "$CLOCK/holder"
+t0=$(date +%s)
+out=$(coord register --name "Coord : three [ccc333]" --tty /dev/ttys103 2>&1 >/dev/null)
+t1=$(date +%s)
+check "a register that cannot take the lock is refused, naming the lock and its holder" \
+  "coordinator: refused: a registration holds the lock: $CLOCK held by pid $$ (running): remove $CLOCK" "$out"
+check "the refusal comes after five seconds, not one and not ten" "1" \
+  "$([ $((t1 - t0)) -ge 4 ] && [ $((t1 - t0)) -le 8 ] && echo 1 || echo 0)"
+check "the refused register leaves the other's lock in place" "1|$$ registration" \
+  "$([ -d "$CLOCK" ] && echo 1 || echo 0)|$(cat "$CLOCK/holder")"
+sh -c 'exit 0' & deadpid=$!; wait "$deadpid"
+echo "$deadpid" > "$CLOCK/holder"
+check "declare waits for the same lock, and a holder whose operation is unknown is not guessed" \
+  "coordinator: refused: the coordinator's lock is held: $CLOCK held by pid $deadpid (dead): remove $CLOCK|exit 1" \
+  "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r 2>&1)|$(coord_status declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r)"
+rm -f "$CLOCK/holder"
+check "a lock with no holder recorded is refused all the same" \
+  "coordinator: refused: the coordinator's lock is held: $CLOCK names no holder: remove $CLOCK" \
+  "$(coord release c1 2>&1)"
+rmdir "$CLOCK"
+
+# A state directory that cannot be written is refused at once, not after five seconds.
+CRO="$WORK/coord-ro"
+mkdir -p "$CRO" && chmod 555 "$CRO"
+t0=$(date +%s)
+out=$(ORCHESTRATOR_STATE_DIR="$CRO" COORDINATOR_VERIFY="$WORK/coord-verify" COORD_LIVE="$CLIVE" \
+  bash "$COORD" declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r 2>&1); code=$?
+t1=$(date +%s)
+check "an unwritable state directory is refused at once" \
+  "coordinator: cannot write into the state directory $CRO|exit 1|1" \
+  "$out|exit $code|$([ $((t1 - t0)) -le 2 ] && echo 1 || echo 0)"
+chmod 755 "$CRO"
+
+# Two registrations at the same instant: exactly one records itself, the other is refused.
+coord clear
+live /dev/ttys104 /dev/ttys105
+coord register --name "Coord : four [ddd444]" --tty /dev/ttys104 > "$WORK/coord-r1" 2>&1 &
+coord register --name "Coord : five [eee555]" --tty /dev/ttys105 > "$WORK/coord-r2" 2>&1 &
+wait
+check "two concurrent registers: one recorded, one refused" "1|1" \
+  "$(cat "$WORK/coord-r1" "$WORK/coord-r2" | grep -c '^registered ')|$(cat "$WORK/coord-r1" "$WORK/coord-r2" | grep -c 'refused')"
+
+check "clear removes the record" "exit 0|0" "$(coord_status clear)|$([ -e "$CREC" ] && echo 1 || echo 0)"
+check "clear with no record is not an error" "exit 0" "$(coord_status clear)"
+
+# lookup: the address only while its session lives; the file alone is never the answer.
+check "lookup with no record prints nothing and says nothing" "|exit 0" \
+  "$(coord lookup 2>&1)|$(coord_status lookup)"
+live /dev/ttys106
+coord register --name "Coord : six [fff666]" --tty /dev/ttys106 >/dev/null 2>&1
+check "lookup prints the live coordinator's name" "Coord : six [fff666]" "$(coord lookup 2>/dev/null)"
+live
+check "lookup of a dead coordinator prints nothing" "|exit 0" "$(coord lookup 2>/dev/null)|$(coord_status lookup)"
+check "and names the stale record on the error stream" "coordinator: stale record: Coord : six [fff666] on /dev/ttys106" \
+  "$(coord lookup 2>&1 >/dev/null)"
+coord clear
+
+# declare: one line per declaration, ids from the highest in the file.
+id1=$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r/one --branch feat/x \
+  --pr 12 --checkout /w/one/x/ --heavy suite)
+id2=$(coord declare --orchestrator "Orch : b [b00002]" --tty /dev/ttys202 --repo /r/one)
+check "declare prints monotonic ids" "c1|c2" "$id1|$id2"
+check "a declaration is one line with every field" \
+  '["branch","checkout","heavy","id","opened","orchestrator","pr","released","repo","tty"]' \
+  "$(sed -n 1p "$CLAIMS" | jq -c 'keys')"
+check "the fields say what was declared" "c1|Orch : a [a00001]|/dev/ttys201|/r/one|feat/x|12|/w/one/x|suite|null" \
+  "$(sed -n 1p "$CLAIMS" | jq -r '[.id,.orchestrator,.tty,.repo,.branch,(.pr|tostring),.checkout,.heavy,(.released|tostring)]|join("|")')"
+check "an option not given is null" "null|null|null|null" \
+  "$(sed -n 2p "$CLAIMS" | jq -r '[.branch,.pr,.checkout,.heavy]|map(tostring)|join("|")')"
+check "opened is stamped in UTC" "1" \
+  "$(sed -n 1p "$CLAIMS" | jq -r .opened | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')"
+jq -c '.id="c9"' <<< "$(sed -n 2p "$CLAIMS")" >> "$CLAIMS"
+check "the next id follows the highest in the file" "c10" \
+  "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r/one)"
+check "declare without --repo is refused" "exit 1" \
+  "$(coord_status declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201)"
+check "declare with a relative repository is refused" "exit 1" \
+  "$(coord_status declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo r/one)"
+check "declare with a pull request that is not a number is refused" "coordinator: declare: --pr must be a number: x" \
+  "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r/one --pr x 2>&1)"
+check "declare leaves no lock behind" "0" "$([ -e "$CLOCK" ] && echo 1 || echo 0)"
+# The overlap check reads the ledger's fields tab-separated and one declaration per line.
+check "declare refuses a tab in a value" "coordinator: declare: --orchestrator must not hold a tab or a newline|exit 1" \
+  "$(coord declare --orchestrator "$(printf 'Orch\t: a [a00001]')" --tty /dev/ttys201 --repo /r/one 2>&1)|$(coord_status declare --orchestrator "$(printf 'Orch\t: a [a00001]')" --tty /dev/ttys201 --repo /r/one)"
+check "declare refuses a newline in a value" "coordinator: declare: --branch must not hold a tab or a newline" \
+  "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r/one --branch "$(printf 'feat\nx')" 2>&1)"
+check "declare refuses a newline in a path" "coordinator: declare: --repo must not hold a tab or a newline" \
+  "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo "$(printf '/r/one\nx')" 2>&1)"
+
+rm -f "$CLAIMS"
+for n in 1 2 3 4 5 6 7 8; do
+  coord declare --orchestrator "Orch : p$n [p0000$n]" --tty /dev/ttys30$n --repo /r/par > "$WORK/coord-d$n" 2>&1 &
+done
+wait
+check "eight concurrent declarations get eight distinct ids" "c1 c2 c3 c4 c5 c6 c7 c8|8" \
+  "$(cat "$WORK"/coord-d? | sort -V | tr '\n' ' ' | sed 's/ $//')|$(jq -s 'length' "$CLAIMS")"
+
+# release: closes an open declaration, and only one.
+check "release closes an open declaration" "exit 0|1" \
+  "$(coord_status release c3)|$(jq -r 'select(.id=="c3")|.released' "$CLAIMS" | grep -cE '^[0-9]{4}-.*Z$')"
+check "release leaves the others open" "7" "$(jq -s '[.[]|select(.released==null)]|length' "$CLAIMS")"
+check "releasing it twice is refused" "coordinator: no open declaration c3" "$(coord release c3 2>&1)"
+check "releasing an unknown id is refused" "exit 1" "$(coord_status release c99)"
+check "the next id still follows the highest" "c9" "$(coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys201 --repo /r/par)"
+coord release c4
+check "release leaves no lock behind" "0" "$([ -e "$CLOCK" ] && echo 1 || echo 0)"
+
+# A ledger with a line that does not read: release refuses and leaves every line as it
+# was, rather than rewriting the ledger from what was read before the bad line.
+echo '{"id":"c10", broken' >> "$CLAIMS"
+printf '%s\n' "$(sed -n 1p "$CLAIMS" | jq -c '.id="c11"')" >> "$CLAIMS"
+cp "$CLAIMS" "$WORK/coord-ledger"
+check "release over a corrupt ledger is refused" "coordinator: release: cannot read $CLAIMS|exit 1" \
+  "$(coord release c5 2>&1)|$(coord_status release c5)"
+check "and leaves the ledger untouched" "" "$(diff "$WORK/coord-ledger" "$CLAIMS")"
+
+# conflicts: A and B live, D dead; each case on a fresh ledger.
+live /dev/ttys401 /dev/ttys402
+dA() { coord declare --orchestrator "Orch : a [a00001]" --tty /dev/ttys401 "$@"; }
+dB() { coord declare --orchestrator "Orch : b [b00002]" --tty /dev/ttys402 "$@"; }
+dD() { coord declare --orchestrator "Orch : d [d00004]" --tty /dev/ttys404 "$@"; }
+overlaps() { coord conflicts "$1" 2>/dev/null | grep -E '^(overlap|busy|stale) '; }
+
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x); b=$(dB --repo /r/one --branch feat/x)
+check "same repository and branch is an overlap" "overlap branch $b $a Orch : a [a00001]|exit 1" \
+  "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x); b=$(dB --repo /r/two --branch feat/x)
+check "the same branch name in another repository is not" "|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --checkout /w/one/p1); b=$(dB --repo /r/two --checkout /w/one/p1/)
+check "the same checkout is an overlap" "overlap checkout $b $a Orch : a [a00001]|exit 1" \
+  "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --pr 7); b=$(dB --repo /r/one --pr 7)
+check "the same pull request is an overlap" "overlap pr $b $a Orch : a [a00001]|exit 1" \
+  "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --pr 7); b=$(dB --repo /r/two --pr 7)
+check "the same number in another repository is not" "" "$(overlaps "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --heavy suite); b=$(dB --repo /r/two --heavy evals)
+check "two heavy runs are an overlap" "overlap heavy $b $a Orch : a [a00001]|exit 1" \
+  "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x --pr 7 --checkout /w/a --heavy suite)
+b=$(dB --repo /r/two --branch feat/y --pr 8 --checkout /w/b)
+check "nothing shared, no overlap" "|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x); coord release "$a"; b=$(dB --repo /r/one --branch feat/x)
+check "a released declaration is no overlap" "|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; d=$(dD --repo /r/one --branch feat/x); b=$(dB --repo /r/one --branch feat/x)
+check "an open declaration of a dead orchestrator is named stale, not an overlap" \
+  "stale $d Orch : d [d00004]|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+check "conflicts on an unknown id is neither go nor wait" "exit 2" "$(coord_status conflicts c99)"
+coord release "$d"
+check "conflicts on a released declaration is neither go nor wait" "exit 2" "$(coord_status conflicts "$d")"
+check "conflicts leaves no lock behind" "0" "$([ -e "$CLOCK" ] && echo 1 || echo 0)"
+
+# Every open declaration of a dead orchestrator is named, not only one that would overlap.
+rm -f "$CLAIMS"; d=$(dD --repo /r/dead --branch feat/d --pr 99 --checkout /w/dead)
+b=$(dB --repo /r/one --branch feat/x --pr 7 --checkout /w/one)
+check "a dead orchestrator's unrelated declaration is named stale too" \
+  "stale $d Orch : d [d00004]|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+
+# Names are printed as they were declared, never escaped.
+rm -f "$CLAIMS"; a=$(coord declare --orchestrator 'Orch : a\b [a00001]' --tty /dev/ttys401 --repo /r/one --pr 7)
+b=$(dB --repo /r/one --pr 7)
+check "an orchestrator's name is printed as declared" "overlap pr $b $a Orch : a\\b [a00001]" "$(overlaps "$b")"
+
+# Paths: a checkout and its resolved form are one checkout, and a space is part of a path.
+mkdir -p "$WORK/coord-real/co" "$WORK/coord sp/co x" && ln -s "$WORK/coord-real" "$WORK/coord-link"
+CREAL=$(cd "$WORK/coord-real/co" && pwd -P)
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --checkout "$WORK/coord-link/co"); b=$(dB --repo /r/two --checkout "$CREAL")
+check "a checkout reached through a symbolic link is the same checkout" \
+  "overlap checkout $b $a Orch : a [a00001]|$CREAL" "$(overlaps "$b")|$(sed -n 1p "$CLAIMS" | jq -r .checkout)"
+CSP=$(cd "$WORK/coord sp/co x" && pwd -P)
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --checkout "$WORK/coord sp/co x"); b=$(dB --repo /r/two --checkout "$CSP/")
+check "a path with a space is kept whole" "overlap checkout $b $a Orch : a [a00001]|$CSP" \
+  "$(overlaps "$b")|$(sed -n 1p "$CLAIMS" | jq -r .checkout)"
+
+# A ledger line that does not read makes the answer unknown, never « go »: a declaration
+# read before it would otherwise miss an overlap after it, and one after it would be
+# called unknown.
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x)
+echo '{"id":"c2", broken' >> "$CLAIMS"
+printf '%s\n' "$(sed -n 1p "$CLAIMS" | jq -c '.id="c3" | .orchestrator="Orch : b [b00002]" | .tty="/dev/ttys402"')" >> "$CLAIMS"
+check "conflicts over a corrupt ledger is neither go nor wait" "coordinator: cannot read the ledger $CLAIMS|exit 2" \
+  "$(coord conflicts "$a" 2>&1)|$(coord_status conflicts "$a")"
+check "an id after the bad line is not called unknown" "coordinator: cannot read the ledger $CLAIMS|exit 2" \
+  "$(coord conflicts c3 2>&1)|$(coord_status conflicts c3)"
+
+# Liveness: an error of the check is no « dead ». Its own « not running », exit 1 and
+# silent, is the only answer read as dead.
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --branch feat/x); b=$(dB --repo /r/one --branch feat/x)
+live /dev/ttys401 /dev/ttys402 /dev/ttys106
+coord register --name "Coord : six [fff666]" --tty /dev/ttys106 >/dev/null 2>&1
+cvar() { ORCHESTRATOR_STATE_DIR="$CS" COORD_LIVE="$CLIVE" ORCHESTRATOR_WORKSPACES="$CWS" COORDINATOR_VERIFY="$1" \
+  bash "$COORD" "${@:2}"; }
+cvar_status() { cvar "$@" >/dev/null 2>&1; echo "exit $?"; }
+check "a missing liveness command is said, exit 1 from lookup" \
+  "coordinator: the liveness command $WORK/no-verify is missing or not executable|exit 1" \
+  "$(cvar "$WORK/no-verify" lookup 2>&1)|$(cvar_status "$WORK/no-verify" lookup)"
+check "and from register, the record kept" "exit 1|Coord : six [fff666]" \
+  "$(cvar_status "$WORK/no-verify" register --name "Coord : x [xxx000]" --tty /dev/ttys107)|$(jq -r .name "$CREC")"
+check "and exit 2 from conflicts" "exit 2" "$(cvar_status "$WORK/no-verify" conflicts "$b")"
+printf '#!/bin/bash\necho "cannot read the process table" >&2\nexit 1\n' > "$WORK/coord-verify-err"
+chmod +x "$WORK/coord-verify-err"
+check "a liveness check that fails is not read as dead" \
+  "coordinator: the liveness check failed on /dev/ttys106: cannot read the process table|exit 1" \
+  "$(cvar "$WORK/coord-verify-err" lookup 2>&1)|$(cvar_status "$WORK/coord-verify-err" lookup)"
+check "nor as a stale claim" "|exit 2" \
+  "$(cvar "$WORK/coord-verify-err" conflicts "$b" 2>/dev/null | grep '^stale')|$(cvar_status "$WORK/coord-verify-err" conflicts "$b")"
+# The lock's holder writes its pid and its operation into it: read here from inside the
+# lock, by a liveness check that register runs while it holds it.
+printf '#!/bin/bash\ncat "$ORCHESTRATOR_STATE_DIR/coordinator.lock/holder" > "$COORD_PEEK"\nexit 1\n' > "$WORK/coord-verify-peek"
+chmod +x "$WORK/coord-verify-peek"
+COORD_PEEK="$WORK/coord-peek" cvar "$WORK/coord-verify-peek" register --name "Coord : seven [ggg777]" --tty /dev/ttys108 >/dev/null 2>&1
+check "the lock's holder records its pid and its operation" "1" "$(grep -cE '^[0-9]+ registration$' "$WORK/coord-peek" 2>/dev/null)"
+# A check that reads its standard input must not eat the declarations still to be read.
+printf '#!/bin/bash\ncat >/dev/null\n[ "$1" = --tty ] && grep -qxF "$2" "$COORD_LIVE"\n' > "$WORK/coord-verify-cat"
+chmod +x "$WORK/coord-verify-cat"
+rm -f "$CLAIMS"; a=$(dA --repo /r/one --heavy suite); a2=$(dA --repo /r/two --heavy evals); b=$(dB --repo /r/three --heavy suite)
+check "every other declaration is read whatever the check does with its input" \
+  "overlap heavy $b $a Orch : a [a00001]|overlap heavy $b $a2 Orch : a [a00001]" \
+  "$(cvar "$WORK/coord-verify-cat" conflicts "$b" 2>/dev/null | grep '^overlap' | tr '\n' '|' | sed 's/|$//')"
+coord clear
+
+# The facts, re-read now: a checkout already held by another branch, and the heavy runs
+# the process table shows. This suite is one of them, so its own pid must be listed.
+mkdir -p "$CWS/proj" && git init -q -b other "$CWS/proj/p1" \
+  && git -C "$CWS/proj/p1" -c user.email=t@local -c user.name=t commit -q --allow-empty -m "Set up"
+rm -f "$CLAIMS"; b=$(dB --repo /r/one --branch mine --checkout "$CWS/proj/p1")
+check "a checkout held by another branch is busy" "busy checkout $(cd "$CWS/proj/p1" && pwd -P)|exit 1" \
+  "$(overlaps "$b")|$(coord_status conflicts "$b")"
+rm -f "$CLAIMS"; b=$(dB --repo /r/one --branch other --checkout "$CWS/proj/p1")
+check "a checkout held by the declared branch is not" "|exit 0" "$(overlaps "$b")|$(coord_status conflicts "$b")"
+check "a running suite is reported with its pid" "1" \
+  "$(coord conflicts "$b" 2>/dev/null | grep -cE "^running $$ .*run-tests\.sh")"
+check "a running suite alone is no conflict" "exit 0" "$(coord_status conflicts "$b")"
+# A plugin evaluation run, stood in for by a process whose arguments carry the words, and
+# stopped before the next check so nothing outlives the suite.
+python3 -c 'import time; time.sleep(30)' plugin eval coord-fixture &
+EVALPID=$!
+check "a plugin evaluation run is reported with its pid" "1" \
+  "$(coord conflicts "$b" 2>/dev/null | grep -cE "^running $EVALPID .*plugin eval coord-fixture")"
+kill "$EVALPID" 2>/dev/null; wait "$EVALPID" 2>/dev/null
+
+# The script's neighbours, in a copy of its tree: a workspace list that fails and a missing
+# launcher make the answer unknown, never « go ».
+CT="$WORK/coord-tree/skills"
+mkdir -p "$CT/coordinator/scripts" "$CT/orchestrator/scripts"
+cp "$COORD" "$CT/coordinator/scripts/"
+printf '#!/bin/bash\necho "workspace: cannot read the root" >&2\nexit 1\n' > "$CT/orchestrator/scripts/workspace.sh"
+ctree() { ORCHESTRATOR_STATE_DIR="$CS" COORD_LIVE="$CLIVE" ORCHESTRATOR_WORKSPACES="$CWS" bash "$CT/coordinator/scripts/coordinator.sh" "$@"; }
+rm -f "$CLAIMS"; b=$(dB --repo /r/one --branch mine --checkout "$CWS/proj/p1")
+check "a workspace list that fails is neither go nor wait" "coordinator: workspace.sh list failed: the checkout's state is unknown|exit 2" \
+  "$(COORDINATOR_VERIFY="$WORK/coord-verify" ctree conflicts "$b" 2>&1 | grep '^coordinator: ')|$(COORDINATOR_VERIFY="$WORK/coord-verify" ctree conflicts "$b" >/dev/null 2>&1; echo "exit $?")"
+a=$(dA --repo /r/two)
+check "a missing launcher is said, exit 2 from conflicts" \
+  "coordinator: the launcher <tree>/skills/coordinator/scripts/../../iterm-agents/scripts/iterm-agent.sh is missing|exit 2" \
+  "$(COORDINATOR_VERIFY= ctree conflicts "$b" 2>&1 | sed 's|launcher .*/coord-tree/|launcher <tree>/|')|$(COORDINATOR_VERIFY= ctree conflicts "$b" >/dev/null 2>&1; echo "exit $?")"
+check "an unknown subcommand is refused" "exit 1" "$(coord_status bogus)"
+
 echo "== rules trace =="
 
 # The trace is the mechanical proof that no rule of the inventory vanished while the
@@ -3599,6 +3924,23 @@ printf '# Beta\n' > "$TR/beta.md"
 ( cd "$TR" && git -c user.name=suite -c user.email=suite@localhost commit -qam shorten )
 check "trace: sources at HEAD sees the shortened file" "exit 1" "$(trace_status sources inventory.md)"
 check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sources inventory.md --ref HEAD~1)"
+
+# A rule added after the commit the inventory is checked at cites a file that commit never
+# had: its citation carries its own commit, `path:line@<commit>`, and is read there.
+variant srcat.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
+check "trace: a citation naming its commit is read at that commit, not at HEAD" "" \
+  "$(row FIX-004 sources srcat.md)"
+variant srcathead.md 's/| beta.md:3 |/| beta.md:3@HEAD |/'
+check "trace: a citation's own commit overrides --ref" "FIX-004 past-end:beta.md:3@HEAD beta.md" \
+  "$(trace sources srcathead.md --ref HEAD~1 | grep '^FIX-004 ')"
+variant srcatpast.md 's/| beta.md:3 |/| beta.md:9@HEAD~1 |/'
+check "trace: a citation past the end at its own commit is named" "FIX-004 past-end:beta.md:9@HEAD~1 beta.md" \
+  "$(row FIX-004 sources srcatpast.md)"
+variant srcatref.md 's/| beta.md:3 |/| beta.md:3@no-such-ref |/'
+check "trace: a citation naming an unknown commit is named" "FIX-004 bad-ref:beta.md:3@no-such-ref beta.md" \
+  "$(row FIX-004 sources srcatref.md)"
+check "trace: a plain citation is still read at --ref" "FIX-004 past-end:beta.md:3 beta.md" \
+  "$(row FIX-004 sources inventory.md)"
 
 check "trace: the real inventory holds every signature" "exit 0" \
   "$( ( cd "$ROOT" && bash "$TRACE" targets docs/rules-inventory.md >/dev/null 2>&1 ); echo "exit $?")"
