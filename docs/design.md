@@ -58,7 +58,7 @@ skills/iterm-agents/references/commands.md   the script's commands, how it build
 skills/iterm-agents/references/incidents.md  the observed incidents behind the tab rules, by rule id
 skills/iterm-agents/scripts/iterm-agent.sh   entry point: resolves an interpreter
 skills/iterm-agents/scripts/iterm_agent.py   the implementation, over the app API
-skills/orchestrator/scripts/brief-lint.sh   refuses a brief before it is dispatched
+skills/orchestrator/scripts/brief-lint.sh   lints a brief before it is dispatched, warning on its findings
 skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the routing signal
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's net balance, from git alone
@@ -400,7 +400,7 @@ Every project-specific fact is removed; the skill states the rule and leaves the
 | Script | What it does | Why it is built this way |
 |---|---|---|
 | `skills/iterm-agents/scripts/iterm-agent.sh`, `iterm_agent.py` | lists, spawns, verifies, reads, closes, moves and rotates tabs through the app's API; resolves a tier | sections 14, 19 to 22, 24 to 27, 29, 31, 34, 38, 39, 42 to 46, 48, 49, 51, 52, 57; its commands: `skills/iterm-agents/references/commands.md` |
-| `skills/orchestrator/scripts/brief-lint.sh` | refuses a brief before it is dispatched | sections 11, 12 |
+| `skills/orchestrator/scripts/brief-lint.sh` | lints a brief before it is dispatched, warning on its findings | sections 11, 12 |
 | `skills/orchestrator/scripts/dispatch-record.sh` | one row per dispatch; the routing signals; the readiness gate | sections 13, 55, 58 |
 | `skills/orchestrator/scripts/workspace.sh` | a clone per phase with the project's local material; a pinned worktree per review round | sections 30, 35, 36, 37, 40 |
 | `skills/orchestrator/scripts/rhythm.sh` | an audit's net balance, from git alone | section 52 |
@@ -422,7 +422,7 @@ Temporary files across the plugin are anchored to `TMPDIR`: the platform default
 
 Six briefs with `{{PLACEHOLDER}}` markers, each carrying the sections the orchestrator skill makes mandatory: `agent-phase-brief.md` (one implementer, one phase, one pull request), `agent-rotation-brief.md` (a fresh implementer resuming a phase), `agent-review-brief.md` (one review round, read-only, one lens per reader), `agent-comments-brief.md` (one pass over a pull request's open threads), `agent-audit-brief.md` (one audit of the method, one report, then stop) and `orchestrator-succession-brief.md` (a successor taking the orchestration over). How a brief is built from them is `skills/orchestrator/references/briefs.md`, « Agent prompt recipe ».
 
-A template is read by an agent that does not load the orchestrator skill, so it keeps in full the rules that agent needs — the orchestrator's address, the STOP-and-ask clause, synchronous commands, the gauge as its context nears the gate — and the skill points at the template rather than restating them. No template points at a plugin path, and none carries a host variable or a session reference (section 11): `brief-lint.sh` refuses a brief that does.
+A template is read by an agent that does not load the orchestrator skill, so it keeps in full the rules that agent needs — the orchestrator's address, the STOP-and-ask clause, synchronous commands, the gauge as its context nears the gate — and the skill points at the template rather than restating them. No template points at a plugin path, and none carries a host variable or a session reference (section 11): `brief-lint.sh` flags a brief that does.
 
 ## 6. Commands
 
@@ -499,7 +499,7 @@ Three defects came out of running one phase end to end on a live machine, none r
 
 ## 12. Linting the brief
 
-Specification is the largest category of multi-agent failure in the published taxonomy, and a brief is this plugin's whole specification act; nothing read the file before it reached a session. `brief-lint.sh` reads what a script can read, every finding a fault that has reached a live agent at least once, and `iterm-agent.sh spawn --brief` runs it before any tab exists; a finding no longer refuses the spawn, it prints on stderr as a warning and the launch goes on, the startup prompt built either way, so a brief spawned with `--brief` cannot skip the lint (`skills/orchestrator/references/briefs.md`, « Agent prompt recipe »). `--prompt` and `--prompt-file` reach no lint of their own, and the rulebook forbids them as a way past it (`skills/orchestrator/SKILL.md`, « The operator's word comes first, and it is answered »). Its limits are stated where it is run: scope, contracts and tier stay the orchestrator's, because a guard whose limits are unstated is one people trust past them. `--expect-created <path>` exempts exactly the paths a brief dictates for the agent to create — chosen over accepting any path whose parent directory exists, which would have exempted every misspelt file in an existing directory.
+Specification is the largest category of multi-agent failure in the published taxonomy, and a brief is this plugin's whole specification act; nothing read the file before it reached a session. `brief-lint.sh` reads what a script can read, every finding a fault that has reached a live agent at least once, and `iterm-agent.sh spawn --brief` runs it before any tab exists; a finding no longer refuses the spawn, it prints on stderr as a warning and the launch goes on, the startup prompt built either way, so a brief spawned with `--brief` cannot skip the lint (`skills/orchestrator/references/briefs.md`, « Agent prompt recipe »). `--prompt` and `--prompt-file` reach no lint of their own; the script is run by hand first when a brief is worth writing anyway (`skills/orchestrator/references/briefs.md`, « Agent prompt recipe »). Its limits are stated where it is run: scope, contracts and tier stay the orchestrator's, because a guard whose limits are unstated is one people trust past them. `--expect-created <path>` exempts exactly the paths a brief dictates for the agent to create — chosen over accepting any path whose parent directory exists, which would have exempted every misspelt file in an existing directory.
 
 ## 13. Measuring what the routing rule assumes
 
