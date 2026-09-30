@@ -2205,8 +2205,18 @@ echo "== context threshold sweep =="
 # default is as live a threshold as prose is.
 OLD_FIGURE=60
 THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|(gate|threshold|context).{0,20}${OLD_FIGURE}|${OLD_FIGURE}.{0,20}(gate|threshold|context)|GATE ?(:-|:=|=) ?${OLD_FIGURE}"
-check "no context threshold other than 80 % remains in the tracked tree" "" \
+check "no context threshold other than the gate's rule remains in the tracked tree" "" \
   "$(cd "$ROOT" && git grep -n -E -i "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
+
+# The gate is 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or
+# more. A line that states 80 % without the token half is a gate a large-window session
+# would read as its own: every such line carries the rule whole, in the same words.
+GATE_RULE='80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more'
+BARE_RE='([^0-9,.]|^)80 ?%|~ ?80([^0-9]|$)'
+check "every line stating the 80 % gate states the token gate with it" "" \
+  "$(cd "$ROOT" && git grep -n -E "$BARE_RE" -- skills hooks templates commands README.md docs/design.md | grep -v -F "$GATE_RULE")"
+check "the rule is stated in « Thresholds »" "1" \
+  "$(grep -c -F "**The gate is $GATE_RULE.**" "$ROOT/skills/orchestrator/SKILL.md")"
 
 # Proof the sweep still catches a stale figure, planted only into a scratch copy — one file
 # per spelling it must catch.
@@ -2218,6 +2228,8 @@ printf 'GATE:-%s\n' "$OLD_FIGURE" > "$SWEEP/gate-default.sh"
 printf 'export GATE:=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-walrus.sh"
 printf 'export GATE=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-eq.sh"
 printf 'export gate=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-lower.sh"
+printf 'the gate is %s; GATE_TOKENS:-300000; LARGE_WINDOW:-1000000\n' "$GATE_RULE" > "$SWEEP/new-rule.md"
+printf 'Mark sessions past 80%%\n' > "$SWEEP/bare-eighty.md"
 check "the sweep catches a figure planted in a scratch copy" "1" \
   "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"
 check "the sweep catches the threshold-before-figure order" "1" \
@@ -2232,6 +2244,10 @@ check "the sweep catches a GATE= assignment" "1" \
   "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export GATE=60')"
 check "the sweep catches a lowercase gate= assignment" "1" \
   "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c 'export gate=60')"
+check "the sweep lets the new rule's figures through" "" \
+  "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP/new-rule.md")"
+check "a bare 80 % is caught, the rule stated whole is not" "1" \
+  "$(grep -rn -E "$BARE_RE" "$SWEEP" | grep -v -F "$GATE_RULE" | grep -c 'bare-eighty')"
 rm -rf "$SWEEP"
 
 echo "== push guard hook =="
