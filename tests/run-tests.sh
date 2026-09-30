@@ -1636,7 +1636,13 @@ check "the launch names the session after its title" "1" "$(printf '%s' "$cmd" |
 # operator read his window and could not tell one agent from another at a glance.
 # `--title-free` is the escape for a probe that names its tab otherwise, and the dry run
 # says when it is on.
-shaped() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1; }
+shaped() {
+  case " $* " in
+    *" --prompt "*|*" --prompt-file "*) set -- "$@" ;;
+    *) set -- --prompt p "$@" ;;
+  esac
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1
+}
 check "a shaped title names the session" "1" \
   "$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -c -- "--name 'Agent : x'")"
 check "and so does an orchestrator's" "1" \
@@ -1713,10 +1719,22 @@ check "the shape refusal always quotes with single quotes" "1" \
 CAT="$WORK/mcp-catalogue.json"
 printf '{"servers":{"a":{"command":"a-cmd"},"b":{"command":"b-cmd"}},"default":["a"]}\n' > "$CAT"
 NOCAT="$WORK/mcp-absent.json"; rm -f "$NOCAT"
-mcpd() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$CAT" \
-  bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1; }
-nocat() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$NOCAT" \
-  bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1; }
+mcpd() {
+  case " $* " in
+    *" --prompt "*|*" --prompt-file "*) set -- "$@" ;;
+    *) set -- --prompt p "$@" ;;
+  esac
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$CAT" \
+  bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1
+}
+nocat() {
+  case " $* " in
+    *" --prompt "*|*" --prompt-file "*) set -- "$@" ;;
+    *) set -- --prompt p "$@" ;;
+  esac
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$NOCAT" \
+  bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' "$@" 2>&1
+}
 # The file the launch names is read back, not assumed: the launch line says a path, the
 # content says which servers the session will actually load.
 # A dry run writes no file, so the definitions a real launch would write are produced by
@@ -1760,7 +1778,7 @@ check "no catalogue and no --mcp: strict, no file, and a line on stderr" "1|0|no
 # same reasoning the tier map's own refusal was written on.
 BADCAT="$WORK/mcp-bad.json"; printf '["a","b"]\n' > "$BADCAT"
 check "a catalogue that is not one is refused, and the refusal names the shape" "1|1" \
-  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADCAT" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADCAT" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' 2>&1 | grep -c -- "$BADCAT does not read as a server catalogue (a \"servers\" object and a \"default\" list)")"
+  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADCAT" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p >/dev/null 2>&1; echo $?)|$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADCAT" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p 2>&1 | grep -c -- "$BADCAT does not read as a server catalogue (a \"servers\" object and a \"default\" list)")"
 # A default naming a server the catalogue does not hold is not caught by the shape check
 # above (both fields still read as an object and a list): the launch would silently drop
 # the unknown name and give the agent a set the operator never wrote. Refused instead, and
@@ -1768,7 +1786,7 @@ check "a catalogue that is not one is refused, and the refusal names the shape" 
 BADDEF="$WORK/mcp-bad-default.json"
 printf '{"servers":{"a":{"command":"a-cmd"}},"default":["a","zzz"]}\n' > "$BADDEF"
 check "a default name absent from servers is refused; one fully held still launches" "1|1|1" \
-  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADDEF" bash "$AGENT" spawn --dir "$WORK" --mcp a --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADDEF" bash "$AGENT" spawn --dir "$WORK" --mcp a --title 'Agent : x' 2>&1 | grep -c -- "the catalogue $BADDEF lists 'zzz' in default but not in servers")|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')"
+  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADDEF" bash "$AGENT" spawn --dir "$WORK" --mcp a --title 'Agent : x' --prompt p >/dev/null 2>&1; echo $?)|$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MCP_CATALOGUE="$BADDEF" bash "$AGENT" spawn --dir "$WORK" --mcp a --title 'Agent : x' --prompt p 2>&1 | grep -c -- "the catalogue $BADDEF lists 'zzz' in default but not in servers")|$(mcpd | sed -n 's/^launch=//p' | grep -c -- '--mcp-config ')"
 # Every asked name is checked against the catalogue BEFORE `none` short-circuits the
 # selection: a typo beside `none` used to select nothing and say nothing, which is how a
 # caller who mistyped one name among several would never learn it.
@@ -1793,8 +1811,15 @@ PSTAB="$WORK/ps-table.txt"
 printf '/dev/ttys900 /opt/x/host --name Orch : f --permission-mode auto\n' > "$PSTAB"
 PSNONAME="$WORK/ps-noname.txt"
 printf '/dev/ttys900 /opt/x/host --permission-mode auto\n' > "$PSNONAME"
-succ() { local t="$1"; shift; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-  ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE="$t" bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1; }
+succ() {
+  local t="$1"; shift
+  case " $* " in
+    *" --prompt "*|*" --prompt-file "*) set -- "$@" ;;
+    *) set -- --prompt p "$@" ;;
+  esac
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
+  ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE="$t" bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1
+}
 check "a successor with no title takes the caller's session name" "1" \
   "$(succ "$PSTAB" --successor | sed -n 's/^launch=//p' | grep -c -- "--name 'Orch : f'")"
 check "and comes up under remote control, under that name" "1" \
@@ -1969,7 +1994,7 @@ for AUDFLAG in --successor '--right-of self' '--left-of /dev/ttys555' --title-fr
     "$(aud --auditor --title 'Audit : x' $AUDFLAG >/dev/null 2>&1; echo $?)|$(aud --auditor --title 'Audit : x' $AUDFLAG | grep -c "is not an auditor's")"
 done
 check "an auditor with no model on record is refused, naming the installer" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-aud-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' 2>&1 | grep -c 'orchestrator:install')"
+  "$(CLAUDE_CODE_SESSION_ID=s-aud-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' --prompt p 2>&1 | grep -c 'orchestrator:install')"
 check "--inherit-model beside --auditor asks for what is already implied" "1" \
   "$(audl --auditor --inherit-model --title 'Audit : x' | grep -c -- '--model aud-model')"
 
@@ -1978,7 +2003,7 @@ check "--inherit-model beside --auditor asks for what is already implied" "1" \
 PSAUD="$WORK/ps-audit.txt"
 printf '/dev/ttys950 /opt/x/claude --name Audit : tm\n/dev/ttys901 /opt/x/claude --name Agent : x\n' > "$PSAUD"
 audrot() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" ORCHESTRATOR_PS_TABLE="$PSAUD" \
-  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" "$@" 2>&1; }
+  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" --prompt p "$@" 2>&1; }
 check "rotate refuses --auditor" "1" "$(audrot --old-tty /dev/ttys901 --auditor | grep -c -- '--auditor is not a rotation')"
 AUDROT=$(audrot --old-tty /dev/ttys950)
 check "rotate refuses an auditor's tab before it spawns anything" "0|1|1" \
@@ -2037,7 +2062,7 @@ for CRDFLAG in --successor --auditor '--left-of /dev/ttys555' '--right-of self' 
     "$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG | grep -c "is not a coordinator-successor's")"
 done
 check "a coordinator-successor with no model on record is refused, naming the installer" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-crd-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" bash "$AGENT" spawn --dir "$WORK" --coordinator-successor --title 'Coord : x' 2>&1 | grep -c 'orchestrator:install')"
+  "$(CLAUDE_CODE_SESSION_ID=s-crd-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" bash "$AGENT" spawn --dir "$WORK" --coordinator-successor --title 'Coord : x' --prompt p 2>&1 | grep -c 'orchestrator:install')"
 check "--inherit-model beside --coordinator-successor asks for what is already implied" "1" \
   "$(crdl --coordinator-successor --inherit-model --title 'Coord : x' | grep -c -- '--model crd-model')"
 
@@ -2047,7 +2072,7 @@ check "--inherit-model beside --coordinator-successor asks for what is already i
 PSCRD="$WORK/ps-coord.txt"
 printf '/dev/ttys950 /opt/x/claude --name Coord : ops\n/dev/ttys901 /opt/x/claude --name Agent : x\n' > "$PSCRD"
 crdrot() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_PS_TABLE="$PSCRD" \
-  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" "$@" 2>&1; }
+  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" --prompt p "$@" 2>&1; }
 check "rotate refuses --coordinator-successor" "1" "$(crdrot --old-tty /dev/ttys901 --coordinator-successor | grep -c -- '--coordinator-successor is not a rotation')"
 CRDROT=$(crdrot --old-tty /dev/ttys950)
 check "rotate refuses the coordinator's tab before it spawns anything" "0|1|1" \
@@ -2503,10 +2528,27 @@ check "its close line is one the launcher runs, guarded on the audit title" "clo
 printf 'a prompt\n' > "$file"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt-file "$file" 2>&1)
 check "--prompt-file reuses the given file" "1" "$(printf '%s' "$out" | grep -c "prompt_file=$file")"
-out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" 2>&1)
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --prompt "a prompt" 2>&1)
 cmd=${out#*launch=}; cmd=${cmd%%$'\n'*}
-check "no prompt: nothing appended after the server flag" "1" "$(printf '%s' "$cmd" | grep -c -- '--strict-mcp-config')"
+check "--prompt: the server flag is still there" "1" "$(printf '%s' "$cmd" | grep -c -- '--strict-mcp-config')"
 check_status "--prompt and --prompt-file together are refused" 1 env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --prompt x --prompt-file "$file"
+
+# A launch with no startup prompt at all could never have its mode read (the host writes
+# no transcript before a first prompt), so it is refused before any tab is made rather than
+# spending the mode timeout finding that out.
+check_status "a promptless spawn is refused before any tab is made" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt"
+noprompt=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" 2>&1)
+check "and says why, before any dry-run launch line" "1|0" \
+  "$(printf '%s' "$noprompt" | grep -c 'no startup prompt')|$(printf '%s' "$noprompt" | grep -c '^launch=')"
+check_status "--no-verify does not lift the promptless refusal" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : prompt" --no-verify
+check_status "a promptless rotation is refused the same way, the old session never touched" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
+  bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated"
+rotnoprompt=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
+  bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" 2>&1)
+check "and no close of the old tty is even attempted" "0" "$(printf '%s' "$rotnoprompt" | grep -c '^close=')"
 check_status "verify on a tty nobody has exits 1" 1 bash "$AGENT" verify --tty /dev/ttys999
 check "screen without a tty says which option is missing" "ERROR: screen: --tty is required" \
   "$(bash "$AGENT" screen 2>&1 | head -1)"
@@ -2521,18 +2563,18 @@ TRUSTF="$WORK/trust.json"; printf '{"projects":{}}' > "$TRUSTF"
 UNTRUSTED="$WORK/untrusted"; mkdir -p "$UNTRUSTED"
 check_status "an untrusted directory is refused before a tab is made" 1 \
   env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep
+  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --prompt p
 check "the refusal says how to proceed" "1" \
   "$(env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-     bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep 2>&1 | grep -c -- '--trust')"
+     bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --prompt p 2>&1 | grep -c -- '--trust')"
 check_status "--trust records it and proceeds" 0 \
   env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust
+  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust --prompt p
 check "the record now holds the directory" "true" \
   "$("$py" -c "import json,os,sys; d=json.load(open(sys.argv[1])); print(str(d['projects'].get(os.path.realpath(sys.argv[2]),{}).get('hasTrustDialogAccepted')).lower())" "$TRUSTF" "$UNTRUSTED")"
 check_status "a directory already recorded needs no flag" 0 \
   env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep
+  bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --prompt p
 check "the record keeps owner-only permissions" "600" \
   "$(stat -f '%OLp' "$TRUSTF" 2>/dev/null || stat -c '%a' "$TRUSTF")"
 
@@ -2542,17 +2584,17 @@ check "the record keeps owner-only permissions" "600" \
 compact="{\"projects\":{\"$(cd "$UNTRUSTED" && pwd -P)\":{\"hasTrustDialogAccepted\":true}}}"
 printf '%s' "$compact" > "$TRUSTF"
 out=$(env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-      bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust 2>&1)
+      bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust --prompt p 2>&1)
 check "--trust on a recorded directory does not rewrite the record" "$compact" "$(cat "$TRUSTF")"
 check "and the dry run says the record already held it" "1" "$(printf '%s' "$out" | grep -c '^trust=already$')"
 check "--trust on an unrecorded directory says it recorded it" "1" \
   "$(printf '{"projects":{}}' > "$TRUSTF"; env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-     bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust 2>&1 | grep -c '^trust=recorded$')"
+     bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --trust --prompt p 2>&1 | grep -c '^trust=recorded$')"
 # A record the launcher cannot read is a gate that cannot measure: it lets the launch
 # through AND says so, instead of launching past a question nobody will see.
 printf '{not json' > "$WORK/trust-garbage.json"
 out=$(env ORCHESTRATOR_TRUST_FILE="$WORK/trust-garbage.json" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" \
-      bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep 2>&1); code=$?
+      bash "$AGENT" spawn --dir "$UNTRUSTED" --title "Agent : trust" --tier deep --prompt p 2>&1); code=$?
 check "an unreadable record lets the launch through" "0" "$code"
 check "and says so, naming the flag" "1|1" \
   "$(printf '%s' "$out" | grep -c 'cannot be read')|$(printf '%s' "$out" | grep -c '^trust=unread$')"
@@ -2730,7 +2772,7 @@ check "resolve-tier wants exactly one tier" "ERROR: resolve-tier: exactly one ti
 tcmd() {
   local out
   out=$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-    bash "$AGENT" spawn --dir "$WORK" --title "Agent : tier" "$@" 2>&1)
+    bash "$AGENT" spawn --dir "$WORK" --title "Agent : tier" --prompt p "$@" 2>&1)
   out=${out#*launch=}; printf '%s' "${out%%$'\n'*}"
 }
 check "a bound tier is typed as the model argument" "1" "$(tcmd --tier deep | grep -c -- '--model a-model')"
@@ -2738,26 +2780,26 @@ check "an unbound tier types no model argument" "0" "$(tcmd --tier light | grep 
 check "an explicit model is typed as given" "1" "$(tcmd --model b-model | grep -c -- '--model b-model')"
 check_status "--tier and --model together are refused" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-  bash "$AGENT" spawn --dir "$WORK" --tier deep --model b-model
+  bash "$AGENT" spawn --dir "$WORK" --tier deep --model b-model --prompt p
 mkdir -p "$ISTATE/ctx"
 printf '{"session_id":"s-inh","model_id":"a-model","updated_epoch":%s}\n' "$(date +%s)" > "$ISTATE/ctx/s-inh.json"
 check "inherit-model types the calling session's model" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Orch : heir" --inherit-model 2>&1 | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
+  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Orch : heir" --inherit-model --prompt p 2>&1 | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
 check "inherit-model with no tap file refuses and names the installer" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model 2>&1 | grep -c 'orchestrator:install')"
+  "$(CLAUDE_CODE_SESSION_ID=s-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model --prompt p 2>&1 | grep -c 'orchestrator:install')"
 check "inherit-model is exclusive with a tier" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model --tier deep 2>&1 | grep -c 'exclusive')"
+  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model --tier deep --prompt p 2>&1 | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-  bash "$AGENT" spawn --dir "$WORK" --tier deepest
+  bash "$AGENT" spawn --dir "$WORK" --tier deepest --prompt p
 # rotate performs a real close, so its forwarding is checked on the source, as the
 # suite already checks that rotate inherits the spawn's verification.
 check "rotate forwards the tier to the spawn" "1" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep 2>&1 | grep -c -- '--model a-model')"
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep --prompt p 2>&1 | grep -c -- '--model a-model')"
 check "rotate closes the old tab only after the spawn" "1" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep 2>&1 | tail -1 | grep -c '^close=/dev/ttys999')"
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep --prompt p 2>&1 | tail -1 | grep -c '^close=/dev/ttys999')"
 # The rotation's spawn receives every argument the rotation does not consume, --trust
 # included — but the tab skill's line never said so, and a live rotation into a fresh
 # checkout was refused on the trust question and redone by hand (§39). Read on the record
@@ -2766,14 +2808,14 @@ ROTDIR="$WORK/rot-untrusted"; mkdir -p "$ROTDIR"
 printf '{"projects":{}}' > "$TRUSTF"
 check "rotate forwards --trust to the spawn, which records it" "true" \
   "$(env ORCHESTRATOR_TRUST_FILE="$TRUSTF" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$ROTDIR" --title "Agent : rotated" --tier deep --trust >/dev/null 2>&1; \
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$ROTDIR" --title "Agent : rotated" --tier deep --trust --prompt p >/dev/null 2>&1; \
      "$py" -c "import json,os,sys; d=json.load(open(sys.argv[1])); print(str(d['projects'].get(os.path.realpath(sys.argv[2]),{}).get('hasTrustDialogAccepted')).lower())" "$TRUSTF" "$ROTDIR")"
 # The rotation forwards --mcp too: an agent that needed a server is replaced by one that
 # still has it. It is not in the refused list below, and the dry run is where the
 # forwarding is read (§42) — with the name, since the flag carries one now.
 check "rotate forwards --mcp to the spawn, with its name" "a,b" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" ORCHESTRATOR_MCP_CATALOGUE="$CAT" \
-      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --mcp b 2>&1 | sed -n 's/^mcp=//p')"
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --mcp b --prompt p 2>&1 | sed -n 's/^mcp=//p')"
 # A rotation replaces an agent with a titled agent; a successor, an escape from the title
 # shape, or a plain agent stripped of remote control are none of that — each is refused
 # before the replacement is spawned.
@@ -2790,7 +2832,7 @@ check "rotate refuses --no-remote-control" "1" \
 # crossing a shell substitution. The guard reads what comes LAST: an exit code alone would
 # pass on that bug too, since the close that followed failed on its own.
 rot=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
-  bash "$AGENT" rotate --dir "$WORK" --old-tty /dev/ttys999 --tier bogus 2>&1 || true)
+  bash "$AGENT" rotate --dir "$WORK" --old-tty /dev/ttys999 --tier bogus --prompt p 2>&1 || true)
 check "an unresolvable tier stops the rotation, and nothing runs after it" \
   "ERROR: resolve-tier: unknown tier: bogus (expected deep, standard or light)" "$(printf '%s' "$rot" | tail -1)"
 

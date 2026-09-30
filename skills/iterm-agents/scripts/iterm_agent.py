@@ -1501,6 +1501,15 @@ def cmd_spawn(argv):
             die("spawn: refused: brief-lint found findings in %s" % brief_abs)
         brief_prompt = ("Read and execute %s. Your orchestrator is %s; handshake first, "
                          "silence rule 15 min." % (brief_abs, args.orchestrator))
+    if not (brief_prompt or args.prompt or args.prompt_file):
+        # The host writes a session's transcript only once it has a first prompt (§29): a
+        # promptless launch has no transcript to read a mode on, so verify_mode's own
+        # refusal always fires, tab and all, for a launch that could never have passed it.
+        # Refused here instead, before any tab is made, and --no-verify does not lift it —
+        # a session nobody can read is not one that skipping the read makes readable.
+        die("spawn: refused: no startup prompt: the host writes no transcript before a "
+            "first prompt, so the session's mode cannot be read; give the brief with "
+            "--prompt or --prompt-file")
     if args.tier and args.model:
         die("spawn: --tier and --model are mutually exclusive")
     if args.inherit and (args.tier or args.model):

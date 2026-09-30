@@ -27,6 +27,10 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # is exclusive with --prompt/--prompt-file, which stay for a spawn that carries no brief
     # (`--prompt "Read and execute <path>. Your orchestrator is <name [ref]>."` hand-built,
     # unlinted).
+    # One of --brief, --prompt or --prompt-file is REQUIRED: a launch carrying none of the
+    # three is refused before any tab exists (the host writes no transcript before a first
+    # prompt, so the session's mode could never be read, §29) — --no-verify does not lift
+    # this, a promptless session stays refused whether or not the mode is checked.
     # --title has a SHAPE — `Orch : <subject>` for an orchestrator and its successor,
     # `Agent : <subject>` for anything you spawn, the subject at most 25 characters —
     # because it is the session's name in every listing and the operator reads that listing.
@@ -49,7 +53,8 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # not appeared within ORCHESTRATOR_MODE_TIMEOUT (20s) refuses the spawn too, the tab
     # closed the same way, naming the checkout, the timeout, and the remedy: read the tab
     # with `screen` before retrying, or raise ORCHESTRATOR_MODE_TIMEOUT if the machine is
-    # only slow. --no-verify skips it, with the CLI check.
+    # only slow. --no-verify skips it, with the CLI check (but not the promptless refusal
+    # above, which runs before either check and does not depend on --verify).
     # writes the prompt to a file under the plugin's state directory, writes the launch
     # to a second file, asks the app to run it in a new tab AT AN INDEX, WAITS until the
     # host CLI is running on the new tty (30 s, ORCHESTRATOR_SPAWN_TIMEOUT), and prints
@@ -109,6 +114,9 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier>] [--expe
     # spawns the replacement FIRST and verifies it is running, then closes the old tab
     # every argument it does not consume reaches the spawn, `--trust` and `--mcp <name>`
     # included: an agent that needed a server is replaced by one that still has it.
+    # One of --prompt, --prompt-file or --brief is required here too — a promptless
+    # rotation is refused the same way a promptless spawn is, before the replacement's
+    # tab exists and with the old session untouched.
 
 $SCRIPT trust prune [--apply]      # entries of the trust record whose directory is gone; --apply removes them
 ```
