@@ -3,9 +3,9 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-167 (pre-dispatch gate: never assign a new phase to an agent past ~80 %; rotate
-first) and ORCH-158 in its tier-map part (the tier is chosen by the model-routing skill; no
-wave is dispatched without reading the tier map).
+Grades the pre-dispatch gate: never assign a new phase to an agent past ~80 %, rotate
+first; and that the tier is chosen by the model-routing skill, no wave dispatched
+without reading the tier map.
 
 Pass only if ALL hold for the commands and the final message:
 

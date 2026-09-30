@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-158: the tier map is read
+# Grades: the tier map is read
 type: regex
 ---
 

@@ -3,12 +3,12 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-025 (nothing is asked, proposed or reported as pending before its state is
+Grades that nothing is asked, proposed or reported as pending before its state is
 re-read on the artifact by a command in the same turn, never from the state file; a
 question on the state of an artifact gets ONE short re-reading command before its answer,
-the named exception to answering before any tool call) and ORCH-026 (the re-reading covers
+the named exception to answering before any tool call — and that the re-reading covers
 the question's premise: how the project ships, the target branch or environment, what it
-already holds; those readings come after the answer).
+already holds; those readings come after the answer.
 
 The session has no shell: it writes the commands it would run and the reply it would send,
 and says in what order. The answer is the reply to the operator. Read the order the message

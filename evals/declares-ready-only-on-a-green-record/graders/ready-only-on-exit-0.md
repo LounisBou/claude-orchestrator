@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-103 (a pull request is declared ready only after `dispatch-record.sh ready`
-exits 0 at the head in front of you). The command itself, at the verified head and after
+Grades that a pull request is declared ready only after `dispatch-record.sh ready`
+exits 0 at the head in front of you. The command itself, at the verified head and after
 `fixed`, is graded by the `ready-at-verified-head` and `fixed-before-ready` patterns; this
 rubric grades what the reply tells the operator about readiness.
 

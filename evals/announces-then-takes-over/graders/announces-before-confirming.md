@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-056, ORCH-189: both agents get the new address before « takeover confirmed »
+# Grades: both agents get the new address before « takeover confirmed »
 type: regex
 flags: i
 ---

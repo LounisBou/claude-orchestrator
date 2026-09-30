@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-068: the agent never ends its turn waiting for a run
+# Grades: the agent never ends its turn waiting for a run
 # (never / must not / do not / don't / cannot, then end a, your, the or its turn or turns)
 type: regex
 flags: i

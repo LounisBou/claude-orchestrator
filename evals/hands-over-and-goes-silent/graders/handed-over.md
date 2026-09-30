@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-192: « handed over » is sent to the successor
+# Grades: « handed over » is sent to the successor
 # (a send addressed to Orch : shop-front [9f8r7d] — a SendMessage line, or a line starting
 # with To, optionally numbered, bulleted or bold — with « handed over » within its next three
 # lines, fenced or not; the words in prose do not count)

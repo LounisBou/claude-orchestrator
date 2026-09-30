@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-156: the replacement comes from rotate
+# Grades: the replacement comes from rotate
 type: regex
 ---
 

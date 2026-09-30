@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-016: the question is answered, the base branch named
+# Grades: the question is answered, the base branch named
 type: regex
 ---
 

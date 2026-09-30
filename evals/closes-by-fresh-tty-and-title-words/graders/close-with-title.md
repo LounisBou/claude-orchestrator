@@ -1,5 +1,5 @@
 ---
-# Grades ITERM-019: the close is by tty with an expected title
+# Grades: the close is by tty with an expected title
 # (a launcher command line of its own, by path or by the SCRIPT variable, quoted or not;
 # options in any order, with a space or '=', backslash continuations allowed)
 type: regex

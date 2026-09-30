@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-151: the close is by tty with an expected title
+# Grades: the close is by tty with an expected title
 type: regex
 ---
 

@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-056, ORCH-189: the review agent is addressed by name and reference
+# Grades: the review agent is addressed by name and reference
 type: regex
 ---
 

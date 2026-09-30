@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-102, ORCH-103: the correction round is recorded before ready is read
+# Grades: the correction round is recorded before ready is read
 # (ready at the fixed head exits 0 only once fixed is on the record)
 type: regex
 flags: m

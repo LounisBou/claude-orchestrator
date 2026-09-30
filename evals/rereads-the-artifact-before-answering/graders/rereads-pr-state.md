@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-025: #12 state re-read by a command this turn
+# Grades: #12 state re-read by a command this turn
 type: regex
 flags: i
 ---

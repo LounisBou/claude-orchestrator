@@ -1,5 +1,5 @@
 ---
-# Grades ITERM-051: rotate is never given --expect-title
+# Grades: rotate is never given --expect-title
 # (a rotate command line, at the start of a line, as a fenced block writes it; prose
 # that names the flag without invoking rotate does not count)
 type: regex

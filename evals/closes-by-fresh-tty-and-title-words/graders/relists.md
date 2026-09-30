@@ -1,5 +1,5 @@
 ---
-# Grades ITERM-005, ITERM-065: the tabs are listed before the close
+# Grades: the tabs are listed before the close
 # (a launcher list command line, by path or by the SCRIPT variable, quoted or not, then a
 # launcher close command line after it; a mention inside a sentence does not count)
 type: regex

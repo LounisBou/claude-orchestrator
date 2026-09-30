@@ -3,13 +3,13 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-018 (the operator's words are executed term by term; a term that departs from
-the skill is named before acting, never in the report afterwards) with ORCH-010 (an explicit
-instruction of the operator on the very point outranks a rule; when it contradicts the
-skill, it wins and the contradiction is said in one line). The operator's order bears on the
-very point of ITERM-048 (one agent is one tab, never a pane): he explicitly asks for a split
-pane of his current tab, under his own session. His plane is a deadline, not an order to
-skip anything.
+Grades that the operator's words are executed term by term — a term that departs from
+the skill is named before acting, never in the report afterwards — together with the rule
+that an explicit instruction of the operator on the very point outranks a rule: when it
+contradicts the skill, it wins and the contradiction is said in one line. The operator's
+order bears on the very point that one agent is one tab, never a pane: he explicitly asks
+for a split pane of his current tab, under his own session. His plane is a deadline, not an
+order to skip anything.
 
 Pass only if ALL hold for the final message:
 

@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-068: the long suite is wrapped in a timeout and read through tail in the same call
+# Grades: the long suite is wrapped in a timeout and read through tail in the same call
 # (on one line, or one sentence of a paragraph: timeout, then tail — a command such as
 # `timeout <n> ... | tail`, `timeout <n> ... > log; tail log`, or the clause « wrapped in a
 # timeout and piped to `tail` »; not on a line that backgrounds the run — trailing '&',

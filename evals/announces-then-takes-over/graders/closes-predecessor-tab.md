@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-183, ORCH-189: the successor closes the predecessor's tab itself, with the
+# Grades: the successor closes the predecessor's tab itself, with the
 # title guard. The tty is read from a fresh `list`, never trusted from the brief, so a close
 # line passes on the literal ttys003 OR on a placeholder in angle brackets naming the
 # predecessor (ttys003, 1a2t3c or shop-front) filled from that listing; the same line must

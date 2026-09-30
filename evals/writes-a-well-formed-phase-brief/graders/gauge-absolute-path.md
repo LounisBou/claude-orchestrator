@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-179, ORCH-220: the gauge named by its absolute installed path
+# Grades: the gauge named by its absolute installed path
 type: regex
 target: {source: file, path: briefs/phase-5.md}
 ---

@@ -3,9 +3,9 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-016 (on the third ask of the same question the session first re-reads its own
+Grades that on the third ask of the same question the session first re-reads its own
 earlier messages; when it had not answered, or had answered beside the question, it says so
-in one sentence, answers, and offers the hand-over to a fresh session).
+in one sentence, answers, and offers the hand-over to a fresh session.
 
 In this staging the session's two earlier replies did not name a branch: it had not
 answered.

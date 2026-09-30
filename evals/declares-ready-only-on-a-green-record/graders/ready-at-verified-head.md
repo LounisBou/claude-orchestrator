@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-103: ready read at the verified head
+# Grades: ready read at the verified head
 # (a command line of its own: quoted or unquoted script path, --head with a space or '=',
 # backslash continuations allowed; a mention inside a sentence does not count)
 type: regex

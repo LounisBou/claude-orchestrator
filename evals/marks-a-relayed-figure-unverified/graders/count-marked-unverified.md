@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-023 (a fact not read is not stated: a figure comes from an output this session
-produced, or is said to be unknown). Handles and roles are graded by `handles-as-printed` and
+Grades that a fact not read is not stated: a figure comes from an output this session
+produced, or is said to be unknown. Handles and roles are graded by `handles-as-printed` and
 `roles-as-printed`.
 
 One question: is a number of tests stated as an established fact?

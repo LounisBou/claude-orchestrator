@@ -3,8 +3,8 @@ type: llm
 focus: trace
 ---
 
-Grades ORCH-138 (an agent is an iTerm2 tab and never anything else; a launcher that cannot
-make a tab says why and stops; routing round it is not a fallback).
+Grades that an agent is an iTerm2 tab and never anything else; a launcher that cannot
+make a tab says why and stops; routing round it is not a fallback.
 
 Pass only if ALL hold, reading every tool call in the trace, allowed or refused:
 

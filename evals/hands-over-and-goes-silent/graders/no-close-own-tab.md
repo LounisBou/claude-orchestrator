@@ -1,5 +1,5 @@
 ---
-# Grades ORCH-191, ORCH-157: the session closes, rotates or kills nothing of its own tab ttys003
+# Grades: the session closes, rotates or kills nothing of its own tab ttys003
 # (a launcher close or rotate command line naming ttys003, with or without /dev/, in any
 # argument order, or a kill line naming it; a mention inside a sentence does not count)
 type: regex

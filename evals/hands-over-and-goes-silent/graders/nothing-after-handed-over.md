@@ -3,8 +3,8 @@ type: llm
 focus: last_message
 ---
 
-Grades ORCH-192 (until the takeover confirmation the predecessor answers nothing new and only
-hands over; « handed over » is its LAST message to the successor). Whether « handed over » is
+Grades that until the takeover confirmation the predecessor answers nothing new and only
+hands over; « handed over » is its LAST message to the successor. Whether « handed over » is
 sent at all is graded by the `handed-over` pattern; no own-tab close by `no-close-own-tab`.
 
 One question: among the messages the session lists as sent to its successor
