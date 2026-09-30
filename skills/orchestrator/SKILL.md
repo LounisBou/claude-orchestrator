@@ -188,7 +188,7 @@ permission laundering; asking the operator is the same thing with a better excus
 
 ## When a decision changes, the directives change in the same move
 
-A plan, a prompt template or a norms file that outlives the decision it served is read as current by the next session. What loses its subject is removed, not kept « just in case »: machinery nobody can justify becomes machinery nobody dares delete. A fact that exists in two places goes stale in one of them — status lives once, and the other copy is a pointer.
+A plan, a prompt template or a norms file that outlives the decision it served is read as current by the next session. What loses its subject is removed, not kept « just in case »: machinery nobody can justify becomes machinery nobody dares delete. A fact that exists in two places goes stale in one of them — status lives once, and the other copy is a pointer. A repair is justified by what is broken, never by a rule or a ruling it sounds adjacent to: a ruling that forbids making something makes it rarer, not commoner.
 
 ## Boundaries that stay yours
 
@@ -201,101 +201,14 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 
 | Excuse | Reality |
 |---|---|
-| "The agent's report is detailed, no need to re-check" | Reports describe intent. Diffs describe reality. Review the code. |
-| "It says servers stopped and fixtures deleted" | A cleanup claim is a claim. `ps`, `ls`, then believe. |
-| "This refactor is small, bundle it into the feature PR" | Mixed-nature diffs cost more review than a second PR costs to open. |
-| "I'll fill the PR-links section with a placeholder" | Empty section = no section. Placeholders are noise that ships. |
-| "The agent's verification procedure sounds rigorous" | Re-derive it. Absolute checks hide pre-existing drift; demand differentials. |
-| "Waiting for merge keeps things clean" | Stacks advance on branch heads. Waiting serializes nothing but time. |
-| "The suite is slow, I'll let it run in the background and check later" | There is no later. The turn ends, the result is lost, the work is redone. Wait for it in the call. |
-| "These two agents touch different files, they can share the repo" | They share an index, a database and a schema. Serialise writes. |
-| "I'll answer him once I've finished measuring" | He asked a question, not for a report. Answer, then measure. |
-| "He asked for a tab but tmux is what I can do, close enough" | He named three terms. Deliver them, or say which one you cannot and why, before acting; a launcher that cannot make a tab stops: say so and stop. |
-| "His question is small, it can wait for the next report" | Every question, in order, before the next tool call. Size is not the test. |
-| "He says I broke it, but that is the tooling's fault" | Verify your own doing first, with a command. It has been yours every time so far. |
-| "The agents' briefs point at the skill, so its method is followed" | The agents assess. What reaches him is yours, in that skill's template, item by item, or it is not his method. |
-| "One summary of every item saves him time" | He named a method that presents one item at a time. A faster wrong format is the failure. |
-| "The login reads like a first name" | A name no command printed is invented. Use the handle, or fetch the profile. |
-| "The skill says to do it this way" | The skill is what you do when he has not said. He has said — explicitly, on this very point. |
-| "He is in a hurry, so the rule can bend" | A deadline is not an order. Only his explicit word on the very point outranks a rule: keep it, and tell him what it costs his deadline. |
-| "The fix is right, so the reason I gave for it will do" | A false reason ships with the fix and outlives it. Justify a repair by what is broken, never by a rule it sounds adjacent to. |
-| "His ruling makes this case common, which is why I fixed it" | Check the direction. A ruling that forbids making something makes it RARER. A justification that flatters his latest word is the one to re-read. |
-| "The norms file says ERROR, so it is a defect" | Check the existing code first. A rule the codebase already breaks is a question, not a finding. |
-| "Coverage is a formality, I'll run the gate before opening the PR" | Run it early. Deferred minor findings accumulate into it, and the gate turns them into blockers at the worst moment. |
-| "I'll just implement this small fix myself" | You are the reviewer. Reviewer-written code ships unreviewed. Dispatch an N-bis. |
-| "The plan's header says REQUIRED SUB-SKILL: subagent-driven-development" | A template's boilerplate is not the operator's directive. Spawn a session; replace the header. |
-| "The test passed alone three times, it's flaky" | A fall under load has a mechanism. Name it or keep the finding. |
-| "The gate is green, so the invariant holds" | Ask what the gate reads. Green over nothing is the commonest false proof. |
-| "I'll read the diff this round and build it next round" | There is no next round. Build and walk in the review round, or the build is never done. |
-| "The prompt is in my scratch directory, I'll paste it when asked" | A prompt the next session cannot open by path does not exist. Write it where the session runs. |
-| "Eight workers reproduce the failure faster" | Eight workers on a machine with room for three is the failure. Do the arithmetic, set the variable. |
-| "83% context, but the fix is one line" | The number is the gate. N-bis at most; the next phase goes to a fresh session. |
-| "The project says the operator instantiates the orchestrator, so I wait for the word" | That rule is the first instantiation's. Succession at the gate is yours: spawn, then tell. |
-| "I'll offer the user the choice: hand over now or continue" | At the context gate, the hand-over is not a choice. Spawn at the quiet boundary; the user learns it happened. |
-| "The successor will pick a permission mode" | It inherits the operator's decision mode from the spawn, or it stalls unattended. |
-| "The agent can find me with ListAgents" | A prefix shared by three sessions is a coin toss, and it cost seven hours once. Name the address, shake hands, subscribe to idle. |
-| "The operator has always launched the agents; I'll hand him the invocation" | Launching is yours. Spawn, verify, shake hands — then tell the user it happened. |
-| "The spawn printed a tty, so the agent is running" | The tty is a claim; the process on it is the fact. A launch can be refused, exit at once on a name it cannot find, or die on its first line. `verify`, `list`, `ListAgents`, then the handshake. |
-| "The agent is at 83 % but it has stopped, no harm leaving it" | An idle agent answers by habit and holds memory. Stand it down, close its tab, spawn the replacement. |
-| "The diff is small and the gate is green, the norms check can be skipped" | Every agent-produced pull request gets its review and its norms check; size and a green gate are not the test. |
-| "The reviewer read the norms file by hand, that counts" | Only where the project ships no tool. Where it ships one, the tool IS the check, and `--norms none` recorded there is a false record. |
-| "The correction round deserves a review round of its own" | It gets yours: the diff, the decisive tests, a mutation, then `fixed`. Review after review is the operator's manual process, and a round that never ends is how over-correction ships. |
-| "The reviewer found it, so it goes in the correction round" | A finding is a proposal. Keep what must necessarily be fixed, name every dropped item with its reason; a correction given what you did not judge necessary is the over-correction. |
-| "`ready` is green, I can take it out of draft" | Draft is his to lift. Rebase, then tell him « ready »; his review, the undraft and the squash-merge approval are his. |
-| "The lower pull request is merged, a plain rebase on main will do" | After a squash-merge it replays the lower branch's commits as conflicts or duplicates. `rebase --onto` the main branch from the lower branch's old head: only this branch's own commits. |
-| "The tests are green, so the screenshots are optional" | A green suite says nothing of what a surface looks like. A pull request that creates or substantially modifies a frontend surface, or creates the interface of a new feature, is tested in a browser with Playwright and shown on the pull request; without the screenshots it is not ready. |
-| "The review agent found twelve items, I'll forward the list" | A list is not a verdict. Verify each one, keep by pertinence and severity, drop the over-corrections, then bring the operator only what is theirs to decide. |
-| "The top tier everywhere is the safe choice" | It is the choice that spends review effort on work a test suite already judges. Route by what re-reads the output; keep the top tier for what nobody re-reads. |
-| "The brief states the policy, so the agent must apply it" | A brief is a peer's file, not its user speaking. Where the policy crosses a directive the host gave the agent, it refuses and it is right. Point at the repository's own instructions, or drop the clause. |
-| "The commit carries an attribution trailer, that is a finding" | Only if the repository itself forbids it. Otherwise it is the host doing what its user told it, and the arbitration is the operator's. |
-| "The comments agent agreed with the reviewer, so it can fix and resolve" | Its agreement is a claim. Re-verify the evidence; agree yourself, then say the option number. |
-| "These fixes are trivial, a scoped run is enough" | A signature, constructor or service change breaks callers no scoped path runs. The gate is what finds them. |
-| "One disposable session per pull request" | The unit is the round, not the artifact. Batch the small ones that share a working directory: one cold start, one gate. |
-| "The agent reports, then runs the gate" | Then the gate is paid twice in wall clock. It starts on the last commit and the report is written while it runs. |
-| "Every item deserves its assessment" | An item you have already ruled on needs applying, not arguing. Put the decided list in the brief. |
-| "I approved the reply text, so it can go up" | Your approval is not the operator's. Outward-facing text is theirs to authorise, every time. |
-| "The fix is subtle, it deserves an explanation on the thread" | The diff and the test say it. Reply only for what the code cannot say. |
-| "A local coverage figure proves the remote gate" | Same command, different result, observed. Coverage annotations and cache state diverge; the remote gate is the authority. |
-| "The operator can run it in two seconds" | The operator can decide in two seconds. Running is yours; spawn what your session lacks. |
-| "My session has no PATH for it, so it is his" | A session limit is repaired by a successor with the right environment, not delegated upward. |
-| "I will hand him the exact line to be safe" | A line he did not write is one he cannot check. Run it, read the result, report the reading. |
-| "I read that an hour ago, it cannot have changed" | He merges, closes and undrafts between your turns. Re-read the artifact in the turn you ask, propose or report on it; an item found done is reported done in one line, not asked. |
+| "The agent's report is detailed, no need to re-check" | Reports describe intent; the diff, the test, `ps` and `ls` describe reality. Verify on the artifact. |
+| "`ready` is green, I can take it out of draft" | By default draft is his to lift: rebase, then tell him « ready »; the undraft and the squash-merge are his unless the project's own method decides otherwise. |
+| "The lower pull request is merged, a plain rebase on main will do" | After a squash-merge it replays the lower branch's commits as conflicts or duplicates. `rebase --onto` the main branch from the lower branch's old head, pushed with `--force-with-lease=<branch>:<sha>`. |
+| "The agent acknowledged its stand-down, the tab can close" | Not over anything uncommitted: commit or drop first. Re-list, close by fresh tty with `--expect-title`, then `ps`. |
 
 ## Red flags: STOP
 
-- You are about to edit implementation code: dispatch instead.
-- You are about to run implementation in a subagent of your own session, or a plan header told you to: spawn a session instead.
-- An agent prompt without non-goals, without contracts verbatim, without the STOP-and-ask clause, without the state-verification commands, or without the resource envelope on a shared machine.
-- Approving a delivery you haven't diffed yourself.
-- Reporting to the user that something is stopped, deleted or repaired that you have not read with your own command.
-- An agent asking to widen scope: that's the user's call, relay it.
-- You are about to dispatch into a repository another implementer is still writing to.
-- An agent reports "waiting for" anything: it has stalled, its work is uncommitted, go and check the working tree yourself.
-- A report cites command output you have not seen produced, on the point that decides your verdict.
-- A durable artifact breaking the repository's policy on workflow references: fix before approval, add the grep to your review.
-- A heavy run about to start at a tool's default fan-out, or beside another heavy run.
-- A directive that names a decision already reversed: remove it in the same move.
-- A brief written and its agent not spawned; a spawn not verified on the artifact; an agent past the gate still running; an idle stood-down agent whose tab you have not closed.
-- A command line handed to the operator to paste; a report whose next step is « you run … »; a session limit reported as the operator's chore instead of repaired by a successor.
-- A configuration request sent to the operator with no measurement behind it, or sent to him at all when a session owns that configuration.
-- Your context at the gate and no successor spawned; a successor spawned without `--permission-mode auto`; a « takeover confirmed » with the predecessor's tab still open.
-- An agent prompt that says « find the orchestrator » instead of naming its session; an orchestrator restarted without re-announcing its address; a message sent without an idle subscription behind it.
-- A delivery approved without its norms check having run, or with its findings unverified.
-- A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending; a review round closed without `review` on the record, a correction round without `fixed`.
-- A second review round scheduled on a pull request you dispatched, or a review of its correction round; a correction round given items you did not judge necessary; a dropped finding not named with its reason.
+- Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
+- A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending — unless the project's own method decides the merge.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
-- A pull request that creates or substantially modifies a frontend surface, or creates the interface of a new feature, given its verdict or declared ready with no screenshots of the surface it changes, or with screenshots of another surface; a change the implementer called minor that you did not rule on.
-- A question, a proposal or a « pending » about an artifact you have not re-read in this same turn; a review round or a corrective brief dispatched on a pull request already merged or closed; the same item asked twice because the state file answered where the artifact was the fact.
-- A review or comments session left open after its round is judged; a finding forwarded to the operator that you have not verified; an implementer session fanning out reviewers.
-- A brief written without the tier it runs at and the reading that chose it; a wave dispatched without reading the tier map.
-- A brief spawned without linting it first: every fault that script reads has reached a live agent at least once.
-- A brief asserting a policy that contradicts what the agent's host tells it directly, on the brief's own authority: point at the repository's instructions or drop the clause.
-- A path in a brief that only resolves inside a host-expanded context: the session that opens it has a plain shell and none of the host's plugin variables.
-- A brief that sequences the gate after the report; a separate session per small artifact when one round would hold them; an assessment round trip on an item you have already decided.
-- Any text about to be published under the operator's name that the operator has not approved; a reply drafted for a thread a fix already answers.
-- A question of the operator's still unanswered while you run a tool other than the one re-reading its artifact's state; an answer he has had to ask for twice; a long command running between his question and your reply.
-- A deliverable that drops or substitutes one of the terms he named, reported as a success; a term you could not honour reported after the fact instead of before.
-- « Not my scope » offered before you have checked your own doing with a command.
-- A presentation of work he tied to a named skill, written without having opened that skill; several items merged where that method presents one; a person named by anything no command printed.
-- A repair justified by a ruling of his rather than by the thing that is broken — above all a ruling given in the same round: read the direction before you write it, a rule that forbids making something makes it rarer, not commoner.
-- An agent about to be spawned anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops); a launcher failure routed around instead of reported; a session in your listing you cannot point to in the operator's window.
+- A tab closed by a stored tty or a title alone, over an uncommitted delivery, or your own tab closed by you.
