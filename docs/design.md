@@ -64,6 +64,7 @@ skills/orchestrator/scripts/brief-lint.sh   refuses a brief before it is dispatc
 skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the routing signal
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's rhythm figures, from git alone
+skills/coordination/SKILL.md         the coordinator: one question at a time, relays, logistics rulings, its succession
 skills/coordinator/scripts/coordinator.sh  the coordinator's address and the claims ledger: register, clear, lookup, declare, release, conflicts
 skills/model-routing/SKILL.md        which capability tier a dispatch gets
 skills/model-routing/references/incidents.md the observed incidents behind the routing rules, by rule id
@@ -76,6 +77,7 @@ templates/agent-review-brief.md      one review round, read-only, one lens per r
 templates/agent-comments-brief.md    one pass over a pull request's open threads
 templates/orchestrator-succession-brief.md
 templates/agent-audit-brief.md       one audit of an orchestration: read-only, a report of fixed shape
+templates/coordinator-succession-brief.md  the coordinator's successor: close the predecessor, then register
 commands/install.md                  wires the tap, creates the state directory
 commands/uninstall.md                restores the previous status line
 commands/status.md                   live sessions and their measured context fill
@@ -85,6 +87,8 @@ commands/progress.md                 where the build stands
 commands/decide.md                   the decision round, one arbitration at a time
 commands/audit.md                    launches the orchestrator's auditor
 commands/audit-end.md                ends the audit on the operator's word; the orchestrator closes the tab
+commands/coordinator.md              starts the machine's coordinator on the operator's word
+commands/coordinator-end.md          ends the coordinator on the operator's word; the record cleared
 hooks/hooks.json                     declares the context gate and the push guard
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
@@ -104,6 +108,23 @@ evals/README.md                      how the behaviour suite is staged, run and 
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
 evals/baseline-0.34.0.json           the first baseline run, with and without the plugin
 evals/baseline-0.36.0.json           the current baseline the suite is compared against
+evals/coord-027-028-032/prompt.md
+evals/coord-027-028-032/graders/arrival-order.md
+evals/coord-027-028-032/graders/blocking-first.md
+evals/coord-027-028-032/graders/one-question-with-prefix.md
+evals/coord-037-044/prompt.md
+evals/coord-037-044/graders/ruled-then-told.md
+evals/coord-041-042/prompt.md
+evals/coord-041-042/graders/no-merge-no-undraft.md
+evals/coord-041-042/graders/relayed-unjudged.md
+evals/coord-043-046/prompt.md
+evals/coord-043-046/graders/orchestrators-not-agents.md
+evals/coord-043-046/graders/verbatim-dated-to-each.md
+evals/coord-048-050-051-053/prompt.md
+evals/coord-048-050-051-053/graders/brief-closes-then-registers.md
+evals/coord-048-050-051-053/graders/coordinator-successor-spawn.md
+evals/coord-048-050-051-053/graders/no-orchestrator-successor.md
+evals/coord-048-050-051-053/graders/succeeds-without-asking.md
 evals/gauge-007/prompt.md
 evals/gauge-007/graders/measured-not-estimated.md
 evals/gauge-007/graders/runs-the-gauge.md
@@ -271,6 +292,39 @@ trigger-evals/context-gauge-trigger-05/prompt.md
 trigger-evals/context-gauge-trigger-05/graders/skill-loaded.md
 trigger-evals/context-gauge-trigger-06/prompt.md
 trigger-evals/context-gauge-trigger-06/graders/skill-loaded.md
+trigger-evals/coordination-no-trigger-01/prompt.md
+trigger-evals/coordination-no-trigger-01/graders/answered.md
+trigger-evals/coordination-no-trigger-01/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-02/prompt.md
+trigger-evals/coordination-no-trigger-02/graders/answered.md
+trigger-evals/coordination-no-trigger-02/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-03/prompt.md
+trigger-evals/coordination-no-trigger-03/graders/answered.md
+trigger-evals/coordination-no-trigger-03/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-04/prompt.md
+trigger-evals/coordination-no-trigger-04/graders/answered.md
+trigger-evals/coordination-no-trigger-04/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-05/prompt.md
+trigger-evals/coordination-no-trigger-05/graders/answered.md
+trigger-evals/coordination-no-trigger-05/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-06/prompt.md
+trigger-evals/coordination-no-trigger-06/graders/answered.md
+trigger-evals/coordination-no-trigger-06/graders/skill-not-loaded.md
+trigger-evals/coordination-no-trigger-07/prompt.md
+trigger-evals/coordination-no-trigger-07/graders/answered.md
+trigger-evals/coordination-no-trigger-07/graders/skill-not-loaded.md
+trigger-evals/coordination-trigger-01/prompt.md
+trigger-evals/coordination-trigger-01/graders/skill-loaded.md
+trigger-evals/coordination-trigger-02/prompt.md
+trigger-evals/coordination-trigger-02/graders/skill-loaded.md
+trigger-evals/coordination-trigger-03/prompt.md
+trigger-evals/coordination-trigger-03/graders/skill-loaded.md
+trigger-evals/coordination-trigger-04/prompt.md
+trigger-evals/coordination-trigger-04/graders/skill-loaded.md
+trigger-evals/coordination-trigger-05/prompt.md
+trigger-evals/coordination-trigger-05/graders/skill-loaded.md
+trigger-evals/coordination-trigger-06/prompt.md
+trigger-evals/coordination-trigger-06/graders/skill-loaded.md
 trigger-evals/iterm-agents-no-trigger-01/prompt.md
 trigger-evals/iterm-agents-no-trigger-01/graders/answered.md
 trigger-evals/iterm-agents-no-trigger-01/graders/skill-not-loaded.md

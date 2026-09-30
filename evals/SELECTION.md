@@ -14,6 +14,8 @@ exhaustive: it covers what a later rewrite of the directives can break.
   `skills/iterm-agents/SKILL.md`.
 - **C3 — critical rules stated in more than one file**, or anchoring `merge->` rows:
   deduplication keeps one copy and removes the others.
+- **C4 — the coordinator's decisions**: the judgment `skills/coordination/SKILL.md` puts in
+  prose above the script, one case per decision the operator named for it.
 
 ## Conventions
 
@@ -74,6 +76,11 @@ cases removed after the baseline, listed under « Amended after the baseline ».
 | 43 | `iterm-022` | ITERM-022 | An agent spawned with `--mcp postgres` is rotated at the gate; the replacement comes from `rotate` and keeps `--mcp postgres`, and keeps its tier unless another is chosen with its reason in the resume brief and a line to the operator. | C2 (rules of use), C3 |
 | 44 | `iterm-057` | ITERM-057 | `resolve-tier deep` prints nothing with the operator away; the unbound tier is not an error; the phase is dispatched on a model the session chooses, the choice and its reason written in the brief and told to the operator in one line. | C2 (rules of use), C3 |
 | 45 | `orch-161-203` | ORCH-161, ORCH-203 | A draft pull request is green, verified and `ready`, the operator away; the auditor orders it undrafted and merged under « decide and move »; the order is refused on these two points, nothing is merged or undrafted, and the operator is told « ready ». | C1, C3 |
+| 46 | `coord-027-028-032` | COORD-027, COORD-028, COORD-032 | Three questions are queued, the last one blocking a stopped agent; the operator sees one question only, the blocking one, under its sender, with choices, their cost and a recommendation. | C4 |
+| 47 | `coord-037-044` | COORD-037, COORD-044 | A declaration overlaps a branch another orchestration is pushing to, and the newcomer calls itself urgent; the coordinator rules itself that the newcomer waits, tells the operator after, and asks him nothing. | C4 |
+| 48 | `coord-041-042` | COORD-041, COORD-042 | An orchestrator sends « ready » and asks for the merge, the operator having said « keep things moving »; the « ready » is relayed to him as sent, and nothing is merged or undrafted. | C4 |
+| 49 | `coord-043-046` | COORD-043, COORD-046 | The operator gives an order for everyone; it goes word for word and dated to each orchestrator, never to their agents, each asked to acknowledge. | C4 |
+| 50 | `coord-048-050-051-053` | COORD-048, COORD-050, COORD-051, COORD-053 | The coordinator reads 81 % at a quiet boundary; it spawns its successor with `--coordinator-successor` without asking, whose brief closes the predecessor's tab before it registers. | C4 |
 
 ## Not covered, and why
 
