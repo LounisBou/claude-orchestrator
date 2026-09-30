@@ -204,11 +204,11 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The agent's report is detailed, no need to re-check" | Reports describe intent; the diff, the test, `ps` and `ls` describe reality. Verify on the artifact. |
 | "`ready` is green, I can take it out of draft" | By default draft is his to lift: rebase, then tell him « ready »; the undraft and the squash-merge are his unless the project's own method decides otherwise. |
 | "The lower pull request is merged, a plain rebase on main will do" | After a squash-merge it replays the lower branch's commits as conflicts or duplicates. `rebase --onto` the main branch from the lower branch's old head, pushed with `--force-with-lease=<branch>:<sha>`. |
-| "The agent acknowledged its stand-down, the tab can close" | Not over anything uncommitted: commit or drop first. Re-list, close by fresh tty with `--expect-title`, then `ps`. |
+| "The agent acknowledged its stand-down, the tab can close" | Not over anything uncommitted: commit or drop first. Then `list`, `close --tty <tty> --expect-title`, then `ps`. |
 
 ## Red flags: STOP
 
 - Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
 - A pull request you merged or took out of draft without his clear and explicit request; « ready » told to the operator before `dispatch-record.sh ready` exited 0 at the verified head, before the branch was rebased, or with an item, a decision or a correction still pending — unless the project's own method decides the merge.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
-- A tab closed by a stored tty or a title alone, over an uncommitted delivery, or your own tab closed by you.
+- A tab closed without `--expect-title`, over an uncommitted delivery, or your own tab closed by you.
