@@ -71,7 +71,7 @@ Dispatch one tier below the row and mark it — `dispatch-record.sh open … --c
 
 ## The false economy
 
-**A tier drop that produces a second corrective round is reverted for that class, and the reversion is recorded.** A rework round plus its review round costs more than the phase one tier up.
+**A tier drop that produces a second corrective round is reverted for that class, and the reversion is recorded, unless you name the mechanism, other than the tier, that cost the round.** A rework round plus its review round costs more than the phase one tier up.
 
 ## A second reader, armed by evidence
 
@@ -86,12 +86,12 @@ dispatch-record.sh open <record> --class <c> --tier <t> --label <what>   # print
 dispatch-record.sh round <record> <id>                                  # a review round happened
 dispatch-record.sh review <record> <id> --head <sha> --norms tool|none  # and what it read
 dispatch-record.sh fixed <record> <id> --head <sha>                     # the one correction round, verified
-dispatch-record.sh ready <record> <id> --head <sha>                     # 0 only if reviewed or fixed there
+dispatch-record.sh ready <record> <id> --head <sha>                     # refuses a head neither reviewed nor fixed; with no review, warns
 dispatch-record.sh close <record> <id> --verdict approved
 dispatch-record.sh summary <record>
 ```
 
-`review` records instead of `round` the head it read and whether the project's own norms tool ran (`tool`) or the project ships none (`none`). `fixed` records the ONE correction round at the head you verified on the artifact; with no review on the row, or a second time, it records and warns. `ready` stands in front of telling the operator a pull request is ready: it passes at the head the last review read or the one its correction round was verified at, and refuses any other; with no review on the row it warns. The pull request stays in draft: lifting it is the operator's by default.
+`review` records instead of `round` the head it read and whether the project's own norms tool ran (`tool`) or the project ships none (`none`). `fixed` records the ONE correction round at the head you verified on the artifact; with no review on the row, or a second time, it replaces the recorded correction and warns. `ready` stands in front of telling the operator a pull request is ready: it passes at the head the last review read or the one its correction round was verified at, and refuses any other; with no review on the row it warns. The pull request stays in draft: lifting it is the operator's by default.
 
 **Read the summary before a wave, and revert what it names:**
 
