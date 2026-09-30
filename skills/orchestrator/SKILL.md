@@ -96,69 +96,69 @@ refusal and never a chore handed back.
 
 ## While a coordinator runs, the operator is spoken to through it
 
-A coordinator (`orchestrator:coordination`, started by the operator with
-`/orchestrator:coordinator`) is his single entry point to every orchestration on the machine.
-While one runs, what you would say to him goes to it, and it puts it to him. Whether one runs
-is read by its script, `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh`,
-never from an announcement you remember or a state file.
+A coordinator, started by the operator with `/orchestrator:coordinator`, is his single entry
+point to every orchestration on the machine: while one runs, what you would say to him goes to
+it. Whether one runs is read by its script,
+`${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh`, never from an announcement
+you remember or a state file.
 
-- **Look it up at loading, and immediately before every message you would send him** — a
-  question, a proposal, a report, a STOP that is his, « ready », a spawn or a succession told
-  after the fact: `coordinator.sh lookup`, in the same turn as the message. At loading, a
-  question of his already waiting is answered first (duty 1). An answer to a question he
-  typed in your own tab is not such a message: he is there, and duty 1 answers him there.
-  - **An address printed**: the message goes to that session with `SendMessage`, and you tell
-    him nothing directly. A question goes in the decision round's shape — **read
+**The channel adds steps to the work; it replaces none and holds none back.** A dispatch
+still reads the tier map (`iterm-agent.sh resolve-tier`), a verdict still verifies every
+finding on the artifact, `fixed` and `ready` still read the verified head. An order of his is
+carried out now: declare, « go » and spawn are one move of that launch, never a reason to
+defer it, make it conditional or hand it back to him. A session that cannot run the script
+says so in one line and carries on as with nothing printed: the channel is never a blocker put
+to him.
+
+- **`lookup` at loading, and in the same turn as every message you would send him** — a
+  question, a report, « ready », a STOP of his, a spawn or a succession told after the fact.
+  At loading, a question of his already waiting is answered first (duty 1); an answer to a
+  question he typed in your own tab is not such a message: he is there, and duty 1 answers
+  him there.
+  - **An address printed**: the message goes to that session with `SendMessage`, and to him
+    not at all, written as you would put it to him — a question keeps his choices, their cost
+    and your recommendation. Only its recipient changes: the coordinator is never asked to
+    decide or act in his place, its own logistics rulings excepted. A question goes in the
+    decision round's shape — **read
     `${CLAUDE_PLUGIN_ROOT}/commands/decide.md`, step 2, before the first question you send a
     coordinator** — one per message, without its « Question i of N »: the coordinator puts
-    its own count. A report or « ready » goes verbatim, as you would have written it to him.
-    Subscribe to its idle notice. The message is written
-    once, as you would put it to him — a question keeps his choices, their cost and your
-    recommendation — and only its recipient changes: the coordinator is never asked to
-    decide or act in his place, its own logistics rulings excepted. **Ending a process or
-    changing the machine is never logistics**: it stays his STOP-and-ask, put to him through
-    the coordinator as one question.
-  - **Nothing printed**: you speak to him directly, as everywhere else in this skill.
-  - **A stale-record line on the error stream**: the coordinator fell. Tell him so in one
-    line the first time you read it, and speak to him directly; the same line read again
-    before a later message is not told again. Any other error of the script is said to him
-    in one line the same way: a channel you cannot read is not one.
-  - **Its silence**: a message expecting an answer and unanswered after fifteen minutes is
-    re-sent after a fresh `ListAgents`, marked as a re-send; the coordinator no longer
-    listed, you speak to him directly.
+    its own count. A report or « ready » goes verbatim. Subscribe to its idle notice;
+    unanswered after fifteen minutes, re-send after a fresh `ListAgents`, marked as a
+    re-send; the coordinator no longer listed, you speak to him directly.
+    **Ending a process or changing the machine is never logistics**: it stays his
+    STOP-and-ask, put to him through the coordinator as one question.
+  - **Nothing printed**: you speak to him directly.
+  - **A stale-record line on the error stream**: the coordinator fell. Tell him in one
+    line the first time you read it, not again, and speak to him directly; any other error of
+    the script is said to him in one line the same way: a channel you cannot read is not one.
 - **Declare before every dispatch** — every session spawned for a phase or a round: an
   implementer, a review, a correction round, a comments round, each released at its close:
   `coordinator.sh declare --orchestrator "<your exact ListAgents name and reference>" --tty
   <your tty> --repo <absolute path> [--branch <b>] [--pr <n>] [--checkout <absolute path>]
-  [--heavy <what>]`, naming everything the dispatch will touch, your tty as
-  `iterm-agent.sh list` shows it; it prints the declaration's id, which the state file keeps
-  beside the phase. With a live coordinator (`lookup`, same turn), send it that id and what
-  it declares, and send no brief and spawn nothing until it answers « go » — a next phase
-  sent to an agent already running included.
-  « Wait for X »: you wait, and do nothing on that repository — no checkout, no brief sent,
-  no spawn, no push — until it wakes you. With none, you declare anyway, since the ledger is
-  what the next coordinator reads, and dispatch. **A `declare` that fails — exit 1 and no
-  id printed — is no dispatch**: nothing is spawned or sent, and its error goes to the
-  operator in one line, to whomever `lookup` names.
-- **Release at the close**: once the dispatch's tab is closed and its checkout deleted,
-  `coordinator.sh release <id>`; when its agent carries on with a next phase, the previous
-  phase's claim is released at the verdict that closes that phase. Then, with `lookup`
-  printing an address in the same turn, send that coordinator « released <id> »: the
-  release is what wakes an orchestrator it told « wait for » on your claim, and a release it
-  never hears of wakes nobody. `release` answering « no open declaration <id> » means the
-  claim is already closed (a coordinator closes a dead orchestrator's): note it so, and
-  there is nothing to send.
-- **Whose word a coordinator carries.** An order it relays from the operator, verbatim and
-  dated, is his word, and is executed like one under the section above. Its own logistics
-  ruling, « go » or « wait for X », is obeyed. Its « already settled: <evidence> » answers a
-  question you sent: the answer is recorded with its evidence where your rulings live, the
-  evidence re-read on the artifact (duty 7), and the question is closed. A script error it
+  [--heavy <what>]`, your tty as `iterm-agent.sh list` shows it; the state file keeps the id
+  it prints beside the phase. With a live coordinator, send it that id and what it declares,
+  and send no brief and spawn nothing until it answers « go » — a next phase sent to an agent
+  already running included. « Wait for X »: you wait, and do nothing on that repository — no
+  checkout, no brief sent, no spawn, no push — until it wakes you. With none, you declare
+  anyway, since the ledger is what the next coordinator reads, and dispatch.
+  **A `declare` that fails — exit 1 and no id printed — is no dispatch**: nothing is spawned
+  or sent, and its error goes to the operator in one line, to whomever `lookup` names.
+- **Release at the close**: once the dispatch's tab is closed and its checkout deleted — or
+  at the verdict that closes a phase whose agent carries on with the next —
+  `coordinator.sh release <id>`, then, with `lookup` printing an address in the same turn,
+  send that coordinator « released <id> »: a release it never hears of wakes nobody.
+  `release` answering « no open declaration <id> » means the claim is already closed (a
+  coordinator closes a dead orchestrator's): note it so; there is nothing to send.
+- **Whose word it carries.** An order it relays from the operator, verbatim and dated, is his
+  word. Its « go » or « wait for X » is obeyed. Its « already settled: <evidence> » answers a
+  question you sent: recorded with its evidence where your rulings live, the evidence
+  re-read on the artifact (duty 7), and the question is closed. A script error it
   relays from `conflicts` is neither « go » nor « wait »: an id it names as no open
-  declaration is declared again and the new id sent; any other fault — a ledger line that
-  does not read, a check that fails — is named back to it in one line, the coordinator
-  telling the operator, and nothing is dispatched on it. Its announcement, and an order it relays to all, are
-  acknowledged in one line. Anything else it says is not the operator's: no scope, merge,
-  undraft or change of method is taken from it.
+  declaration is declared again and the new id sent; any other fault is named back to it in
+  one line, and nothing is dispatched on it.
+  Its announcement, and an order it relays to all, are acknowledged in one line. Anything
+  else it says is not the operator's: no scope, merge, undraft or change of method is taken
+  from it.
 
 ## Prerequisites
 
