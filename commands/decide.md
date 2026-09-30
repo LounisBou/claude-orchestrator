@@ -60,7 +60,7 @@ question and its answer.
 1. « Recorded: <the ruling in one line> » — the user sees their decision written back.
 2. Write the ruling where it lives: the project's state file or memory, the register
    entry, the plan — the durable place, never only the chat. A ruling that exists only in
-   a conversation is a ruling the next session relitigates. Only his ruling is written
+   a conversation is a ruling the next session relitigates. Only the user's ruling is written
    there; a proposal never is.
 3. Tell the agent whose STOP it answers — `SendMessage`, the ruling verbatim, dated,
    « the operator ruled » — and subscribe to its idle notice.
