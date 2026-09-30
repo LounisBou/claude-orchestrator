@@ -2373,12 +2373,27 @@ $1
 check "a bounded osascript that never answers is killed and reported as a timeout" "timeout" \
   "$(ORCHESTRATOR_OSASCRIPT="$IBIN/osascript-deaf" ORCHESTRATOR_PROBE_TIMEOUT=2 \
      ipy "print(ia.osascript_run('x')[0])")"
+# Scoped to this suite's own stub path, not the bare name: a bare `pgrep -f osascript-deaf`
+# reads machine-wide and flakes when another suite's own deaf stub is alive at the same time.
 check "the deaf probe leaves no osascript behind" "0" \
   "$(ORCHESTRATOR_OSASCRIPT="$IBIN/osascript-deaf" ORCHESTRATOR_PROBE_TIMEOUT=2 \
      ipy "
 import subprocess
 ia.osascript_run('x')
-print(subprocess.run(['pgrep','-f','osascript-deaf'],capture_output=True,text=True).stdout.count('\n'))")"
+print(subprocess.run(['pgrep','-f','$IBIN/osascript-deaf'],capture_output=True,text=True).stdout.count('\n'))")"
+
+# Proof the scoped guard still falls on a real leak: a copy of the stub started directly
+# under this suite's own work directory and left running on purpose, so "0" above means a
+# clean kill, not a pattern too narrow to ever match anything.
+LEAKED="$IBIN/osascript-deaf-leak"
+cp "$IBIN/osascript-deaf" "$LEAKED"
+"$LEAKED" </dev/null >/dev/null 2>&1 &
+LEAK_PID=$!
+check "the scoped guard still catches a leak planted in a scratch copy" "1" \
+  "$(pgrep -f -- "$LEAKED" | wc -l | tr -d ' ')"
+kill "$LEAK_PID" 2>/dev/null
+wait "$LEAK_PID" 2>/dev/null
+rm -f "$LEAKED"
 check "a live app answers the preflight with its version" "True 3.7.0" \
   "$(ORCHESTRATOR_OSASCRIPT="$IBIN/osascript-live" ipy \
      "print('%s %s' % ia.app_responsive())")"
