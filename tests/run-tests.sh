@@ -293,12 +293,16 @@ check_status "a summary of nothing is not an error" 0 bash "$REC" summary "$WORK
 # its verdict » was written in the rulebook and in the review template, and was still broken
 # twice in one day: two rounds replaced the project's norms tool by a hand reading of its
 # norms file. A rule only prose carries is applied from memory. `review` records what a round
-# actually read; `ready` refuses everything else.
+# actually read; a row `ready` cannot see a review on no longer stops it, it warns and says
+# so — this default a project may still tighten in its own method, the way it may tighten
+# anything else this file no longer refuses.
 G="$WORK/gate.jsonl"
 g1=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "gate")
-check_status "ready refuses a row no review has touched" 1 bash "$REC" ready "$G" "$g1" --head aaa1111
-check "and says which condition failed" "1" \
-  "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>&1 | grep -c 'no review recorded')"
+check_status "ready warns, it does not refuse, a row no review has touched" 0 bash "$REC" ready "$G" "$g1" --head aaa1111
+check "and names what is missing" "1" \
+  "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>&1 | grep -c 'no review recorded on row')"
+check "ready still prints its reading of the row" "1" \
+  "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>/dev/null | grep -c 'ready: row 1 has no review recorded yet; head aaa1111 is unverified')"
 
 bash "$REC" review "$G" "$g1" --head aaa1111 --norms tool >/dev/null
 check "a review records the head it read and its norms check" "aaa1111|tool" \
@@ -336,15 +340,23 @@ check "and says so" "1" "$(bash "$REC" ready "$G" "$g2" --head 012345 2>&1 | gre
 # The operator's process: ONE review round, the orchestrator's triage, ONE correction round
 # the orchestrator verifies on the artifact, done. The correction moves the head, and the
 # review that read the previous one must still let the pull request through at the head the
-# orchestrator verified - once, and only after a review, or the gate stops meaning anything.
+# orchestrator verified. `fixed` no longer refuses a row with no review, or a second
+# correction round: it warns and records anyway, the way a project's own method may still
+# forbid either.
 g3=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "one fix")
-check_status "fixed refuses a row no review has touched" 1 bash "$REC" fixed "$G" "$g3" --head ddd4444
-check "and says a review comes first" "1" \
-  "$(bash "$REC" fixed "$G" "$g3" --head ddd4444 2>&1 | grep -c 'fixed: no review recorded on row')"
-check "a refused fix leaves no fixed head" "" "$(jq -r --argjson i "$g3" 'select(.id==$i)|.review.fixed.head // ""' "$G")"
+fout=$(bash "$REC" fixed "$G" "$g3" --head ddd4444 2>&1); fcode=$?
+check "fixed warns, it does not refuse, a row no review has touched" "0" "$fcode"
+check "and says a review is missing" "1" "$(printf '%s\n' "$fout" | grep -c 'fixed: row 3 has no review recorded')"
+check "the correction round is recorded anyway" "ddd4444|1" \
+  "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.fixed.head,.rounds]|join("|")' "$G")"
+
+# A proper review round replaces the whole `.review` object — the out-of-order fix it
+# carried does not survive it, which is the point: a review is the row's fresh read.
 bash "$REC" review "$G" "$g3" --head ccc3333 --norms tool >/dev/null
+check "the review starts the row fresh" "ccc3333|tool||2" \
+  "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.head,.review.norms,(.review.fixed.head // ""),.rounds]|join("|")' "$G")"
 bash "$REC" fixed "$G" "$g3" --head ddd4444 >/dev/null
-check "fixed records the head the orchestrator verified, and counts the round" "ccc3333|ddd4444|2" \
+check "fixed records the head the orchestrator verified, and counts the round" "ccc3333|ddd4444|3" \
   "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.head,.review.fixed.head,.rounds]|join("|")' "$G")"
 check_status "ready passes at the fixed head" 0 bash "$REC" ready "$G" "$g3" --head ddd4444
 check "and says which reading it rests on" "1" \
@@ -354,10 +366,10 @@ check_status "ready still passes at the reviewed head" 0 bash "$REC" ready "$G" 
 check_status "ready refuses a head neither reviewed nor fixed" 1 bash "$REC" ready "$G" "$g3" --head eee5555
 check "and names all three heads" "1" \
   "$(bash "$REC" ready "$G" "$g3" --head eee5555 2>&1 | grep -c 'last review read ccc3333, its correction ddd4444, head is eee5555')"
-check_status "a second correction round is refused" 1 bash "$REC" fixed "$G" "$g3" --head eee5555
-check "and says there is one" "1" \
-  "$(bash "$REC" fixed "$G" "$g3" --head eee5555 2>&1 | grep -c 'fixed: row 3 already has its correction round at ddd4444')"
-check "a refused second fix leaves the first" "ddd4444|2" \
+sout=$(bash "$REC" fixed "$G" "$g3" --head eee5555 2>&1); scode=$?
+check "a second correction round warns, it does not refuse" "0" "$scode"
+check "and names the one it already had" "1" "$(printf '%s\n' "$sout" | grep -c 'fixed: row 3 already has its correction round at ddd4444')"
+check "the second fix overwrites the first" "eee5555|4" \
   "$(jq -r --argjson i "$g3" 'select(.id==$i)|[.review.fixed.head,.rounds]|join("|")' "$G")"
 check_status "fixed without --head is an error" 1 bash "$REC" fixed "$G" "$g2"
 check "and says the head is required" "1" "$(bash "$REC" fixed "$G" "$g2" 2>&1 | grep -c 'fixed: --head is required')"
