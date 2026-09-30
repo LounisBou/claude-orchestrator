@@ -106,8 +106,8 @@ defect leaves no trace in the round that missed it.
 
 The recommended mitigation is a panel of differing readers with a consensus rule. Standing
 panels are expensive, and your compensating control is already stronger than a vote: you
-verify every finding on the artifact yourself, and you mutate the tests the verdict rests
-on. So the panel is not a default here. It is armed by evidence:
+verify every finding on the artifact yourself, and you mutate a test the verdict rests on
+where you have not seen it fall. So the panel is not a default here. It is armed by evidence:
 
 - When a later round contradicts an approval — a defect in work already approved — record
   it: `dispatch-record.sh escaped <record> <id>`.
