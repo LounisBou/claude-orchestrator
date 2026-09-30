@@ -2154,6 +2154,33 @@ check "unmeasured with a transcript but no turn answered yet prints nothing" "" 
 check "unmeasured past the first turn says so once" "1" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl" | grep -c 'unmeasured')"
 check "unmeasured stays silent the second time" "" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl")"
 
+# On a window of 1,000,000 tokens or more the gate is a count, 300,000 tokens, not a share:
+# 80 % of 1M lets a session replay up to 800k of cached context on every turn. Smaller
+# windows keep 80 %. The line names the figure that tripped it.
+tap() { printf '{"session_id":"%s","context_percent":%s,"context_used":%s,"context_total":%s,"updated_epoch":%s}\n' \
+  "$1" "$2" "$3" "$4" "$now" > "$GH/claude-orchestrator/ctx/$1.json"; }
+tap g-1m-under 29 299999 1000000
+tap g-1m-at 30 300000 1000000
+tap g-200k-under 79 158000 200000
+tap g-200k-at 80 160000 200000
+check "on a 1M window, 299,999 tokens stays under the gate" "" "$(gate g-1m-under)"
+check "on a 1M window, 300,000 tokens trips it, naming the tokens" "1" \
+  "$(gate g-1m-at | grep -c 'this session is at 300,000 tokens (gate 300,000 on a 1M window)\. An orchestrator SUCCEEDS')"
+check "on a 200k window, 79 % stays under the gate" "" "$(gate g-200k-under)"
+check "on a 200k window, 80 % trips it, naming the percent" "1" \
+  "$(gate g-200k-at | grep -c 'this session is at 80% (gate 80%)\. An orchestrator SUCCEEDS')"
+gate_env() { local sid="$1"; shift; printf '{"session_id":"%s"}' "$sid" | env CLAUDE_CONFIG_DIR="$GH" "$@" bash "$ROOT/hooks/context-gate.sh"; }
+check "ORCHESTRATOR_CONTEXT_GATE_TOKENS raises the token gate" "" \
+  "$(gate_env g-1m-at ORCHESTRATOR_CONTEXT_GATE_TOKENS=300001)"
+check "ORCHESTRATOR_CONTEXT_GATE_TOKENS lowers it" "1" \
+  "$(gate_env g-1m-under ORCHESTRATOR_CONTEXT_GATE_TOKENS=299999 | grep -c 'at 299,999 tokens (gate 299,999 on a 1M window)')"
+check "ORCHESTRATOR_LARGE_WINDOW above the window puts it back on the percent gate" "" \
+  "$(gate_env g-1m-at ORCHESTRATOR_LARGE_WINDOW=1000001)"
+check "ORCHESTRATOR_LARGE_WINDOW at 200k holds a 200k window to the tokens" "1" \
+  "$(gate_env g-200k-under ORCHESTRATOR_LARGE_WINDOW=200000 ORCHESTRATOR_CONTEXT_GATE_TOKENS=150000 | grep -c 'at 158,000 tokens (gate 150,000 on a 200,000 window)')"
+check "ORCHESTRATOR_CONTEXT_GATE still moves the percent gate" "1" \
+  "$(gate_env g-200k-under ORCHESTRATOR_CONTEXT_GATE=79 | grep -c 'at 79% (gate 79%)')"
+
 # The model that answers can be switched under a session by the host's own fallback, and
 # nothing showed it (§32). The gate keeps the last model it read and says a change once —
 # a line the session cannot miss, where the status line showed nothing.
