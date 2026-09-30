@@ -8,4 +8,4 @@
 type: regex
 ---
 
-(?:iterm-agent\.sh["']?|\$\{?SCRIPT\}?["']?|(\w+)=["']?[^\s"']*iterm-agent\.sh[\s\S]*?["']?\$\{?\1\}?["']?)[ \t]+spawn\b(?=(?:[^\n]|\\\n)*--brief[ =]["']?[^\s"'\\-])(?=(?:[^\n]|\\\n)*--orchestrator[ =]["']Orch : inventory \[a3k9c2\]["'])
+(?:iterm-agent\.sh["']?|\$\{?SCRIPT\}?["']?|(?<!\w)(\w+)=["']?[^\s"']*iterm-agent\.sh[\s\S]*?["']?\$\{?\1\}?["']?)[ \t]+spawn\b(?=(?:[^\n]|\\\n)*--brief[ =]["']?[^\s"'\\-])(?=(?:[^\n]|\\\n)*--orchestrator[ =]["']Orch : inventory \[a3k9c2\]["'])
