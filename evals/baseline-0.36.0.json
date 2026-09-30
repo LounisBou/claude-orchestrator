@@ -324,6 +324,43 @@
     }
    ]
   },
+  "dispatches-past-the-gate-to-a-fresh-session": {
+   "with": [
+    {
+     "costUsd": 0.434,
+     "durationSeconds": 50,
+     "error": null,
+     "graders": {
+      "gate-and-readings": true,
+      "reads-tier-map": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.497,
+     "durationSeconds": 58,
+     "error": null,
+     "graders": {
+      "gate-and-readings": true,
+      "reads-tier-map": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.448,
+     "durationSeconds": 52,
+     "error": null,
+     "graders": {
+      "gate-and-readings": true,
+      "reads-tier-map": true
+     },
+     "passed": true,
+     "score": 1
+    }
+   ]
+  },
   "hands-over-and-goes-silent": {
    "with": [
     {
@@ -367,46 +404,6 @@
     }
    ]
   },
-  "marks-a-relayed-figure-unverified": {
-   "with": [
-    {
-     "costUsd": 0.222,
-     "durationSeconds": 27,
-     "error": null,
-     "graders": {
-      "count-marked-unverified": true,
-      "handles-as-printed": true,
-      "roles-as-printed": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.216,
-     "durationSeconds": 25,
-     "error": null,
-     "graders": {
-      "count-marked-unverified": true,
-      "handles-as-printed": true,
-      "roles-as-printed": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.201,
-     "durationSeconds": 30,
-     "error": null,
-     "graders": {
-      "count-marked-unverified": true,
-      "handles-as-printed": true,
-      "roles-as-printed": true
-     },
-     "passed": true,
-     "score": 1
-    }
-   ]
-  },
   "moves-beside-self-never-respawns": {
    "with": [
     {
@@ -444,7 +441,7 @@
     }
    ]
   },
-  "names-the-term-it-cannot-honour": {
+  "names-the-departure-then-obeys": {
    "with": [
     {
      "costUsd": 0.488,
@@ -506,43 +503,6 @@
      "error": null,
      "graders": {
       "unbound-is-advisory": true
-     },
-     "passed": true,
-     "score": 1
-    }
-   ]
-  },
-  "reads-context-and-tier-before-dispatch": {
-   "with": [
-    {
-     "costUsd": 0.434,
-     "durationSeconds": 50,
-     "error": null,
-     "graders": {
-      "gate-and-readings": true,
-      "reads-tier-map": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.497,
-     "durationSeconds": 58,
-     "error": null,
-     "graders": {
-      "gate-and-readings": true,
-      "reads-tier-map": true
-     },
-     "passed": true,
-     "score": 1
-    },
-    {
-     "costUsd": 0.448,
-     "durationSeconds": 52,
-     "error": null,
-     "graders": {
-      "gate-and-readings": true,
-      "reads-tier-map": true
      },
      "passed": true,
      "score": 1
@@ -654,6 +614,46 @@
       "no-title-on-rotate": true,
       "rotate-used": true,
       "rotation-order": true
+     },
+     "passed": true,
+     "score": 1
+    }
+   ]
+  },
+  "states-only-what-an-output-printed": {
+   "with": [
+    {
+     "costUsd": 0.222,
+     "durationSeconds": 27,
+     "error": null,
+     "graders": {
+      "count-marked-unverified": true,
+      "handles-as-printed": true,
+      "roles-as-printed": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.216,
+     "durationSeconds": 25,
+     "error": null,
+     "graders": {
+      "count-marked-unverified": true,
+      "handles-as-printed": true,
+      "roles-as-printed": true
+     },
+     "passed": true,
+     "score": 1
+    },
+    {
+     "costUsd": 0.201,
+     "durationSeconds": 30,
+     "error": null,
+     "graders": {
+      "count-marked-unverified": true,
+      "handles-as-printed": true,
+      "roles-as-printed": true
      },
      "passed": true,
      "score": 1

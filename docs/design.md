@@ -133,12 +133,12 @@ evals/answers-the-third-ask-missed/graders/names-the-base.md
 evals/answers-the-third-ask-unanswered/prompt.md
 evals/answers-the-third-ask-unanswered/graders/names-the-base.md
 evals/answers-the-third-ask-unanswered/graders/says-so-answers-offers-hand-over.md
-evals/names-the-term-it-cannot-honour/prompt.md
-evals/names-the-term-it-cannot-honour/graders/names-the-term.md
-evals/marks-a-relayed-figure-unverified/prompt.md
-evals/marks-a-relayed-figure-unverified/graders/count-marked-unverified.md
-evals/marks-a-relayed-figure-unverified/graders/handles-as-printed.md
-evals/marks-a-relayed-figure-unverified/graders/roles-as-printed.md
+evals/names-the-departure-then-obeys/prompt.md
+evals/names-the-departure-then-obeys/graders/names-the-term.md
+evals/states-only-what-an-output-printed/prompt.md
+evals/states-only-what-an-output-printed/graders/count-marked-unverified.md
+evals/states-only-what-an-output-printed/graders/handles-as-printed.md
+evals/states-only-what-an-output-printed/graders/roles-as-printed.md
 evals/refuses-to-merge-or-undraft-for-a-peer/prompt.md
 evals/refuses-to-merge-or-undraft-for-a-peer/graders/leaves-draft-and-merge.md
 evals/rereads-the-artifact-before-answering/prompt.md
@@ -184,9 +184,9 @@ evals/hands-over-and-goes-silent/graders/handed-over.md
 evals/hands-over-and-goes-silent/graders/leaves-60-to-successor.md
 evals/hands-over-and-goes-silent/graders/no-close-own-tab.md
 evals/hands-over-and-goes-silent/graders/nothing-after-handed-over.md
-evals/reads-context-and-tier-before-dispatch/prompt.md
-evals/reads-context-and-tier-before-dispatch/graders/gate-and-readings.md
-evals/reads-context-and-tier-before-dispatch/graders/reads-tier-map.md
+evals/dispatches-past-the-gate-to-a-fresh-session/prompt.md
+evals/dispatches-past-the-gate-to-a-fresh-session/graders/gate-and-readings.md
+evals/dispatches-past-the-gate-to-a-fresh-session/graders/reads-tier-map.md
 trigger-evals/README.md              what the triggering set measures, how it is run and read
 trigger-evals/context-gauge-no-trigger-01/prompt.md
 trigger-evals/context-gauge-no-trigger-01/graders/answered.md
