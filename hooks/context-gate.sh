@@ -6,9 +6,9 @@
 # miss: an orchestrator succeeds at the next quiet boundary, an implementer
 # finishes its unit and stops. Below the gate it prints nothing.
 #
-# The gate is 80 % of the window, except on a window of 1,000,000 tokens or more,
-# where it is 300,000 tokens: the cached context is replayed on every turn, and 80 %
-# of such a window lets a session carry up to 800k of it (skills/orchestrator/SKILL.md,
+# The gate is 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more:
+# the cached context is replayed on every turn, and the percent alone would let a session
+# on such a window carry up to 800,000 tokens of it (skills/orchestrator/SKILL.md,
 # « Thresholds »).
 #
 # WHY A HOOK. The rule « succession is yours to trigger, do not wait » existed in
