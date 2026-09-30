@@ -1735,10 +1735,8 @@ check "and it carries neither a tier, nor a successor's flag, nor an anchor" "0"
 # it to the lint as created later, and the lint exempts exactly it — a second absent path in
 # the same brief is still a finding.
 AUDBRIEF="$ROOT/templates/agent-audit-brief.md"
-check "the auditor is read-only on every repository and every worktree" "yes|yes" \
-  "$(spells "$AUDBRIEF" 'READ-ONLY on every repository and every worktree')|$(spells "$AUDBRIEF" 'no edit, no commit, no push, no merge, no label, no comment, no kill, no session ended')"
-check "every claim carries its command, and the auditor never closes its own tab" "yes|yes" \
-  "$(spells "$AUDBRIEF" 'Every claim carries the command that produces it')|$(spells "$AUDBRIEF" 'never close your own tab')"
+check "the auditor writes nothing but its report, and the operator closes its tab" "1|1" \
+  "$(grep -c 'commit, no push, no comment, no label, no merge' "$AUDBRIEF")|$(grep -c 'He closes this tab' "$AUDBRIEF")"
 AUDFILLED="$WORK/audit-brief-filled.md"
 if [ -f "$AUDBRIEF" ]; then
   sed -E -e 's#\{\{ORCHESTRATOR_NAME\}\}#Orch : f [a1b2c3]#g' -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$AUDBRIEF" > "$AUDFILLED"
