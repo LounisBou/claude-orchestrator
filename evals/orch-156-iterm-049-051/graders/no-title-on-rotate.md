@@ -7,4 +7,4 @@ flags: m
 match: not_contains
 ---
 
-^[ \t]*(?:\$[ \t]+)?(?:[^\s"'`]*iterm-agent\.sh|\$\{?\w+\}?)[ \t]+rotate\b(?:[^\n]|\\\n)*--expect-title
+(?:^[ \t]*(?:\$[ \t]+)?|&&[ \t]*)(?:[^\s"'`]*iterm-agent\.sh|\$\{?\w+\}?)[ \t]+rotate\b(?:[^\n]|\\\n)*--expect-title
