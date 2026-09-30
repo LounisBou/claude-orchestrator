@@ -72,4 +72,5 @@ Non-goals:
 
 ## 8. Resource envelope
 
+- Kill what you start, delete what you build, and prove it with `ps` and `ls` before your final report.
 {{RESOURCE_ENVELOPE}}

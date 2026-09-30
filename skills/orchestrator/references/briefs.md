@@ -17,7 +17,7 @@ Its parts, in order:
 5. **Forbidden list** (see standing rules below).
 6. **Communication protocol — the orchestrator's address is NAMED in the prompt, never discovered.** Write your session's exact `ListAgents` name and reference, as they print (e.g. `project-70 [a1b2c3]`), into the prompt. A name pattern is not an address. Then: report on start, on each push, on any blocker (STOP + proposed resolution + wait); structured final report with named sections; **the measured context only as it nears the 80 % gate**. Put the `orchestrator:context-gauge` script's invocation, by its absolute path, in every agent prompt in place of self-estimated percentages: self-estimates ran 13 points high in observed runs. Peer sessions cannot read it FOR you; each session reads its own.
 7. **Delivery**: draft PR, imposed title, description shape, stay available for review questions. **Figures (counts, sizes, timings) are written ONCE, on the final head** — a number re-measured every round is stale before the round ends.
-8. **Resource envelope** when the machine is shared (see `references/machine.md`): the lock to wrap heavy runs in, the fan-out variable and its value, the worker cap, and the duty to kill what it started and delete what it built **and prove it with `ps`** before reporting.
+8. **Resource envelope**: kill what it started, delete what it built, **and prove it with `ps` and `ls`** before reporting; the project's own limits on a shared machine, where its method writes them.
 
 ## Standing rules (put in every prompt, enforce in every review)
 

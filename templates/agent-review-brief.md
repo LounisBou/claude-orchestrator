@@ -56,4 +56,5 @@ End the report with one machine line and nothing after it: `norms-check: tool {{
 
 ## 7. Resource envelope
 
+- Kill what you start, delete what you build, and prove it with `ps` and `ls` before your final report.
 {{RESOURCE_ENVELOPE}}
