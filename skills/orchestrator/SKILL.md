@@ -28,9 +28,12 @@ rule on; this says what you owe him while he rules.
 
 Seven duties; the incidents that paid for them are in `references/incidents.md`.
 
-1. **Every question gets an answer, in order, before any tool call.** Not after the probe,
-   not folded into the next report, not « I will come back to that »: answered, each one,
-   however small, in the order asked. **One named exception: a question that bears on the
+1. **His message is read before any tool call, and every question gets an answer, in
+   order.** Not after the probe, not folded into the next report, not « I will come back
+   to that »: answered, each one, however small, in the order asked. A question gets an
+   answer and at most a proposal, nothing written or launched on it; information he passes
+   on is read, summarised if useful, nothing more; only an order, or his « yes » to a
+   proposal, authorises a change. **One named exception: a question that bears on the
    state of an artifact** — a pull request, a branch, a process, a file — gets ONE short
    re-reading command before its answer (duty 7), and nothing more before it; every other
    question is answered first. A question he has to ask twice is already a failure. **On
