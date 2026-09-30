@@ -1912,6 +1912,22 @@ check "a tab that is neither is refused, and the refusal names it" "1|1" \
 check "--force moves it and says what it moved" "0|1" \
   "$(mv_ --tty /dev/ttys901 --left-of self --force >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --left-of self --force | grep -c "^move: forced: /dev/ttys901 is not in this session's chain$")"
 
+# `--leftmost` places a tab at the first place of its window, no neighbour tab named: a
+# third form beside `--left-of` and `--right-of`, exclusive with both.
+check "--leftmost moves the caller's own tab to the first place of its window" "1" \
+  "$(mv_ --tty /dev/ttys900 --leftmost | grep -c '^move=/dev/ttys900 left_of=leftmost$')"
+check "--leftmost is exclusive with --left-of and --right-of" "1|1" \
+  "$(mv_ --tty /dev/ttys900 --leftmost --right-of self >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys900 --leftmost --right-of self | grep -c -- '--leftmost is exclusive with --left-of and --right-of')"
+check "no anchor at all is refused, naming all three forms" "1|1" \
+  "$(mv_ --tty /dev/ttys900 >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys900 | grep -c -- '--left-of, --right-of or --leftmost is required')"
+
+# The guard that refuses a stranger's tab applies to `--leftmost` exactly as it does to
+# `--left-of` and `--right-of`: the anchor form changes, not whose tab this is.
+check "--leftmost refuses a tab out of the caller's chain, and the refusal names it" "1|1" \
+  "$(mv_ --tty /dev/ttys901 --leftmost >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --leftmost | grep -c "move: refused: /dev/ttys901 is neither this session's tab nor in its chain (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says what it moved" "0|1" \
+  "$(mv_ --tty /dev/ttys901 --leftmost --force >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --leftmost --force | grep -c "^move: forced: /dev/ttys901 is not in this session's chain$")"
+
 # An AUDITOR is neither a successor nor an agent (§52). It is placed immediately LEFT of
 # its caller, the chain ignored — on the caller's model and under remote control under its
 # own title; but it takes no chain and joins none: the orchestrator it audits keeps its
@@ -1977,9 +1993,95 @@ check "an auditor's tab is not moved, even with a stale chain entry naming it" "
   "$(audmv --tty /dev/ttys950 --right-of self >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --right-of self | grep -c "move: refused: /dev/ttys950 is an auditor's tab ('Audit : tm'), not this session's to place (pass --force to move it anyway)")"
 check "--force moves it, and says so" "0|1" \
   "$(audmv --tty /dev/ttys950 --right-of self --force >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --right-of self --force | grep -c "^move: forced: /dev/ttys950 is an auditor's tab")"
+check "an auditor's tab is not moved leftmost either" "1|1" \
+  "$(audmv --tty /dev/ttys950 --leftmost >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --leftmost | grep -c "move: refused: /dev/ttys950 is an auditor's tab ('Audit : tm'), not this session's to place (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says so" "0|1" \
+  "$(audmv --tty /dev/ttys950 --leftmost --force >/dev/null 2>&1; echo $?)|$(audmv --tty /dev/ttys950 --leftmost --force | grep -c "^move: forced: /dev/ttys950 is an auditor's tab")"
 check "an agent of the chain still moves" "1" "$(audmv --tty /dev/ttys901 --right-of self | grep -c '^move=/dev/ttys901 right_of=/dev/ttys900$')"
 check "an auditor places its own tab" "1" \
   "$(AUDSELF=/dev/ttys950 audmv --tty /dev/ttys950 --right-of /dev/ttys900 | grep -c '^move=/dev/ttys950 right_of=/dev/ttys900$')"
+
+# The COORDINATOR sits above every orchestrator on the machine. Its own successor is
+# neither an auditor nor an agent: it lands at the FIRST place of the caller's window (not
+# merely beside it), the chain ignored — on the caller's model and under remote control
+# under its own title; it takes no chain and joins none. Its title is REQUIRED and reads
+# `Coord : <subject>`, a shape refused everywhere but under --coordinator-successor.
+CRDSTATE="$WORK/crdstate"; mkdir -p "$CRDSTATE/ctx" "$CRDSTATE/chains"
+printf '{"session_id":"s-crd","model_id":"crd-model","updated_epoch":%s}\n' "$(date +%s)" > "$CRDSTATE/ctx/s-crd.json"
+printf '{"tab_id":"7","tty":"/dev/ttys901","owner":"S-ME"}\n' > "$CRDSTATE/chains/ttys900.jsonl"
+crd() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-crd bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
+crdl() { crd "$@" | sed -n 's/^launch=//p'; }
+CRDOUT=$(crd --coordinator-successor --title 'Coord : ops')
+CRDLAUNCH=$(printf '%s' "$CRDOUT" | sed -n 's/^launch=//p')
+check "the coordinator's successor is named by its title and comes up under remote control under it" "1|1" \
+  "$(printf '%s' "$CRDLAUNCH" | grep -c -- "--name 'Coord : ops'")|$(printf '%s' "$CRDLAUNCH" | grep -c -- "--remote-control 'Coord : ops'")"
+check "and without the setting that turns remote control off" "0" "$(printf '%s' "$CRDLAUNCH" | grep -c -- '--settings')"
+check "the coordinator's successor runs on the caller's model with no flag to ask for it" "1" "$(printf '%s' "$CRDLAUNCH" | grep -c -- '--model crd-model')"
+check "it lands at the first place of the caller's window, joins no chain, and the dry run says what it is" "1|1|1|1" \
+  "$(printf '%s' "$CRDOUT" | grep -c '^anchor=leftmost$')|$(printf '%s' "$CRDOUT" | grep -c '^side=left$')|$(printf '%s' "$CRDOUT" | grep -c '^coordinator_successor=yes$')|$(printf '%s' "$CRDOUT" | grep -c '^chain=none$')"
+check "a coordinator-successor without a title is refused, and the reason names the shape" "1|1" \
+  "$(crd --coordinator-successor >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor | grep -c -- '--coordinator-successor needs --title "Coord : <subject>"')"
+CRD25=$(printf 'x%.0s' $(seq 1 25)); CRD26=$(printf 'x%.0s' $(seq 1 26))
+check "a coordinator's subject of 25 characters is accepted, of 26 refused" "1|1" \
+  "$(crdl --coordinator-successor --title "Coord : $CRD25" | grep -c -- "--name 'Coord : $CRD25'")|$(crd --coordinator-successor --title "Coord : $CRD26" >/dev/null 2>&1; echo $?)"
+check "a coordinator-successor under an agent's or an orchestrator's title is refused" "1|1|1" \
+  "$(crd --coordinator-successor --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Orch : x' >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Agent : x' | grep -c "the coordinator's title reads \"Coord : <subject>\"")"
+check "a Coord title is refused without --coordinator-successor: plain, anchored, free, successor" "1|1|1|1" \
+  "$(crd --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')|$(crd --title 'Coord : x' --right-of self | grep -c 'a "Coord :" title is the coordinator')|$(crd --title-free --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')|$(crd --successor --title 'Coord : x' | grep -c 'a "Coord :" title is the coordinator')"
+check "and that refusal exits 1" "1" "$(crd --title 'Coord : x' >/dev/null 2>&1; echo $?)"
+for CRDFLAG in --successor --auditor '--left-of /dev/ttys555' '--right-of self' \
+    --title-free '--tier deep' '--model m' --no-remote-control; do
+  # shellcheck disable=SC2086 # the flag and its value are two words on purpose
+  check "a coordinator-successor refuses $CRDFLAG" "1|1" \
+    "$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG | grep -c "is not a coordinator-successor's")"
+done
+check "a coordinator-successor with no model on record is refused, naming the installer" "1" \
+  "$(CLAUDE_CODE_SESSION_ID=s-crd-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" bash "$AGENT" spawn --dir "$WORK" --coordinator-successor --title 'Coord : x' 2>&1 | grep -c 'orchestrator:install')"
+check "--inherit-model beside --coordinator-successor asks for what is already implied" "1" \
+  "$(crdl --coordinator-successor --inherit-model --title 'Coord : x' | grep -c -- '--model crd-model')"
+
+# `rotate` and `move` treat the coordinator's tab as not the caller's to replace or place,
+# exactly like an auditor's: read by its NAME in the process table, so a stale chain entry
+# naming it moves nothing.
+PSCRD="$WORK/ps-coord.txt"
+printf '/dev/ttys950 /opt/x/claude --name Coord : ops\n/dev/ttys901 /opt/x/claude --name Agent : x\n' > "$PSCRD"
+crdrot() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_PS_TABLE="$PSCRD" \
+  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" "$@" 2>&1; }
+check "rotate refuses --coordinator-successor" "1" "$(crdrot --old-tty /dev/ttys901 --coordinator-successor | grep -c -- '--coordinator-successor is not a rotation')"
+CRDROT=$(crdrot --old-tty /dev/ttys950)
+check "rotate refuses the coordinator's tab before it spawns anything" "0|1|1" \
+  "$(printf '%s' "$CRDROT" | grep -c '^launch=')|$(printf '%s' "$CRDROT" | grep -c "rotate: refused: /dev/ttys950 is the coordinator's tab ('Coord : ops')")|$(crdrot --old-tty /dev/ttys950 >/dev/null 2>&1; echo $?)"
+check "--force rotates it, and says so" "1|1" \
+  "$(crdrot --old-tty /dev/ttys950 --force | tail -1 | grep -c '^close=/dev/ttys950')|$(crdrot --old-tty /dev/ttys950 --force | grep -c "^rotate: forced: /dev/ttys950 is the coordinator's tab")"
+check "an agent's tab still rotates without --force" "1" "$(crdrot --old-tty /dev/ttys901 | tail -1 | grep -c '^close=/dev/ttys901')"
+printf '{"tab_id":"9","tty":"/dev/ttys950","owner":"S-ME"}\n' >> "$CRDSTATE/chains/ttys900.jsonl"
+crdmv() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move "$@" 2>&1; }
+check "the coordinator's tab is not moved, even with a stale chain entry naming it" "1|1" \
+  "$(crdmv --tty /dev/ttys950 --right-of self >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --right-of self | grep -c "move: refused: /dev/ttys950 is the coordinator's tab ('Coord : ops'), not this session's to place (pass --force to move it anyway)")"
+check "--force moves it, and says so" "0|1" \
+  "$(crdmv --tty /dev/ttys950 --right-of self --force >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --right-of self --force | grep -c "^move: forced: /dev/ttys950 is the coordinator's tab")"
+check "the coordinator's tab is not moved leftmost either" "1|1" \
+  "$(crdmv --tty /dev/ttys950 --leftmost >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --leftmost | grep -c "move: refused: /dev/ttys950 is the coordinator's tab ('Coord : ops'), not this session's to place (pass --force to move it anyway)")"
+check "--force moves it leftmost too, and says so" "0|1" \
+  "$(crdmv --tty /dev/ttys950 --leftmost --force >/dev/null 2>&1; echo $?)|$(crdmv --tty /dev/ttys950 --leftmost --force | grep -c "^move: forced: /dev/ttys950 is the coordinator's tab")"
+check "an agent of the chain still moves" "1" "$(crdmv --tty /dev/ttys901 --right-of self | grep -c '^move=/dev/ttys901 right_of=/dev/ttys900$')"
+check "the coordinator's own tab moves leftmost, by itself" "1" \
+  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys950 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move --tty /dev/ttys950 --leftmost | grep -c '^move=/dev/ttys950 left_of=leftmost$')"
+
+# The launcher's own documentation names the two new forms and the reserved title, in the
+# auditor's pattern: SKILL.md's tab layout convention, the command reference, and the
+# entry point's header synopsis.
+ITERMSKILL="$ROOT/skills/iterm-agents/SKILL.md"
+ITERMCMDS="$ROOT/skills/iterm-agents/references/commands.md"
+ITERMSH="$ROOT/skills/iterm-agents/scripts/iterm-agent.sh"
+check "SKILL.md names the coordinator-successor and --leftmost, in the auditor's pattern" "yes|yes|yes" \
+  "$(spells "$ITERMSKILL" '--coordinator-successor')|$(spells "$ITERMSKILL" '--leftmost')|$(spells "$ITERMSKILL" 'Coord :')"
+check "commands.md documents the coordinator-successor spawn and the move --leftmost form" "yes|yes|yes" \
+  "$(spells "$ITERMCMDS" '--coordinator-successor')|$(spells "$ITERMCMDS" '--leftmost')|$(spells "$ITERMCMDS" 'is refused on any')"
+check "the entry point's header lists both new forms" "yes|yes" \
+  "$(spells "$ITERMSH" '--coordinator-successor')|$(spells "$ITERMSH" '--leftmost')"
 
 # `/orchestrator:audit` (§52): the brief instantiated and linted, the auditor spawned with
 # the launcher's own flag, verified on the artifact, recorded where `audit-end` finds it.
@@ -3926,18 +4028,20 @@ check "trace: sources at HEAD sees the shortened file" "exit 1" "$(trace_status 
 check "trace: sources --ref reads the older commit" "exit 0" "$(trace_status sources inventory.md --ref HEAD~1)"
 
 # A rule added after the commit the inventory is checked at cites a file that commit never
-# had: its citation carries its own commit, `path:line@<commit>`, and is read there.
-variant srcat.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
-check "trace: a citation naming its commit is read at that commit, not at HEAD" "" \
-  "$(row FIX-004 sources srcat.md)"
+# had: its citation reads 'path:line@HEAD', the literal current head, and is read there
+# instead of failing as absent. No other suffix survives a rebase, so `@HEAD` is the only
+# one accepted; a commit sha or any other ref is refused rather than read.
 variant srcathead.md 's/| beta.md:3 |/| beta.md:3@HEAD |/'
-check "trace: a citation's own commit overrides --ref" "FIX-004 past-end:beta.md:3@HEAD beta.md" \
+check "trace: a citation suffixed @HEAD is read at the literal head, overriding --ref" \
+  "FIX-004 past-end:beta.md:3@HEAD beta.md" \
   "$(trace sources srcathead.md --ref HEAD~1 | grep '^FIX-004 ')"
-variant srcatpast.md 's/| beta.md:3 |/| beta.md:9@HEAD~1 |/'
-check "trace: a citation past the end at its own commit is named" "FIX-004 past-end:beta.md:9@HEAD~1 beta.md" \
-  "$(row FIX-004 sources srcatpast.md)"
-variant srcatref.md 's/| beta.md:3 |/| beta.md:3@no-such-ref |/'
-check "trace: a citation naming an unknown commit is named" "FIX-004 bad-ref:beta.md:3@no-such-ref beta.md" \
+variant srcatsha.md 's/| beta.md:3 |/| beta.md:3@2f2e22b |/'
+check "trace: a citation suffixed with a commit sha is refused" \
+  "FIX-004 bad-suffix:beta.md:3@2f2e22b beta.md" \
+  "$(row FIX-004 sources srcatsha.md)"
+variant srcatref.md 's/| beta.md:3 |/| beta.md:3@HEAD~1 |/'
+check "trace: a citation suffixed with anything but HEAD is refused" \
+  "FIX-004 bad-suffix:beta.md:3@HEAD~1 beta.md" \
   "$(row FIX-004 sources srcatref.md)"
 check "trace: a plain citation is still read at --ref" "FIX-004 past-end:beta.md:3 beta.md" \
   "$(row FIX-004 sources inventory.md)"
