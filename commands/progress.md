@@ -24,7 +24,8 @@ from the state file alone, never from memory of what was said.
    measurement nobody took.
 4. Measure your own context: run
    `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh` and keep
-   its `context_percent=` and `source=` lines.
+   its `context_percent=`, `context_tokens=`, `context_window=` and `source=`
+   lines.
 5. Present, in this order and nothing else:
    - **Done** — phases merged, with PR numbers and what each delivered in one line.
    - **In flight** — phases with a PR open or an agent writing: agent name,
