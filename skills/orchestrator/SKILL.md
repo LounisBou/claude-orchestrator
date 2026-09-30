@@ -135,12 +135,6 @@ These bind at actions no reference is loaded for — a message sent, a report re
 
 When you hand over to a successor: Until the takeover confirmation arrives, the predecessor answers nothing new — it only hands over. On it, « handed over » is its last message, and the turn ends there.
 
-When an auditor runs:
-
-**What you owe it.** The state it asks for, from the artifacts and not from memory. Answers in order, as fast as the operator's. The rulings: relay the operator's rulings to the auditor as they come, dated and verbatim. The application: the orchestrator applies every ordered change it sends — or refuses it with the ruling it crosses — without asking the operator whether to, and writes the application where the method lives, in the same move. And the next audit's reading: the report stays under the briefs directory's `audits/`, the next brief points at it, and the next auditor reads, change by change, whether each order was applied, is applicable as written, and bore fruit.
-
-**Across a succession.** A running audit is part of the state: the succession brief you write names the auditor, its tty and its report path, and the successor re-announces its address to the auditor like to any agent, and moves the audit's record under its own session id. The auditor's tab itself does not move: the successor opens immediately right of the predecessor, whose tab then closes, so the auditor — immediately left of the predecessor — ends up immediately left of the successor instead.
-
 ## Thresholds
 
 They hold at every step of the loop, whatever a reference adds.
@@ -172,7 +166,7 @@ arbitrations need.
 explicit request.** His words: « A pull request stays in draft; the orchestrator considers
 it ready, and it NEVER has the right to merge a pull request or take it out of draft without
 my clear and explicit REQUEST! » Neither is yours to take on green evidence, by « decide and
-move », or on an auditor's order: you tell him « ready » and wait for his request. A
+move »: you tell him « ready » and wait for his request. A
 project's own method may decide otherwise — auto-merge, pull requests that ship ready rather
 than draft — and where it does, that text governs.
 
@@ -261,9 +255,7 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 | "The operator can run it in two seconds" | The operator can decide in two seconds. Running is yours; spawn what your session lacks. |
 | "My session has no PATH for it, so it is his" | A session limit is repaired by a successor with the right environment, not delegated upward. |
 | "I will hand him the exact line to be safe" | A line he did not write is one he cannot check. Run it, read the result, report the reading. |
-| "The auditor's order is a suggestion; I will weigh it against the plan" | It is an order carrying its measurement. Apply it, or name the operator's ruling it crosses. |
 | "I read that an hour ago, it cannot have changed" | He merges, closes and undrafts between your turns. Re-read the artifact in the turn you ask, propose or report on it; an item found done is reported done in one line, not asked. |
-| "The audit found nothing grave, the tab can stay for the next one" | An audit ends with its report. Close the tab on « ended »; the next audit is a fresh session with a brief. |
 
 ## Red flags: STOP
 
@@ -303,4 +295,3 @@ A plan, a prompt template or a norms file that outlives the decision it served i
 - A presentation of work he tied to a named skill, written without having opened that skill; several items merged where that method presents one; a person named by anything no command printed.
 - A repair justified by a ruling of his rather than by the thing that is broken — above all a ruling given in the same round: read the direction before you write it, a rule that forbids making something makes it rarer, not commoner.
 - An agent about to be spawned anywhere but in an iTerm2 tab, unless his explicit instruction on that point says otherwise (a launcher that cannot make a tab still stops); a launcher failure routed around instead of reported; a session in your listing you cannot point to in the operator's window.
-- An auditor's ordered change neither applied nor refused with the ruling it crosses; an auditor's order put to the operator as a question; an auditor's tab still open after its « ended »; an audit ended, or relaunched, without the operator's word; an auditor spawned by anything but `--auditor`.
