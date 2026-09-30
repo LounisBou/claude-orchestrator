@@ -71,7 +71,7 @@ skills/context-gauge/scripts/context-gauge.sh
 skills/context-gauge/scripts/statusline-tap.sh
 templates/agent-phase-brief.md       one implementer, one phase, one PR
 templates/agent-rotation-brief.md    resume brief for a fresh implementer
-templates/agent-review-brief.md      one review round, read-only, one lens per reader
+templates/agent-review-brief.md      one review round, read-only, readers sized by the orchestrator
 templates/agent-comments-brief.md    one pass over a pull request's open threads
 templates/orchestrator-succession-brief.md
 templates/agent-audit-brief.md       one audit of the method: the stock, the net balance, proposals, then stop
@@ -420,7 +420,7 @@ Temporary files across the plugin are anchored to `TMPDIR`: the platform default
 
 ## 5. Templates
 
-Six briefs with `{{PLACEHOLDER}}` markers, each carrying the sections the orchestrator skill makes mandatory: `agent-phase-brief.md` (one implementer, one phase, one pull request), `agent-rotation-brief.md` (a fresh implementer resuming a phase), `agent-review-brief.md` (one review round, read-only, one lens per reader), `agent-comments-brief.md` (one pass over a pull request's open threads), `agent-audit-brief.md` (one audit of the method, one report, then stop) and `orchestrator-succession-brief.md` (a successor taking the orchestration over). How a brief is built from them is `skills/orchestrator/references/briefs.md`, « Agent prompt recipe ».
+Six briefs with `{{PLACEHOLDER}}` markers, each carrying the sections the orchestrator skill makes mandatory: `agent-phase-brief.md` (one implementer, one phase, one pull request), `agent-rotation-brief.md` (a fresh implementer resuming a phase), `agent-review-brief.md` (one review round, read-only, readers sized by the orchestrator), `agent-comments-brief.md` (one pass over a pull request's open threads), `agent-audit-brief.md` (one audit of the method, one report, then stop) and `orchestrator-succession-brief.md` (a successor taking the orchestration over). How a brief is built from them is `skills/orchestrator/references/briefs.md`, « Agent prompt recipe ».
 
 A template is read by an agent that does not load the orchestrator skill, so it keeps in full the rules that agent needs — the orchestrator's address, the STOP-and-ask clause, synchronous commands, the gauge as its context nears the gate — and the skill points at the template rather than restating them. No template points at a plugin path, and none carries a host variable or a session reference (section 11): `brief-lint.sh` flags a brief that does.
 
@@ -469,7 +469,7 @@ The orchestrator's core loop — plan, brief, launch, verify, review, terminate,
 
 ### 9.2 The review round
 
-One review session per round, spawned from `agent-review-brief.md` in a copy pinned at the head under review (section 37), fanning out read-only readers one lens each, the project's own norms tool among them, and reporting once. The orchestrator verifies every finding on the artifact, keeps only what must necessarily be fixed and names every dropped item with its reason, dispatches one correction round, and verifies it itself. The round lands on the dispatch record, and `ready` refuses a head no round read (sections 55, 58). The rules are `skills/orchestrator/references/review.md` and `SKILL.md`, « Thresholds »; review comments on a pull request go to a comments session, `references/review.md`, « Review rounds run in disposable sessions ».
+One review session per round, spawned from `agent-review-brief.md` in a copy pinned at the head under review (section 37), its readers sized by the orchestrator, from its own reading to several lenses, the project's own norms tool among them, and reporting once. The orchestrator verifies every finding on the artifact, keeps only what must necessarily be fixed and names every dropped item with its reason, dispatches one correction round, and verifies it itself. The round lands on the dispatch record, and `ready` refuses a head no round read (sections 55, 58). The rules are `skills/orchestrator/references/review.md` and `SKILL.md`, « Thresholds »; review comments on a pull request go to a comments session, `references/review.md`, « Review rounds run in disposable sessions ».
 
 A pull request stays in draft. Ready, from the orchestrator's side, is implemented, reviewed, corrected, verified, `ready` green and rebased; then it tells the operator « ready ». Merging a pull request and taking it out of draft are the operator's, on his clear and explicit request, and in no list of what the orchestrator decides and moves on (sections 23, 58).
 
