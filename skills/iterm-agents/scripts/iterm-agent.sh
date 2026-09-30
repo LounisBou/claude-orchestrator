@@ -5,11 +5,11 @@
 #   iterm-agent.sh list
 #   iterm-agent.sh spawn --dir <path> [--tier deep|standard|light | --model <id> | --inherit-model]
 #                        [--permission-mode auto] [--title <t>]
-#                        [--prompt <text> | --prompt-file <path>]
+#                        (--prompt <text> | --prompt-file <path> | --brief <path> --orchestrator <name>)
 #                        [--left-of <tty> | --right-of <tty> | --right-of self | --successor] [--no-verify]
-#   iterm-agent.sh spawn --dir <path> --auditor --title "Audit : <subject>" [--prompt <text>]
+#   iterm-agent.sh spawn --dir <path> --auditor --title "Audit : <subject>" (--prompt <text> | --prompt-file <path>)
 #     the caller's auditor: left of the caller, its model, remote control on, no chain
-#   iterm-agent.sh spawn --dir <path> --coordinator-successor --title "Coord : <subject>" [--prompt <text>]
+#   iterm-agent.sh spawn --dir <path> --coordinator-successor --title "Coord : <subject>" (--prompt <text> | --prompt-file <path>)
 #     the coordinator's own successor: first place of the caller's window, its model,
 #     remote control on, no chain
 #   iterm-agent.sh verify --tty /dev/ttysNNN
@@ -19,6 +19,10 @@
 #   iterm-agent.sh rotate --old-tty /dev/ttysNNN [--expect-title <s>] <spawn options...>
 #   iterm-agent.sh trust prune [--apply]
 #     list, then remove with --apply, the trust entries whose directory is gone
+#
+#   A startup prompt is REQUIRED on every spawn and rotate: the host writes a session's
+#   transcript only once it has one, so a promptless launch is refused before any tab is
+#   made — --no-verify does not lift it.
 #
 # Interpreter: the environment the installer builds, when it is there; otherwise any
 # python3. The module iTerm2 needs is imported only by the subcommands that talk to the
