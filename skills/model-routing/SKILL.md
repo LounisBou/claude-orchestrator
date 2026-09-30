@@ -34,7 +34,7 @@ Each row is the tier this skill reads for a class of work: the input you start f
 | The final verification phase (spec conformity, norms over the full diff, E2E) | `deep` | nobody |
 | A behaviour phase with the contract already fixed | `standard` | the test suite, then the review round |
 | A conversion phase (move, rename, extract) | `standard` | « nothing observable changed »: the suite judges |
-| An N-bis corrective on a findings list | `standard` | you, on the artifact: the diff, the decisive tests, a mutation |
+| An N-bis corrective on a findings list | `standard` | you, on the artifact: the diff, the decisive tests |
 | A review collector, a comments agent | `standard` | you verify every finding |
 | The review lenses | `standard` | the collector, then you |
 | Read-only search subagents | `light` | they locate; they never judge |
