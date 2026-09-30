@@ -2710,12 +2710,13 @@ check_status "a map with no bindings is not an error" 0 \
 check "a map with no bindings resolves to nothing" "" \
   "$(env ORCHESTRATOR_MODELS_MAP="$WORK/nobindings.json" bash "$AGENT" resolve-tier deep)"
 # And the refusal has to stop the launch, not just print: same shape as the rotation that
-# opened a tab for a tier that did not exist. --prompt is required so this check fails on
-# the map, not on the promptless refusal running ahead of it (verified: with the map made
-# valid, this same call exits 0 and the check falls, as it must not with a broken one).
+# opened a tab for a tier that did not exist. --title and --prompt are required so this
+# check fails on the map, not on the title or promptless refusals running ahead of it
+# (verified: with the map made valid, this same call exits 0 and the check falls, as it
+# must not with a broken one).
 check_status "a broken map stops the spawn" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$WORK/broken.json" \
-  bash "$AGENT" spawn --dir "$WORK" --tier deep --prompt p
+  bash "$AGENT" spawn --dir "$WORK" --title "Agent : x" --tier deep --prompt p
 
 check "a missing map is an all-empty map" "" \
   "$(env ORCHESTRATOR_MODELS_MAP="$WORK/absent.json" bash "$AGENT" resolve-tier standard)"
