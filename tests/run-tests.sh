@@ -118,18 +118,31 @@ check "the rotation closes by tty with the acknowledgment as its guard" "1" \
   "$(grep -c 'closes the old tab by its tty — the stood-down acknowledgment is the guard, and a rotation takes no title guard' "$lc")"
 check "the rotation names the replacement's place" "1" "$(grep -c 'rotate --right-of self` (it spawns the fresh session with the brief path as its startup prompt at the end of your chain' "$lc")"
 check "no title guard left on a rotation" "0" "$(grep -c 'tty + title guard' "$lc")"
+check "a project's instantiation rule no longer carves out succession" "0" \
+  "$(grep -c 'governs the FIRST instantiation, never the succession' "$lc")"
 
 # Merging and undrafting a pull request are the operator's, on his clear and explicit request:
 # they left every « decide and move » list and every list of what the orchestrator runs,
 # the auditor's included. A list that names merges again hands them back to a session.
 hits=$(cd "$ROOT" && git grep -nE 'merges, deploys|Opening, merging|merging and tagging' -- skills/ commands/ templates/ README.md || true)
 check "no merge in a decide-and-move or orchestrator-runs list" "" "$hits"
-check "the rulebook keeps merge and undraft the operator's" "1" \
-  "$(grep -c 'Merging a pull request and taking it out of draft are the two exceptions' "$ROOT/skills/orchestrator/SKILL.md")"
+check "the rulebook keeps merge and undraft the operator's by default" "1" \
+  "$(grep -c 'By default, merging a pull request and taking it out of draft are his, on his clear and' "$ROOT/skills/orchestrator/SKILL.md")"
+check "a project's own method may decide otherwise on merge and undraft" "1" \
+  "$(grep -c "project's own method may decide otherwise — auto-merge, pull requests that ship ready rather" "$ROOT/skills/orchestrator/SKILL.md")"
+check "the coordinator's overview keeps merge and undraft the operator's by default" "1" \
+  "$(grep -c "operator's by default (a project's own method may decide otherwise), method is the auditor's" "$ROOT/skills/coordination/SKILL.md")"
+check "the coordinator's ready-is-not-a-merge section names the default too" "1" \
+  "$(grep -c "that call is his by default, or a" "$ROOT/skills/coordination/SKILL.md")"
 check "the audit reference keeps merge and undraft out of its list" "1" \
   "$(grep -c 'Merging a pull request and taking it out of draft are in no such list, the auditor' "$ROOT/skills/orchestrator/references/audit.md")"
 check "the audit brief keeps merge and undraft out of its list" "1" \
   "$(grep -c 'draft are in no such list: they are the operator.s, on his clear and explicit request' "$ROOT/templates/agent-audit-brief.md")"
+# Two locks hold whatever is said — the push guard and the title-verified close — and
+# nothing else the launcher refuses is written as an absolute. Read with the rulebook's
+# line breaks folded.
+check "only the two locks hold whatever is said, never routed around" "1" \
+  "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said, never routed around: the push guard, and the tab close verified by its title." | wc -l | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
 # of a lower branch is replayed around, never through.
