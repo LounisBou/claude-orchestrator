@@ -2262,10 +2262,12 @@ check "a release is sent to the coordinator as « released <id> », and it wakes
   "$(spells "$CHRULE" 'send that coordinator « released <id> »')|$(spells "$CHLIFE" 'the coordinator is sent « released <id> »')|$(spells "$CHCOORD" '**On a release** — « released <id> »')"
 check "a failed declare dispatches nothing, and « no open declaration » on release is already closed" "yes|yes" \
   "$(spells "$CHRULE" '**A `declare` that fails — exit 1 and no')|$(spells "$CHRULE" '`release` answering « no open declaration <id> » means the')"
-check "the channel adds steps and holds none back: tier map, findings, verified head, the launch now" "yes|yes|yes|yes" \
-  "$(spells "$CHRULE" 'still reads the tier map (`iterm-agent.sh resolve-tier`)')|$(spells "$CHRULE" 'finding on the artifact, `fixed` and `ready` still read the verified head')|$(spells "$CHRULE" 'declare, « go » and spawn are one move of that launch')|$(spells "$CHRULE" 'says so in one line and carries on as with nothing printed')"
-check "a relay carries nothing of the coordinator's own reading of the pull request" "yes" \
-  "$(spells "$CHCOORD" 're-read of its state serves your logistics rulings, never the relay')"
+check "the channel adds steps and holds none back: tier map, findings, verified head, the launch in one move" "yes|yes|yes|yes|yes|yes|yes|yes" \
+  "$(spells "$CHRULE" 'it replaces none and holds none back.')|$(spells "$CHRULE" 'still reads the tier map (`iterm-agent.sh resolve-tier`)')|$(spells "$CHRULE" 'a verdict still verifies every')|$(spells "$CHRULE" '`fixed` and `ready` still read the verified head')|$(spells "$CHRULE" 'A launch he orders is done in the same turn: declare, « go » and spawn are one move,')|$(spells "$CHRULE" 'never a question put back to him, a condition or a hand-back.')|$(spells "$CHRULE" 'and his « now » does not lift them.')|$(spells "$CHRULE" 'the channel is never a blocker put to him.')"
+check "only a session with no shell skips the channel; a script that errs keeps its rules" "yes|yes" \
+  "$(spells "$CHRULE" 'A session with no shell tool at all says so in one line and carries on as with nothing printed')|$(spells "$CHRULE" 'A script that runs and errs keeps the rules below:')"
+check "a relay carries nothing of the coordinator's own reading of the pull request" "yes|yes" \
+  "$(spells "$CHCOORD" 'and nothing of your own reading of the pull request')|$(spells "$CHCOORD" 're-read of its state serves your rulings and your queue, never the relay')"
 check "every session spawned for a phase or a round is declared, the comments round included" "yes" \
   "$(spells "$CHRULE" 'implementer, a review, a correction round, a comments round, each released at its close')"
 check "a next phase sent to a running agent waits for go before its brief" "yes|yes|yes" \
