@@ -286,7 +286,8 @@ check "and its tab is still there" "1" "$(bash "$AGENT" list | grep -c "$old_tty
 # title to say what it is doing. The tty is the identity; what makes the close safe is the
 # stand-down that preceded it, not a string that was true a moment ago.
 out=$(bash "$AGENT" rotate --old-tty "$old_tty" \
-      --dir "$SANDBOX/repo" --tier "$tier" --title "Agent : e2e rotated" 2>&1)
+      --dir "$SANDBOX/repo" --tier "$tier" --title "Agent : e2e rotated" \
+      --prompt "Do nothing." 2>&1)
 TTY=$(printf '%s' "$out" | grep -oE '/dev/ttys[0-9]+' | head -1)
 check "the rotation returned a new tty" "yes" "$(printf '%s' "$TTY" | grep -qE '^/dev/tty' && echo yes || echo "$out")"
 check "the replacement is not the session it replaced" "different" \
@@ -300,7 +301,9 @@ for _ in 1 2 3 4 5 6; do
 done
 check "the session it replaced is gone" "1" "$gone"
 check "and its tab with it" "0" "$(bash "$AGENT" list | grep -c "$old_tty")"
-OLD_TTY=""
+# Cleared only once the old session is PROVED gone: a rotation this probe fails past this
+# point must still find its old tab closed by the trap, not leaked past the sandbox.
+[ "$gone" = 1 ] && OLD_TTY=""
 
 echo "== stand down =="
 title=$(bash "$AGENT" list | grep "$TTY" | cut -d'|' -f3 | sed 's/^ *//;s/ *$//' | cut -c1-6)
