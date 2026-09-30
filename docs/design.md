@@ -97,12 +97,7 @@ tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
 tests/fixtures/transcript.jsonl      a transcript tail for the gauge's computed tier
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
-tests/rules-trace.sh                 every inventoried rule found at its sources and its target
-tests/fixtures/rules-inventory/inventory.md   a small inventory the trace is tested on
-tests/fixtures/rules-inventory/alpha.md       a target file of that inventory
-tests/fixtures/rules-inventory/beta.md        a target file of that inventory
 docs/design.md                       this document
-docs/rules-inventory.md              working file: every directive rule, deleted once the rewrite is done
 docs/specs/2026-09-29-coordinator-design.md  the coordinator's design, deleted once it is built
 evals/README.md                      how the behaviour suite is staged, run and read
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
@@ -507,9 +502,7 @@ A skill never takes a command's name: a plugin's commands and skills share one n
 
 `tests/e2e.sh` plays one real round against a live terminal and stays out of the default suite on purpose (section 15).
 
-`evals/` is the behaviour suite, run by the host's plugin evaluation command: one case per critical rule or cluster, staged at the moment of the action, graded on the decision, compared case by case with a committed baseline. How a case is staged, run and read is `evals/README.md`; which rules the cases cover and why is `evals/SELECTION.md`.
-
-`docs/rules-inventory.md` lists every rule the directives state, one row per rule with its sources, its fate and where it lives now, and `tests/rules-trace.sh` checks it: `sources` that every cited line exists at the base the inventory was taken on, `targets` that every kept rule's signature is found once where the inventory says it lives. It is the mechanical proof that a rewrite of the directives lost no rule silently; a row that would leave the plugin is dropped only on the operator's ruling.
+`evals/` is the behaviour suite, run by the host's plugin evaluation command: a small core of cases, each one that has caught a real defect or guards an irreversible action, graded on the decision, compared case by case with a committed baseline. How a case is staged, run and read is `evals/README.md`; which rules the cases cover and why is `evals/SELECTION.md`.
 
 `ORCHESTRATOR_*` variables are the suite's door into every script (a dry run, a state directory, a fixture process table) and the operator's alike (section 45).
 

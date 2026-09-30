@@ -6,10 +6,8 @@ is run by the host's plugin evaluation command, twice per case: once with the pl
 loaded and once without it. A rule the suite covers is one whose absence the no-plugin arm
 shows.
 
-`SELECTION.md` says which rules are covered and why these ones: the operator's duties, the
-critical rules whose text a rewrite moves to another file, and the critical rules stated in
-more than one file. `docs/rules-inventory.md` marks every covered row `eval` and names its
-case at the end of its `rule` cell.
+`SELECTION.md` says which rules are covered and why these ones: cases that have caught a
+real defect, and cases guarding an irreversible action.
 
 ## Layout
 
