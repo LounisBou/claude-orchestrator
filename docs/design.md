@@ -103,7 +103,6 @@ tests/fixtures/rules-inventory/alpha.md       a target file of that inventory
 tests/fixtures/rules-inventory/beta.md        a target file of that inventory
 docs/design.md                       this document
 docs/rules-inventory.md              working file: every directive rule, deleted once the rewrite is done
-docs/specs/2026-09-29-coordinator-design.md  the coordinator's design, deleted once it is built
 evals/README.md                      how the behaviour suite is staged, run and read
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
 evals/baseline-0.34.0.json           the first baseline run, with and without the plugin
@@ -469,6 +468,7 @@ Requirements: `jq` for the tap and the installer, `python3` for the transcript s
 | `iterm-agents` | the rules of the tab tooling: reading the tabs, an agent is an iTerm2 tab, the layout convention, the safety orders for a launch and a rotation, tab hygiene | `commands.md` (every command's synopsis and refusals, how the launcher builds a tab, when iTerm2 does not answer), `incidents.md` |
 | `model-routing` | a decision aid for the orchestrator's choice of tier: the principle, the table by class of work, the five readings, escalation, the cascade, the false economy, the second reader, the record | `incidents.md` |
 | `context-gauge` | how a session reads its own fill, and the duty to report the measurement | — |
+| `coordination` | the coordinator's own role, above every orchestration on one machine: sorts what reaches it and puts it to the operator one question at a time in the decision round's shape, rules logistics on the re-read facts, relays verbatim and dated, never merges, undrafts, scopes or changes a method, writes in no repository, succeeds itself at its context gate | — |
 
 A rule lives once, where the session that needs it will read it when it needs it. `SKILL.md` holds what the orchestrator must carry at all times; a reference holds the rules of one action, and the step of the core loop that performs that action tells the session to read it at that moment (« before writing a brief, read `references/briefs.md` »). The risk of that shape is a rule sitting in a reference that is not read when it applies, so the load instruction is tied to the action rather than the topic, and every critical case of the eval suite is staged at the moment of the action. Each reference over a hundred lines opens with its table of contents, and each `SKILL.md` stays under five hundred lines.
 
@@ -484,6 +484,7 @@ Every project-specific fact is removed; the skill states the rule and leaves the
 | `skills/orchestrator/scripts/workspace.sh` | a clone per phase with the project's local material; a pinned worktree per review round | sections 30, 35, 36, 37, 40 |
 | `skills/orchestrator/scripts/rhythm.sh` | an audit's rhythm figures, from git alone | section 52 |
 | `skills/context-gauge/scripts/context-gauge.sh`, `statusline-tap.sh` | the gauge and its tap | sections 3, 32 |
+| `skills/coordinator/scripts/coordinator.sh` | the coordinator's address and its claims ledger: register, clear, lookup, declare, release, conflicts | section 9.5 |
 | `install.sh`, `uninstall.sh` | wire and unwire the tap, create and remove the state directory | sections 3.4, 33 |
 
 Temporary files across the plugin are anchored to `TMPDIR`: the platform default can be a directory a restricted shell may not write to, and a script that fails there fails on a path it never chose.
@@ -504,7 +505,7 @@ A template is read by an agent that does not load the orchestrator skill, so it 
 
 ## 6. Commands
 
-Each command carries its own procedure and points at the skill for the rules. `install` and `uninstall` wire and unwire the tap (section 3.4); `status` lists live sessions with their measured context fill; `agents` reports each running implementer's progress, asked and then verified on the artifact; `progress` says where the build stands and the orchestrator's own context; `decide` runs the decision round, one arbitration at a time; `succeed` runs the orchestrator's succession (section 9.3); `audit` and `audit-end` launch and end an audit on the operator's word (section 52).
+Each command carries its own procedure and points at the skill for the rules. `install` and `uninstall` wire and unwire the tap (section 3.4); `status` lists live sessions with their measured context fill; `agents` reports each running implementer's progress, asked and then verified on the artifact; `progress` says where the build stands and the orchestrator's own context; `decide` runs the decision round, one arbitration at a time; `succeed` runs the orchestrator's succession (section 9.3); `audit` and `audit-end` launch and end an audit on the operator's word (section 52); `coordinator` and `coordinator-end` start and end the machine's coordinator on the operator's word (section 9.5).
 
 A command names in its `allowed-tools` the tools it needs, and nothing more: `progress` lets the artifacts win where they disagree with the state file, and corrects the file before presenting, which is why it holds `Edit` (section 56).
 
@@ -518,7 +519,7 @@ A skill never takes a command's name: a plugin's commands and skills share one n
 
 `evals/` is the behaviour suite, run by the host's plugin evaluation command: one case per critical rule or cluster, staged at the moment of the action, graded on the decision, compared case by case with a committed baseline. How a case is staged, run and read is `evals/README.md`; which rules the cases cover and why is `evals/SELECTION.md`.
 
-`docs/rules-inventory.md` lists every rule the directives state, one row per rule with its sources, its fate and where it lives now, and `tests/rules-trace.sh` checks it: `sources` that every cited line exists at the base the inventory was taken on, `targets` that every kept rule's signature is found once where the inventory says it lives. It is the mechanical proof that a rewrite of the directives lost no rule silently; a row that would leave the plugin is dropped only on the operator's ruling.
+`docs/rules-inventory.md` lists every rule the directives state, one row per rule with its sources, its fate and where it lives now, and `tests/rules-trace.sh` checks it: `sources` that every cited line exists at the ref its row cites — the inventory's own base for a row taken from it, `path:line@HEAD` for a rule born after that base, read at the literal current head whatever `--ref` the run was given, because a commit hash does not survive the chain's rebases or its final squash-merge; `targets` that every kept rule's signature is found once where the inventory says it lives. It is the mechanical proof that a rewrite of the directives lost no rule silently; a row that would leave the plugin is dropped only on the operator's ruling.
 
 `ORCHESTRATOR_*` variables are the suite's door into every script (a dry run, a state directory, a fixture process table) and the operator's alike (section 45).
 
@@ -560,6 +561,10 @@ An agent at the context gate is replaced: `rotate` spawns the fresh session from
 ### 9.4 The audit
 
 An auditor reads the orchestrator's method, reports to the operator and orders changes to the method, launched and ended on the operator's word: section 52, and `skills/orchestrator/references/audit.md`.
+
+### 9.5 The coordinator
+
+A coordinator stands above every orchestration on one machine: while it runs, an orchestrator's questions, its « ready », the stops that are the operator's, its end-of-phase reports and an auditor's « audit ready » go to it instead of the operator, and its declaration before each dispatch waits for its « go ». It is found through a file and a liveness check, never through memory of an announcement: `skills/coordinator/scripts/coordinator.sh lookup` prints the recorded address only while its session still runs the host CLI, read by an orchestrator at loading and before every word it would say to the operator; a stale record is replaced and said, never trusted. The same script's `declare`, `release` and `conflicts` are its claims ledger and the lock that serialises every write to it: a declaration's overlap, a busy checkout and a running heavy process are read on the facts now, never from what the coordinator remembers of them. What an orchestrator sends it, and when, is the channel rule of `skills/orchestrator/SKILL.md`, « While a coordinator runs, the operator is spoken to through it »: a declaration before every dispatch, a release at the end of a phase, and everything that would otherwise have gone to the operator directly; the auditor follows the same rule for its « audit ready ». Its own role — one question at a time in the decision round's shape, relaying verbatim and dated, ruling logistics only, never a merge, an undraft, a scope or a method change, writing in no repository — is `skills/coordination/SKILL.md`; the two commands that start and end it are `commands/coordinator.md` and `commands/coordinator-end.md`, and its own succession, at its context gate, and its end, on the operator's word only, are the same skill's « Its context » and `commands/coordinator-end.md`; its successor's brief is `templates/coordinator-succession-brief.md`.
 
 ## Decisions that hold
 
