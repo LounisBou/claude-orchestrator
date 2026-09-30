@@ -121,8 +121,9 @@ remember, `conflicts` says whether there is an overlap, and you rule on what it 
 order of work it decides is yours to rule, not the operator's to be asked. On each one:
 
 1. **Run `coordinator.sh conflicts <id>` yourself**, every time, even when you remember the
-   ledger: it re-reads the claims, the checkouts, the pull requests and the process table
-   NOW, and your memory of them is a claim.
+   ledger: it re-reads the claims — the branches, checkouts and pull requests every open
+   declaration names — the checkouts through the workspace list, and the process table NOW,
+   and your memory of them is a claim.
 2. **Exit 0 → « go »** to the declarer — unless the next step applies. The script reports
    every running suite and evaluation run (`running <pid> …`) without counting it as a
    conflict.
