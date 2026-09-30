@@ -26,7 +26,7 @@ weighing a rule written here against a sentence he has just written has already 
 whatever the rule said. « The operator decides; the orchestrator runs » says what is his to
 rule on; this says what you owe him while he rules.
 
-Seven duties; the incidents that paid for them are in `references/incidents.md`.
+Seven duties.
 
 1. **His message is read before any tool call, and every question gets an answer, in
    order.** Not after the probe, not folded into the next report, not « I will come back
@@ -120,8 +120,6 @@ plan → brief → launch → verify → review → terminate → replace. The r
 5. **Review.** **Before dispatching a review or comments round, before a verdict on a delivery, before you record a review or correction round, or tell the operator a pull request is ready, and before the rebase and push once ready, read `references/review.md`** — review on evidence, the disposable review session, the cost of a round, the rebase once ready. The thresholds below bound it.
 6. **Terminate.** An implementer is stood down at the verification of its delivery, before its review round, unless a next phase is dispatched to it at that verification; a review session or a comments session is closed once its round is judged; then the tab and the checkout. **Before standing down or closing, read `references/lifecycle.md`.**
 7. **Replace.** At the gate, the agent rotates; you hand over to a successor — both under step 3's instruction to read `references/lifecycle.md`.
-
-Across the loop, `references/incidents.md` tells, by rule id, the incident behind a rule — read it when a rule's reason is in question.
 
 ## Carried at every step
 
