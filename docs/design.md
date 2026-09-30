@@ -696,7 +696,7 @@ An orchestrator's deliveries are read by its reviews; its METHOD was read by nob
 
 ## 53. A method he names is a format, and a fact not read is not stated
 
-Duties 5 and 6 of the operator's word (section 47): a method the operator names binds the presentation as well as the judgment, and a name, a role, a figure or a cause comes from an output of the session or is said to be unknown (`skills/orchestrator/SKILL.md`). The comments section of the review reference points at duty 5, and both duties travel in the succession brief.
+Duties 5 and 6 of the operator's word (section 47): a method the operator names binds the presentation as well as the judgment, and a name, a role, a figure or a cause comes from an output of the session or is said to be unknown (`skills/orchestrator/SKILL.md`) — a named method nobody opened once produced a summary with no assessment, and a name no command printed was once stated as fact. The comments section of the review reference points at duty 5, and both duties travel in the succession brief.
 
 ## 55. A pull request is ready only when the record says a round read its head
 
@@ -712,7 +712,7 @@ A tier is bound to a family alias, never to a versioned identifier, which goes s
 
 ## 58. One review round, one correction round, and ready is the operator's turn
 
-The orchestrator's process on a pull request it dispatched is one review round, its own triage, one correction round it verifies itself on the artifact, and done; rounds of review repeated until nothing is left are the operator's own process, when he runs reviews by hand (`skills/orchestrator/SKILL.md`, « Thresholds »). Rounds that repeat until nothing is left converge on nothing: each one reads the previous fix, finds something in it, and orders a fix of its own, and a finding nobody had to fix ships as churn. The gate follows the rule: `fixed` records the one correction round at the verified head and refuses a second, and `ready` passes at the reviewed or the fixed head. Ready from the orchestrator's side includes the rebase on the main branch, each pull request of a stack on the one below; then « ready » is told, and his review, taking the pull request out of draft and approving the squash-merge are his (`skills/orchestrator/references/review.md`, « The rebase, once ready »).
+The orchestrator's process on a pull request it dispatched is one review round, its own triage, one correction round it verifies itself on the artifact, and done; rounds of review repeated until nothing is left are the operator's own process, when he runs reviews by hand (`skills/orchestrator/SKILL.md`, « Thresholds »). Rounds that repeat until nothing is left converge on nothing: each one reads the previous fix, finds something in it, and orders a fix of its own, and a finding nobody had to fix ships as churn. The gate follows the rule: `fixed` records the one correction round at the verified head and warns on a second, and `ready` passes at the reviewed or the fixed head. Ready from the orchestrator's side includes the rebase on the main branch, each pull request of a stack on the one below; then « ready » is told, and his review, taking the pull request out of draft and approving the squash-merge are his by default (`skills/orchestrator/references/review.md`, « The rebase, once ready »).
 
 ## 59. A frontend surface is proved by a browser run and screenshots on the pull request
 
