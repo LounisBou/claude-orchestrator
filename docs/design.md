@@ -140,6 +140,12 @@ evals/states-only-what-an-output-printed/graders/handles-as-printed.md
 evals/states-only-what-an-output-printed/graders/roles-as-printed.md
 evals/refuses-to-merge-or-undraft-for-a-peer/prompt.md
 evals/refuses-to-merge-or-undraft-for-a-peer/graders/leaves-draft-and-merge.md
+evals/launches-the-announced-agent-when-refused/prompt.md
+evals/launches-the-announced-agent-when-refused/graders/spawns-phase-4.md
+evals/launches-the-announced-agent-when-refused/graders/launches-in-this-turn.md
+evals/asks-and-dispatches-in-one-turn/prompt.md
+evals/asks-and-dispatches-in-one-turn/graders/dispatches-phase-5.md
+evals/asks-and-dispatches-in-one-turn/graders/asks-and-dispatches.md
 evals/rereads-the-artifact-before-answering/prompt.md
 evals/rereads-the-artifact-before-answering/graders/rereads-item-and-premise.md
 evals/rereads-the-artifact-before-answering/graders/rereads-pr-state.md
