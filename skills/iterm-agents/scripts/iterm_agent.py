@@ -1189,58 +1189,97 @@ def settle_auditor(read, move, auditor, caller):
     with the tab elsewhere is the operator finding it by hand. So the order is READ, and a
     wrong one is repaired by the launcher's own move, never by a relaunch. Still wrong
     after that, the line names both ttys and the remedy, and the session stays: an auditor
-    that runs misplaced is moved, not killed."""
-    if placed_left_of(read(), auditor, caller):
+    that runs misplaced is moved, not killed.
+
+    `read` returns None when it could not read, and the line then says what was NOT read —
+    an order nobody saw is not an order found wrong. `move` returns False when the terminal
+    cannot serve a move at all, and the line then offers no `move` command that cannot work."""
+    rows = read()
+    if rows is None:
+        return unverified_line(auditor), 1
+    if placed_left_of(rows, auditor, caller):
         return "", 0
-    move(auditor, caller)
-    if placed_left_of(read(), auditor, caller):
+    served = move(auditor, caller)
+    rows = read()
+    if rows is None:
+        return unverified_line(auditor), 1
+    if placed_left_of(rows, auditor, caller):
         return "", 0
+    mine, theirs = tab_of_row(rows, auditor), tab_of_row(rows, caller)
+    if mine and theirs and mine[0] != theirs[0]:
+        return ("spawn: the auditor on %s is in another window than its orchestrator on %s; "
+                "see iterm-agent.sh list" % (auditor, caller)), 1
+    if served is False:
+        return ("spawn: the auditor on %s is not immediately left of %s, and could not be "
+                "moved because the terminal's API is not available; read iterm-agent.sh list "
+                "and move the tab by hand only if it is misplaced" % (auditor, caller)), 1
     return ("spawn: the auditor on %s is not immediately left of %s; repair it with: "
             "iterm-agent.sh move --tty %s --left-of %s" % (auditor, caller, auditor, caller)), 1
+
+
+def unverified_line(auditor):
+    return ("spawn: could not read the tab order, so the auditor's place on %s is unverified; "
+            "check with: iterm-agent.sh list" % auditor)
 
 
 async def move_left_of(iterm2, connection, tty, anchor):
     """Put `tty`'s tab immediately before `anchor`'s in their window, on a fresh app: the
     window object a caller holds is a cached copy (§14). Silent when either is not in one
-    window, which the caller's next reading turns into the sentence."""
+    window, which the caller's next reading turns into the sentence.
+
+    The anchor is found the way `anchor_position` finds it, by any of its panes: a caller in
+    a split tab whose current pane is another one is still in its tab, and `tty_of` reads
+    only the current pane."""
     app = await iterm2.async_get_app(connection)
     win, tab, _ = await find_tab(app, tty)
     if tab is None:
         return
-    tabs = list(win.tabs)
-    target = None
-    for t in tabs:
-        if await tty_of(t) == anchor:
-            target = t
-            break
-    if target is None or target.tab_id == tab.tab_id:
+    target_win, target, _ = await find_tab(app, anchor)
+    if target is None or target_win.window_id != win.window_id or target.tab_id == tab.tab_id:
         return
-    tabs.remove(tab)
-    tabs.insert(tabs.index(target), tab)
+    tabs = [t for t in win.tabs if t.tab_id != tab.tab_id]
+    tabs.insert([t.tab_id for t in tabs].index(target.tab_id), tab)
     await win.async_set_tabs(tabs)
 
 
 def repair_auditor_place(auditor, caller):
     """§52: read the listing `list` prints, repair with the launcher's own move, read again.
-    A reading or a move the terminal cannot serve is said on stderr by its own rung and
-    leaves the order as it was, which the second reading then reports on stdout."""
+
+    Nothing in here may end the launch: the session is up and its tty is what the caller
+    reads next. A reading or a move that fails, for whatever reason, is said on stderr in
+    one line and the second reading decides; a repair that itself breaks leaves the place
+    unverified, and says so."""
     async def rows(iterm2, connection):
         return await list_rows(await iterm2.async_get_app(connection))
 
+    def note(what, exc):
+        reason = (" ".join(str(exc).split()) or type(exc).__name__) if exc else ""
+        print("spawn: %s%s" % (what, ": " + reason if reason else ""), file=sys.stderr)
+
     def read():
         try:
-            return served_by("list", {"api": lambda: run(rows), "applescript": as_list}) or []
+            return served_by("list", {"api": lambda: run(rows), "applescript": as_list})
         except SystemExit:
-            return []
+            return None
+        except Exception as exc:
+            note("the tab order of the auditor on %s could not be read" % auditor, exc)
+            return None
 
     def move(tty, anchor):
         try:
             served_by("move", {"api": lambda: run(
                 lambda iterm2, connection: move_left_of(iterm2, connection, tty, anchor))})
         except SystemExit:
-            pass
+            return False
+        except Exception as exc:
+            note("the auditor on %s could not be moved" % tty, exc)
+        return True
 
-    return settle_auditor(read, move, auditor, caller)
+    try:
+        return settle_auditor(read, move, auditor, caller)
+    except Exception as exc:
+        note("the auditor's place on %s could not be settled" % auditor, exc)
+        return unverified_line(auditor), 1
 
 
 # --- subcommands -----------------------------------------------------------------
