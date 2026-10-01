@@ -87,6 +87,7 @@ hooks/context-gate.sh                the gate the harness enforces, not the mode
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it
 hooks/stop_gate.py                   the stop gate's two checks and its log
+hooks/session_name.py                the session's name, read once for both gates: the launcher's, else its last rename
 install.sh, uninstall.sh
 tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
