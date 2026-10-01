@@ -144,6 +144,11 @@ check "the audit brief merges nothing" "1" \
 check "only the two locks hold whatever is said, never routed around" "1" \
   "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said, never routed around: the push guard, and the tab close verified by its title." | wc -l | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
+# A predecessor started by hand lists as `(host default)`; the host refuses closing a session the
+# plugin did not launch unless the operator's word is already in the conversation, so the successor
+# asks him up front, before « takeover confirmed ».
+check "the succession brief asks the operator before closing a nameless predecessor" "1|1" \
+  "$(grep -c 'asks him to close it himself or to say « close it »' "$ROOT/templates/orchestrator-succession-brief.md")|$(grep -c '(host default)' "$ROOT/templates/orchestrator-succession-brief.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
 # of a lower branch is replayed around, never through.
 check "ready leaves the pull request in draft" "1" "$(grep -c "Ready is the operator's turn, and the pull request stays in draft" "$ROOT/skills/orchestrator/SKILL.md")"
