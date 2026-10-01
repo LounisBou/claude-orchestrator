@@ -2496,6 +2496,199 @@ nojq_out=$(env PATH="$NOJQ" ORCHESTRATOR_SPAWNED=1 "$(command -v bash)" "$GUARD"
 check "without jq a marked session is let through, with one warning line" "0|1|1" \
   "$nojq_code|$(printf '%s\n' "$nojq_out" | grep -c .)|$(printf '%s' "$nojq_out" | grep -c 'jq')"
 
+echo "== stop gate hook =="
+# An orchestrator's stop is held until something will wake it (Check 1) and until the real
+# state of its open pull requests' checks has been put in front of it once per head
+# (Check 2). The hook is run from a tree of its own, beside a fake launcher whose `list`
+# prints the listing file and a fake `workspace.sh list` printing the checkouts file; a
+# fake `gh` on PATH answers from files and records each `pr checks` call.
+SG="$WORK/stop-gate"
+SGB="$SG/bin"; SGS="$SG/state"; SGP="$SG/sgproj"
+mkdir -p "$SG/hooks" "$SG/skills/iterm-agents/scripts" "$SG/skills/orchestrator/scripts" "$SGB" "$SGS/chains" "$SGP"
+cp "$ROOT/hooks/stop-gate.sh" "$ROOT/hooks/stop_gate.py" "$SG/hooks/" 2>/dev/null
+cp "$ROOT/skills/iterm-agents/scripts/iterm_agent.py" "$SG/skills/iterm-agents/scripts/"
+printf '#!/bin/bash\n[ "$1" = list ] || exit 1\ncat "%s/listing" 2>/dev/null || { echo "list: no terminal backend could serve this" >&2; exit 1; }\n' "$SG" \
+  > "$SG/skills/iterm-agents/scripts/iterm-agent.sh"
+printf '#!/bin/bash\n[ "$1" = list ] || exit 1\ncat "%s/checkouts" 2>/dev/null || { echo "workspace: cannot read the root" >&2; exit 1; }\n' "$SG" \
+  > "$SG/skills/orchestrator/scripts/workspace.sh"
+cat > "$SGB/gh" <<EOF
+#!/bin/bash
+[ -f "$SG/gh-offline" ] && { echo "error connecting to api.github.com" >&2; exit 1; }
+case "\$1 \$2" in
+  "pr list") cat "$SG/prs" 2>/dev/null || echo "[]" ;;
+  "pr checks") echo "\$3" >> "$SG/gh-calls"; cat "$SG/checks-\$3"; [ -f "$SG/checks-\$3.code" ] && exit "\$(cat "$SG/checks-\$3.code")" ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$SGB/gh" "$SG/skills/iterm-agents/scripts/iterm-agent.sh" "$SG/skills/orchestrator/scripts/workspace.sh"
+git -C "$SGP" init -q 2>/dev/null
+
+ORCHROW='w1/t1 | /dev/ttys900 | ✳ Orch : f | Orch : f [a1b2c3] | self'
+sg_listing() { printf '%s\n' "$ORCHROW" "$@" > "$SG/listing"; }
+sg_chain() {  # <tty> <owner> ...: the chain of the orchestrator's tty, in launch order
+  : > "$SGS/chains/ttys900.jsonl"
+  while [ $# -gt 0 ]; do
+    printf '{"tab_id": "t-%s", "tty": "%s", "owner": "%s"}\n' "${1##*/}" "$1" "$2" >> "$SGS/chains/ttys900.jsonl"
+    shift 2
+  done
+}
+sg_reset() { rm -f "$SG/prs" "$SG/gh-calls" "$SG/gh-offline" "$SG"/checks-* "$SGS/stop-gate.log"; rm -rf "$SGS/stop-gate"; : > "$SG/checkouts"; sg_listing; sg_chain; }
+# sg <message> [stop_hook_active] [session id]: the hook's stdout
+sg() {
+  "$py" -c 'import json,sys; json.dump({"session_id": sys.argv[4], "cwd": sys.argv[1], "last_assistant_message": sys.argv[2], "stop_hook_active": sys.argv[3] == "true"}, sys.stdout)' \
+    "$SGP" "$1" "${2:-false}" "${3:-sg-1}" \
+    | env PATH="$SGB:$PATH" ORCHESTRATOR_STATE_DIR="$SGS" ITERM_SESSION_ID="w0t0p0:S-ME" bash "$SG/hooks/stop-gate.sh" 2>/dev/null
+}
+reason() { "$py" -c 'import json,sys; d=json.load(sys.stdin); print(d["decision"] + "|" + d["reason"])' 2>/dev/null; }
+sglog() { cat "$SGS/stop-gate.log" 2>/dev/null; }
+BUSY='w1/t2 | /dev/ttys901 | ◐ Agent : one | Agent : one [b2c3d4]'
+IDLE='w1/t2 | /dev/ttys901 | ✳ Agent : one | Agent : one [b2c3d4]'
+
+echo "-- check 1: what will wake you"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+check "a busy agent of this orchestrator lets the stop pass, silently" "" "$(sg 'I launched the phase.')"
+check "a stop that passes writes nothing to the log" "" "$(sglog)"
+sg_reset; sg_listing "$BUSY" 'w1/t3 | /dev/ttys902 | ✳ Agent : two | Agent : two [c3d4e5]'
+sg_chain /dev/ttys902 S-ME /dev/ttys901 S-ME
+check "one busy agent among idle ones suffices" "" "$(sg 'Waiting on agent one.')"
+
+sg_reset
+check "no agent and no machine line: refused, nothing will wake you" \
+  "block|Nothing will wake you: no agent of yours is running. Launch what you announced, or end with \`waiting: operator — blocks: …\` if a question truly blocks, or \`waiting: done\`." \
+  "$(sg 'I am launching the phase 3 agent now.' | reason)"
+check "the refusal is logged: session name, check, case" "1" \
+  "$(sglog | grep -c '| Orch : f \[a1b2c3\] | check1 | nothing-will-wake$')"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-OTHER
+check "a busy agent of another orchestrator is never counted" "block|Nothing will wake you" \
+  "$(sg 'Waiting.' | reason | cut -c1-27)"
+sg_reset; sg_chain /dev/ttys905 S-ME
+check "a chain entry whose tab is gone is no agent" "block|Nothing will wake you" "$(sg 'Waiting.' | reason | cut -c1-27)"
+sg_reset; sg_listing 'w1/t2 | /dev/ttys901 | -zsh | (host default)'; sg_chain /dev/ttys901 S-ME
+check "a tab with no activity glyph runs no agent" "block|Nothing will wake you" "$(sg 'Waiting.' | reason | cut -c1-27)"
+
+sg_reset; sg_listing "$IDLE"; sg_chain /dev/ttys901 S-ME
+check "only idle agents: refused, the agent named" \
+  "block|Agent : one [b2c3d4] is idle: its notice was spent. Read its report or relaunch it." \
+  "$(sg 'Waiting on agent one.' | reason)"
+check "the idle refusal is logged" "1" "$(sglog | grep -c '| check1 | idle-agents$')"
+
+sg_reset
+check "a question with no blocks: refused" \
+  "block|Your question blocks nothing declared: advance everything that can advance; its answer will come in a later turn." \
+  "$(sg 'Should I merge #12 now?' | reason)"
+check "a machine line naming the operator without blocks: is a question that blocks nothing" \
+  "block|Your question blocks nothing declared" "$(sg 'Merge #12?
+waiting: operator' | reason | cut -c1-43)"
+check "the question refusal is logged" "2" "$(sglog | grep -c '| check1 | question-without-blocks$')"
+
+sg_reset
+check "a blocking question with its machine line lets the stop pass, silently" "" \
+  "$(sg 'Which base for phase 4, main or the release branch?
+
+waiting: operator — blocks: the base of phase 4
+
+')"
+check "the blocks: stop is logged with its reason" "1" \
+  "$(sglog | grep -c '| Orch : f \[a1b2c3\] | check1 | blocks | the base of phase 4$')"
+check "a question followed by a fenced block, then the machine line, lets the stop pass" "" \
+  "$(sg 'Which base for phase 4?
+
+```
+git log --oneline -1 origin/main
+```
+
+waiting: operator — blocks: the base of phase 4')"
+check "a machine line that is not the last non-empty line does not count" "block|Your question blocks nothing declared" \
+  "$(sg 'waiting: operator — blocks: the base
+Which base?' | reason | cut -c1-43)"
+check "a blocks: line with nothing after it does not count" "block|Your question blocks nothing declared" \
+  "$(sg 'waiting: operator — blocks: ' | reason | cut -c1-43)"
+
+sg_reset
+check "done, no checkout, no agent: the stop passes, silently" "" "$(sg 'All merged.
+waiting: done')"
+check "a done stop writes no log line" "" "$(sglog)"
+sg_reset; printf '/ws/sgproj/phase-4 | feat/p4 | abc1234 | clean | pushed\n/ws/other/x | main | def5678 | clean | pushed\n' > "$SG/checkouts"
+check "done against a checkout of the project: refused, the checkout named" \
+  "block|Not done: /ws/sgproj/phase-4 is still there. Finish it, or say what blocks it." \
+  "$(sg 'waiting: done' | reason)"
+check "the not-done refusal is logged" "1" "$(sglog | grep -c '| check1 | not-done$')"
+sg_reset; printf '/ws/other/x | main | def5678 | clean | pushed\n' > "$SG/checkouts"
+check "a checkout of another project does not hold done" "" "$(sg 'waiting: done')"
+sg_reset; sg_listing "$IDLE"; sg_chain /dev/ttys901 S-ME
+check "done against an agent still there: refused, the agent named" \
+  "block|Not done: Agent : one [b2c3d4] is still there. Finish it, or say what blocks it." \
+  "$(sg 'waiting: done' | reason)"
+
+echo "-- scope, loop guard, own failures"
+sg_reset
+check "the loop guard: a stop already refused once in this turn passes" "" "$(sg 'I am launching it.' true)"
+sg_listing; sed -i.bak 's/| self$//' "$SG/listing"; printf '%s\n' 'w1/t2 | /dev/ttys901 | ✳ Agent : one | Agent : one [b2c3d4] | self' >> "$SG/listing"
+check "an agent's session is untouched" "" "$(sg 'I am launching it.')"
+printf '%s\n' 'w1/t1 | /dev/ttys900 | ✳ Coord : m | Coord : m [a1b2c3] | self' > "$SG/listing"
+check "the coordinator's session is untouched" "" "$(sg 'I am launching it.')"
+printf '%s\n' 'w1/t1 | /dev/ttys900 | ✳ Orch : f | (host default) | self' > "$SG/listing"
+check "a session started by hand, without the name, is untouched (the title is not the name)" "" "$(sg 'I am launching it.')"
+check "an untouched session writes no log line" "" "$(sglog)"
+rm -f "$SG/listing"
+check "an unreadable listing lets the stop pass, exit 0" "|0" "$(sg 'I am launching it.'; echo "|$?")"
+check "and appends one line to the log, naming the listing" "1|1" \
+  "$(sglog | grep -c .)|$(sglog | grep -c "| sg-1 | error | the launcher's listing failed: list: no terminal backend could serve this$")"
+sg_reset; rm -f "$SG/checkouts"
+check "an unreadable checkout list lets a done stop pass" "" "$(sg 'waiting: done')"
+check "and logs it" "1" "$(sglog | grep -c '| error | ')"
+
+echo "-- check 2: the real CI state, once per head"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}, {"name": "lint", "bucket": "pending"}, {"name": "test", "bucket": "pass"}]\n' > "$SG/checks-12"
+echo 8 > "$SG/checks-12.code"
+check "pending checks on a new head: refused with the real state" \
+  "block|#12 at abc1234: 2 checks pending (build, lint), 0 failing (). Report this state as it is, or wait for the end in one call: \`timeout 590 gh pr checks 12 --watch\`." \
+  "$(sg 'The reds are fixed, CI is green.' | reason)"
+check "the CI refusal is logged" "1" "$(sglog | grep -c '| check2 | ci-not-finished | #12 at abc1234')"
+check "the same head never refuses twice" "" "$(sg 'The reds are fixed, CI is green.')"
+check "and costs no further checks call" "1" "$(grep -c . "$SG/gh-calls")"
+check "the head is kept per session" "12 abc1234def5678abc1234def5678abc1234def56" "$(cat "$SGS/stop-gate/sg-1.heads")"
+check "another session is told again" "block|#12 at abc1234" "$(sg 'CI is green.' false sg-2 | reason | cut -c1-20)"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 7, "headRefOid": "0011223344556677889900112233445566778899"}]\n' > "$SG/prs"
+printf '[{"name": "test", "bucket": "fail"}, {"name": "e2e", "bucket": "cancel"}, {"name": "lint", "bucket": "pass"}]\n' > "$SG/checks-7"
+echo 1 > "$SG/checks-7.code"
+check "failing checks: refused with the real state" \
+  "block|#7 at 0011223: 0 checks pending (), 2 failing (test, e2e). Report this state as it is, or wait for the end in one call: \`timeout 590 gh pr checks 7 --watch\`." \
+  "$(sg 'Only the known red remains.' | reason)"
+printf '[{"number": 7, "headRefOid": "99887766554433221100aabbccddeeff00112233"}]\n' > "$SG/prs"
+check "a head moved by anyone is reported again" "block|#7 at 9988776" "$(sg 'Pushed.' | reason | cut -c1-19)"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 3, "headRefOid": "aaaa1111bbbb2222cccc3333dddd4444eeee5555"}]\n' > "$SG/prs"
+printf '[{"name": "test", "bucket": "pass"}, {"name": "docs", "bucket": "skipping"}]\n' > "$SG/checks-3"
+check "all checks finished and passing: the stop passes, silently" "" "$(sg 'CI is green.')"
+check "the green head is recorded" "3 aaaa1111bbbb2222cccc3333dddd4444eeee5555" "$(cat "$SGS/stop-gate/sg-1.heads")"
+check "a green stop writes no log line" "" "$(sglog)"
+sg 'CI is green.' >/dev/null
+check "a head that has not moved costs no checks call" "1" "$(grep -c . "$SG/gh-calls")"
+
+sg_reset; sg_listing "$IDLE"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-12"
+sg 'Waiting.' >/dev/null
+check "Check 2 runs only when Check 1 let the stop pass" "0" "$(cat "$SG/gh-calls" 2>/dev/null | grep -c .)"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME; : > "$SG/gh-offline"
+check "gh offline: the stop passes" "" "$(sg 'CI is green.')"
+check "and the failure is logged" "1" "$(sglog | grep -c '| error | ')"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+check "gh absent: the stop passes" "" \
+  "$("$py" -c 'import json,sys; json.dump({"session_id": "sg-1", "cwd": sys.argv[1], "last_assistant_message": "x", "stop_hook_active": False}, sys.stdout)' "$SGP" \
+    | env PATH="/usr/bin:/bin" ORCHESTRATOR_STATE_DIR="$SGS" ITERM_SESSION_ID="w0t0p0:S-ME" bash "$SG/hooks/stop-gate.sh" 2>/dev/null)"
+check "and the missing tool is logged" "1" "$(sglog | grep -c '| error | ')"
+
+check "the hook is registered on the Stop event" "1" \
+  "$("$py" -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]["Stop"]; print(sum("hooks/stop-gate.sh" in x["command"] for e in h for x in e["hooks"]))' "$ROOT/hooks/hooks.json" 2>/dev/null)"
+
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.
 # The stub is the smallest app that tells the two apart; the live round reads the real one.
