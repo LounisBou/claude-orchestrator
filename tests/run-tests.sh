@@ -28,6 +28,10 @@ fail=0
 # who runs it.
 export ORCHESTRATOR_HOST_CLI=claude
 
+# The dispatch record registers itself under the host's session id when it has one. A suite
+# run from inside a session must not write into that operator's own state directory.
+unset CLAUDE_CODE_SESSION_ID
+
 export ORCHESTRATOR_TRUST_FILE="$WORK/suite-trust.json"
 "$(command -v python3 || echo python3)" -c "
 import json,os,sys
@@ -256,6 +260,47 @@ check "a class that costs more than one round is signalled" "1" \
   "$(bash "$REC" summary "$R" | grep -c '^signal=n-bis at light averages 2 rounds')"
 check "a class that closes in one round raises no signal" "0" \
   "$(bash "$REC" summary "$R" | grep -c 'signal=conversion-phase')"
+
+# The open rows are work, not history: `summary` lists them, so a successor reading the
+# record sees what was deferred and never dispatched.
+RO="$WORK/open-rows.jsonl"
+bash "$REC" open "$RO" --class behaviour-phase --tier standard --label "plan after the round" >/dev/null
+bash "$REC" open "$RO" --class n-bis --tier light --label "second" >/dev/null
+bash "$REC" close "$RO" 2 --verdict ruled-out >/dev/null
+check "summary lists the open rows with their id and label, and only them" "open=1 label=plan after the round" \
+  "$(bash "$REC" summary "$RO" | grep '^open=')"
+
+# Every subcommand registers its record under the session, by absolute path, once. The
+# state directory is the hook's: the hook reads the same file for the same session id.
+RS="$WORK/rec-state"; RD="$WORK/rec-dir"; mkdir -p "$RD"
+RR="$RD/dispatch.jsonl"
+rec_with() {  # <session id> <args...>, run from the record's directory with a relative path
+  local sid="$1"; shift
+  ( cd "$RD" && CLAUDE_CODE_SESSION_ID="$sid" ORCHESTRATOR_STATE_DIR="$RS" bash "$REC" "$@" 2>/dev/null )
+}
+rec_with s-open open dispatch.jsonl --class n-bis --tier light --label l >/dev/null
+RDREAL="$(cd "$RD" && pwd -P)"
+check "open registers the record by its absolute path" "$RDREAL/dispatch.jsonl" "$(cat "$RS/records/s-open" 2>/dev/null)"
+rec_with s-round round dispatch.jsonl 1
+rec_with s-review review dispatch.jsonl 1 --head abcdef1234 --norms none
+rec_with s-fixed fixed dispatch.jsonl 1 --head abcdef1234
+rec_with s-ready ready dispatch.jsonl 1 --head abcdef1234 >/dev/null
+rec_with s-escaped escaped dispatch.jsonl 1
+rec_with s-summary summary dispatch.jsonl >/dev/null
+rec_with s-close close dispatch.jsonl 1 --verdict ok
+for sid in s-round s-review s-fixed s-ready s-escaped s-summary s-close; do
+  check "${sid#s-} registers the record" "$RDREAL/dispatch.jsonl" "$(cat "$RS/records/$sid" 2>/dev/null)"
+done
+rec_with s-open summary dispatch.jsonl >/dev/null; rec_with s-open round dispatch.jsonl 1; ( cd "$RD" && CLAUDE_CODE_SESSION_ID=s-open ORCHESTRATOR_STATE_DIR="$RS" bash "$REC" summary "$RR" >/dev/null )
+check "a record is registered once, whichever way its path is spelled" "1" "$(grep -c . "$RS/records/s-open")"
+rec_with s-open open "$WORK/second.jsonl" --class n-bis --tier light >/dev/null
+check "a second record is added on its own line" "2" "$(grep -c . "$RS/records/s-open")"
+RS2="$WORK/rec-state-none"
+( cd "$RD" && env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$RS2" bash "$REC" summary dispatch.jsonl >/dev/null 2>&1 )
+check "without a session id nothing is registered" "no" "$([ -e "$RS2" ] && echo yes || echo no)"
+check "a state directory that cannot be written never fails the command" "0|class=n-bis" \
+  "$(cd "$RD" && out=$(CLAUDE_CODE_SESSION_ID=s-x ORCHESTRATOR_STATE_DIR=/dev/null/nope bash "$REC" summary dispatch.jsonl 2>/dev/null); echo "$?|$(printf '%s' "$out" | head -1 | cut -c1-11)")"
+check "a failing command keeps its own exit code" "1" "$(cd "$RD" && CLAUDE_CODE_SESSION_ID=s-y ORCHESTRATOR_STATE_DIR="$RS" bash "$REC" close dispatch.jsonl 99 --verdict ok >/dev/null 2>&1; echo $?)"
 
 # A cascade starts one tier BELOW the table's row, on classes where a failed attempt is
 # cheap to detect and cheap to throw away. Marking the row is what makes the bet payable:
