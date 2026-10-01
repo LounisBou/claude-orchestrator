@@ -2568,7 +2568,7 @@ echo "== stop gate hook =="
 SG="$WORK/stop-gate"
 SGB="$SG/bin"; SGS="$SG/state"; SGP="$SG/sgproj"
 mkdir -p "$SG/hooks" "$SG/skills/iterm-agents/scripts" "$SG/skills/orchestrator/scripts" "$SGB" "$SGS/chains" "$SGP"
-cp "$ROOT/hooks/stop-gate.sh" "$ROOT/hooks/stop_gate.py" "$SG/hooks/" 2>/dev/null
+cp "$ROOT/hooks/stop-gate.sh" "$ROOT/hooks/stop_gate.py" "$ROOT/hooks/session_name.py" "$SG/hooks/" 2>/dev/null
 cp "$ROOT/skills/iterm-agents/scripts/iterm_agent.py" "$SG/skills/iterm-agents/scripts/"
 printf '#!/bin/bash\n[ "$1" = list ] || exit 1\ncat "%s/listing" 2>/dev/null || { echo "list: no terminal backend could serve this" >&2; exit 1; }\n' "$SG" \
   > "$SG/skills/iterm-agents/scripts/iterm-agent.sh"
