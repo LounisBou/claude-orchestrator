@@ -146,13 +146,30 @@ def label(row):
 
 # --- check 1 ----------------------------------------------------------------------------
 
-def own_agents(rows, own_tty):
-    """(label, idle|busy) for each agent of this orchestrator whose tab runs one."""
+def launcher():
+    """The launcher's own module: the chain and the session's tty are read by its code."""
     sys.path.insert(0, LAUNCHER_DIR)
     try:
         import iterm_agent
     except Exception as exc:
-        raise Unread("the launcher's chain cannot be read: %s" % exc)
+        raise Unread("the launcher's module cannot be loaded: %s" % exc)
+    return iterm_agent
+
+
+def own_row(rows):
+    """The session's own row: the one the listing marks `self`, else the one on the tty the
+    launcher resolves for this process. Its AppleScript rung marks no row, and a gate that
+    read that as « not an orchestrator » would fall silent without a word."""
+    marked = next((r for r in rows if r["self"]), None)
+    if marked:
+        return marked
+    own = launcher().self_tty()
+    return next((r for r in rows if own and r["tty"] == own), None)
+
+
+def own_agents(rows, own_tty):
+    """(label, idle|busy) for each agent of this orchestrator whose tab runs one."""
+    iterm_agent = launcher()
     owner = os.environ.get("ITERM_SESSION_ID", "").rpartition(":")[2]
     entries = iterm_agent.chain_owned(iterm_agent.chain_read(own_tty), owner)
     by_tty = {r["tty"]: r for r in rows}
@@ -292,7 +309,7 @@ def gate(payload):
     who = session_id
     try:
         rows = listing()
-        me = next((r for r in rows if r["self"]), None)
+        me = own_row(rows)
         if me is None or not me["name"].startswith(ORCH_ROLE):
             return
         who = me["name"]

@@ -2581,8 +2581,8 @@ check "a machine line naming the operator without blocks: is a question that blo
 waiting: operator' | reason | cut -c1-43)"
 check "the question refusal is logged" "2" "$(sglog | grep -c '| check1 | question-without-blocks$')"
 
-sg_reset
-check "a blocking question with its machine line lets the stop pass, silently" "" \
+sg_reset; printf '/ws/sgproj/phase-4 | feat/p4 | abc1234 | clean | pushed\n' > "$SG/checkouts"
+check "a blocking question with its machine line lets the stop pass, silently, a phase in flight or not" "" \
   "$(sg 'Which base for phase 4, main or the release branch?
 
 waiting: operator — blocks: the base of phase 4
@@ -2630,7 +2630,12 @@ check "the coordinator's session is untouched" "" "$(sg 'I am launching it.')"
 printf '%s\n' 'w1/t1 | /dev/ttys900 | ✳ Orch : f | (host default) | self' > "$SG/listing"
 check "a session started by hand, without the name, is untouched (the title is not the name)" "" "$(sg 'I am launching it.')"
 check "an untouched session writes no log line" "" "$(sglog)"
-rm -f "$SG/listing"
+# The AppleScript rung of the launcher marks no row `self`: the session's own tty, read the
+# way the launcher reads it, finds the row instead of leaving the gate silently inert.
+sg_reset; sed -i.bak 's/ | self$//' "$SG/listing"
+check "a listing with no self mark: the row on the session's own tty is used" "block|Nothing will wake you" \
+  "$(export ORCHESTRATOR_SELF_TTY=/dev/ttys900; sg 'Waiting.' | reason | cut -c1-27)"
+sg_reset; rm -f "$SG/listing"
 check "an unreadable listing lets the stop pass, exit 0" "|0" "$(sg 'I am launching it.'; echo "|$?")"
 check "and appends one line to the log, naming the listing" "1|1" \
   "$(sglog | grep -c .)|$(sglog | grep -c "| sg-1 | error | the launcher's listing failed: list: no terminal backend could serve this$")"
@@ -2685,6 +2690,11 @@ check "gh absent: the stop passes" "" \
   "$("$py" -c 'import json,sys; json.dump({"session_id": "sg-1", "cwd": sys.argv[1], "last_assistant_message": "x", "stop_hook_active": False}, sys.stdout)' "$SGP" \
     | env PATH="/usr/bin:/bin" ORCHESTRATOR_STATE_DIR="$SGS" ITERM_SESSION_ID="w0t0p0:S-ME" bash "$SG/hooks/stop-gate.sh" 2>/dev/null)"
 check "and the missing tool is logged" "1" "$(sglog | grep -c '| error | ')"
+NOPY="$SG/nopy-bin"; mkdir -p "$NOPY"; ln -sf "$(command -v mkdir)" "$(command -v date)" "$NOPY/"
+sg_reset; printf '{"session_id": "sg-1", "stop_hook_active": false}' > "$SG/nopy-payload.json"
+check "without python3 the stop passes, exit 0" "|0" \
+  "$(env PATH="$NOPY" ORCHESTRATOR_STATE_DIR="$SGS" "$(command -v bash)" "$SG/hooks/stop-gate.sh" < "$SG/nopy-payload.json" 2>/dev/null; echo "|$?")"
+check "and the missing interpreter is logged" "1" "$(sglog | grep -c '| - | error | python3 is not installed$')"
 
 check "the hook is registered on the Stop event" "1" \
   "$("$py" -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]["Stop"]; print(sum("hooks/stop-gate.sh" in x["command"] for e in h for x in e["hooks"]))' "$ROOT/hooks/hooks.json" 2>/dev/null)"
