@@ -1164,6 +1164,85 @@ async def anchor_position(app, anchor, side):
     return win, idx + (1 if side == "right" else 0)
 
 
+def tab_of_row(rows, tty):
+    """(window, tab) a listing names `tty` in, or None. The tab, not the row: a hidden pane
+    shares its tab's number, and « left of » is a statement about tabs."""
+    for row in rows:
+        fields = [f.strip() for f in row.split("|")]
+        if len(fields) >= 2 and fields[1] == tty:
+            w, _, t = fields[0].partition("/")
+            return int(w[1:]), int(t[1:])
+    return None
+
+
+def placed_left_of(rows, tty, anchor):
+    """True when `tty`'s tab is the one immediately before `anchor`'s, in the same window."""
+    mine, theirs = tab_of_row(rows, tty), tab_of_row(rows, anchor)
+    return bool(mine and theirs and mine[0] == theirs[0] and mine[1] == theirs[1] - 1)
+
+
+def settle_auditor(read, move, auditor, caller):
+    """Read the real tab order, repair once, read again: (line, exit code).
+
+    The auditor lands immediately left of its caller by construction when the terminal's API
+    answers, and nowhere in particular when it does not (§52); a launch reported as done
+    with the tab elsewhere is the operator finding it by hand. So the order is READ, and a
+    wrong one is repaired by the launcher's own move, never by a relaunch. Still wrong
+    after that, the line names both ttys and the remedy, and the session stays: an auditor
+    that runs misplaced is moved, not killed."""
+    if placed_left_of(read(), auditor, caller):
+        return "", 0
+    move(auditor, caller)
+    if placed_left_of(read(), auditor, caller):
+        return "", 0
+    return ("spawn: the auditor on %s is not immediately left of %s; repair it with: "
+            "iterm-agent.sh move --tty %s --left-of %s" % (auditor, caller, auditor, caller)), 1
+
+
+async def move_left_of(iterm2, connection, tty, anchor):
+    """Put `tty`'s tab immediately before `anchor`'s in their window, on a fresh app: the
+    window object a caller holds is a cached copy (§14). Silent when either is not in one
+    window, which the caller's next reading turns into the sentence."""
+    app = await iterm2.async_get_app(connection)
+    win, tab, _ = await find_tab(app, tty)
+    if tab is None:
+        return
+    tabs = list(win.tabs)
+    target = None
+    for t in tabs:
+        if await tty_of(t) == anchor:
+            target = t
+            break
+    if target is None or target.tab_id == tab.tab_id:
+        return
+    tabs.remove(tab)
+    tabs.insert(tabs.index(target), tab)
+    await win.async_set_tabs(tabs)
+
+
+def repair_auditor_place(auditor, caller):
+    """§52: read the listing `list` prints, repair with the launcher's own move, read again.
+    A reading or a move the terminal cannot serve is said on stderr by its own rung and
+    leaves the order as it was, which the second reading then reports on stdout."""
+    async def rows(iterm2, connection):
+        return await list_rows(await iterm2.async_get_app(connection))
+
+    def read():
+        try:
+            return served_by("list", {"api": lambda: run(rows), "applescript": as_list}) or []
+        except SystemExit:
+            return []
+
+    def move(tty, anchor):
+        try:
+            served_by("move", {"api": lambda: run(
+                lambda iterm2, connection: move_left_of(iterm2, connection, tty, anchor))})
+        except SystemExit:
+            pass
+
+    return settle_auditor(read, move, auditor, caller)
+
+
 # --- subcommands -----------------------------------------------------------------
 
 def row_for(w, t, tty, title, name, is_self, hidden):
@@ -1766,7 +1845,7 @@ def cmd_spawn(argv):
         and a focus flicker per move, which is what the API replaced. A tab that lands in the
         wrong place is an agent that runs; a placement bought at that price is not. Said out
         loud rather than assumed."""
-        if anchor:
+        if anchor and not args.auditor:
             print("spawn: this rung cannot place a tab; the new session lands where the "
                   "terminal puts it, not beside %s." % anchor, file=sys.stderr)
         return make()
@@ -1779,6 +1858,14 @@ def cmd_spawn(argv):
     })
     if not new_tty:
         die("spawn: the terminal returned no tty for the new tab")
+
+    # Before the verification below, which may wait or die: an auditor's place is settled as
+    # soon as its tab exists, and said on stdout, where the orchestrator reads the launch.
+    misplaced = 0
+    if args.auditor:
+        line, misplaced = repair_auditor_place(new_tty, own)
+        if line:
+            print(line)
 
     if args.verify:
         waited = 0
@@ -1798,6 +1885,8 @@ def cmd_spawn(argv):
         # actually came up in is read on its own transcript (§43).
         print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
     print(new_tty)
+    if misplaced:
+        sys.exit(misplaced)
 
 
 def cmd_screen(argv):

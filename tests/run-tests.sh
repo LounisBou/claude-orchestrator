@@ -1568,6 +1568,50 @@ check "an auditor with no model on record is refused, naming the installer" "1" 
 check "--inherit-model beside --auditor asks for what is already implied" "1" \
   "$(audl --auditor --inherit-model --title 'Audit : x' | grep -c -- '--model aud-model')"
 
+# An auditor lands where it was told only if the terminal's API answered; the API-less rung
+# places nothing, and any other cause leaves the tab elsewhere with the launch reported as
+# done. So the launcher READS the order the listing prints, repairs once with its own move,
+# reads again, and says so on stdout, exiting non-zero, when it is still wrong. The decision
+# is a pure function of what was read, so the suite drives it with a scripted listing.
+settle() { "$py" -c "
+import sys; sys.path.insert(0,'$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as m
+AUD, CALLER = '/dev/ttys950', '/dev/ttys900'
+def rows(*order):
+    return [m.row_for(1, i, tty, 't', None, False, False) for i, tty in enumerate(order, 1)]
+RIGHT = rows('/dev/ttys800', AUD, CALLER, '/dev/ttys901')
+WRONG = rows(AUD, '/dev/ttys800', CALLER, '/dev/ttys901')
+OTHER_WINDOW = [m.row_for(2, 1, AUD, 't', None, False, False), m.row_for(1, 2, CALLER, 't', None, False, False)]
+HIDDEN = [m.row_for(1, 1, AUD, 't', None, False, False), m.row_for(1, 2, '/dev/ttys777', 't', None, False, False),
+          m.row_for(1, 2, CALLER, 't', None, False, True)]  # the caller is a hidden pane of tab 2
+scenario = sys.argv[1]
+reads, moves = [], []
+if scenario == 'placed': seq = [RIGHT]
+elif scenario == 'repaired': seq = [WRONG, RIGHT]
+elif scenario == 'stuck': seq = [WRONG, WRONG]
+else:
+    seq = None
+if seq is None:
+    print(m.placed_left_of({'window': OTHER_WINDOW, 'hidden': HIDDEN}[scenario], AUD, CALLER))
+    sys.exit(0)
+def read():
+    reads.append(1)
+    return seq[min(len(reads), len(seq)) - 1]
+def move(tty, anchor):
+    moves.append((tty, anchor))
+line, code = m.settle_auditor(read, move, AUD, CALLER)
+print('%d|%d|%s|%d|%s' % (len(reads), len(moves), ','.join('%s>%s' % t for t in moves), code, line))
+" "$1"; }
+check "an auditor already immediately left of its caller is read once and moved never" "1|0||0|" "$(settle placed)"
+check "a misplaced auditor is moved --left-of its caller, then read again, and nothing is said" \
+  "2|1|/dev/ttys950>/dev/ttys900|0|" "$(settle repaired)"
+check "an auditor still misplaced after one move is said on one line naming both ttys and the remedy, exit 1" \
+  "2|1|/dev/ttys950>/dev/ttys900|1|spawn: the auditor on /dev/ttys950 is not immediately left of /dev/ttys900; repair it with: iterm-agent.sh move --tty /dev/ttys950 --left-of /dev/ttys900" \
+  "$(settle stuck)"
+check "the same tab number in another window is not left of the caller" "False" "$(settle window)"
+check "a caller that is a hidden pane is placed by its tab: the auditor in the tab before it counts" "True" \
+  "$(settle hidden)"
+
 # `rotate` and `move` treat an auditor's tab as not the caller's to replace or place: it is
 # read by its NAME in the process table, so a stale chain entry naming it moves nothing.
 PSAUD="$WORK/ps-audit.txt"
