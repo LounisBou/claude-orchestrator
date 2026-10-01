@@ -91,28 +91,36 @@ launch everything that can advance; stop only when nothing can advance without t
 operator's answer. » The log of `blocks:` reasons (§6) is what shows a blocking claim made
 wrongly.
 
-## 5. Check 2 — a CI state stated is a CI state read
+## 5. Check 2 — the real CI state reaches the orchestrator before its report
 
-Runs only when Check 1 let the stop pass, and only when the message states a CI state.
+Ruled by the operator (2026-10-01): the check triggers on FACTS, never on the words of the
+message. A list of claim words fails open on any rewording (« all repaired », « the PR is
+sound ») and in any language; a fact does not.
 
-**Trigger.** A closed vocabulary, English and French, matched case-insensitively on the
-message: the words `CI`, `checks` or `pipeline` within the same sentence as one of `green`,
-`red`, `passing`, `failing`, `fixed`, `known`, `vert`, `verte`, `rouge`, `corrigé`,
-`corrigés`, `connu`. A message without such a sentence costs no `gh` call.
+Runs only when Check 1 let the stop pass.
 
-**Facts.** For each pull request the message cites (`#NNN`), the hook reads
-`gh pr checks <NNN>` in the session's repository (`cwd`).
+**Trigger.** The open pull requests of the session's repository (`gh pr list --state open`
+in `cwd`) whose head differs from the head this hook last reported for this session. The
+hook keeps, per session, the head it last reported for each pull request
+(`<state dir>/stop-gate/<session_id>.heads`). A pull request whose head has not moved
+costs no further call.
 
-**Refusals.**
+**Facts.** For each such pull request, `gh pr checks <NNN>` on its current head.
 
-| Case | Reason sent back |
-|---|---|
-| a CI sentence, no pull request cited | « You state a CI state without naming the pull request: name it, or remove the claim. » |
-| a check still pending | « The checks of #NNN are not finished (<names>): state nothing about them yet. To wait for them in one call: `timeout 590 gh pr checks NNN --watch`. » |
-| a check failing while the sentence says green, passing, fixed or « only … known » | « #NNN has failing checks: <names>. Your message says otherwise; read them and report what they say. » |
+**Refusal, once per head.** When any check on that head is pending or failing, the stop is
+refused with the real state, and the head is recorded as reported, so the same head never
+refuses twice:
 
-The hook judges no cause: it only puts the real state against the text. Pointing the
-pending case to a single `--watch` call keeps the wait off the token bill.
+« #NNN at <short sha>: <n> checks pending (<names>), <m> failing (<names>). Report this
+state as it is, or wait for the end in one call: `timeout 590 gh pr checks NNN --watch`. »
+
+All checks finished and passing: the head is recorded, the stop passes, nothing is
+written. The hook judges no cause and reads no claim: it puts the real state in front of
+the orchestrator before the message it ends on, whatever that message says.
+
+**Limit, stated.** The hook does not stop the orchestrator from writing a false sentence
+AFTER the real state reached it; it stops it from writing one without that state in front
+of it, which is the shape of both observed cases.
 
 ## 6. Measurement — every change is a trial
 
@@ -139,13 +147,16 @@ skill gains the one sentence of §4; the « Carried at every step » section of
 - A successor: inherits its predecessor's chain through `chain_transfer`, so its agents
   count from its first turn.
 - `gh` absent or offline: Check 2 passes, logged.
-- A pull request cited without a CI sentence: no `gh` call.
+- A pull request whose head has not moved since the last report: no `gh pr checks` call.
+- A head moved by someone else (an agent, the operator): reported like the orchestrator's
+  own; the push's author does not matter, the state on the head does.
 
 ## 9. Tests
 
 - `tests/run-tests.sh`: the hook fed simulated stdin, a fake listing, a fake chain file, a
-  fake `workspace.sh list` and a fake `gh` on `PATH`. One check per row of the two
-  refusal tables and per pass case, each seen to fall when its branch is removed; the loop
+  fake `workspace.sh list` and a fake `gh` on `PATH`. One check per row of Check 1's
+  refusal table, per Check 2 case (pending, failing, all green, head unchanged, refused
+  once then passing for the same head) and per pass case, each seen to fall when its branch is removed; the loop
   guard; a non-orchestrator session untouched; a tool failure passing.
 - Two eval cases, graded by what the session does after a refusal:
   1. announced work, no agent running: refused once, then the agent is launched in the
@@ -159,13 +170,6 @@ skill gains the one sentence of §4; the « Carried at every step » section of
 - A question asked needlessly (« shall I continue? ») with a `blocks:` line: allowed by
   the hook, visible in the log.
 - Claims about local suites: the operator's two cases were GitHub checks.
+- The wording of the orchestrator's report: no check reads it (ruling of 2026-10-01).
 - Agents' own stops: an agent is held by its brief and the orchestrator's verification.
 
-## 11. Open point for the operator
-
-The orchestrator reports to the operator in French, so Check 2's vocabulary needs French
-words (`vert`, `rouge`, `corrigé`, `connu` and their forms) inside `hooks/stop-gate.sh` and
-its tests. The repository's rules forbid French words and accented characters outside
-`docs/` except in a Unicode test fixture. Proposed: the same exemption for this one
-vocabulary list, which is data matched against messages, not prose — or Check 2 reads
-English claims only and misses the French ones.
