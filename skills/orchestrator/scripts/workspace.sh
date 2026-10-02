@@ -177,6 +177,25 @@ refusal() {
     esac
 }
 
+# The trashes: a removal first moves its directory into one, in a single rename (each trash
+# lives beside what it takes, so on its filesystem), then removes it there. A removal killed
+# half way leaves its remains in the trash, never a partial checkout at its path that reads
+# as dirty for ever; `sweep` empties the trashes first. Their names start with a dot, so no
+# loop over the root or the host's area ever reads them as a checkout or an orphan.
+host_trash() { printf '%s\n' "$HOST_TMP/.workspace-trash"; }
+root_trash() { printf '%s\n' "$(cd "$ROOT_DIR" && pwd -P)/.trash"; }
+
+# trash_remove <dir> <trash>: 1 when the move failed and nothing was touched; 0 once the
+# directory has left its path, its remains, if any, said and left to the next sweep.
+trash_remove() {
+    local dir="$1" trash="$2" t
+    mkdir -p "$trash" && t=$(mktemp -d "$trash/XXXXXX") || return 1
+    mv -- "$dir" "$t/" 2>/dev/null || { rmdir "$t" 2>/dev/null; return 1; }
+    rm -rf -- "$t" 2>/dev/null
+    [ ! -e "$t" ] || say "the trash keeps $t: the next sweep empties it"
+    return 0
+}
+
 # remove_host_tmp <path>...: the host's temporary directory of each spelling of a deleted
 # checkout, unless a live process works inside it. Each removal is said and proved.
 remove_host_tmp() {
@@ -195,7 +214,7 @@ $name
         if [ ! -d "$dir" ] || [ -L "$dir" ]; then continue; fi
         host_dir_live "$dir"; r=$?
         [ "$r" = 1 ] || { say "kept host temporary directory $dir: $LIVE_WHY"; continue; }
-        rm -rf -- "${HOST_TMP:?}/${name:?}"
+        trash_remove "$dir" "$(host_trash)"
         if [ -e "$dir" ]; then say "kept host temporary directory $dir: it could not be removed"; else echo "deleted $dir"; fi
     done
 }
@@ -426,15 +445,15 @@ cmd_delete() {
         refusal "$real"
         [ -z "$REASON" ] || die "delete: $REASON (pass --discard to remove it anyway): $path"
     fi
-    if [ -f "$real/.git" ]; then
-        # A pinned copy is removed through git so the source forgets it.
-        if [ "$discard" = 0 ]; then
-            git -C "$real" worktree remove "$real" || die "delete: worktree remove failed: $real"
-        else
-            git -C "$real" worktree remove --force "$real" || die "delete: worktree remove failed: $real"
-        fi
-    else
-        rm -rf -- "$real" || die "delete: rm failed: $real"
+    local common=""
+    # A pin's source is read before the pin leaves: the source forgets it through git once
+    # it is gone (`worktree remove` of a path that no longer exists drops the metadata).
+    [ ! -f "$real/.git" ] || common=$(git -C "$real" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
+        || die "delete: cannot read the pin's source: $real"
+    trash_remove "$real" "$root/.trash" || die "delete: cannot move into the trash: $real"
+    if [ -n "$common" ]; then
+        git --git-dir="$common" worktree remove --force "$real" 2>/dev/null \
+            || say "the source still lists the worktree $real; \`git worktree prune\` in it drops it"
     fi
     [ ! -e "$real" ] || die "delete: still there after the removal: $real"
     echo "deleted $real"
@@ -638,7 +657,20 @@ EOF
         host_dir_live "$t"; r=$?
         [ "$r" = 1 ] || { keep "$t" "$LIVE_WHY"; continue; }
         if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $t: no checkout, no live process"; continue; fi
-        rm -rf -- "${HOST_TMP:?}/${name:?}"
+        trash_remove "$t" "$(host_trash)"
+        if [ -e "$t" ]; then keep "$t" "it could not be removed"; else echo "deleted $t"; fi
+    done
+}
+
+# sweep_trash: what removals cut short left in the trashes, emptied before anything else.
+sweep_trash() {
+    local t
+    for t in "$(root_trash)"/* "$(host_trash)"/*; do
+        [ -e "$t" ] || [ -L "$t" ] || continue
+        spent && { say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 1; }
+        if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $t: left in the trash by a removal cut short"; continue; fi
+        chmod -R u+w -- "$t" 2>/dev/null
+        rm -rf -- "$t" 2>/dev/null
         if [ -e "$t" ]; then keep "$t" "it could not be removed"; else echo "deleted $t"; fi
     done
 }
@@ -662,6 +694,7 @@ cmd_sweep() {
     root=$(cd "$ROOT_DIR" && pwd -P)
     SWEEP_TMP=$(mktemp -d "${TMPDIR:-/tmp}/workspace-sweep-XXXXXX") || die "sweep: cannot create a working directory"
     trap 'rm -rf -- "${SWEEP_TMP:?}"' EXIT
+    sweep_trash || return 0
     for d in "$ROOT_DIR"/*/*/; do
         [ -e "$d/.git" ] || continue
         d="${d%/}"

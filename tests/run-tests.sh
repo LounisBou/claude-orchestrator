@@ -724,6 +724,26 @@ out=$(bash "$WS" delete "$CI" 2>/dev/null)
 check "a checkout named with a dot and an underscore takes its host directory, spelled as the host spells it" "0|0|1" \
   "$(exists "$CI")|$(exists "$HI")|$(printf '%s\n' "$out" | grep -cxF "deleted $HI")"
 
+echo "-- a removal goes through a trash, so one cut short leaves nothing at the checkout's path"
+# A sweep killed in the middle of a removal left a partial checkout that read as dirty for
+# ever. The checkout is moved into a trash under the root in one rename, then removed; what
+# a removal leaves there (here, a directory it may not write into) the next sweep empties.
+CJ=$(mkclone "$WCSRC" del-j feat/del-j); HJ=$(scratch "$CJ")
+mkdir -p "$CJ/locked" && echo x > "$CJ/locked/f" && chmod a-w "$CJ/locked"
+out=$(bash "$WS" delete "$CJ" --discard 2>"$WC/del-j.err"); code=$?
+check "a removal that cannot complete leaves nothing at the checkout's path, says so, and keeps the rest in the trash" "0|0|0|1|1|1" \
+  "$code|$(exists "$CJ")|$(exists "$HJ")|$(printf '%s\n' "$out" | grep -cxF "deleted $CJ")|$(ls "$WCR/.trash" 2>/dev/null | grep -c .)|$(grep -c 'the trash keeps' "$WC/del-j.err")"
+chmod -R u+w "$WCR/.trash" "$CJ" 2>/dev/null
+mkdir -p "$ORCHESTRATOR_HOST_TMP/.workspace-trash/zz/x/scratchpad"
+git init -q "$WCR/.trash/zy"
+check "list ignores the trash" "0" "$(bash "$WS" list 2>/dev/null | grep -c trash)"
+out=$(wcgh bash "$WS" sweep --dry-run 2>/dev/null)
+check "a dry run says what it would empty from the trashes and empties nothing" "3|2|1" \
+  "$(printf '%s\n' "$out" | grep -c '^would delete .*trash')|$(ls "$WCR/.trash" | grep -c .)|$(ls "$ORCHESTRATOR_HOST_TMP/.workspace-trash" | grep -c .)"
+out=$(wcgh bash "$WS" sweep 2>/dev/null)
+check "a sweep empties a leftover trash first, and never takes it for a checkout or an orphan" "3|0|0|1" \
+  "$(printf '%s\n' "$out" | grep -c '^deleted .*trash')|$(ls "$WCR/.trash" | grep -c .)|$(ls "$ORCHESTRATOR_HOST_TMP/.workspace-trash" | grep -c .)|$(printf '%s\n' "$out" | head -1 | grep -c trash)"
+
 echo "-- pin --pr records the pull request the pin reviews"
 PINA=$(wcpin "$WCSRC" pin-a main --pr 7)
 PINB=$(wcpin "$WCSRC" pin-b main)
@@ -736,6 +756,7 @@ check "list is unchanged by the record" "1|1" \
 HPA=$(scratch "$PINA")
 bash "$WS" delete "$PINA" >/dev/null 2>&1
 check "deleting a pin takes its host temporary directory too" "0|0" "$(exists "$PINA")|$(exists "$HPA")"
+check "and its source forgets it" "0" "$(git -C "$WCSRC" worktree list | grep -c '/pin-a ')"
 bash "$WS" delete "$PINB" >/dev/null 2>&1
 
 echo "-- sweep decides on facts"
