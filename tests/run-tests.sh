@@ -3512,6 +3512,109 @@ check "and what survived is named, so the operator reads which process held on" 
   "$(ORCHESTRATOR_PS_TABLE="$WORK/ps-alive.txt" ipy \
      "print('claude' if 'claude' in (ia.wait_gone('/dev/ttys901', 1) or '') else 'unnamed')")"
 
+echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
+# The session's purpose is over once its close is proved on the process table, so the
+# checkout it worked in is deleted — through `workspace.sh delete`, never `--discard`, so a
+# checkout holding work stays and says why. The cwd is read BEFORE the close, `--keep-checkout`
+# opts out, and a rotation deletes nothing: its replacement works in the same checkout. The
+# suite stands in for the process table's cwd with ORCHESTRATOR_CWD_TABLE and runs on the
+# temporary repositories and the temporary host area of the workspace section above.
+export GIT_CONFIG_GLOBAL="$WORK/no-global-gitconfig"
+export ORCHESTRATOR_WORKSPACES="$WORK/wcroot"
+export ORCHESTRATOR_HOST_TMP="$WC/hosttmp"
+CT_TABLE="$WORK/cwd-table"
+export ORCHESTRATOR_CWD_TABLE="$CT_TABLE"
+cat > "$WORK/close_probe.py" <<'PYEOF'
+import contextlib, io, os, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+mode = sys.argv[2]
+tty = '/dev/ttys901'
+table = os.environ['ORCHESTRATOR_CWD_TABLE']
+ia.host_cli_on = lambda t: '4242'
+ia.wait_gone = lambda t, timeout=None: '4242' if mode == 'survivor' else None
+ia.served_by = (lambda *a, **k: open(table, 'w').close()) if mode == 'vanish' else (lambda *a, **k: None)
+ia.cmd_spawn = lambda argv: None
+out, err = io.StringIO(), io.StringIO()
+code = 0
+try:
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        if mode == 'rotate':
+            ia.cmd_rotate(['--old-tty', tty, '--dir', '/x', '--title', 'T'])
+        else:
+            ia.cmd_close(['--tty', tty] + sys.argv[3:])
+except SystemExit as e:
+    code = e.code
+print('exit=%s' % code)
+print('OUT:' + out.getvalue().strip())
+print('ERR:' + err.getvalue().strip())
+PYEOF
+cprobe() { "$py" "$WORK/close_probe.py" "$ROOT/skills/iterm-agents/scripts" "$@"; }
+field() { printf '%s\n' "$1" | sed -n "s/^$2://p"; }
+
+CL=$(mkclone "$WCSRC" cl-a feat/cl-a); HCL=$(scratch "$CL"); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe close)
+check "a proved close deletes the session's checkout and its host directory; stdout keeps its one contract line" \
+  "exit=0|closed 1 session on /dev/ttys901|0|0" \
+  "$(printf '%s\n' "$res" | head -1)|$(field "$res" OUT)|$(exists "$CL")|$(exists "$HCL")"
+check "and stderr says it" "1" "$(field "$res" ERR | grep -c "^close: deleted checkout $CL\$")"
+
+CL=$(mkclone "$WCSRC" cl-b feat/cl-b dirty); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe close)
+check "a dirty checkout stays: the close succeeds, says why on stderr, and keeps its contract line" \
+  "exit=0|closed 1 session on /dev/ttys901|1|1" \
+  "$(printf '%s\n' "$res" | head -1)|$(field "$res" OUT)|$(exists "$CL")|$(field "$res" ERR | grep -c "^close: kept checkout $CL: the tree is dirty\$")"
+bash "$WS" delete "$CL" --discard >/dev/null 2>&1
+
+CL=$(mkclone "$WCSRC" cl-c feat/cl-c unpushed); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe close)
+check "unpushed commits stay too, never discarded" "1|1" \
+  "$(exists "$CL")|$(field "$res" ERR | grep -c "^close: kept checkout $CL: commits on no remote branch\$")"
+bash "$WS" delete "$CL" --discard >/dev/null 2>&1
+
+CL=$(mkclone "$WCSRC" cl-d feat/cl-d); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe close --keep-checkout)
+check "--keep-checkout opts out: nothing deleted, nothing said about a checkout" "1|0" \
+  "$(exists "$CL")|$(field "$res" ERR | grep -c 'checkout')"
+
+res=$(cprobe rotate)
+check "a rotation deletes nothing: its replacement works in the same checkout" "1|0" \
+  "$(exists "$CL")|$(field "$res" ERR | grep -c 'deleted')"
+
+printf '/dev/ttys901 %s\n' "$WCSRC" > "$CT_TABLE"
+res=$(cprobe close)
+check "a session outside the workspaces root (the orchestrator's own checkout) is never touched" "1|0" \
+  "$(exists "$WCSRC/README.md")|$(field "$res" ERR | grep -c 'checkout')"
+
+CLG=$(mkclone "$WCSRC" cl-g feat/cl-g)
+printf '/dev/ttys901 %s\n' "$(rp "$WORK/wcroot")Zproj/cl-g" > "$CT_TABLE"
+res=$(cprobe close)
+check "a sibling directory sharing the root's name is not under the root" "1" "$(exists "$CLG")"
+bash "$WS" delete "$CLG" >/dev/null 2>&1
+printf '/dev/ttys901 %s\n' "$CL/.git/info" > "$CT_TABLE"
+res=$(cprobe close)
+check "a session in a subdirectory of its checkout takes the whole checkout" "0" "$(exists "$CL")"
+
+CL=$(mkclone "$WCSRC" cl-e feat/cl-e); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe vanish close)
+check "the cwd is read before the close, not after it" "0" "$(exists "$CL")"
+
+CL=$(mkclone "$WCSRC" cl-f feat/cl-f); printf '/dev/ttys901 %s\n' "$CL" > "$CT_TABLE"
+res=$(cprobe survivor)
+check "a close that is not proved deletes nothing" "exit=1|1" "$(printf '%s\n' "$res" | head -1)|$(exists "$CL")"
+bash "$WS" delete "$CL" >/dev/null 2>&1
+
+hold "$WORK"
+check "the host CLI's cwd is read from the process table when no stand-in is set" "$(rp "$WORK")" \
+  "$(env -u ORCHESTRATOR_CWD_TABLE "$py" -c "
+import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+ia.host_cli_on = lambda t: '${LIVE##* }'
+print(ia.host_cli_cwd('/dev/ttys901'))")"
+release
+unset GIT_CONFIG_GLOBAL ORCHESTRATOR_WORKSPACES ORCHESTRATOR_HOST_TMP ORCHESTRATOR_CWD_TABLE
+rm -rf "$WC/hosttmp"/* 2>/dev/null
+
 echo "== tap =="
 
 TAP="$ROOT/skills/context-gauge/scripts/statusline-tap.sh"
