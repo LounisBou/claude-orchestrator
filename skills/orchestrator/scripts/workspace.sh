@@ -4,7 +4,7 @@
 #   workspace.sh create <source-repo> <name> [--base <branch|origin/branch>]   prints the checkout's path
 #   workspace.sh pin <source-repo> <name> <ref> [--pr <n>]     a detached worktree at that commit, nothing local; prints its path
 #   workspace.sh delete <path> [--discard]                     refuses unpushed work unless told; also removes the host's
-#                                                              temporary directory of the path when no live process works in it
+#                                                              temporary directory of the path when no live process uses it
 #   workspace.sh sweep [--deadline <seconds>] [--dry-run]      the leftovers, decided on facts: one line per item,
 #                                                              "deleted <path>" | "kept <path>: <reason>" (a dry run says "would delete")
 #   workspace.sh list                                          one line per checkout under the root (a pin reads HEAD … pinned)
@@ -197,7 +197,7 @@ trash_remove() {
 }
 
 # remove_host_tmp <path>...: the host's temporary directory of each spelling of a deleted
-# checkout, unless a live process works inside it. Each removal is said and proved.
+# checkout, unless a live process uses it (`host_dir_live`). Each removal is said and proved.
 remove_host_tmp() {
     local p name dir r seen="
 "
