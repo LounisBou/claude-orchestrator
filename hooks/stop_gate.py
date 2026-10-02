@@ -32,11 +32,13 @@ twice. A head whose check list is still empty (a push seen before its checks are
 is not green but unread: it is not recorded. It reads facts, never the words of the message:
 a list of claim words fails open on any rewording and in any language.
 
-The sweep, run last and never part of the decision. Once the checks have decided, an
-orchestrator's stop also runs `workspace.sh sweep` — the checkouts and host temporary
+The sweep, run last and never part of the decision. Once the checks have let the stop pass,
+an orchestrator's stop also runs `workspace.sh sweep` — the checkouts and host temporary
 directories whose purpose is over — with what is left of the hook's deadline, minus a margin,
-at most once per ten minutes (a stamp file in the state directory). Each deletion is logged;
-a sweep that fails or overruns is logged and never changes the outcome of the stop.
+at most once per ten minutes (a stamp file in the state directory). A refused stop runs none:
+the host reads the decision at the hook's exit, and a refusal never waits on a sweep. Each
+deletion is logged; a sweep that fails or overruns is logged and never changes the outcome
+of the stop.
 
 The whole hook runs under one deadline, checked between external calls: past it the stop
 passes and one line is logged.
@@ -433,7 +435,6 @@ def sweep(who):
 
 def refuse(reason):
     print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
-    # Out before the sweep runs: the refusal never waits on it.
     sys.stdout.flush()
 
 
@@ -457,20 +458,26 @@ def gate(payload):
         if not name.startswith(ORCH_ROLE):
             return
         who = name
+        refused = False
         try:
             rows = listing()
             held = check_wake(rows, own, message, cwd, who, session_id)
             if held:
                 log(who, "check1", held[0])
                 refuse(held[1])
+                refused = True
                 return
             lines = check_ci(cwd, session_id)
             if lines:
                 log(who, "check2", "ci-not-finished", " ; ".join(l.split(". Report")[0] for l in lines))
                 refuse("\n".join(lines))
+                refused = True
         finally:
-            # After the checks have decided, whatever they decided.
-            sweep(who)
+            # After the checks have let the stop pass — or could not read and so let it pass.
+            # Never after a refusal: the host reads the decision at the hook's exit, and the
+            # session it holds must not wait on a sweep.
+            if not refused:
+                sweep(who)
     except Unread as exc:
         log(who, "error", str(exc))
 

@@ -3411,7 +3411,8 @@ sg 'And later.' >/dev/null
 check "one past the ten minutes does" "2" "$(sweepargs | grep -c .)"
 
 sg_reset; sg_listing
-check "a refused stop is refused as before, and the sweep still ran after the decision" "block|Nothing will wake you|1" \
+# The host reads the decision at the hook's exit: a refusal never waits on a sweep.
+check "a refused stop is refused as before, and runs no sweep" "block|Nothing will wake you|0" \
   "$(sg 'I am launching the phase 3 agent now.' | reason | cut -c1-27)|$(sweepargs | grep -c .)"
 
 sg_reset; sg_ps '--name Agent : one [b2c3d4]'
