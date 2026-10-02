@@ -2469,6 +2469,38 @@ check "session_name.py prints nothing, exit 0, on a payload that is no JSON" "|0
 check "session_name.py prints nothing, exit 0, on an empty payload" "|0" "$(sn '')"
 check "session_name.py prints nothing, exit 0, on a payload that is no object" "|0" "$(sn '[1,2]')"
 
+# The reading's misses are logged, one line each, and never fail the script: a session whose
+# name cannot be read would otherwise go dark with no trace. A session with no name at all is
+# the normal case and leaves nothing.
+GLOG="$GH/claude-orchestrator/context-gate.log"
+longname='Orch : a name run into the prompt that follows it, far past any name'
+check "no name at all: nothing is logged" "" \
+  "$(gh_ps ''; rm -f "$GLOG"; sn '{"session_id":"x"}' >/dev/null; cat "$GLOG" 2>/dev/null)"
+gh_ps "--name $longname"
+printf '%s\n' '{"type":"user"}' > "$GH/transcripts/no-rename.jsonl"
+rm -f "$GLOG"
+unread_payload="$(printf '{"session_id":"s-unread","transcript_path":"%s"}' "$GH/transcripts/no-rename.jsonl")"
+check "an unreadable name with no rename in the transcript: nothing printed, exit 0" "|0" \
+  "$(sn "$unread_payload")"
+check "and it is logged, one line, naming the session and the miss" "1|1" \
+  "$(echo "$(grep -c . "$GLOG")|$(grep -c ' | s-unread | .*unreadable' "$GLOG")")"
+check "an unreadable name that the transcript renames is not a miss: nothing logged" "" \
+  "$(rm -f "$GLOG"; sn "{\"transcript_path\":\"$GH/transcripts/spacing.jsonl\"}" >/dev/null; cat "$GLOG" 2>/dev/null)"
+# The launcher's module out of reach: the script copied where its sibling tree is absent.
+mkdir -p "$GH/bare/hooks"; cp "$ROOT/hooks/session_name.py" "$GH/bare/hooks/"
+rm -f "$GLOG"
+check "a launcher that cannot be loaded: nothing printed, exit 0" "|0" \
+  "$(out="$(printf '{"session_id":"s-nolaunch"}' | env "${GH_ENV[@]}" "$py" "$GH/bare/hooks/session_name.py")"; echo "$out|$?")"
+check "and it is logged, naming the session and the module" "1|1" \
+  "$(echo "$(grep -c . "$GLOG")|$(grep -c ' | s-nolaunch | .*cannot be loaded' "$GLOG")")"
+# The log lives where the stop gate's does, and a log that cannot be written never fails the script.
+rm -f "$GLOG"
+check "ORCHESTRATOR_STATE_DIR moves the log" "1" \
+  "$(printf '{"session_id":"s-moved"}' | env "${GH_ENV[@]}" ORCHESTRATOR_STATE_DIR="$GH/moved" "$py" "$GH/bare/hooks/session_name.py"; grep -c 's-moved' "$GH/moved/context-gate.log")"
+: > "$GH/not-a-dir"
+check "a log that cannot be written: nothing printed, exit 0" "|0" \
+  "$(out="$(printf '{"session_id":"s-ro"}' | env "${GH_ENV[@]}" ORCHESTRATOR_STATE_DIR="$GH/not-a-dir/x" "$py" "$GH/bare/hooks/session_name.py")"; echo "$out|$?")"
+check "the hook still says nothing for the session whose miss it logged" "" "$(gate g-hi)"
 # The interpreter is started without its site import: about a hundred milliseconds, on every prompt.
 check "the hook runs the reading with python3 -S" "1" "$(grep -c 'python3 -S "\$HERE/session_name\.py"' "$ROOT/hooks/context-gate.sh")"
 gh_ps '--name Orch : f [a1b2c3]'
