@@ -693,6 +693,29 @@ bash "$WS" delete "$CE" >/dev/null 2>&1; code=$?
 check "unpushed commits keep the checkout and its host temporary directory" "1|1|1" "$code|$(exists "$CE")|$(exists "$HE")"
 bash "$WS" delete "$CE" --discard >/dev/null 2>&1
 
+# A commit on a detached head is on no branch at all, and a stash is on none either: the
+# branches alone never see them.
+CF=$(mkclone "$WCSRC" del-f feat/del-f)
+git -C "$CF" checkout -q --detach && echo f > "$CF/detached.txt" && git -C "$CF" add -A && gc -C "$CF" commit -q -m "On a detached head"
+bash "$WS" delete "$CF" >/dev/null 2>"$WC/del-f.err"; code=$?
+check "a commit on a detached head keeps the checkout, and says why" "1|1|1" \
+  "$code|$(exists "$CF")|$(grep -c 'commits on no remote branch' "$WC/del-f.err")"
+bash "$WS" delete "$CF" --discard >/dev/null 2>&1
+CG=$(mkclone "$WCSRC" del-g feat/del-g)
+echo more >> "$CG/del-g.txt" && git -C "$CG" stash -q
+bash "$WS" delete "$CG" >/dev/null 2>"$WC/del-g.err"; code=$?
+check "a stash keeps the checkout, and says why" "1|1|1" \
+  "$code|$(exists "$CG")|$(grep -c 'a stash is held' "$WC/del-g.err")"
+bash "$WS" delete "$CG" --discard >/dev/null 2>&1
+
+# A git that cannot read the checkout knows nothing of its state: never « clean and pushed ».
+CH=$(mkclone "$WCSRC" del-h feat/del-h)
+echo garbage > "$CH/.git/HEAD"
+bash "$WS" delete "$CH" >/dev/null 2>"$WC/del-h.err"; code=$?
+check "a checkout git cannot read is kept, with git's own first line" "1|1|1" \
+  "$code|$(exists "$CH")|$(grep -c 'git cannot read the checkout: .' "$WC/del-h.err")"
+bash "$WS" delete "$CH" --discard >/dev/null 2>&1
+
 echo "-- pin --pr records the pull request the pin reviews"
 PINA=$(wcpin "$WCSRC" pin-a main --pr 7)
 PINB=$(wcpin "$WCSRC" pin-b main)

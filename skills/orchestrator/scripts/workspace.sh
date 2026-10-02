@@ -16,9 +16,10 @@
 # one directory per working directory a session ran in, named after that path with every `/`
 # turned into `-`; it holds the session's scratch. It leaves with its checkout (design §61).
 #
-# The one safety rule over every deletion here: never a dirty tree, unpushed commits, a pin
-# whose head is on no branch, or a directory a live process has as its working directory
-# (`lsof`, bounded; a process table that cannot be read is a refusal, never a « nothing there »).
+# The one safety rule over every deletion here: never a dirty tree, unpushed commits (on a
+# branch or on a detached head) or a stash, a pin whose head is on no branch, or a directory a
+# live process has as its working directory (`lsof`, bounded; a process table that cannot be
+# read is a refusal, never a « nothing there »; so is a checkout git cannot read).
 # `--discard` overrides the first three, never the live-process guard on the host's directory.
 #
 # Manifest: <repo>/.claude/workspace-manifest, one repository-relative path per line, `#`
@@ -97,17 +98,35 @@ EOF
     return 1
 }
 
+# git_read <dir> <git arguments...>: GOUT holds the output; on a failure, REASON says git
+# cannot read the checkout. A read that fails knows nothing, so it never reads as clean.
+GOUT=""
+git_read() {
+    local d="$1" why
+    shift
+    GOUT=$(git -C "$d" "$@" 2>/dev/null) && return 0
+    why=$(git -C "$d" "$@" 2>&1 >/dev/null | head -n 1)
+    REASON="git cannot read the checkout: ${why:-git $1 failed}"
+    return 1
+}
+
 # refusal <real-path>: sets REASON to why the checkout or pin may not be deleted, or to "".
 REASON=""
 refusal() {
     local real="$1" r
     REASON=""
+    git_read "$real" status --porcelain || return
+    [ -z "$GOUT" ] || { REASON="the tree is dirty"; return; }
     if [ -f "$real/.git" ]; then
-        [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || { REASON="the tree is dirty"; return; }
-        [ -n "$(git -C "$real" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ] || { REASON="the pin's head is on no branch of the source"; return; }
+        git_read "$real" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes || return
+        [ -n "$GOUT" ] || { REASON="the pin's head is on no branch of the source"; return; }
     else
-        [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || { REASON="the tree is dirty"; return; }
-        [ -z "$(git -C "$real" log --branches --not --remotes --oneline 2>/dev/null)" ] || { REASON="commits on no remote branch"; return; }
+        # HEAD as well as the branches: a commit on a detached head is on none of them. A
+        # stash is on none either. (A pin shares its source's stash, so it is not asked there.)
+        git_read "$real" log HEAD --branches --not --remotes --oneline || return
+        [ -z "$GOUT" ] || { REASON="commits on no remote branch"; return; }
+        git_read "$real" for-each-ref --count=1 refs/stash || return
+        [ -z "$GOUT" ] || { REASON="a stash is held"; return; }
     fi
     live_inside "$real" >/dev/null; r=$?
     case "$r" in
