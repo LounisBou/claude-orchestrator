@@ -600,6 +600,8 @@ WC="$WORK/wc"
 mkdir -p "$WC/bin" "$WC/bin-nolsof" "$WC/hosttmp" "$WC/src"
 export ORCHESTRATOR_HOST_TMP="$WC/hosttmp"
 export ORCHESTRATOR_WORKSPACES="$WORK/wcroot"
+# The sweep caches each repository's pull requests in the state directory: one of the suite's own.
+export ORCHESTRATOR_STATE_DIR="$WC/state"
 rp() { ( cd "$1" && pwd -P ); }
 mkdir -p "$WORK/wcroot"
 WCR=$(rp "$WORK/wcroot")
@@ -838,7 +840,21 @@ check "a dry run exits 0 and deletes nothing, checkouts or host directories" "0|
 check "a dry run prints its decisions: six deletions and the orphan, none done" "7|0" \
   "$(printf '%s\n' "$out" | grep -c '^would delete ')|$(printf '%s\n' "$out" | grep -c '^deleted ')"
 check "the pull requests are read once per repository, never once per checkout; a long-lived branch asks none" "2" "$(grep -c 'pr list' "$WC/gh-calls")"
-check "and with the fields the decision reads" "2" "$(grep -c -- '--json headRefName,state,headRefOid,number' "$WC/gh-calls")"
+check "and with the fields the decision reads, two hundred at most" "2|2" \
+  "$(grep -c -- '--json headRefName,state,headRefOid,number' "$WC/gh-calls")|$(grep -c -- '--limit 200 ' "$WC/gh-calls")"
+# The orphans are local and cheap, the pull requests a call per repository: a sweep cut by its
+# deadline has done the orphans first.
+first_ckt=$(printf '%s\n' "$out" | grep -n "^[a-z ]* $WCR/proj" | head -1 | cut -d: -f1)
+last_tmp=$(printf '%s\n' "$out" | grep -n "^[a-z ]* $ORCHESTRATOR_HOST_TMP/" | tail -1 | cut -d: -f1)
+check "the orphans are decided before any checkout" "1" "$([ -n "$last_tmp" ] && [ -n "$first_ckt" ] && [ "$last_tmp" -lt "$first_ckt" ] && echo 1 || echo 0)"
+CACHED=$(ls "$ORCHESTRATOR_STATE_DIR/sweep-prs" 2>/dev/null | grep -c .)
+: > "$WC/gh-calls"
+wcgh bash "$WS" sweep --dry-run >/dev/null 2>&1
+check "the lists are cached in the state directory, one file per origin; a second sweep asks gh nothing" "2|0" "$CACHED|$(grep -c . "$WC/gh-calls")"
+touch -t 200001010000 "$ORCHESTRATOR_STATE_DIR"/sweep-prs/*
+wcgh bash "$WS" sweep --dry-run >/dev/null 2>&1
+check "a list older than thirty minutes is asked again" "2" "$(grep -c . "$WC/gh-calls")"
+rm -rf "$ORCHESTRATOR_STATE_DIR/sweep-prs"
 
 out=$(wcgh bash "$WS" sweep --deadline 0 2>"$WC/sweep-dl.err"); code=$?
 check "a spent deadline stops cleanly before the next item: nothing deleted, said" "0|$BEFORE|1" \
@@ -849,6 +865,7 @@ out=$(wcgh bash "$WS" sweep 2>"$WC/sweep-off.err"); code=$?
 rm -f "$WC/gh-offline"
 check "gh unreachable: no checkout deleted, each repository says so once, the items are kept with the reason" "0|$BEFORE|2|1" \
   "$code|$(nitems)|$(grep -c 'cannot read the pull requests' "$WC/sweep-off.err")|$(printf '%s\n' "$out" | grep -c "^kept $C_MERGED: .*pull requests")"
+check "and a failed call is never cached" "0" "$(ls "$ORCHESTRATOR_STATE_DIR/sweep-prs" 2>/dev/null | grep -c .)"
 mkorphans
 
 out=$(wcgh bash "$WS" sweep 2>"$WC/sweep.err"); code=$?
@@ -896,9 +913,9 @@ for d in "$C_OPEN" "$C_NOPR" "$C_UNPUSHED" "$C_LIVE" "$C_MAIN" "$C_STABLE" "$C_P
 bash "$WS" delete "$C_DIRTY" --discard >/dev/null 2>&1
 bash "$WS" delete "$P_NOBRANCH" --discard >/dev/null 2>&1
 check "the temporary fixtures are gone and nothing is left under the root" "0" "$(nitems)"
-rm -rf "$ORCHESTRATOR_HOST_TMP"/* "$WC/gh-calls"
+rm -rf "$ORCHESTRATOR_HOST_TMP"/* "$WC/gh-calls" "$ORCHESTRATOR_STATE_DIR"
 
-unset ORCHESTRATOR_WORKSPACES GIT_CONFIG_GLOBAL ORCHESTRATOR_HOST_TMP
+unset ORCHESTRATOR_WORKSPACES GIT_CONFIG_GLOBAL ORCHESTRATOR_HOST_TMP ORCHESTRATOR_STATE_DIR
 
 echo "== brief lint =="
 

@@ -488,26 +488,41 @@ spent() { [ -n "$SWEEP_DEADLINE" ] && [ $((SECONDS - SWEEP_T0)) -ge "$SWEEP_DEAD
 # keep <path> <reason>: one line per item left in place.
 keep() { echo "kept $1: $2"; }
 
+# The pull requests of each repository outlive a sweep: a list is the slow part of it (a call
+# per repository, seconds each), and a sweep cut by the stop gate's deadline restarted from
+# nothing every time. One file per origin in the state directory (the stop gate's own
+# resolution), read again after thirty minutes; a failed or cut call is never written.
+STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
+PRS_CACHE="$STATE_DIR/sweep-prs"
+PRS_FRESH_MINUTES=30
+
 # load_prs <checkout>: PRS_FILE holds the repository's pull requests, read once per origin
 # whatever the number of checkouts; returns 1 with PRS_WHY when they cannot be read. A
 # failure is remembered and said once for the repository, and nothing is deleted for it.
 PRS_FILE=""
 PRS_WHY=""
 load_prs() {
-    local d="$1" url key secs=60 why
+    local d="$1" url key secs=60 why cached
     url=$(git -C "$d" remote get-url origin 2>/dev/null) || { PRS_WHY="the checkout has no origin to ask"; return 1; }
     key=$(printf '%s' "$url" | cksum | cut -d' ' -f1)
     PRS_FILE="$SWEEP_TMP/prs-$key.json"
+    cached="$PRS_CACHE/$key.json"
     if [ -f "$SWEEP_TMP/prs-$key.bad" ]; then PRS_WHY=$(cat "$SWEEP_TMP/prs-$key.bad"); return 1; fi
     [ -f "$PRS_FILE" ] && return 0
+    if [ -n "$(find "$cached" -mmin -"$PRS_FRESH_MINUTES" 2>/dev/null)" ] && cp "$cached" "$PRS_FILE" 2>/dev/null \
+        && python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$PRS_FILE" 2>/dev/null; then
+        return 0
+    fi
     if [ -n "$SWEEP_DEADLINE" ]; then
         secs=$((SWEEP_DEADLINE - (SECONDS - SWEEP_T0)))
         [ "$secs" -ge 1 ] || secs=1
         [ "$secs" -le 60 ] || secs=60
     fi
     # --limit: the default lists thirty, and a merged pull request older than that would
-    # read as « no pull request » and never be swept.
-    if ! ( cd "$d" && bounded "$secs" gh pr list --state all --limit 1000 --json headRefName,state,headRefOid,number ) > "$PRS_FILE" 2> "$SWEEP_TMP/gh.err" \
+    # read as « no pull request » and never be swept. Two hundred, not a thousand: the long
+    # list was most of a sweep's time, and a merged pull request past it reads as « no pull
+    # request », which keeps the checkout — the safe side.
+    if ! ( cd "$d" && bounded "$secs" gh pr list --state all --limit 200 --json headRefName,state,headRefOid,number ) > "$PRS_FILE" 2> "$SWEEP_TMP/gh.err" \
         || ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$PRS_FILE" 2>/dev/null; then
         why=$(head -n 1 "$SWEEP_TMP/gh.err" 2>/dev/null)
         [ -n "$why" ] || why="no readable answer"
@@ -517,6 +532,9 @@ load_prs() {
         say "sweep: cannot read the pull requests of $url ($why); nothing is deleted for it"
         return 1
     fi
+    mkdir -p "$PRS_CACHE" 2>/dev/null && cp "$PRS_FILE" "$cached.$$" 2>/dev/null && mv -f "$cached.$$" "$cached" 2>/dev/null \
+        || rm -f "$cached.$$" 2>/dev/null
+    return 0
 }
 
 # branch_pr <json> <branch>: "none", "open <n>", "over <n> <STATE> <head commit>..." (merged or
@@ -653,13 +671,14 @@ $prefixes
 EOF
         [ "$hit" = 1 ] || continue
         grep -qxF -- "$name" "$known" && continue
-        spent && { say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 0; }
+        spent && { say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 1; }
         host_dir_live "$t"; r=$?
         [ "$r" = 1 ] || { keep "$t" "$LIVE_WHY"; continue; }
         if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $t: no checkout, no live process"; continue; fi
         trash_remove "$t" "$(host_trash)"
         if [ -e "$t" ]; then keep "$t" "it could not be removed"; else echo "deleted $t"; fi
     done
+    return 0
 }
 
 # sweep_trash: what removals cut short left in the trashes, emptied before anything else.
@@ -694,14 +713,16 @@ cmd_sweep() {
     root=$(cd "$ROOT_DIR" && pwd -P)
     SWEEP_TMP=$(mktemp -d "${TMPDIR:-/tmp}/workspace-sweep-XXXXXX") || die "sweep: cannot create a working directory"
     trap 'rm -rf -- "${SWEEP_TMP:?}"' EXIT
+    # The trashes, then the orphans — local and cheap — then the checkouts, which ask the
+    # pull requests: a sweep cut by its deadline has done the cheap part first.
     sweep_trash || return 0
+    sweep_orphans "$root" || return 0
     for d in "$ROOT_DIR"/*/*/; do
         [ -e "$d/.git" ] || continue
         d="${d%/}"
         if spent; then say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 0; fi
         sweep_one "$d"
     done
-    sweep_orphans "$root"
 }
 
 case "$cmd" in
