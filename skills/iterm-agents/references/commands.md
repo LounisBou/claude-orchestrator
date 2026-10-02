@@ -58,8 +58,11 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # exports ORCHESTRATOR_CONTEXT_GATE_TOKENS=<N> beside ORCHESTRATOR_SPAWNED=1, so the
     # context-gate hook and the status line, which both read it from their environment, use
     # it. Absent, nothing is exported and the default (300,000 tokens on a window of
-    # 1,000,000 or more) holds. With --brief, the startup prompt adds « Your context gate is
-    # <N> tokens. »; a brief that says 300,000 is not rewritten. A successor does not inherit
+    # 1,000,000 or more) holds. The token gate takes effect on a window of 1,000,000 tokens or
+    # more only; below, the percentage gate of the window decides. With --brief, the startup
+    # prompt adds « Your context gate is <N> tokens on a window of 1,000,000 tokens or more »
+    # and says that below it the window's percentage gate holds (a --prompt or --prompt-file
+    # spawn gets the export, not that line); a brief that says 300,000 is not rewritten. A successor does not inherit
     # the predecessor's gate: it carries one only if the option is given. `rotate` forwards it.
     # An agent comes up with remote control off; only a successor comes up under it (§39).
     # The spawn then reads the mode the session came up in, on its own transcript, and
