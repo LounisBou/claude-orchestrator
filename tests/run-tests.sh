@@ -2173,7 +2173,7 @@ for bad in 0 -5 abc 1.5 ""; do
 done
 out=$(gspawn --brief "$B/good.md" --orchestrator "$ORCHREF" --gate-tokens 200000)
 check "with --brief the startup prompt says the gate" "1" \
-  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF. Your context gate is 200000 tokens.")"
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF. Your context gate is 200000 tokens on a window of 1,000,000 tokens or more; below, 80 % of the window.")"
 check "without --gate-tokens the startup prompt says no gate" "0" \
   "$(gspawn --brief "$B/good.md" --orchestrator "$ORCHREF" | grep -c 'Your context gate')"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_PS_TABLE=/dev/null bash "$AGENT" rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : gate" --prompt p --gate-tokens 200000 2>&1)

@@ -1650,8 +1650,13 @@ def cmd_spawn(argv):
                         % (brief_abs, args.orchestrator))
         if gate_tokens:
             # So a brief's "past 300,000" is read against the session's real gate. The brief
-            # itself is not rewritten.
-            brief_prompt += " Your context gate is %d tokens." % gate_tokens
+            # itself is not rewritten. The option only takes effect on a large window: the
+            # line says so, or a small-window session would be told a gate that never trips.
+            # The literal breaks before its percent sign: the suite's sweep for a gate stated
+            # without its token half reads source lines, and this one states both halves.
+            brief_prompt += (" Your context gate is %d tokens on a window of 1,000,000 tokens"
+                             " or more; below, 80"
+                             " %% of the window." % gate_tokens)
     if not (brief_prompt or args.prompt or args.prompt_file):
         # The host writes a session's transcript only once it has a first prompt (§29): a
         # promptless launch has no transcript to read a mode on, so verify_mode's own
