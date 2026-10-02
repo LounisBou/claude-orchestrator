@@ -2919,8 +2919,20 @@ cp "$ROOT/hooks/stop-gate.sh" "$ROOT/hooks/stop_gate.py" "$ROOT/hooks/session_na
 cp "$ROOT/skills/iterm-agents/scripts/iterm_agent.py" "$SG/skills/iterm-agents/scripts/"
 printf '#!/bin/bash\n[ "$1" = list ] || exit 1\ncat "%s/listing" 2>/dev/null || { echo "list: no terminal backend could serve this" >&2; exit 1; }\n' "$SG" \
   > "$SG/skills/iterm-agents/scripts/iterm-agent.sh"
-printf '#!/bin/bash\n[ "$1" = list ] || exit 1\ncat "%s/checkouts" 2>/dev/null || { echo "workspace: cannot read the root" >&2; exit 1; }\n' "$SG" \
-  > "$SG/skills/orchestrator/scripts/workspace.sh"
+# `sweep` records its arguments and answers from files: its lines, its stderr, its exit
+# code, and a sleep to be killed in.
+cat > "$SG/skills/orchestrator/scripts/workspace.sh" <<EOF
+#!/bin/bash
+case "\$1" in
+  list) cat "$SG/checkouts" 2>/dev/null || { echo "workspace: cannot read the root" >&2; exit 1; } ;;
+  sweep) echo "\$*" >> "$SG/sweep-args"
+         [ -f "$SG/sweep-sleep" ] && sleep "\$(cat "$SG/sweep-sleep")"
+         cat "$SG/sweep-out" 2>/dev/null
+         [ -f "$SG/sweep-err" ] && cat "$SG/sweep-err" >&2
+         exit "\$(cat "$SG/sweep-code" 2>/dev/null || echo 0)" ;;
+  *) exit 1 ;;
+esac
+EOF
 cat > "$SGB/gh" <<EOF
 #!/bin/bash
 [ -f "$SG/gh-offline" ] && { echo "error connecting to api.github.com" >&2; exit 1; }
@@ -2945,7 +2957,7 @@ sg_chain() {  # <tty> <owner> ...: the chain of the orchestrator's tty, in launc
 # The session's name is read from the process table the way the launcher reads it (`--name`):
 # the suite's stand-in for `ps` is a file, and the session's own tty is given.
 sg_ps() { printf '/dev/ttys900 host-cli %s\n' "$1" > "$SG/ps"; }
-sg_reset() { rm -f "$SG/prs" "$SG/gh-calls" "$SG/gh-args" "$SG/gh-offline" "$SG"/checks-* "$SG/transcript" "$SGS/stop-gate.log"; rm -rf "$SGS/stop-gate" "$SGS/records"; : > "$SG/checkouts"; sg_ps '--name Orch : f [a1b2c3]'; sg_listing; sg_chain; }
+sg_reset() { rm -f "$SG/prs" "$SG/gh-calls" "$SG/gh-args" "$SG/gh-offline" "$SG"/checks-* "$SG/transcript" "$SGS/stop-gate.log"; rm -rf "$SGS/stop-gate" "$SGS/records"; rm -f "$SG"/sweep-* "$SGS/sweep.stamp"; : > "$SG/checkouts"; sg_ps '--name Orch : f [a1b2c3]'; sg_listing; sg_chain; }
 # sg <message> [stop_hook_active] [session id]: the hook's stdout. SG_TRANSCRIPT names the
 # payload's transcript, SG_ITERM stands in for ITERM_SESSION_ID, SG_DEADLINE for the hook's.
 sg() {
@@ -3276,6 +3288,48 @@ check "the eval selection says its two stop-gate cases grade the staged spawn li
   "$(grep -E '^\| 5[12] \|' "$ROOT/evals/SELECTION.md" | grep -c 'under staging; it does not run the hook')"
 check "the hook is registered on the Stop event" "1" \
   "$("$py" -c 'import json,sys; h=json.load(open(sys.argv[1]))["hooks"]["Stop"]; print(sum("hooks/stop-gate.sh" in x["command"] for e in h for x in e["hooks"]))' "$ROOT/hooks/hooks.json" 2>/dev/null)"
+
+echo "-- the sweep, run last and never part of the decision"
+sweepargs() { cat "$SG/sweep-args" 2>/dev/null; }
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf 'deleted /ws/p/one\nkept /ws/p/two: the tree is dirty\ndeleted /ws/p/three\n' > "$SG/sweep-out"
+check "a passing stop of an orchestrator runs the sweep and still passes silently" "" "$(sg 'I launched the phase.')"
+check "with what is left of the budget, minus a margin, as its deadline" "1" "$(sweepargs | grep -cE '^sweep --deadline 1[4-7]$')"
+check "each deletion is logged, a kept item is not" "2|0" \
+  "$(sglog | grep -c '| Orch : f \[a1b2c3\] | sweep | deleted | /ws/p/')|$(sglog | grep -c 'two')"
+sg 'And again.' >/dev/null
+check "a second stop within ten minutes does not sweep again" "1" "$(sweepargs | grep -c .)"
+touch -t 200001010000 "$SGS/sweep.stamp"
+sg 'And later.' >/dev/null
+check "one past the ten minutes does" "2" "$(sweepargs | grep -c .)"
+
+sg_reset; sg_listing
+check "a refused stop is refused as before, and the sweep still ran after the decision" "block|Nothing will wake you|1" \
+  "$(sg 'I am launching the phase 3 agent now.' | reason | cut -c1-27)|$(sweepargs | grep -c .)"
+
+sg_reset; sg_ps '--name Agent : one [b2c3d4]'
+sg 'done' >/dev/null
+check "a session that is not an orchestrator never sweeps" "0" "$(sweepargs | grep -c .)"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+echo boom > "$SG/sweep-err"; echo 3 > "$SG/sweep-code"
+check "a sweep that fails never refuses the stop" "" "$(sg 'I launched the phase.')"
+check "and the failure is logged" "1" "$(sglog | grep -c '| sweep | error | exit 3: boom$')"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+echo 20 > "$SG/sweep-sleep"
+t0=$SECONDS
+out=$(SG_DEADLINE=6 sg 'I launched the phase.')
+elapsed=$((SECONDS - t0))
+check "a sweep that overruns is stopped inside the budget, the stop passes" "|1|0" \
+  "$out|$([ "$elapsed" -lt 12 ] && echo 1 || echo 0)|$(ps -axo command | grep -c '^sleep 20$')"
+check "and the overrun is logged" "1" "$(sglog | grep -c '| sweep | error | did not finish within')"
+
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+SG_DEADLINE=3 sg 'I launched the phase.' >/dev/null
+check "no budget left after the checks: no sweep, and no stamp spent" "0|0" \
+  "$(sweepargs | grep -c .)|$([ -e "$SGS/sweep.stamp" ] && echo 1 || echo 0)"
+sg_reset
 
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.
