@@ -442,7 +442,8 @@ load_prs() {
     fi
 }
 
-# branch_pr <json> <branch>: "none", "open <n>", "over <n> <STATE>" (merged or closed) or "unknown".
+# branch_pr <json> <branch>: "none", "open <n>", "over <n> <STATE> <head commit>..." (merged or
+# closed, the head of each such pull request) or "unknown".
 branch_pr() {
     python3 - "$1" "$2" <<'PY'
 import json, sys
@@ -453,7 +454,7 @@ elif any(p.get("state") == "OPEN" for p in prs):
     print("open", min(p["number"] for p in prs if p.get("state") == "OPEN"))
 elif all(p.get("state") in ("MERGED", "CLOSED") for p in prs):
     last = max(prs, key=lambda p: p["number"])
-    print("over", last["number"], last["state"])
+    print("over", last["number"], last["state"], *[p.get("headRefOid", "") for p in prs])
 else:
     print("unknown")
 PY
@@ -470,7 +471,7 @@ PY
 
 # sweep_decide <dir> <real>: prints "delete <reason>" or "keep <reason>".
 sweep_decide() {
-    local d="$1" real="$2" br facts n gd rec head
+    local d="$1" real="$2" br facts n gd rec head default state oid about
     if [ -f "$real/.git" ]; then
         gd=$(git -C "$real" rev-parse --absolute-git-dir 2>/dev/null)
         rec=""
@@ -491,12 +492,31 @@ sweep_decide() {
     fi
     br=$(git -C "$real" symbolic-ref --short -q HEAD 2>/dev/null)
     [ -n "$br" ] || { echo "keep no branch checked out, so no pull request to match"; return; }
+    # A long-lived branch is matched by name by pull requests that are not about it (a fork's
+    # own `main`): it is never swept on a name.
+    default=$(git -C "$real" symbolic-ref --short -q refs/remotes/origin/HEAD 2>/dev/null)
+    case "$br" in main|master|develop|trunk) echo "keep on $br, a long-lived branch"; return ;; esac
+    [ "origin/$br" != "$default" ] || { echo "keep on $br, the repository's default branch"; return; }
     load_prs "$real" || { echo "keep pull requests unreadable: $PRS_WHY"; return; }
     facts=$(branch_pr "$PRS_FILE" "$br")
     case "$facts" in
         none) echo "keep no pull request for branch $br" ;;
         open*) n="${facts#open }"; echo "keep pull request #$n for branch $br is open" ;;
-        over*) echo "delete the pull request of branch $br is ${facts##* }" ;;
+        over*)
+            # The pull request must be about THIS commit: its head, or a descendant of the
+            # clone's head the clone can see. A clone past the pull request's head holds work
+            # the pull request never carried.
+            set -- $facts
+            n="$2"; state="$3"; shift 3
+            head=$(git -C "$real" rev-parse HEAD 2>/dev/null)
+            about=0
+            for oid in "$@"; do
+                [ -n "$oid" ] || continue
+                if [ "$oid" = "$head" ]; then about=1; break; fi
+                if git -C "$real" cat-file -e "$oid^{commit}" 2>/dev/null && git -C "$real" merge-base --is-ancestor "$head" "$oid" 2>/dev/null; then about=1; break; fi
+            done
+            if [ "$about" = 1 ]; then echo "delete the pull request #$n of branch $br is $state"
+            else echo "keep the head is not the one of pull request #$n ($state): the branch moved past it"; fi ;;
         *) echo "keep the pull requests of branch $br are in no state this sweep decides on" ;;
     esac
 }
@@ -527,6 +547,14 @@ sweep_orphans() {
     local root="$1" prefix known="$SWEEP_TMP/known" d real t name r
     prefix="${root//\//-}-"
     : > "$known"
+    # A directory that still exists under the root, a project's own or a checkout, is not an
+    # orphan's: only what is named after nothing there is.
+    for d in "$ROOT_DIR"/*/; do
+        [ -d "$d" ] || continue
+        real=$(cd "$d" && pwd -P)
+        printf '%s\n' "${real//\//-}" >> "$known"
+        printf '%s' "$real" | tr -c 'A-Za-z0-9' '-' >> "$known"; echo >> "$known"
+    done
     for d in "$ROOT_DIR"/*/*/; do
         [ -d "$d" ] || continue
         real=$(cd "$d" && pwd -P)

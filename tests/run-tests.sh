@@ -608,14 +608,15 @@ enc() { local p; p=$(rp "$1"); printf '%s' "${p//\//-}"; }
 gc() { [ "${1:-}" = -C ] && [ -z "${2:-}" ] && return 1; git -c user.email=t@local -c user.name=t "$@"; }
 exists() { [ -e "$1" ] && echo 1 || echo 0; }
 
-for n in 1 2; do
-  suffix=""; [ "$n" = 2 ] && suffix=2
+for n in 1 2 3; do
+  suffix=""; [ "$n" -gt 1 ] && suffix=$n
+  trunk=main; [ "$n" = 3 ] && trunk=stable
   git init -q --bare "$WC/origin$suffix.git"
-  mkdir -p "$WC/src/proj$suffix" && ( cd "$WC/src/proj$suffix" && git init -q -b main \
+  mkdir -p "$WC/src/proj$suffix" && ( cd "$WC/src/proj$suffix" && git init -q -b $trunk \
     && echo one > README.md && git add -A && gc commit -q -m "One" \
-    && git remote add origin "$WC/origin$suffix.git" && git push -q origin main 2>/dev/null )
+    && git remote add origin "$WC/origin$suffix.git" && git push -q origin $trunk 2>/dev/null )
 done
-WCSRC="$WC/src/proj"; WCSRC2="$WC/src/proj2"
+WCSRC="$WC/src/proj"; WCSRC2="$WC/src/proj2"; WCSRC3="$WC/src/proj3"
 
 # A fake `gh`: one JSON file per origin, named after the origin's last path part, and one
 # line per `pr list` call so the number of calls per repository can be counted.
@@ -716,6 +717,14 @@ C_DIRTY=$(mkclone "$WCSRC" s-dirty feat/dirty dirty)
 C_UNPUSHED=$(mkclone "$WCSRC" s-unpushed feat/unpushed unpushed)
 C_LIVE=$(mkclone "$WCSRC" s-live feat/live)
 C_P2=$(mkclone "$WCSRC2" s-p2 feat/p2)
+C_MAIN=$(mkclone "$WCSRC" s-main feat/s-main); git -C "$C_MAIN" checkout -q main
+C_STABLE=$(rp "$(bash "$WS" create "$WCSRC3" s-stable --base stable 2>/dev/null)")
+C_PAST=$(mkclone "$WCSRC" s-past feat/past)
+C_BEHIND=$(mkclone "$WCSRC" s-behind feat/behind)
+echo second > "$C_BEHIND/second.txt" && git -C "$C_BEHIND" add -A && gc -C "$C_BEHIND" commit -q -m "Second" && git -C "$C_BEHIND" push -q origin feat/behind 2>/dev/null
+BEHIND_TIP=$(git -C "$C_BEHIND" rev-parse HEAD)
+git -C "$C_BEHIND" reset -q --hard HEAD~1
+head_of() { git -C "$1" rev-parse HEAD; }
 P_MERGED=$(wcpin "$WCSRC" p-merged main --pr 7)
 P_MOVED=$(wcpin "$WCSRC" p-moved main --pr 8)
 P_SAME=$(wcpin "$WCSRC" p-same main --pr 9)
@@ -723,26 +732,34 @@ P_NOREC=$(wcpin "$WCSRC" p-norec main)
 P_NOBRANCH=$(wcpin "$WCSRC" p-nobranch main --pr 10)
 gc -C "$P_NOBRANCH" commit -q --allow-empty -m "Commit on no branch"
 cat > "$WC/prs-origin.git.json" <<EOF
-[{"number":1,"state":"MERGED","headRefName":"feat/merged","headRefOid":"aaa"},
- {"number":2,"state":"CLOSED","headRefName":"feat/closed","headRefOid":"bbb"},
- {"number":3,"state":"OPEN","headRefName":"feat/open","headRefOid":"ccc"},
- {"number":4,"state":"MERGED","headRefName":"feat/dirty","headRefOid":"ddd"},
- {"number":5,"state":"MERGED","headRefName":"feat/unpushed","headRefOid":"eee"},
- {"number":6,"state":"MERGED","headRefName":"feat/live","headRefOid":"fff"},
+[{"number":1,"state":"MERGED","headRefName":"feat/merged","headRefOid":"$(head_of "$C_MERGED")"},
+ {"number":2,"state":"CLOSED","headRefName":"feat/closed","headRefOid":"$(head_of "$C_CLOSED")"},
+ {"number":3,"state":"OPEN","headRefName":"feat/open","headRefOid":"$(head_of "$C_OPEN")"},
+ {"number":4,"state":"MERGED","headRefName":"feat/dirty","headRefOid":"$(head_of "$C_DIRTY")"},
+ {"number":5,"state":"MERGED","headRefName":"feat/unpushed","headRefOid":"$(head_of "$C_UNPUSHED")"},
+ {"number":6,"state":"MERGED","headRefName":"feat/live","headRefOid":"$(head_of "$C_LIVE")"},
  {"number":7,"state":"MERGED","headRefName":"feat/seven","headRefOid":"111"},
  {"number":8,"state":"OPEN","headRefName":"feat/eight","headRefOid":"0000000000000000000000000000000000000000"},
  {"number":9,"state":"OPEN","headRefName":"feat/nine","headRefOid":"$MAIN_SHA"},
- {"number":10,"state":"MERGED","headRefName":"feat/ten","headRefOid":"222"}]
+ {"number":10,"state":"MERGED","headRefName":"feat/ten","headRefOid":"222"},
+ {"number":11,"state":"MERGED","headRefName":"main","headRefOid":"$(head_of "$C_MAIN")"},
+ {"number":12,"state":"MERGED","headRefName":"feat/past","headRefOid":"$(git -C "$C_PAST" rev-parse HEAD~1)"},
+ {"number":13,"state":"MERGED","headRefName":"feat/behind","headRefOid":"$BEHIND_TIP"}]
+EOF
+cat > "$WC/prs-origin3.git.json" <<EOF
+[{"number":1,"state":"MERGED","headRefName":"stable","headRefOid":"$(head_of "$C_STABLE")"}]
 EOF
 cat > "$WC/prs-origin2.git.json" <<EOF
-[{"number":1,"state":"MERGED","headRefName":"feat/p2","headRefOid":"ggg"}]
+[{"number":1,"state":"MERGED","headRefName":"feat/p2","headRefOid":"$(head_of "$C_P2")"}]
 EOF
-for d in "$C_MERGED" "$C_CLOSED" "$C_OPEN" "$C_NOPR" "$C_DIRTY" "$C_UNPUSHED" "$C_LIVE" "$C_P2" "$P_MERGED" "$P_MOVED" "$P_SAME" "$P_NOREC" "$P_NOBRANCH"; do scratch "$d" >/dev/null; done
+for d in "$C_MERGED" "$C_CLOSED" "$C_OPEN" "$C_NOPR" "$C_DIRTY" "$C_UNPUSHED" "$C_LIVE" "$C_P2" "$C_MAIN" "$C_STABLE" "$C_PAST" "$C_BEHIND" "$P_MERGED" "$P_MOVED" "$P_SAME" "$P_NOREC" "$P_NOBRANCH"; do scratch "$d" >/dev/null; done
 # The orphans of checkouts deleted before this change: the encoded root, then a name that
 # matches no checkout. Three that must stay: one past the root's name without the separator,
 # one outside the root, one with a live process inside.
 ENCR="${WCR//\//-}"
+mkdir -p "$WORK/wcroot/plain"
 mkorphans() {
+  mkdir -p "$ORCHESTRATOR_HOST_TMP/$ENCR-proj/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-plain/scratchpad"
   mkdir -p "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone/scratchpad" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x/scratchpad" \
     "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live/scratchpad"
 }
@@ -757,9 +774,9 @@ BEFORE=$(nitems)
 
 out=$(wcgh bash "$WS" sweep --dry-run 2>"$WC/sweep-dry.err"); code=$?
 check "a dry run exits 0 and deletes nothing, checkouts or host directories" "0|$BEFORE|1|1|1|1" "$code|$(nitems)|$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
-check "a dry run prints its decisions: five deletions and the orphan, none done" "6|0" \
+check "a dry run prints its decisions: six deletions and the orphan, none done" "7|0" \
   "$(printf '%s\n' "$out" | grep -c '^would delete ')|$(printf '%s\n' "$out" | grep -c '^deleted ')"
-check "the pull requests are read once per repository, never once per checkout" "2" "$(grep -c 'pr list' "$WC/gh-calls")"
+check "the pull requests are read once per repository, never once per checkout; a long-lived branch asks none" "2" "$(grep -c 'pr list' "$WC/gh-calls")"
 check "and with the fields the decision reads" "2" "$(grep -c -- '--json headRefName,state,headRefOid,number' "$WC/gh-calls")"
 
 out=$(wcgh bash "$WS" sweep --deadline 0 2>"$WC/sweep-dl.err"); code=$?
@@ -787,6 +804,13 @@ check "a dirty tree is kept even when its pull request is merged" "1|1" \
   "$(exists "$C_DIRTY")|$(printf '%s\n' "$out" | grep -c "^kept $C_DIRTY: .*dirty")"
 check "unpushed commits are kept even when the pull request is merged" "1|1" \
   "$(exists "$C_UNPUSHED")|$(printf '%s\n' "$out" | grep -c "^kept $C_UNPUSHED: .*no remote branch")"
+check "a clone on a long-lived branch is never swept on a name a pull request shares" "1|1" \
+  "$(exists "$C_MAIN")|$(printf '%s\n' "$out" | grep -c "^kept $C_MAIN: .*long-lived")"
+check "a clone on the repository's default branch is kept whatever its name" "1|1" \
+  "$(exists "$C_STABLE")|$(printf '%s\n' "$out" | grep -c "^kept $C_STABLE: .*default branch")"
+check "a clone past the head of its merged pull request keeps the work the pull request never carried" "1|1" \
+  "$(exists "$C_PAST")|$(printf '%s\n' "$out" | grep -c "^kept $C_PAST: .*moved past")"
+check "a clone behind the head of its merged pull request holds nothing the pull request lacks: deleted" "0" "$(exists "$C_BEHIND")"
 check "a live process inside is kept even when the pull request is merged" "1|1" \
   "$(exists "$C_LIVE")|$(printf '%s\n' "$out" | grep -c "^kept $C_LIVE: .*live process")"
 check "a pin on the current head of an open pull request is kept" "1|1" \
@@ -795,14 +819,16 @@ check "a pin with no record is kept, with its reason" "1|1" \
   "$(exists "$P_NOREC")|$(printf '%s\n' "$out" | grep -c "^kept $P_NOREC: .*no recorded pull request")"
 check "a pin whose head is on no branch is kept even when its pull request is merged" "1|1" \
   "$(exists "$P_NOBRANCH")|$(printf '%s\n' "$out" | grep -c "^kept $P_NOBRANCH: .*no branch")"
-check "every deletion is printed and proved by the path's absence" "5|0" \
+check "every deletion is printed and proved by the path's absence" "6|0" \
   "$(printf '%s\n' "$out" | grep -c "^deleted $WCR/proj")|$(printf '%s\n' "$out" | grep '^deleted ' | sed 's/^deleted //' | while read -r p; do [ -e "$p" ] && echo present; done | grep -c present)"
 check "an orphan is removed; one past the root's name, one outside it, one in use are not" "0|1|1|1" "$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
+check "the host directory of a directory that still exists under the root is not an orphan's" "1|1" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj")|$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-plain")"
 check "the host directory of a kept checkout stays" "1|1" \
   "$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_OPEN")")|$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_NOPR")")"
 release
 rm -rf "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x" "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing"
-for d in "$C_OPEN" "$C_NOPR" "$C_UNPUSHED" "$C_LIVE" "$P_SAME" "$P_NOREC"; do bash "$WS" delete "$d" --discard >/dev/null 2>&1; done
+for d in "$C_OPEN" "$C_NOPR" "$C_UNPUSHED" "$C_LIVE" "$C_MAIN" "$C_STABLE" "$C_PAST" "$P_SAME" "$P_NOREC"; do bash "$WS" delete "$d" --discard >/dev/null 2>&1; done
 bash "$WS" delete "$C_DIRTY" --discard >/dev/null 2>&1
 bash "$WS" delete "$P_NOBRANCH" --discard >/dev/null 2>&1
 check "the temporary fixtures are gone and nothing is left under the root" "0" "$(nitems)"
