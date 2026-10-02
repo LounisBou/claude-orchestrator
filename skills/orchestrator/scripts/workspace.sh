@@ -13,8 +13,9 @@
 # <root>/<basename of the source>/<name>.
 #
 # Host temporary area: ORCHESTRATOR_HOST_TMP, else /private/tmp/claude-<uid>. The host keeps
-# one directory per working directory a session ran in, named after that path with every `/`
-# turned into `-`; it holds the session's scratch. It leaves with its checkout (design §61).
+# one directory per working directory a session ran in, named after that path with every
+# character that is not a letter or a digit turned into `-` (`/a/.b_c` is `-a--b-c`; see
+# `encode`); it holds the session's scratch. It leaves with its checkout (design §61).
 #
 # The one safety rule over every deletion here: never a dirty tree, unpushed commits (on a
 # branch or on a detached head) or a stash, a pin whose head is on no branch, or a directory a
@@ -59,6 +60,11 @@ copy_tree() {
 trim() { printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
 
 HOST_TMP="${ORCHESTRATOR_HOST_TMP:-/private/tmp/claude-$(id -u)}"
+
+# encode <path>: the name the host gives a directory's temporary directory — every character
+# that is not a letter or a digit turned into `-`, the host's own rule, read on its live
+# entries (`/Users/me/.cfg` is `-Users-me--cfg`). The one spelling every comparison uses.
+encode() { printf '%s\n' "$1" | tr -c 'A-Za-z0-9\n' '-'; }
 
 # bounded <seconds> <command...>: the command, killed when the time is spent.
 bounded() {
@@ -142,7 +148,7 @@ remove_host_tmp() {
 "
     case "$HOST_TMP" in /?*) ;; *) return 0 ;; esac
     for p in "$@"; do
-        name="${p//\//-}"
+        name=$(encode "$p")
         case "$name" in ""|"-") continue ;; esac
         case "$seen" in *"
 $name
@@ -564,21 +570,19 @@ sweep_one() {
 # directory went with them.
 sweep_orphans() {
     local root="$1" prefix known="$SWEEP_TMP/known" d real t name r
-    prefix="${root//\//-}-"
+    prefix="$(encode "$root")-"
     : > "$known"
     # A directory that still exists under the root, a project's own or a checkout, is not an
     # orphan's: only what is named after nothing there is.
     for d in "$ROOT_DIR"/*/; do
         [ -d "$d" ] || continue
         real=$(cd "$d" && pwd -P)
-        printf '%s\n' "${real//\//-}" >> "$known"
-        printf '%s' "$real" | tr -c 'A-Za-z0-9' '-' >> "$known"; echo >> "$known"
+        encode "$real" >> "$known"
     done
     for d in "$ROOT_DIR"/*/*/; do
         [ -d "$d" ] || continue
         real=$(cd "$d" && pwd -P)
-        printf '%s\n' "${real//\//-}" >> "$known"
-        printf '%s' "$real" | tr -c 'A-Za-z0-9' '-' >> "$known"; echo >> "$known"
+        encode "$real" >> "$known"
     done
     [ -d "$HOST_TMP" ] || return 0
     case "$HOST_TMP" in /?*) ;; *) return 0 ;; esac

@@ -603,7 +603,8 @@ export ORCHESTRATOR_WORKSPACES="$WORK/wcroot"
 rp() { ( cd "$1" && pwd -P ); }
 mkdir -p "$WORK/wcroot"
 WCR=$(rp "$WORK/wcroot")
-enc() { local p; p=$(rp "$1"); printf '%s' "${p//\//-}"; }
+# The host's name of a directory: every character that is not a letter or a digit turned into `-`.
+enc() { local p; p=$(rp "$1"); printf '%s' "$p" | tr -c 'A-Za-z0-9' '-'; }
 # A commit made through an empty `-C` path would land in the repository the suite runs from.
 gc() { [ "${1:-}" = -C ] && [ -z "${2:-}" ] && return 1; git -c user.email=t@local -c user.name=t "$@"; }
 exists() { [ -e "$1" ] && echo 1 || echo 0; }
@@ -715,6 +716,13 @@ bash "$WS" delete "$CH" >/dev/null 2>"$WC/del-h.err"; code=$?
 check "a checkout git cannot read is kept, with git's own first line" "1|1|1" \
   "$code|$(exists "$CH")|$(grep -c 'git cannot read the checkout: .' "$WC/del-h.err")"
 bash "$WS" delete "$CH" --discard >/dev/null 2>&1
+
+# The host spells every character that is not a letter or a digit as `-`, not only `/`.
+CI=$(mkclone "$WCSRC" del.i_x feat/del-i)
+HI="$ORCHESTRATOR_HOST_TMP/$(enc "$WCR")-proj-del-i-x"; mkdir -p "$HI/scratchpad"
+out=$(bash "$WS" delete "$CI" 2>/dev/null)
+check "a checkout named with a dot and an underscore takes its host directory, spelled as the host spells it" "0|0|1" \
+  "$(exists "$CI")|$(exists "$HI")|$(printf '%s\n' "$out" | grep -cxF "deleted $HI")"
 
 echo "-- pin --pr records the pull request the pin reviews"
 PINA=$(wcpin "$WCSRC" pin-a main --pr 7)
