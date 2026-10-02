@@ -34,7 +34,7 @@ a list of claim words fails open on any rewording and in any language.
 
 The sweep, run last and never part of the decision. Once the checks have decided, an
 orchestrator's stop also runs `workspace.sh sweep` — the checkouts and host temporary
-directories whose purpose is over — with what is left of the hook's budget, minus a margin,
+directories whose purpose is over — with what is left of the hook's deadline, minus a margin,
 at most once per ten minutes (a stamp file in the state directory). Each deletion is logged;
 a sweep that fails or overruns is logged and never changes the outcome of the stop.
 
@@ -94,7 +94,7 @@ STARTED = time.monotonic()
 # The sweep runs at most this often, whichever orchestrator stops: one stamp, in the state directory.
 SWEEP_STAMP = os.path.join(STATE_DIR, "sweep.stamp")
 SWEEP_EVERY = float(os.environ.get("ORCHESTRATOR_SWEEP_INTERVAL") or 600)
-# What the sweep leaves of the hook's budget for the hook's own exit.
+# What the sweep leaves of the hook's deadline for the hook's own exit.
 SWEEP_MARGIN = 3.0
 
 # The machine line is shown as plain text and the reason says where it goes: a line copied
@@ -390,9 +390,9 @@ def sweep_due():
 
 
 def sweep(who):
-    """Run `workspace.sh sweep` within what is left of the budget, and log what it did.
+    """Run `workspace.sh sweep` within what is left of the deadline, and log what it did.
 
-    Nothing here may refuse or delay a stop beyond the budget: every failure is a log line.
+    Nothing here may refuse or delay a stop beyond the deadline: every failure is a log line.
     The stamp is written before the run, so a sweep that hangs is not retried by every stop."""
     try:
         left = DEADLINE - (time.monotonic() - STARTED) - SWEEP_MARGIN

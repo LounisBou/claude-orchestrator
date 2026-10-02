@@ -595,7 +595,7 @@ def wait_gone(tty, timeout=None):
         time.sleep(0.3)
 
 
-# --- the checkout a close leaves behind (§53) --------------------------------------
+# --- the checkout a close leaves behind (§61) --------------------------------------
 
 WORKSPACE_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..",
                             "orchestrator", "scripts", "workspace.sh")

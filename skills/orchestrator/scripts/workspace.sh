@@ -14,7 +14,7 @@
 #
 # Host temporary area: ORCHESTRATOR_HOST_TMP, else /private/tmp/claude-<uid>. The host keeps
 # one directory per working directory a session ran in, named after that path with every `/`
-# turned into `-`; it holds the session's scratch. It leaves with its checkout (design §53).
+# turned into `-`; it holds the session's scratch. It leaves with its checkout (design §61).
 #
 # The one safety rule over every deletion here: never a dirty tree, unpushed commits, a pin
 # whose head is on no branch, or a directory a live process has as its working directory
@@ -398,7 +398,7 @@ cmd_list() {
     done
 }
 
-# --- sweep: the leftovers, decided on facts (design §53) ------------------------------------
+# --- sweep: the leftovers, decided on facts (design §61) ------------------------------------
 
 SWEEP_TMP=""
 SWEEP_T0=0
@@ -417,20 +417,20 @@ keep() { echo "kept $1: $2"; }
 PRS_FILE=""
 PRS_WHY=""
 load_prs() {
-    local d="$1" url key budget=60 why
+    local d="$1" url key secs=60 why
     url=$(git -C "$d" remote get-url origin 2>/dev/null) || { PRS_WHY="the checkout has no origin to ask"; return 1; }
     key=$(printf '%s' "$url" | cksum | cut -d' ' -f1)
     PRS_FILE="$SWEEP_TMP/prs-$key.json"
     if [ -f "$SWEEP_TMP/prs-$key.bad" ]; then PRS_WHY=$(cat "$SWEEP_TMP/prs-$key.bad"); return 1; fi
     [ -f "$PRS_FILE" ] && return 0
     if [ -n "$SWEEP_DEADLINE" ]; then
-        budget=$((SWEEP_DEADLINE - (SECONDS - SWEEP_T0)))
-        [ "$budget" -ge 1 ] || budget=1
-        [ "$budget" -le 60 ] || budget=60
+        secs=$((SWEEP_DEADLINE - (SECONDS - SWEEP_T0)))
+        [ "$secs" -ge 1 ] || secs=1
+        [ "$secs" -le 60 ] || secs=60
     fi
     # --limit: the default lists thirty, and a merged pull request older than that would
     # read as « no pull request » and never be swept.
-    if ! ( cd "$d" && bounded "$budget" gh pr list --state all --limit 1000 --json headRefName,state,headRefOid,number ) > "$PRS_FILE" 2> "$SWEEP_TMP/gh.err" \
+    if ! ( cd "$d" && bounded "$secs" gh pr list --state all --limit 1000 --json headRefName,state,headRefOid,number ) > "$PRS_FILE" 2> "$SWEEP_TMP/gh.err" \
         || ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$PRS_FILE" 2>/dev/null; then
         why=$(head -n 1 "$SWEEP_TMP/gh.err" 2>/dev/null)
         [ -n "$why" ] || why="no readable answer"
