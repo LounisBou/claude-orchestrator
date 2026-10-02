@@ -67,7 +67,7 @@ HOST_TMP="${ORCHESTRATOR_HOST_TMP:-/private/tmp/claude-$(id -u)}"
 
 # encode <path>: the name the host gives a directory's temporary directory — every character
 # that is not a letter or a digit turned into `-`, the host's own rule, read on its live
-# entries (`/Users/me/.cfg` is `-Users-me--cfg`). The one spelling every comparison uses.
+# entries (`/srv/me/.cfg` is `-srv-me--cfg`). The one spelling every comparison uses.
 encode() { printf '%s\n' "$1" | tr -c 'A-Za-z0-9\n' '-'; }
 
 # bounded <seconds> <command...>: the command, killed when the time is spent.
