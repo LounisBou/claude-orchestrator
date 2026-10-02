@@ -68,7 +68,8 @@ carries() { grep -qiF "$2" "$1" && echo yes || echo no; }
 echo "== repository policy =="
 
 # The product name appears only in load-bearing identifiers: host paths, host
-# environment variables, the plugin name and the manifest directory (CLAUDE.md rule 2).
+# environment variables, the plugin name, the manifest directory and the host's per-user
+# temporary area, a path the host imposes (CLAUDE.md rule 2).
 # Presence checks pin wording and were dropped; an absence sweep pins none, so it stays.
 #
 # The grep runs from INSIDE the repository, on a relative path. With an absolute one,
@@ -78,7 +79,7 @@ echo "== repository policy =="
 policy_hits() {
   ( cd "$ROOT" && grep -rniI 'claude' . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=plans \
       --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh \
-    | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI|claude-orchestrator|\.claude-plugin|/\.claude/|\.claude\.json|LounisBou/claude-statusbar' || true )
+    | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI|claude-orchestrator|\.claude-plugin|/\.claude/|\.claude\.json|LounisBou/claude-statusbar|/tmp/claude-' || true )
 }
 check "no vendor or product name in prose" "" "$(policy_hits)"
 
@@ -589,7 +590,225 @@ check "a file ignored by nothing is absent from the checkout" "0" "$([ -e "$GE/p
 check "a path both the repository's and the global excludes ignore is copied once" "local|1" \
   "$(cat "$GE/LOCAL.md" 2>/dev/null)|$(grep -c 'copied 1 files kept out by the global excludes' "$WORK/wsge.err")"
 
-unset ORCHESTRATOR_WORKSPACES GIT_CONFIG_GLOBAL
+echo "== workspace: temporary directories are cleaned once their purpose is over =="
+# A checkout is deleted when its purpose is over — its stood-down session closed, its pull
+# request merged or closed — and the host's per-directory temporary area goes with it. The
+# one safety rule over every deletion: never a dirty tree, unpushed commits, a pin whose head
+# is on no branch, or a directory a live process has as its working directory. Everything
+# here runs on temporary repositories, a fake `gh`, and a host temporary area of its own.
+WC="$WORK/wc"
+mkdir -p "$WC/bin" "$WC/bin-nolsof" "$WC/hosttmp" "$WC/src"
+export ORCHESTRATOR_HOST_TMP="$WC/hosttmp"
+export ORCHESTRATOR_WORKSPACES="$WORK/wcroot"
+rp() { ( cd "$1" && pwd -P ); }
+mkdir -p "$WORK/wcroot"
+WCR=$(rp "$WORK/wcroot")
+enc() { local p; p=$(rp "$1"); printf '%s' "${p//\//-}"; }
+# A commit made through an empty `-C` path would land in the repository the suite runs from.
+gc() { [ "${1:-}" = -C ] && [ -z "${2:-}" ] && return 1; git -c user.email=t@local -c user.name=t "$@"; }
+exists() { [ -e "$1" ] && echo 1 || echo 0; }
+
+for n in 1 2; do
+  suffix=""; [ "$n" = 2 ] && suffix=2
+  git init -q --bare "$WC/origin$suffix.git"
+  mkdir -p "$WC/src/proj$suffix" && ( cd "$WC/src/proj$suffix" && git init -q -b main \
+    && echo one > README.md && git add -A && gc commit -q -m "One" \
+    && git remote add origin "$WC/origin$suffix.git" && git push -q origin main 2>/dev/null )
+done
+WCSRC="$WC/src/proj"; WCSRC2="$WC/src/proj2"
+
+# A fake `gh`: one JSON file per origin, named after the origin's last path part, and one
+# line per `pr list` call so the number of calls per repository can be counted.
+cat > "$WC/bin/gh" <<EOF
+#!/bin/bash
+[ -f "$WC/gh-offline" ] && { echo "gh: you are not logged in" >&2; exit 1; }
+[ "\$1 \$2" = "pr list" ] || exit 1
+echo "\$(pwd -P) \$*" >> "$WC/gh-calls"
+cat "$WC/prs-\$(basename "\$(git remote get-url origin)").json"
+EOF
+printf '#!/bin/bash\nexit 1\n' > "$WC/bin-nolsof/lsof"
+chmod +x "$WC/bin/gh" "$WC/bin-nolsof/lsof"
+wcgh() { env PATH="$WC/bin:$PATH" "$@"; }
+
+# A process whose working directory is a given directory, until `release`.
+LIVE=""
+hold() {
+  ( cd "$1" && exec sleep 60 ) & LIVE="$LIVE $!"
+  local i=0 want; want=$(rp "$1")
+  while [ $i -lt 50 ]; do
+    lsof -a -p "${LIVE##* }" -d cwd -Fn 2>/dev/null | grep -qxF "n$want" && return 0
+    sleep 0.1; i=$((i + 1))
+  done
+}
+release() { local p; for p in $LIVE; do kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; LIVE=""; }
+
+# mkclone <source> <name> <branch> [dirty|unpushed]: a checkout on a pushed branch.
+mkclone() {
+  local c
+  c=$(bash "$WS" create "$1" "$2" --base main 2>/dev/null) || return 1
+  git -C "$c" checkout -q -b "$3" && echo "$2" > "$c/$2.txt" && git -C "$c" add -A && gc -C "$c" commit -q -m "Work on $2"
+  [ "${4:-}" = unpushed ] || git -C "$c" push -q origin "$3" 2>/dev/null
+  [ "${4:-}" = dirty ] && echo more >> "$c/$2.txt"
+  rp "$c"
+}
+# wcpin <args of pin>: the pin's real path.
+wcpin() { local p; p=$(bash "$WS" pin "$@" 2>/dev/null) && rp "$p"; }
+# scratch <checkout>: the host's temporary directory of a checkout, with something in it.
+scratch() { local h="$ORCHESTRATOR_HOST_TMP/$(enc "$1")"; mkdir -p "$h/scratchpad/s1"; echo x > "$h/scratchpad/s1/f"; echo "$h"; }
+
+echo "-- delete takes the host's temporary directory with it"
+CA=$(mkclone "$WCSRC" del-a feat/del-a); HA=$(scratch "$CA")
+out=$(bash "$WS" delete "$CA" 2>/dev/null)
+check "delete removes the checkout and its host temporary directory, and says both" "2|0|0" \
+  "$(printf '%s\n' "$out" | grep -c '^deleted ')|$(exists "$CA")|$(exists "$HA")"
+
+CB=$(mkclone "$WCSRC" del-b feat/del-b); HB=$(scratch "$CB")
+hold "$HB/scratchpad"
+out=$(bash "$WS" delete "$CB" 2>"$WC/del-b.err")
+release
+check "a live process inside the host temporary directory keeps it, and it is said" "0|1|1" \
+  "$(exists "$CB")|$(exists "$HB")|$(grep -c 'kept host temporary directory' "$WC/del-b.err")"
+rm -rf "$HB"
+
+CC=$(mkclone "$WCSRC" del-c feat/del-c); HC=$(scratch "$CC")
+hold "$CC"
+bash "$WS" delete "$CC" >/dev/null 2>"$WC/del-c.err"; code=$?
+release
+check "a live process inside the checkout refuses the delete and keeps both" "1|1|1" "$code|$(exists "$CC")|$(exists "$HC")"
+check "and the refusal names the live process" "1" "$(grep -c 'live process' "$WC/del-c.err")"
+env PATH="$WC/bin-nolsof:$PATH" bash "$WS" delete "$CC" >/dev/null 2>"$WC/del-c2.err"; code=$?
+check "a process table that cannot be read refuses the delete, nothing is assumed" "1|1" "$code|$(exists "$CC")"
+bash "$WS" delete "$CC" >/dev/null 2>&1
+rm -rf "$HC"
+
+CD=$(mkclone "$WCSRC" del-d feat/del-d dirty); HD=$(scratch "$CD")
+bash "$WS" delete "$CD" >/dev/null 2>&1; code=$?
+check "a dirty tree keeps the checkout and its host temporary directory" "1|1|1" "$code|$(exists "$CD")|$(exists "$HD")"
+bash "$WS" delete "$CD" --discard >/dev/null 2>&1
+check "--discard removes the dirty tree and takes the host directory with it" "0|0" "$(exists "$CD")|$(exists "$HD")"
+
+CE=$(mkclone "$WCSRC" del-e feat/del-e unpushed); HE=$(scratch "$CE")
+bash "$WS" delete "$CE" >/dev/null 2>&1; code=$?
+check "unpushed commits keep the checkout and its host temporary directory" "1|1|1" "$code|$(exists "$CE")|$(exists "$HE")"
+bash "$WS" delete "$CE" --discard >/dev/null 2>&1
+
+echo "-- pin --pr records the pull request the pin reviews"
+PINA=$(wcpin "$WCSRC" pin-a main --pr 7)
+PINB=$(wcpin "$WCSRC" pin-b main)
+check "pin --pr writes the number in the worktree's own git dir; a pin without it writes none" "7|0" \
+  "$(cat "$(git -C "$PINA" rev-parse --absolute-git-dir)/workspace-pr" 2>/dev/null)|$(exists "$(git -C "$PINB" rev-parse --absolute-git-dir)/workspace-pr")"
+check "pin --pr needs a number, and makes no worktree without one" "1|0" \
+  "$(bash "$WS" pin "$WCSRC" pin-c main --pr seven >/dev/null 2>&1; echo $?)|$(exists "$WORK/wcroot/proj/pin-c")"
+check "list is unchanged by the record" "1|1" \
+  "$(bash "$WS" list 2>/dev/null | grep -c '/proj/pin-a | HEAD | [0-9a-f]* | clean | pinned$')|$(bash "$WS" list 2>/dev/null | grep -c '/proj/pin-b | HEAD | [0-9a-f]* | clean | pinned$')"
+HPA=$(scratch "$PINA")
+bash "$WS" delete "$PINA" >/dev/null 2>&1
+check "deleting a pin takes its host temporary directory too" "0|0" "$(exists "$PINA")|$(exists "$HPA")"
+bash "$WS" delete "$PINB" >/dev/null 2>&1
+
+echo "-- sweep decides on facts"
+MAIN_SHA=$(git -C "$WCSRC" rev-parse main)
+C_MERGED=$(mkclone "$WCSRC" s-merged feat/merged)
+C_CLOSED=$(mkclone "$WCSRC" s-closed feat/closed)
+C_OPEN=$(mkclone "$WCSRC" s-open feat/open)
+C_NOPR=$(mkclone "$WCSRC" s-nopr feat/nopr)
+C_DIRTY=$(mkclone "$WCSRC" s-dirty feat/dirty dirty)
+C_UNPUSHED=$(mkclone "$WCSRC" s-unpushed feat/unpushed unpushed)
+C_LIVE=$(mkclone "$WCSRC" s-live feat/live)
+C_P2=$(mkclone "$WCSRC2" s-p2 feat/p2)
+P_MERGED=$(wcpin "$WCSRC" p-merged main --pr 7)
+P_MOVED=$(wcpin "$WCSRC" p-moved main --pr 8)
+P_SAME=$(wcpin "$WCSRC" p-same main --pr 9)
+P_NOREC=$(wcpin "$WCSRC" p-norec main)
+P_NOBRANCH=$(wcpin "$WCSRC" p-nobranch main --pr 10)
+gc -C "$P_NOBRANCH" commit -q --allow-empty -m "Commit on no branch"
+cat > "$WC/prs-origin.git.json" <<EOF
+[{"number":1,"state":"MERGED","headRefName":"feat/merged","headRefOid":"aaa"},
+ {"number":2,"state":"CLOSED","headRefName":"feat/closed","headRefOid":"bbb"},
+ {"number":3,"state":"OPEN","headRefName":"feat/open","headRefOid":"ccc"},
+ {"number":4,"state":"MERGED","headRefName":"feat/dirty","headRefOid":"ddd"},
+ {"number":5,"state":"MERGED","headRefName":"feat/unpushed","headRefOid":"eee"},
+ {"number":6,"state":"MERGED","headRefName":"feat/live","headRefOid":"fff"},
+ {"number":7,"state":"MERGED","headRefName":"feat/seven","headRefOid":"111"},
+ {"number":8,"state":"OPEN","headRefName":"feat/eight","headRefOid":"0000000000000000000000000000000000000000"},
+ {"number":9,"state":"OPEN","headRefName":"feat/nine","headRefOid":"$MAIN_SHA"},
+ {"number":10,"state":"MERGED","headRefName":"feat/ten","headRefOid":"222"}]
+EOF
+cat > "$WC/prs-origin2.git.json" <<EOF
+[{"number":1,"state":"MERGED","headRefName":"feat/p2","headRefOid":"ggg"}]
+EOF
+for d in "$C_MERGED" "$C_CLOSED" "$C_OPEN" "$C_NOPR" "$C_DIRTY" "$C_UNPUSHED" "$C_LIVE" "$C_P2" "$P_MERGED" "$P_MOVED" "$P_SAME" "$P_NOREC" "$P_NOBRANCH"; do scratch "$d" >/dev/null; done
+# The orphans of checkouts deleted before this change: the encoded root, then a name that
+# matches no checkout. Three that must stay: one past the root's name without the separator,
+# one outside the root, one with a live process inside.
+ENCR="${WCR//\//-}"
+mkorphans() {
+  mkdir -p "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone/scratchpad" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x/scratchpad" \
+    "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live/scratchpad"
+}
+mkorphans
+nitems() { bash "$WS" list 2>/dev/null | grep -c .; }
+tmpstate() { printf '%s|%s|%s|%s' "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone")" "$(exists "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x")" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing")" "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live")"; }
+hold "$C_LIVE"
+hold "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live/scratchpad"
+BEFORE=$(nitems)
+: > "$WC/gh-calls"
+
+out=$(wcgh bash "$WS" sweep --dry-run 2>"$WC/sweep-dry.err"); code=$?
+check "a dry run exits 0 and deletes nothing, checkouts or host directories" "0|$BEFORE|1|1|1|1" "$code|$(nitems)|$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
+check "a dry run prints its decisions: five deletions and the orphan, none done" "6|0" \
+  "$(printf '%s\n' "$out" | grep -c '^would delete ')|$(printf '%s\n' "$out" | grep -c '^deleted ')"
+check "the pull requests are read once per repository, never once per checkout" "2" "$(grep -c 'pr list' "$WC/gh-calls")"
+check "and with the fields the decision reads" "2" "$(grep -c -- '--json headRefName,state,headRefOid,number' "$WC/gh-calls")"
+
+out=$(wcgh bash "$WS" sweep --deadline 0 2>"$WC/sweep-dl.err"); code=$?
+check "a spent deadline stops cleanly before the next item: nothing deleted, said" "0|$BEFORE|1" \
+  "$code|$(nitems)|$(grep -c 'deadline' "$WC/sweep-dl.err")"
+
+: > "$WC/gh-offline"
+out=$(wcgh bash "$WS" sweep 2>"$WC/sweep-off.err"); code=$?
+rm -f "$WC/gh-offline"
+check "gh unreachable: no checkout deleted, each repository says so once, the items are kept with the reason" "0|$BEFORE|2|1" \
+  "$code|$(nitems)|$(grep -c 'cannot read the pull requests' "$WC/sweep-off.err")|$(printf '%s\n' "$out" | grep -c "^kept $C_MERGED: .*pull requests")"
+mkorphans
+
+out=$(wcgh bash "$WS" sweep 2>"$WC/sweep.err"); code=$?
+check "sweep exits 0" "0" "$code"
+check "a clone whose pull request is merged or closed is deleted" "0|0|0" "$(exists "$C_MERGED")|$(exists "$C_CLOSED")|$(exists "$C_P2")"
+check "a pin whose pull request is merged, or whose head moved on the pull request, is deleted" "0|0" "$(exists "$P_MERGED")|$(exists "$P_MOVED")"
+check "their host temporary directories went with them" "0|0|0" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-s-merged")|$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-s-closed")|$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-p-merged")"
+check "a clone with an open pull request is kept, with its reason" "1|1" \
+  "$(exists "$C_OPEN")|$(printf '%s\n' "$out" | grep -c "^kept $C_OPEN: .*open")"
+check "a clone with no pull request is kept, with its reason" "1|1" \
+  "$(exists "$C_NOPR")|$(printf '%s\n' "$out" | grep -c "^kept $C_NOPR: .*no pull request")"
+check "a dirty tree is kept even when its pull request is merged" "1|1" \
+  "$(exists "$C_DIRTY")|$(printf '%s\n' "$out" | grep -c "^kept $C_DIRTY: .*dirty")"
+check "unpushed commits are kept even when the pull request is merged" "1|1" \
+  "$(exists "$C_UNPUSHED")|$(printf '%s\n' "$out" | grep -c "^kept $C_UNPUSHED: .*no remote branch")"
+check "a live process inside is kept even when the pull request is merged" "1|1" \
+  "$(exists "$C_LIVE")|$(printf '%s\n' "$out" | grep -c "^kept $C_LIVE: .*live process")"
+check "a pin on the current head of an open pull request is kept" "1|1" \
+  "$(exists "$P_SAME")|$(printf '%s\n' "$out" | grep -c "^kept $P_SAME: ")"
+check "a pin with no record is kept, with its reason" "1|1" \
+  "$(exists "$P_NOREC")|$(printf '%s\n' "$out" | grep -c "^kept $P_NOREC: .*no recorded pull request")"
+check "a pin whose head is on no branch is kept even when its pull request is merged" "1|1" \
+  "$(exists "$P_NOBRANCH")|$(printf '%s\n' "$out" | grep -c "^kept $P_NOBRANCH: .*no branch")"
+check "every deletion is printed and proved by the path's absence" "5|0" \
+  "$(printf '%s\n' "$out" | grep -c "^deleted $WCR/proj")|$(printf '%s\n' "$out" | grep '^deleted ' | sed 's/^deleted //' | while read -r p; do [ -e "$p" ] && echo present; done | grep -c present)"
+check "an orphan is removed; one past the root's name, one outside it, one in use are not" "0|1|1|1" "$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
+check "the host directory of a kept checkout stays" "1|1" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_OPEN")")|$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_NOPR")")"
+release
+rm -rf "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x" "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing"
+for d in "$C_OPEN" "$C_NOPR" "$C_UNPUSHED" "$C_LIVE" "$P_SAME" "$P_NOREC"; do bash "$WS" delete "$d" --discard >/dev/null 2>&1; done
+bash "$WS" delete "$C_DIRTY" --discard >/dev/null 2>&1
+bash "$WS" delete "$P_NOBRANCH" --discard >/dev/null 2>&1
+check "the temporary fixtures are gone and nothing is left under the root" "0" "$(nitems)"
+rm -rf "$ORCHESTRATOR_HOST_TMP"/* "$WC/gh-calls"
+
+unset ORCHESTRATOR_WORKSPACES GIT_CONFIG_GLOBAL ORCHESTRATOR_HOST_TMP
 
 echo "== brief lint =="
 

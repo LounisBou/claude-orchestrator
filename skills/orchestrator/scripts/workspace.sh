@@ -2,12 +2,24 @@
 # workspace.sh — a checkout per phase, with the project's local material.
 #
 #   workspace.sh create <source-repo> <name> [--base <branch|origin/branch>]   prints the checkout's path
-#   workspace.sh pin <source-repo> <name> <ref>                a detached worktree at that commit, nothing local; prints its path
-#   workspace.sh delete <path> [--discard]                     refuses unpushed work unless told
+#   workspace.sh pin <source-repo> <name> <ref> [--pr <n>]     a detached worktree at that commit, nothing local; prints its path
+#   workspace.sh delete <path> [--discard]                     refuses unpushed work unless told; also removes the host's
+#                                                              temporary directory of the path when no live process works in it
+#   workspace.sh sweep [--deadline <seconds>] [--dry-run]      the leftovers, decided on facts: one line per item,
+#                                                              "deleted <path>" | "kept <path>: <reason>" (a dry run says "would delete")
 #   workspace.sh list                                          one line per checkout under the root (a pin reads HEAD … pinned)
 #
 # Root: ORCHESTRATOR_WORKSPACES, else ~/dev/workspaces. A checkout lives at
 # <root>/<basename of the source>/<name>.
+#
+# Host temporary area: ORCHESTRATOR_HOST_TMP, else /private/tmp/claude-<uid>. The host keeps
+# one directory per working directory a session ran in, named after that path with every `/`
+# turned into `-`; it holds the session's scratch. It leaves with its checkout (design §53).
+#
+# The one safety rule over every deletion here: never a dirty tree, unpushed commits, a pin
+# whose head is on no branch, or a directory a live process has as its working directory
+# (`lsof`, bounded; a process table that cannot be read is a refusal, never a « nothing there »).
+# `--discard` overrides the first three, never the live-process guard on the host's directory.
 #
 # Manifest: <repo>/.claude/workspace-manifest, one repository-relative path per line, `#`
 # starts a comment; an absent path is said on stderr and skipped, and a path leaving the
@@ -32,7 +44,7 @@ say() { echo "workspace: $*" >&2; }
 ROOT_DIR="${ORCHESTRATOR_WORKSPACES:-$HOME/dev/workspaces}"
 
 cmd="${1:-}"
-[ -n "$cmd" ] || die "usage: workspace.sh {create|pin|delete|list} ... (see header)"
+[ -n "$cmd" ] || die "usage: workspace.sh {create|pin|delete|sweep|list} ... (see header)"
 shift
 
 # copy_tree <source-root> <checkout-root> <relative-path>: 1 when absent, 2 when the copy fails.
@@ -44,6 +56,91 @@ copy_tree() {
 }
 
 trim() { printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'; }
+
+HOST_TMP="${ORCHESTRATOR_HOST_TMP:-/private/tmp/claude-$(id -u)}"
+
+# bounded <seconds> <command...>: the command, killed when the time is spent.
+bounded() {
+    local secs="$1"; shift
+    if command -v timeout >/dev/null 2>&1; then timeout "$secs" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then gtimeout "$secs" "$@"
+    elif command -v perl >/dev/null 2>&1; then perl -e 'alarm shift; exec @ARGV' "$secs" "$@"
+    else "$@"
+    fi
+}
+
+# The working directory of every live process, read once per run. An unreadable table is
+# not an empty one: with nothing known, nothing is deleted.
+CWD_LIST=""
+CWD_READ=0
+read_cwds() {
+    [ "$CWD_READ" = 1 ] && return 0
+    local out rc
+    out=$(bounded 20 lsof -a -d cwd -Fn 2>/dev/null); rc=$?
+    [ -n "$out" ] || return 1
+    if [ "$rc" -eq 124 ] || [ "$rc" -ge 128 ]; then return 1; fi
+    CWD_LIST=$(printf '%s\n' "$out" | sed -n 's/^n//p')
+    CWD_READ=1
+}
+
+# live_inside <real-dir>: 0 and the path when a live process works in or under the directory,
+# 1 when none does, 2 when the process table cannot be read.
+live_inside() {
+    read_cwds || return 2
+    local dir="$1" c
+    while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        case "$c/" in "$dir"/*) printf '%s\n' "$c"; return 0 ;; esac
+    done <<EOF
+$CWD_LIST
+EOF
+    return 1
+}
+
+# refusal <real-path>: sets REASON to why the checkout or pin may not be deleted, or to "".
+REASON=""
+refusal() {
+    local real="$1" r
+    REASON=""
+    if [ -f "$real/.git" ]; then
+        [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || { REASON="the tree is dirty"; return; }
+        [ -n "$(git -C "$real" for-each-ref --count=1 --contains HEAD refs/heads refs/remotes 2>/dev/null)" ] || { REASON="the pin's head is on no branch of the source"; return; }
+    else
+        [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || { REASON="the tree is dirty"; return; }
+        [ -z "$(git -C "$real" log --branches --not --remotes --oneline 2>/dev/null)" ] || { REASON="commits on no remote branch"; return; }
+    fi
+    live_inside "$real" >/dev/null; r=$?
+    case "$r" in
+        0) REASON="a live process has its working directory inside" ;;
+        2) REASON="the process table cannot be read" ;;
+    esac
+}
+
+# remove_host_tmp <path>...: the host's temporary directory of each spelling of a deleted
+# checkout, unless a live process works inside it. Each removal is said and proved.
+remove_host_tmp() {
+    local p name dir r seen="
+"
+    case "$HOST_TMP" in /?*) ;; *) return 0 ;; esac
+    for p in "$@"; do
+        name="${p//\//-}"
+        case "$name" in ""|"-") continue ;; esac
+        case "$seen" in *"
+$name
+"*) continue ;; esac
+        seen="$seen$name
+"
+        dir="$HOST_TMP/$name"
+        if [ ! -d "$dir" ] || [ -L "$dir" ]; then continue; fi
+        live_inside "$(cd "$dir" && pwd -P)" >/dev/null; r=$?
+        case "$r" in
+            0) say "kept host temporary directory $dir: a live process works inside"; continue ;;
+            2) say "kept host temporary directory $dir: the process table cannot be read"; continue ;;
+        esac
+        rm -rf -- "${HOST_TMP:?}/${name:?}"
+        if [ -e "$dir" ]; then say "kept host temporary directory $dir: it could not be removed"; else echo "deleted $dir"; fi
+    done
+}
 
 cmd_create() {
     local src="" name="" base=""
@@ -210,14 +307,18 @@ EOF
 }
 
 cmd_pin() {
-    local src="" name="" ref=""
+    local src="" name="" ref="" pr="" pr_given=0
     while [ $# -gt 0 ]; do
         case "$1" in
+            --pr) pr="${2:-}"; pr_given=1; shift 2 ;;
             --*) die "pin: unknown option $1" ;;
             *) if [ -z "$src" ]; then src="$1"; elif [ -z "$name" ]; then name="$1"; elif [ -z "$ref" ]; then ref="$1"; else die "pin: unexpected argument $1"; fi; shift ;;
         esac
     done
-    [ -n "$src" ] && [ -n "$name" ] && [ -n "$ref" ] || die "pin: usage: pin <source-repo> <name> <ref>"
+    [ -n "$src" ] && [ -n "$name" ] && [ -n "$ref" ] || die "pin: usage: pin <source-repo> <name> <ref> [--pr <n>]"
+    if [ "$pr_given" = 1 ]; then
+        printf '%s' "$pr" | grep -qE '^[0-9]+$' || die "pin: --pr needs a pull request number: $pr"
+    fi
     git -C "$src" rev-parse --show-toplevel >/dev/null 2>&1 || die "pin: not a git repository: $src"
     src=$(git -C "$src" rev-parse --show-toplevel)
     printf '%s' "$name" | grep -qE '^[A-Za-z0-9._-]+$' || die "pin: name must match [A-Za-z0-9._-]+: $name"
@@ -231,6 +332,11 @@ cmd_pin() {
     # file — and writes nothing but its metadata into the source, which is the
     # orchestrator's own checkout (§37). A worktree shares the source's remotes.
     git -C "$src" worktree add --quiet --detach "$target" "$sha" 2>/dev/null || { rm -rf "$target"; die "pin: worktree add failed at $sha"; }
+    # The pull request this pin reviews, in the worktree's own git dir: `git worktree remove`
+    # takes it away with the pin, and `sweep` reads it to know when the review is over.
+    if [ -n "$pr" ]; then
+        printf '%s\n' "$pr" > "$(git -C "$target" rev-parse --absolute-git-dir)/workspace-pr" || { git -C "$src" worktree remove --force "$target" 2>/dev/null; die "pin: cannot record pull request $pr"; }
+    fi
     say "pinned $(git -C "$src" rev-parse --short "$sha") from $ref"
     echo "$target"
 }
@@ -246,32 +352,35 @@ cmd_delete() {
     done
     [ -n "$path" ] || die "delete: usage: delete <path> [--discard]"
     [ -d "$path" ] || die "delete: no such checkout: $path"
-    local real root
+    local real root logical
     real=$(cd "$path" && pwd -P)
+    logical=$(cd "$path" && pwd)
     mkdir -p "$ROOT_DIR" || die "delete: cannot read the root $ROOT_DIR"
     root=$(cd "$ROOT_DIR" && pwd -P)
     case "$real/" in "$root"/*/*/) ;; *) die "delete: refusing a path outside $root: $path" ;; esac
+    # The guards, shared with `sweep` (see `refusal`). For a pin (§37) the second one is not
+    # « commits on no remote branch » — the shared refs would read the source's — but « a head
+    # on no branch of the source »: a reader that committed in its copy is the one way to lose
+    # work here, the pinned commit itself living in the source. It is asked of the refs, not of
+    # `git branch --contains`, which lists the detached head itself and so never came back empty. A live process inside is read
+    # last, and `--discard` is the operator's word over all of them.
+    if [ "$discard" = 0 ]; then
+        refusal "$real"
+        [ -z "$REASON" ] || die "delete: $REASON (pass --discard to remove it anyway): $path"
+    fi
     if [ -f "$real/.git" ]; then
-        # A pinned copy (§37): removed through git so the source forgets it. The second
-        # guard is not « commits on no remote branch » — the shared refs would read the
-        # source's — but « a head on no branch of the source »: a reader that committed in
-        # its copy is the one way to lose work here, the pinned commit itself living in the source.
+        # A pinned copy is removed through git so the source forgets it.
         if [ "$discard" = 0 ]; then
-            [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || die "delete: the tree is dirty; pass --discard: $path"
-            [ -n "$(git -C "$real" branch -a --contains HEAD 2>/dev/null)" ] || die "delete: the pin's head is on no branch of the source; pass --discard: $path"
             git -C "$real" worktree remove "$real" || die "delete: worktree remove failed: $real"
         else
             git -C "$real" worktree remove --force "$real" || die "delete: worktree remove failed: $real"
         fi
-        echo "deleted $real"
-        return 0
+    else
+        rm -rf -- "$real" || die "delete: rm failed: $real"
     fi
-    if [ "$discard" = 0 ]; then
-        [ -z "$(git -C "$real" status --porcelain 2>/dev/null)" ] || die "delete: the tree is dirty; commit and push, or pass --discard: $path"
-        [ -z "$(git -C "$real" log --branches --not --remotes --oneline 2>/dev/null)" ] || die "delete: commits on no remote branch; push, or pass --discard: $path"
-    fi
-    rm -rf "$real" || die "delete: rm failed: $real"
+    [ ! -e "$real" ] || die "delete: still there after the removal: $real"
     echo "deleted $real"
+    remove_host_tmp "$real" "$logical"
 }
 
 cmd_list() {
@@ -289,10 +398,192 @@ cmd_list() {
     done
 }
 
+# --- sweep: the leftovers, decided on facts (design §53) ------------------------------------
+
+SWEEP_TMP=""
+SWEEP_T0=0
+SWEEP_DEADLINE=""
+SWEEP_DRY=0
+
+# spent: the deadline is over (always false without one).
+spent() { [ -n "$SWEEP_DEADLINE" ] && [ $((SECONDS - SWEEP_T0)) -ge "$SWEEP_DEADLINE" ]; }
+
+# keep <path> <reason>: one line per item left in place.
+keep() { echo "kept $1: $2"; }
+
+# load_prs <checkout>: PRS_FILE holds the repository's pull requests, read once per origin
+# whatever the number of checkouts; returns 1 with PRS_WHY when they cannot be read. A
+# failure is remembered and said once for the repository, and nothing is deleted for it.
+PRS_FILE=""
+PRS_WHY=""
+load_prs() {
+    local d="$1" url key budget=60 why
+    url=$(git -C "$d" remote get-url origin 2>/dev/null) || { PRS_WHY="the checkout has no origin to ask"; return 1; }
+    key=$(printf '%s' "$url" | cksum | cut -d' ' -f1)
+    PRS_FILE="$SWEEP_TMP/prs-$key.json"
+    if [ -f "$SWEEP_TMP/prs-$key.bad" ]; then PRS_WHY=$(cat "$SWEEP_TMP/prs-$key.bad"); return 1; fi
+    [ -f "$PRS_FILE" ] && return 0
+    if [ -n "$SWEEP_DEADLINE" ]; then
+        budget=$((SWEEP_DEADLINE - (SECONDS - SWEEP_T0)))
+        [ "$budget" -ge 1 ] || budget=1
+        [ "$budget" -le 60 ] || budget=60
+    fi
+    # --limit: the default lists thirty, and a merged pull request older than that would
+    # read as « no pull request » and never be swept.
+    if ! ( cd "$d" && bounded "$budget" gh pr list --state all --limit 1000 --json headRefName,state,headRefOid,number ) > "$PRS_FILE" 2> "$SWEEP_TMP/gh.err" \
+        || ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$PRS_FILE" 2>/dev/null; then
+        why=$(head -n 1 "$SWEEP_TMP/gh.err" 2>/dev/null)
+        [ -n "$why" ] || why="no readable answer"
+        rm -f "$PRS_FILE"
+        printf '%s\n' "$why" > "$SWEEP_TMP/prs-$key.bad"
+        PRS_WHY="$why"
+        say "sweep: cannot read the pull requests of $url ($why); nothing is deleted for it"
+        return 1
+    fi
+}
+
+# branch_pr <json> <branch>: "none", "open <n>", "over <n> <STATE>" (merged or closed) or "unknown".
+branch_pr() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+prs = [p for p in json.load(open(sys.argv[1])) if p.get("headRefName") == sys.argv[2]]
+if not prs:
+    print("none")
+elif any(p.get("state") == "OPEN" for p in prs):
+    print("open", min(p["number"] for p in prs if p.get("state") == "OPEN"))
+elif all(p.get("state") in ("MERGED", "CLOSED") for p in prs):
+    last = max(prs, key=lambda p: p["number"])
+    print("over", last["number"], last["state"])
+else:
+    print("unknown")
+PY
+}
+
+# number_pr <json> <n>: "none", or "<STATE> <head commit>".
+number_pr() {
+    python3 - "$1" "$2" <<'PY'
+import json, sys
+prs = [p for p in json.load(open(sys.argv[1])) if str(p.get("number")) == sys.argv[2]]
+print("none" if not prs else "%s %s" % (prs[0].get("state"), prs[0].get("headRefOid", "")))
+PY
+}
+
+# sweep_decide <dir> <real>: prints "delete <reason>" or "keep <reason>".
+sweep_decide() {
+    local d="$1" real="$2" br facts n gd rec head
+    if [ -f "$real/.git" ]; then
+        gd=$(git -C "$real" rev-parse --absolute-git-dir 2>/dev/null)
+        rec=""
+        [ -f "$gd/workspace-pr" ] && rec=$(tr -dc '0-9' < "$gd/workspace-pr")
+        [ -n "$rec" ] || { echo "keep no recorded pull request for this pin"; return; }
+        load_prs "$real" || { echo "keep pull requests unreadable: $PRS_WHY"; return; }
+        facts=$(number_pr "$PRS_FILE" "$rec")
+        case "$facts" in
+            none) echo "keep pull request #$rec is not in the repository's list" ;;
+            MERGED*|CLOSED*) echo "delete pull request #$rec is ${facts%% *}" ;;
+            OPEN*)
+                head=$(git -C "$real" rev-parse HEAD 2>/dev/null)
+                if [ "${facts#OPEN }" = "$head" ]; then echo "keep pinned to the current head of open pull request #$rec"
+                else echo "delete the head of pull request #$rec moved off the pinned commit"; fi ;;
+            *) echo "keep pull request #$rec is in state ${facts%% *}" ;;
+        esac
+        return
+    fi
+    br=$(git -C "$real" symbolic-ref --short -q HEAD 2>/dev/null)
+    [ -n "$br" ] || { echo "keep no branch checked out, so no pull request to match"; return; }
+    load_prs "$real" || { echo "keep pull requests unreadable: $PRS_WHY"; return; }
+    facts=$(branch_pr "$PRS_FILE" "$br")
+    case "$facts" in
+        none) echo "keep no pull request for branch $br" ;;
+        open*) n="${facts#open }"; echo "keep pull request #$n for branch $br is open" ;;
+        over*) echo "delete the pull request of branch $br is ${facts##* }" ;;
+        *) echo "keep the pull requests of branch $br are in no state this sweep decides on" ;;
+    esac
+}
+
+# sweep_one <dir>: decide, then delete (or say what would be) and prove it.
+sweep_one() {
+    local d="$1" real verdict reason out rc
+    real=$(cd "$d" && pwd -P)
+    verdict=$(sweep_decide "$d" "$real")
+    reason="${verdict#* }"
+    case "$verdict" in
+        delete\ *) ;;
+        *) keep "$real" "$reason"; return ;;
+    esac
+    refusal "$real"
+    [ -z "$REASON" ] || { keep "$real" "$REASON"; return; }
+    if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $real: $reason"; return; fi
+    out=$(cmd_delete "$real" 2>"$SWEEP_TMP/delete.err"); rc=$?
+    [ ! -s "$SWEEP_TMP/delete.err" ] || cat "$SWEEP_TMP/delete.err" >&2
+    if [ "$rc" -ne 0 ] || [ -e "$real" ]; then keep "$real" "the delete did not complete ($(head -n 1 "$SWEEP_TMP/delete.err" | sed 's/^workspace: //'))"; return; fi
+    printf '%s\n' "$out"
+}
+
+# sweep_orphans <real-root>: host temporary directories named after the root that match no
+# checkout and no live process — what was left by checkouts deleted before the host's
+# directory went with them.
+sweep_orphans() {
+    local root="$1" prefix known="$SWEEP_TMP/known" d real t name r
+    prefix="${root//\//-}-"
+    : > "$known"
+    for d in "$ROOT_DIR"/*/*/; do
+        [ -d "$d" ] || continue
+        real=$(cd "$d" && pwd -P)
+        printf '%s\n' "${real//\//-}" >> "$known"
+        printf '%s' "$real" | tr -c 'A-Za-z0-9' '-' >> "$known"; echo >> "$known"
+    done
+    [ -d "$HOST_TMP" ] || return 0
+    case "$HOST_TMP" in /?*) ;; *) return 0 ;; esac
+    for t in "$HOST_TMP"/"$prefix"*; do
+        if [ ! -d "$t" ] || [ -L "$t" ]; then continue; fi
+        name=$(basename "$t")
+        grep -qxF -- "$name" "$known" && continue
+        spent && { say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 0; }
+        live_inside "$(cd "$t" && pwd -P)" >/dev/null; r=$?
+        case "$r" in
+            0) keep "$t" "a live process works inside"; continue ;;
+            2) keep "$t" "the process table cannot be read"; continue ;;
+        esac
+        if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $t: no checkout, no live process"; continue; fi
+        rm -rf -- "${HOST_TMP:?}/${name:?}"
+        if [ -e "$t" ]; then keep "$t" "it could not be removed"; else echo "deleted $t"; fi
+    done
+}
+
+cmd_sweep() {
+    SWEEP_DEADLINE=""; SWEEP_DRY=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --deadline) SWEEP_DEADLINE="${2:-}"; shift 2 || true ;;
+            --dry-run) SWEEP_DRY=1; shift ;;
+            *) die "sweep: usage: sweep [--deadline <seconds>] [--dry-run]" ;;
+        esac
+    done
+    if [ -n "$SWEEP_DEADLINE" ]; then
+        printf '%s' "$SWEEP_DEADLINE" | grep -qE '^[0-9]+(\.[0-9]+)?$' || die "sweep: --deadline needs a number of seconds: $SWEEP_DEADLINE"
+        SWEEP_DEADLINE="${SWEEP_DEADLINE%%.*}"
+    fi
+    SWEEP_T0=$SECONDS
+    [ -d "$ROOT_DIR" ] || return 0
+    local root d
+    root=$(cd "$ROOT_DIR" && pwd -P)
+    SWEEP_TMP=$(mktemp -d "${TMPDIR:-/tmp}/workspace-sweep-XXXXXX") || die "sweep: cannot create a working directory"
+    trap 'rm -rf -- "${SWEEP_TMP:?}"' EXIT
+    for d in "$ROOT_DIR"/*/*/; do
+        [ -e "$d/.git" ] || continue
+        d="${d%/}"
+        if spent; then say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 0; fi
+        sweep_one "$d"
+    done
+    sweep_orphans "$root"
+}
+
 case "$cmd" in
     create) cmd_create "$@" ;;
     pin) cmd_pin "$@" ;;
     delete) cmd_delete "$@" ;;
+    sweep) cmd_sweep "$@" ;;
     list) cmd_list "$@" ;;
     *) die "unknown command: $cmd" ;;
 esac
