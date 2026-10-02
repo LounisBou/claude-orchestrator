@@ -145,6 +145,9 @@ check "the audit brief merges nothing" "1" \
 check "only the two locks hold whatever is said, never routed around" "1" \
   "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said, never routed around: the push guard, and the tab close verified by its title." | wc -l | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
+# Every agent that works in a checkout keeps its scratch where the close takes it.
+check "the phase, review and comments briefs keep scratch in the session's host scratchpad" "yes|yes|yes" \
+  "$(for t in phase review comments; do carries "$ROOT/templates/agent-$t-brief.md" "lives in your own session's host scratchpad directory"; done | paste -sd'|' -)"
 # A predecessor started by hand lists as `(host default)`; the host refuses closing a session the
 # plugin did not launch unless the operator's word is already in the conversation, so the successor
 # asks him up front, before « takeover confirmed ». Step 4 is read with its line breaks folded for
