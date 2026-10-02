@@ -2469,6 +2469,13 @@ check "session_name.py prints nothing, exit 0, on a payload that is no JSON" "|0
 check "session_name.py prints nothing, exit 0, on an empty payload" "|0" "$(sn '')"
 check "session_name.py prints nothing, exit 0, on a payload that is no object" "|0" "$(sn '[1,2]')"
 
+# A name with irregular spacing is printed normalised, and a normalised name is in scope.
+printf '%s\n' '{"type":"custom-title","customTitle":"Orch  :  f"}' > "$GH/transcripts/spacing.jsonl"
+check "session_name.py prints a name with irregular spacing normalised" "Orch : f|0" \
+  "$(sn "{\"transcript_path\":\"$GH/transcripts/spacing.jsonl\"}")"
+check "a name with irregular spacing is in scope for the gate" "1" \
+  "$(gate_t g-hi "$GH/transcripts/spacing.jsonl" | grep -c 'Succeed at the next quiet boundary')"
+
 # The reading's misses are logged, one line each, and never fail the script: a session whose
 # name cannot be read would otherwise go dark with no trace. A session with no name at all is
 # the normal case and leaves nothing.
