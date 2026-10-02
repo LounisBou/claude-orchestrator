@@ -46,7 +46,7 @@ session_id="${session_id:-${CLAUDE_CODE_SESSION_ID:-}}"
 # name, no role: nothing is said.
 name=""
 if command -v python3 >/dev/null 2>&1; then
-    name="$(printf '%s' "$payload" | python3 "$HERE/session_name.py" 2>/dev/null | head -1)"
+    name="$(printf '%s' "$payload" | python3 -S "$HERE/session_name.py" 2>/dev/null | head -1)"
 fi
 case "$name" in
     "Orch :"*)

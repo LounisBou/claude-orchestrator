@@ -2468,6 +2468,9 @@ check "session_name.py prints nothing, exit 0, when no name is readable" "|0" "$
 check "session_name.py prints nothing, exit 0, on a payload that is no JSON" "|0" "$(sn 'not json {{{')"
 check "session_name.py prints nothing, exit 0, on an empty payload" "|0" "$(sn '')"
 check "session_name.py prints nothing, exit 0, on a payload that is no object" "|0" "$(sn '[1,2]')"
+
+# The interpreter is started without its site import: about a hundred milliseconds, on every prompt.
+check "the hook runs the reading with python3 -S" "1" "$(grep -c 'python3 -S "\$HERE/session_name\.py"' "$ROOT/hooks/context-gate.sh")"
 gh_ps '--name Orch : f [a1b2c3]'
 rm -rf "$GH"
 
