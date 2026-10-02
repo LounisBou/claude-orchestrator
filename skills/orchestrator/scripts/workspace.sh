@@ -21,7 +21,11 @@
 # branch or on a detached head) or a stash, a pin whose head is on no branch, or a directory a
 # live process has as its working directory (`lsof`, bounded; a process table that cannot be
 # read is a refusal, never a « nothing there »; so is a checkout git cannot read).
-# `--discard` overrides the first three, never the live-process guard on the host's directory.
+# `--discard` overrides every guard on the checkout itself, a live process inside it included.
+# It never overrides the guard on a host temporary directory, which `delete` and `sweep` both
+# keep while a live process works in the directory it is named after or below it (a session's
+# host directory is named after the directory the session started in, not after its scratch),
+# or inside the host directory itself.
 #
 # Manifest: <repo>/.claude/workspace-manifest, one repository-relative path per line, `#`
 # starts a comment; an absent path is said on stderr and skipped, and a path leaving the
@@ -104,6 +108,38 @@ EOF
     return 1
 }
 
+# The host's name (`encode`) of every live process's working directory and of each of its
+# ancestors up to the root. A session's host directory is named after the directory the
+# session STARTED in, while its cwd is wherever it works now — that directory or below it —
+# and never the host directory itself: a session started in <root>/p/c1/sub and working in
+# <root>/p/c1/sub/x keeps `…-p-c1-sub`, and `…-p-c1` with it.
+LIVE_NAMES=""
+LIVE_NAMES_READ=0
+read_live_names() {
+    [ "$LIVE_NAMES_READ" = 1 ] && return 0
+    read_cwds || return 1
+    LIVE_NAMES=$(printf '%s\n' "$CWD_LIST" \
+        | awk '{ p = $0; while (p != "" && p != "/") { print p; sub(/\/[^\/]*$/, "", p) } }' \
+        | tr -c 'A-Za-z0-9\n' '-' | sort -u)
+    LIVE_NAMES_READ=1
+}
+
+# host_dir_live <host-dir>: 0 with LIVE_WHY when a live process may still use the host's
+# temporary directory — it works in the directory the host directory is named after or below
+# it, or inside the host directory itself; 1 when none does; 2 when the process table cannot
+# be read.
+LIVE_WHY=""
+host_dir_live() {
+    local t="$1"
+    LIVE_WHY="the process table cannot be read"
+    read_live_names || return 2
+    if printf '%s\n' "$LIVE_NAMES" | grep -qxF -- "$(basename "$t")"; then
+        LIVE_WHY="a live process works in the directory it is named after"; return 0
+    fi
+    live_inside "$(cd "$t" && pwd -P)" >/dev/null || return $?
+    LIVE_WHY="a live process works inside"
+}
+
 # git_read <dir> <git arguments...>: GOUT holds the output; on a failure, REASON says git
 # cannot read the checkout. A read that fails knows nothing, so it never reads as clean.
 GOUT=""
@@ -157,11 +193,8 @@ $name
 "
         dir="$HOST_TMP/$name"
         if [ ! -d "$dir" ] || [ -L "$dir" ]; then continue; fi
-        live_inside "$(cd "$dir" && pwd -P)" >/dev/null; r=$?
-        case "$r" in
-            0) say "kept host temporary directory $dir: a live process works inside"; continue ;;
-            2) say "kept host temporary directory $dir: the process table cannot be read"; continue ;;
-        esac
+        host_dir_live "$dir"; r=$?
+        [ "$r" = 1 ] || { say "kept host temporary directory $dir: $LIVE_WHY"; continue; }
         rm -rf -- "${HOST_TMP:?}/${name:?}"
         if [ -e "$dir" ]; then say "kept host temporary directory $dir: it could not be removed"; else echo "deleted $dir"; fi
     done
@@ -565,19 +598,22 @@ sweep_one() {
     printf '%s\n' "$out"
 }
 
-# sweep_orphans <real-root>: host temporary directories named after the root that match no
-# checkout and no live process — what was left by checkouts deleted before the host's
-# directory went with them.
+# sweep_orphans <real-root>: host temporary directories named after a checkout of a project
+# under the root that matches no existing directory and no live process — what was left by
+# checkouts deleted before the host's directory went with them.
 sweep_orphans() {
-    local root="$1" prefix known="$SWEEP_TMP/known" d real t name r
-    prefix="$(encode "$root")-"
+    local root="$1" prefixes="" known="$SWEEP_TMP/known" d real t name r p hit
     : > "$known"
     # A directory that still exists under the root, a project's own or a checkout, is not an
-    # orphan's: only what is named after nothing there is.
+    # orphan's: only what is named after nothing there is. And only a name under an EXISTING
+    # project is a candidate: the encoded root followed by `-` is also the name of a sibling of
+    # the root (`<root>-old/x`, `<root>_2/x`), which is not this script's to judge.
     for d in "$ROOT_DIR"/*/; do
         [ -d "$d" ] || continue
         real=$(cd "$d" && pwd -P)
         encode "$real" >> "$known"
+        prefixes="$prefixes$(encode "$real")-
+"
     done
     for d in "$ROOT_DIR"/*/*/; do
         [ -d "$d" ] || continue
@@ -586,16 +622,21 @@ sweep_orphans() {
     done
     [ -d "$HOST_TMP" ] || return 0
     case "$HOST_TMP" in /?*) ;; *) return 0 ;; esac
-    for t in "$HOST_TMP"/"$prefix"*; do
+    for t in "$HOST_TMP"/"$(encode "$root")"-*; do
         if [ ! -d "$t" ] || [ -L "$t" ]; then continue; fi
         name=$(basename "$t")
+        hit=0
+        while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            case "$name" in "$p"?*) hit=1; break ;; esac
+        done <<EOF
+$prefixes
+EOF
+        [ "$hit" = 1 ] || continue
         grep -qxF -- "$name" "$known" && continue
         spent && { say "sweep: deadline of ${SWEEP_DEADLINE}s spent; the rest waits for the next sweep"; return 0; }
-        live_inside "$(cd "$t" && pwd -P)" >/dev/null; r=$?
-        case "$r" in
-            0) keep "$t" "a live process works inside"; continue ;;
-            2) keep "$t" "the process table cannot be read"; continue ;;
-        esac
+        host_dir_live "$t"; r=$?
+        [ "$r" = 1 ] || { keep "$t" "$LIVE_WHY"; continue; }
         if [ "$SWEEP_DRY" = 1 ]; then echo "would delete $t: no checkout, no live process"; continue; fi
         rm -rf -- "${HOST_TMP:?}/${name:?}"
         if [ -e "$t" ]; then keep "$t" "it could not be removed"; else echo "deleted $t"; fi

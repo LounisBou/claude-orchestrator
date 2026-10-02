@@ -784,27 +784,36 @@ cat > "$WC/prs-origin2.git.json" <<EOF
 [{"number":1,"state":"MERGED","headRefName":"feat/p2","headRefOid":"$(head_of "$C_P2")"}]
 EOF
 for d in "$C_MERGED" "$C_CLOSED" "$C_OPEN" "$C_NOPR" "$C_DIRTY" "$C_UNPUSHED" "$C_LIVE" "$C_P2" "$C_MAIN" "$C_STABLE" "$C_PAST" "$C_BEHIND" "$P_MERGED" "$P_MOVED" "$P_SAME" "$P_NOREC" "$P_NOBRANCH"; do scratch "$d" >/dev/null; done
-# The orphans of checkouts deleted before this change: the encoded root, then a name that
-# matches no checkout. Three that must stay: one past the root's name without the separator,
-# one outside the root, one with a live process inside.
-ENCR="${WCR//\//-}"
-mkdir -p "$WORK/wcroot/plain"
+# The orphans of checkouts deleted before this change: the encoded root, an existing project,
+# then a name that matches no checkout. Those that must stay: one past the root's name without
+# the separator, one outside the root, two of a sibling of the root sharing its name as a
+# prefix (`<root>-old/x`, `<root>_2/x`), and two a live session still uses. A session's host
+# directory is named after the directory it STARTED in, never after its own scratch: one
+# session works in that very directory, a checkout's subdirectory; another started in a
+# subdirectory and works further below it now.
+ENCR=$(enc "$WCR")
+mkdir -p "$WORK/wcroot/plain" "$C_OPEN/sub" "$C_NOPR/sub/deeper"
+H_SRC="$ORCHESTRATOR_HOST_TMP/$(enc "$C_OPEN/sub")"; H_BELOW="$ORCHESTRATOR_HOST_TMP/$(enc "$C_NOPR/sub")"
 mkorphans() {
   mkdir -p "$ORCHESTRATOR_HOST_TMP/$ENCR-proj/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-plain/scratchpad"
   mkdir -p "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone/scratchpad" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x/scratchpad" \
-    "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live/scratchpad"
+    "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing/scratchpad" "$H_SRC/scratchpad" "$H_BELOW/scratchpad" \
+    "$ORCHESTRATOR_HOST_TMP/$ENCR-old-x/scratchpad" "$ORCHESTRATOR_HOST_TMP/$ENCR-2-x/scratchpad"
 }
 mkorphans
 nitems() { bash "$WS" list 2>/dev/null | grep -c .; }
-tmpstate() { printf '%s|%s|%s|%s' "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone")" "$(exists "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x")" \
-  "$(exists "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing")" "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live")"; }
+# gone | past the root's name | outside | live at its source | live below its source | <root>-old | <root>_2
+tmpstate() { printf '%s|%s|%s|%s|%s|%s|%s' "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone")" "$(exists "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x")" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing")" "$(exists "$H_SRC")" "$(exists "$H_BELOW")" \
+  "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-old-x")" "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-2-x")"; }
 hold "$C_LIVE"
-hold "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live/scratchpad"
+hold "$C_OPEN/sub"
+hold "$C_NOPR/sub/deeper"
 BEFORE=$(nitems)
 : > "$WC/gh-calls"
 
 out=$(wcgh bash "$WS" sweep --dry-run 2>"$WC/sweep-dry.err"); code=$?
-check "a dry run exits 0 and deletes nothing, checkouts or host directories" "0|$BEFORE|1|1|1|1" "$code|$(nitems)|$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
+check "a dry run exits 0 and deletes nothing, checkouts or host directories" "0|$BEFORE|1|1|1|1|1|1|1" "$code|$(nitems)|$(tmpstate)"
 check "a dry run prints its decisions: six deletions and the orphan, none done" "7|0" \
   "$(printf '%s\n' "$out" | grep -c '^would delete ')|$(printf '%s\n' "$out" | grep -c '^deleted ')"
 check "the pull requests are read once per repository, never once per checkout; a long-lived branch asks none" "2" "$(grep -c 'pr list' "$WC/gh-calls")"
@@ -852,13 +861,16 @@ check "a pin whose head is on no branch is kept even when its pull request is me
   "$(exists "$P_NOBRANCH")|$(printf '%s\n' "$out" | grep -c "^kept $P_NOBRANCH: .*no branch")"
 check "every deletion is printed and proved by the path's absence" "6|0" \
   "$(printf '%s\n' "$out" | grep -c "^deleted $WCR/proj")|$(printf '%s\n' "$out" | grep '^deleted ' | sed 's/^deleted //' | while read -r p; do [ -e "$p" ] && echo present; done | grep -c present)"
-check "an orphan is removed; one past the root's name, one outside it, one in use are not" "0|1|1|1" "$(tmpstate | cut -d'|' -f1)|$(tmpstate | cut -d'|' -f2)|$(tmpstate | cut -d'|' -f3)|$(tmpstate | cut -d'|' -f4)"
+check "an orphan is removed; one past the root's name and one outside it are not" "0|1|1" "$(tmpstate | cut -d'|' -f1-3)"
+check "a live session working in the directory a host directory is named after keeps it" "1" "$(tmpstate | cut -d'|' -f4)"
+check "and so does one that started in a checkout's subdirectory and works below it now" "1" "$(tmpstate | cut -d'|' -f5)"
+check "a sibling of the root sharing its name as a prefix is never a candidate" "1|1" "$(tmpstate | cut -d'|' -f6-7)"
 check "the host directory of a directory that still exists under the root is not an orphan's" "1|1" \
   "$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-proj")|$(exists "$ORCHESTRATOR_HOST_TMP/$ENCR-plain")"
 check "the host directory of a kept checkout stays" "1|1" \
   "$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_OPEN")")|$(exists "$ORCHESTRATOR_HOST_TMP/$(enc "$C_NOPR")")"
 release
-rm -rf "$ORCHESTRATOR_HOST_TMP/$ENCR-proj-gone-live" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x" "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing"
+rm -rf "$H_SRC" "$H_BELOW" "$ORCHESTRATOR_HOST_TMP/${ENCR}2-x" "$ORCHESTRATOR_HOST_TMP/-elsewhere-thing" "$ORCHESTRATOR_HOST_TMP/$ENCR-old-x" "$ORCHESTRATOR_HOST_TMP/$ENCR-2-x"
 for d in "$C_OPEN" "$C_NOPR" "$C_UNPUSHED" "$C_LIVE" "$C_MAIN" "$C_STABLE" "$C_PAST" "$P_SAME" "$P_NOREC"; do bash "$WS" delete "$d" --discard >/dev/null 2>&1; done
 bash "$WS" delete "$C_DIRTY" --discard >/dev/null 2>&1
 bash "$WS" delete "$P_NOBRANCH" --discard >/dev/null 2>&1
