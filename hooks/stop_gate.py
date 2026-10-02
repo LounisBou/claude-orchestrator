@@ -26,10 +26,12 @@ glyph at all no agent running there.
 
 Check 2, the real CI state, runs only when Check 1 let the stop pass. Each open pull
 request of the operator's own (`--author @me`) in the session's repository whose head differs from the head this hook last
-reported for this session is read with `gh pr checks`; any check pending or failing refuses
-the stop once with the real state, and the head is recorded so the same head never refuses
-twice. A head whose check list is still empty (a push seen before its checks are registered)
-is not green but unread: it is not recorded. It reads facts, never the words of the message:
+reported for this session is read with `gh pr checks`; any check pending or failing refuses the stop with the real
+state. A head is recorded only when it has checks and none is pending: a finished head
+refuses once and is recorded, so the same head never refuses twice, while a head with checks
+pending refuses and stays unrecorded, so a check that turns red later refuses at the next
+stop. A head whose check list is still empty (a push seen before its checks are registered)
+is not green but unread: it is not recorded either. It reads facts, never the words of the message:
 a list of claim words fails open on any rewording and in any language.
 
 The sweep, run last and never part of the decision. Once the checks have let the stop pass,
@@ -117,7 +119,7 @@ NOT_DONE_MANY = "Not done: %s are still there. Finish them, or say what blocks t
 ROW_ONE = "Not done: row %s is open. Dispatch it, close it, or say what blocks it."
 ROW_MANY = "Not done: rows %s are open. Dispatch them, close them, or say what blocks them."
 CI_STATE = ("#%s at %s: %d checks pending (%s), %d failing (%s). Report this state as it is, "
-            "or wait for the end in one call: `timeout 590 gh pr checks %s --watch`.")
+            "or wait for the end in one call: `timeout 590 gh pr checks %s --watch --fail-fast`.")
 
 
 def log(who, *fields):
@@ -351,7 +353,8 @@ def gh_json(argv, cwd, tolerated=()):
 
 
 def check_ci(cwd, session_id):
-    """The refusal lines, one per pull request whose new head has checks pending or failing."""
+    """The refusal lines, one per pull request whose head has checks pending or failing and
+    is not yet recorded."""
     if not session_id:
         raise Unread("no session id: the reported heads cannot be kept")
     # The operator's own pull requests: the check exists for the reports an orchestrator
@@ -370,9 +373,10 @@ def check_ci(cwd, session_id):
                          tolerated=("no checks reported",))
         pending = [c["name"] for c in checks if c.get("bucket") == "pending"]
         failing = [c["name"] for c in checks if c.get("bucket") in ("fail", "cancel")]
-        # No check yet is a push seen before its checks were registered, not a green head:
-        # unread, so unrecorded, and read again at the next stop.
-        if checks:
+        # A head is recorded only when it has checks and none is pending. No check yet is a
+        # push seen before its checks were registered, and a pending one may still turn red:
+        # unrecorded, so read again at the next stop.
+        if checks and not pending:
             heads[number] = head
         if pending or failing:
             lines.append(CI_STATE % (number, head[:7], len(pending), ", ".join(pending),

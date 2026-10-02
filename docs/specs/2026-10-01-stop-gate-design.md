@@ -133,16 +133,19 @@ costs no further call.
 
 **Facts.** For each such pull request, `gh pr checks <NNN>` on its current head.
 
-**Refusal, once per head.** When any check on that head is pending or failing, the stop is
-refused with the real state, and the head is recorded as reported, so the same head never
-refuses twice:
+**Refusal, once per finished head.** When any check on that head is pending or failing, the
+stop is refused with the real state. A head whose checks have all finished is recorded as
+reported, so the same head never refuses twice; a head with a check still pending is not
+recorded, so the next stop reads it again and a check that has turned red refuses it with
+the failing check named:
 
 « #NNN at <short sha>: <n> checks pending (<names>), <m> failing (<names>). Report this
-state as it is, or wait for the end in one call: `timeout 590 gh pr checks NNN --watch`. »
+state as it is, or wait for the end in one call: `timeout 590 gh pr checks NNN --watch --fail-fast`. »
 
 All checks finished and passing: the head is recorded, the stop passes, nothing is
-written. A head whose check list is empty is not green but unread (a push is seen before its
-checks are registered): it is not recorded, and is read again at the next stop. The hook judges no cause and reads no claim: it puts the real state in front of
+written. A head is recorded only when it has checks and none is pending. A head whose check
+list is empty is not green but unread (a push is seen before its checks are registered): it
+is not recorded either, and is read again at the next stop. The hook judges no cause and reads no claim: it puts the real state in front of
 the orchestrator before the message it ends on, whatever that message says.
 
 **Limit, stated.** The hook does not stop the orchestrator from writing a false sentence
