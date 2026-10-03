@@ -30,7 +30,7 @@
 # saying "unmeasured" there is a false alarm, not a finding.
 # Nor when the tap file is merely old: the gauge then reads the transcript against the
 # window the file carries, and that reading counts. The line names what was read: no tap
-# file, or a tap file with no figure.
+# file, or a tap file the gauge could not read a figure from.
 set -u
 GATE="${ORCHESTRATOR_CONTEXT_GATE:-80}"
 GATE_TOKENS="${ORCHESTRATOR_CONTEXT_GATE_TOKENS:-300000}"
@@ -119,13 +119,14 @@ if [ "$measured" -eq 0 ]; then
         marker="$STATE_DIR/ctx/$session_id.gate-unmeasured"
         if [ ! -f "$marker" ]; then
             mkdir -p "$STATE_DIR/ctx" 2>/dev/null && : > "$marker"
-            # Say what was read: no tap file is an install to repair, a tap file with no
-            # figure to read is not.
+            # Say what was read, and only that: no tap file now may be a file the tap pruned
+            # after a day without a render, and a tap file present may lack the window or
+            # carry it with a transcript not yet readable.
             gate_words="The gate (${GATE}%, or $(thousands "$GATE_TOKENS") tokens on a window of $(window_label "$LARGE_WINDOW") or more) cannot be read; measure by hand before dispatching or rotating."
             if [ -f "$STATE_DIR/ctx/$session_id.json" ]; then
-                echo "CONTEXT GATE: unmeasured: the tap file is present but carries no figure for this session (no window size to read the transcript against; the next status line render may fill it). $gate_words"
+                echo "CONTEXT GATE: unmeasured: the tap file is present but the gauge could not read a figure from it (the next status line render may fill it). $gate_words"
             else
-                echo "CONTEXT GATE: unmeasured: no tap file for this session (the gauge's tap is not feeding it — /orchestrator:install, then restart). $gate_words"
+                echo "CONTEXT GATE: unmeasured: no tap file for this session now (never written, or pruned after a day without a render); /orchestrator:install is the repair only if the status line shows nothing. $gate_words"
             fi
         fi
     fi

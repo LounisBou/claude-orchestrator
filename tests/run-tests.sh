@@ -2859,16 +2859,32 @@ check "a stale tap file under the gate is silent" "" "$(gate_t g-stale-lo "$GH/t
 check "a stale tap file under the gate leaves no marker" "" "$(ls "$GH/claude-orchestrator/ctx" | grep 'g-stale-lo.gate-unmeasured')"
 check "a first render with no figure yet: the transcript's figure trips the gate" "1" \
   "$(gate_t g-null-hi "$GH/transcripts/used-350k.jsonl" | grep -c 'this session is at 350,000 tokens')"
-# The words say what was read: no tap file at all sends the reader to the install, a tap
-# file with no window to read a figure against does not.
-check "no tap file: the line says so and names the install" "1" \
-  "$(gate_t g-words-none "$GH/transcripts/past-turn.jsonl" | grep -c 'unmeasured: no tap file for this session.*/orchestrator:install')"
+# The words say what was read, and only that. No tap file now does not prove a broken
+# install: the tap prunes files older than a day on another session's first render, so a
+# session paused that long has none. The line says so and names the install as the repair
+# only if the status line shows nothing. A tap file present is worded the same whether it
+# lacks the window or carries it and the transcript could not be read.
+none_words="$(gate_t g-words-none "$GH/transcripts/past-turn.jsonl")"
+check "no tap file: the line says there is none now, and why it may be" "1" \
+  "$(printf '%s\n' "$none_words" | grep -c 'unmeasured: no tap file for this session now (never written, or pruned after a day without a render)')"
+check "no tap file: the install is the repair only if the status line shows nothing" "1" \
+  "$(printf '%s\n' "$none_words" | grep -c '/orchestrator:install is the repair only if the status line shows nothing')"
+check "no tap file: the line does not assert the tap is not feeding the session" "0" \
+  "$(printf '%s\n' "$none_words" | grep -c 'not feeding')"
 printf '{"session_id":"g-words-nowin","context_percent":null,"context_used":null,"context_total":null,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-words-nowin.json"
 words="$(gate_t g-words-nowin "$GH/transcripts/past-turn.jsonl")"
 check "a tap file with no figure: the line says the file is there" "1" \
-  "$(printf '%s\n' "$words" | grep -c 'unmeasured: the tap file is present but carries no figure')"
+  "$(printf '%s\n' "$words" | grep -c 'unmeasured: the tap file is present but the gauge could not read a figure from it (the next status line render may fill it)')"
 check "a tap file with no figure: the line does not send the reader to reinstall" "0" \
   "$(printf '%s\n' "$words" | grep -c '/orchestrator:install')"
+# The file carries the window, the transcript has no usage block yet: the old words claimed
+# there was no window size, which is false here.
+printf '{"session_id":"g-words-win","context_percent":null,"context_used":null,"context_total":1000000,"transcript_path":"%s","updated_epoch":%s}\n' "$GH/transcripts/past-turn.jsonl" "$now" > "$GH/claude-orchestrator/ctx/g-words-win.json"
+words_win="$(gate_t g-words-win "$GH/transcripts/past-turn.jsonl")"
+check "a tap file with the window, transcript unreadable: the line is the neutral one" "1" \
+  "$(printf '%s\n' "$words_win" | grep -c 'unmeasured: the tap file is present but the gauge could not read a figure from it')"
+check "a tap file with the window, transcript unreadable: no claim about the window size" "0" \
+  "$(printf '%s\n' "$words_win" | grep -c 'no window size')"
 
 # On a window of 1,000,000 tokens or more the gate is a count, 300,000 tokens, not a share:
 # 80 % of 1M lets a session replay up to 800k of cached context on every turn. Smaller
