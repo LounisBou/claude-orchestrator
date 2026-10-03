@@ -3851,12 +3851,21 @@ check "without python3 the stop passes, exit 0" "|0" \
   "$(env PATH="$NOPY" ORCHESTRATOR_STATE_DIR="$SGS" "$(command -v bash)" "$SG/hooks/stop-gate.sh" < "$SG/nopy-payload.json" 2>/dev/null; echo "|$?")"
 check "and the missing interpreter is logged" "1" "$(sglog | grep -c '| - | error | python3 is not installed$')"
 
-check "the phase brief template imposes the fail-fast watch" "yes" "$(spells "$ROOT/templates/agent-phase-brief.md" 'timeout 590 gh pr checks <n> --watch --fail-fast')"
-check "the standing rules impose the fail-fast watch" "yes" "$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'timeout 590 gh pr checks <n> --watch --fail-fast')"
-check "the orchestrator skill re-reads the checks at every idle notice" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
-check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" "merge only where the project's own method opts into auto-merge")"
-check "and by default there is none: it reports ready" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'by default there is none, and you report « ready »')"
-check "the review rules point to the skill for the idle-notice reading" "yes" "$(spells "$ORCH_REFS/review.md" 'SKILL.md, « Carried at every step », says how')"
+check "the phase brief template ends the delivery at the push, no CI watch" "yes|no|no" \
+  "$(spells "$ROOT/templates/agent-phase-brief.md" 'The delivery ends at the push')|$(spells "$ROOT/templates/agent-phase-brief.md" 'gh pr checks')|$(spells "$ROOT/templates/agent-phase-brief.md" 'in the foreground')"
+check "the standing rules say an agent never waits on CI" "yes|no" \
+  "$(spells "$ROOT/skills/orchestrator/references/briefs.md" '**An agent never waits on CI.**')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'timeout 590 gh pr checks <n> --watch')"
+check "the orchestrator skill arms one background watch per pull request" "yes|yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'start `ci-watch.sh <n>`')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'with `run_in_background` and a timeout of 7 200 000 ms: one per pull request, never two')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Moved: re-arm on the new head')"
+check "and reads each ending: red, no checks, closed, unread" "yes|yes|yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'dispatch the correction at once, to a fresh session')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'No checks: ready on the suite')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Closed: stop the work on it')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Unread, or the timeout: re-arm once, then report')"
+check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'never a loop on `gh pr view` or `gh pr checks`, never a wait for MERGED')"
+check "the orchestrator skill no longer re-reads the checks at each idle notice" "no" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
+check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" "in a project whose method opts into auto-merge, nothing")"
+check "and by default it reports ready" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'otherwise report « ready » as above')"
+check "the review rules point to the skill for the watch" "yes" "$(spells "$ORCH_REFS/review.md" 'SKILL.md, « Carried at every step », says how')"
+check "the lifecycle never rotates an agent, nor spawns a session, to watch CI" "yes|yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" 'is stood down, never rotated, and no session is spawned to watch CI')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent whose remaining work is waiting on CI is not rotated')"
 check "the README's hooks table names the Stop hook" "yes" "$(spells "$ROOT/README.md" 'hook `Stop`')"
 check "the eval selection says its two stop-gate cases grade the staged spawn line and do not run the hook" "2" \
   "$(grep -E '^\| 5[12] \|' "$ROOT/evals/SELECTION.md" | grep -c 'under staging; it does not run the hook')"
