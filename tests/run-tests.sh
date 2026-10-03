@@ -1044,6 +1044,40 @@ ok_brief "$B/duty-forbid.md"; printf 'Never stand by; no cleanup after merge, an
 check_status "a clause that forbids the duty is not one" 0 bash "$LINT" "$B/duty-forbid.md"
 ok_brief "$B/duty-fp.md"; printf 'Example `/tmp/claude-501/x`, see `skills/a.sh:12`, run /implement:phase; the stand-down follows.\n' >> "$B/duty-fp.md"
 check "paths, slash commands, file:line suffixes and the stand-down are no duty" "0" "$(bash "$LINT" "$B/duty-fp.md" 2>&1 | grep -c 'duty after delivery')"
+# Nobody waits on CI in the foreground, and an agent never waits on it at all: an implementer
+# brief that orders a `gh pr checks` watch, a loop of `gh pr view`/`gh pr checks` around a
+# sleep, or a wait « until merged » is a finding; a clause that forbids it is not one.
+for phrase in 'Watch it with `gh pr checks 12 --watch --fail-fast`.' 'Run timeout 590 gh pr checks <n> --watch.' \
+              'for i in $(seq 1 120); do gh pr view 12 --json state; sleep 30; done' \
+              'while true; do gh pr checks 12; sleep 60; done'; do
+  ok_brief "$B/ciw.md"; printf '%s\n' "$phrase" >> "$B/ciw.md"
+  check_status "a CI wait is a finding: $phrase" 1 bash "$LINT" "$B/ciw.md"
+  check "and it is named: $phrase" "1" "$(bash "$LINT" "$B/ciw.md" 2>&1 | grep -c 'waits on CI')"
+done
+ok_brief "$B/ciw-loop.md"; printf '```bash\nfor i in $(seq 1 120); do\n  gh pr view 12 --json state\n  gh pr checks 12\n  sleep 30\ndone\n```\n' >> "$B/ciw-loop.md"
+check "a loop over several lines, in a fence, is one finding" "1" "$(bash "$LINT" "$B/ciw-loop.md" 2>&1 | grep -c 'waits on CI')"
+ok_brief "$B/ciw-noloop.md"; printf '```bash\nfor n in 1 2 3; do\n  gh pr view $n --json state\ndone\ngh pr checks 12\n```\n' >> "$B/ciw-noloop.md"
+check "a loop with no sleep, and a single read of the checks, are no wait" "0" "$(bash "$LINT" "$B/ciw-noloop.md" 2>&1 | grep -c 'waits on CI')"
+ok_brief "$B/ciw-forbid.md"; printf 'Never run `gh pr checks 12 --watch`; do not loop on `gh pr view` with a sleep.\n' >> "$B/ciw-forbid.md"
+check_status "a clause that forbids the wait is not one" 0 bash "$LINT" "$B/ciw-forbid.md"
+review_brief "$B/ciw-review.md"; printf 'End the report with `norms-check: tool <head>`.\nRun `gh pr checks 12 --watch`.\n' >> "$B/ciw-review.md"
+check_status "the same command in a review brief is not one" 0 bash "$LINT" "$B/ciw-review.md"
+for phrase in 'Wait until merged.' 'Poll until MERGED.'; do
+  ok_brief "$B/ciw-until.md"; printf '%s\n' "$phrase" >> "$B/ciw-until.md"
+  check "a wait until the merge is a post-delivery duty: $phrase" "1" "$(bash "$LINT" "$B/ciw-until.md" 2>&1 | grep -c 'duty after delivery')"
+done
+ok_brief "$B/duty-stay.md"; printf 'Stay until merged.\n' >> "$B/duty-stay.md"
+check "stay until merged stays ONE finding" "1" "$(bash "$LINT" "$B/duty-stay.md" 2>&1 | grep -c 'duty after delivery')"
+# The orchestrator, and only it, starts the watch in the background: not a finding outside an
+# implementer brief, still one in it, and any other background run is one everywhere.
+printf '# memo\n\nStart `ci-watch.sh 12` with `run_in_background`.\n' > "$B/ciw-orch.md"
+check_status "ci-watch.sh in the background is no finding outside an implementer brief" 0 bash "$LINT" "$B/ciw-orch.md"
+ok_brief "$B/ciw-agent.md"; printf 'Start `ci-watch.sh 12` with `run_in_background`.\n' >> "$B/ciw-agent.md"
+check_status "in an implementer brief it still is" 1 bash "$LINT" "$B/ciw-agent.md"
+printf '# memo\n\nStart `ci-watch.sh 12` with `run_in_background`, and run the suite in the background.\n' > "$B/ciw-orch2.md"
+check_status "a second background run on the line is still one" 1 bash "$LINT" "$B/ciw-orch2.md"
+printf '# memo\n\nRun the suite in the background.\n' > "$B/ciw-orch3.md"
+check_status "another background run outside an implementer brief is still one" 1 bash "$LINT" "$B/ciw-orch3.md"
 PHASEFILLED="$B/phase-filled.md"
 sed -e 's/{{[A-Z_]*}}/x/g' -e '1s/.*/# scratch/' "$ROOT/templates/agent-phase-brief.md" > "$PHASEFILLED"
 check "the repository's own phase template, filled, holds no post-delivery duty" "0" \
