@@ -3180,6 +3180,94 @@ nojq_out=$(env PATH="$NOJQ" ORCHESTRATOR_SPAWNED=1 "$(command -v bash)" "$GUARD"
 check "without jq a marked session is let through, with one warning line" "0|1|1" \
   "$nojq_code|$(printf '%s\n' "$nojq_out" | grep -c .)|$(printf '%s' "$nojq_out" | grep -c 'jq')"
 
+echo "== ci-watch =="
+# The one way to wait on CI: a script an orchestrator starts in the background, that exits on
+# the end of the checks with one line and a code. A fake `gh` on PATH answers from files:
+# `view` (one `<STATE> <head>` line per call, the last one repeated), `reg` (one answer per
+# registration read: a count, `none` or `fail`), `failing` (the names read after a red) and
+# `watch-code` (what the watch exits with, its output a marker that must never reach stdout).
+CW="$WORK/ci-watch"
+CWB="$CW/bin"; CWS="$CW/state"
+mkdir -p "$CWB" "$CWS"
+cat > "$CWB/gh" <<EOF
+#!/bin/bash
+echo "\$*" >> "$CW/gh-calls"
+nth() {  # <file> <counter>: the nth line of <file> for the nth call, the last one repeated
+  local n total
+  n=\$(( \$(cat "$CW/\$2" 2>/dev/null || echo 0) + 1 )); echo "\$n" > "$CW/\$2"
+  total=\$(grep -c '' "\$1" 2>/dev/null || echo 0)
+  [ "\$total" -gt 0 ] || return 1
+  [ "\$n" -le "\$total" ] || n="\$total"
+  sed -n "\${n}p" "\$1"
+}
+case "\$1 \$2" in
+  "pr view") [ -f "$CW/view" ] || { echo "gh: HTTP 502" >&2; exit 1; }
+             nth "$CW/view" view-n ;;
+  "pr checks")
+    case "\$*" in
+      *--watch*) echo "WATCH-OUTPUT-MARKER"; exit "\$(cat "$CW/watch-code" 2>/dev/null || echo 0)" ;;
+      *"--json name,bucket"*) cat "$CW/failing" 2>/dev/null; exit 1 ;;
+      *"--json name"*) r=\$(nth "$CW/reg" reg-n)
+         case "\$r" in
+           none) echo "no checks reported on the 'feat' branch" >&2; exit 1 ;;
+           fail) echo "error connecting to api.github.com" >&2; exit 1 ;;
+           *) echo "\$r" ;;
+         esac ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$CWB/gh"
+HA=aaaa1111bbbb2222cccc3333dddd4444eeee5555
+HB=bbbb2222cccc3333dddd4444eeee5555ffff6666
+CWSCRIPT="$ROOT/skills/orchestrator/scripts/ci-watch.sh"
+# cw <view lines> <reg lines> <watch code> <failing> [args...]: the script's stdout|exit code
+cw() {
+  local view="$1" reg="$2" code="$3" failing="$4" out rc
+  shift 4
+  rm -f "$CW"/gh-calls "$CW"/view "$CW"/reg "$CW"/failing "$CW"/watch-code "$CW"/view-n "$CW"/reg-n
+  [ -z "$view" ] || printf '%b\n' "$view" > "$CW/view"
+  [ -z "$reg" ] || printf '%b\n' "$reg" > "$CW/reg"
+  [ -z "$failing" ] || printf '%b\n' "$failing" > "$CW/failing"
+  printf '%s\n' "$code" > "$CW/watch-code"
+  out=$(env PATH="$CWB:$PATH" ORCHESTRATOR_STATE_DIR="$CWS" CI_WATCH_REGISTER_WAIT="${CW_WAIT:-2}" \
+    bash "$CWSCRIPT" "$@" 2>/dev/null); rc=$?
+  printf '%s|%s' "$out" "$rc"
+}
+check "ci-watch exists" "yes" "$([ -f "$CWSCRIPT" ] && echo yes || echo no)"
+check "green: one line, exit 0" "ci-watch: green 7 $HA|0" \
+  "$(cw "OPEN $HA" "2" 0 "" 7 --interval 1)"
+check "the watch's own output never reaches stdout, it lands in a log file" "1|0" \
+  "$(grep -rl WATCH-OUTPUT-MARKER "$CWS" 2>/dev/null | wc -l | tr -d ' ')|$(cw "OPEN $HA" "2" 0 "" 7 --interval 1 | grep -c WATCH-OUTPUT-MARKER)"
+check "red: the failing names are on the line, exit 1" "ci-watch: red 7 $HA test, e2e|1" \
+  "$(cw "OPEN $HA" "2" 1 "test\ne2e" 7 --interval 1)"
+check "no checks within the bound: exit 2" "ci-watch: no-checks 7 $HA|2" \
+  "$(cw "OPEN $HA" "none" 0 "" 7 --interval 1)"
+check "and the watch never started" "0" "$(grep -c -e '--watch' "$CW/gh-calls")"
+check "checks registered after the first read (a fresh push) are waited for, not read as red" "ci-watch: green 7 $HA|0" \
+  "$(cw "OPEN $HA" "none\n2" 0 "" 7 --interval 1)"
+check "moved: the head differs when the watch returns, exit 3" "ci-watch: moved 7 $HA $HB|3" \
+  "$(cw "OPEN $HA\nOPEN $HB" "2" 1 "test" 7 --interval 1)"
+check "closed: exit 4, naming the state" "ci-watch: closed 7 MERGED|4" \
+  "$(cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+check "already closed at the first read: exit 4" "ci-watch: closed 7 CLOSED|4" \
+  "$(cw "CLOSED $HA" "2" 0 "" 7 --interval 1)"
+check "and nothing is watched" "0" "$(grep -c -e '--watch' "$CW/gh-calls")"
+check "unread: the pull request cannot be read, exit 5" "ci-watch: unread 7 gh pr view failed: gh: HTTP 502|5" \
+  "$(cw "" "2" 0 "" 7 --interval 1)"
+check "unread: the registration read fails, exit 5" "ci-watch: unread 7 gh pr checks failed: error connecting to api.github.com|5" \
+  "$(cw "OPEN $HA" "fail" 0 "" 7 --interval 1)"
+check "unread: the watch fails with no failing check named, exit 5" "5" \
+  "$(cw "OPEN $HA" "2" 4 "" 7 --interval 1 | sed 's/.*|//')"
+check "the repository is passed on to every gh call" "0" \
+  "$(cw "OPEN $HA" "2" 0 "" 7 --repo o/r --interval 1 >/dev/null; grep -vc -e '-R o/r' "$CW/gh-calls")"
+check "the interval is passed on to the watch" "1" \
+  "$(cw "OPEN $HA" "2" 0 "" 7 --interval 3 >/dev/null; grep -c -e '--watch --fail-fast --interval 3' "$CW/gh-calls")"
+check "no loop on gh pr view: two reads in all, before and after the watch" "2" \
+  "$(cw "OPEN $HA" "2" 0 "" 7 --interval 1 >/dev/null; grep -c '^pr view' "$CW/gh-calls")"
+check "without a pull request number: exit 5" "5" "$(cw "OPEN $HA" "2" 0 "" | sed 's/.*|//')"
+check "an unknown argument: exit 5" "5" "$(cw "OPEN $HA" "2" 0 "" 7 --bogus | sed 's/.*|//')"
+
 echo "== stop gate hook =="
 # An orchestrator's stop is held until something will wake it (Check 1) and until the real
 # state of its open pull requests' checks has been put in front of it once per head
