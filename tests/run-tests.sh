@@ -1325,6 +1325,19 @@ git -C "$RCLONE" remote set-url origin "$WORK/no-such-origin.git"
 rhythm_split "$RCLONE" --since 2026-08-10 | head -1 | grep -q ' on elsewhere since ' && g=elsewhere || g=other
 check "the remote unreachable: the fallback is used and said as a guess" "elsewhere|rhythm: origin/HEAD is unset and the remote did not answer; guessed elsewhere" \
   "$g|$(cat "$WORK/rhythm.err")"
+# The remote answers, but with a name this clone has neither as origin/<name> nor as a local
+# branch (never fetched): the line must not say that the remote did not answer.
+RBARE2="$WORK/rhythm-origin2.git"
+RCLONE2="$WORK/rhythm-clone2"
+rm -rf "$RBARE2" "$RCLONE2"
+git clone -q --bare "$RREPO" "$RBARE2" 2>/dev/null
+git -C "$RBARE2" branch -q trunk-y main && git -C "$RBARE2" symbolic-ref HEAD refs/heads/trunk-y
+git init -q "$RCLONE2" && git -C "$RCLONE2" remote add origin "$RBARE2"
+git -C "$RCLONE2" fetch -q origin main 2>/dev/null
+git -C "$RCLONE2" checkout -q -b work origin/main 2>/dev/null
+rhythm_split "$RCLONE2" --since 2026-08-10 >/dev/null
+check "the remote names a branch the clone lacks: said as such, not as silence" "rhythm: origin/HEAD is unset; the remote names trunk-y, which this clone does not have; guessed work" \
+  "$(cat "$WORK/rhythm.err")"
 
 echo "== triggering set =="
 

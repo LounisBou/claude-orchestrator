@@ -62,7 +62,7 @@ bounded() {
 # own answer (`ls-remote --symref`, one bounded network call), read through its remote-tracking
 # ref when the clone has one; the local `main`, then `master`; the branch checked out.
 default_branch() {
-    local name="" found=""
+    local name="" found="" unknown=""
     found=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null || true)
     if [ -n "$found" ]; then printf '%s\n' "$found"; return; fi
     name=$(bounded 10 git -C "$repo" ls-remote --symref origin HEAD 2>/dev/null |
@@ -70,7 +70,7 @@ default_branch() {
     if [ -n "$name" ]; then
         found=$name
         if git -C "$repo" rev-parse --verify --quiet "refs/remotes/origin/$name" >/dev/null; then found="origin/$name"
-        elif ! git -C "$repo" rev-parse --verify --quiet "refs/heads/$name" >/dev/null; then name=""; fi
+        elif ! git -C "$repo" rev-parse --verify --quiet "refs/heads/$name" >/dev/null; then unknown=$name; name=""; fi
     fi
     if [ -n "$name" ]; then
         echo "rhythm: origin/HEAD is unset; read $found from the remote" >&2
@@ -82,7 +82,11 @@ default_branch() {
         found=""
     done
     [ -n "$found" ] || found=$(git -C "$repo" rev-parse --abbrev-ref HEAD)
-    echo "rhythm: origin/HEAD is unset and the remote did not answer; guessed $found" >&2
+    if [ -n "$unknown" ]; then
+        echo "rhythm: origin/HEAD is unset; the remote names $unknown, which this clone does not have; guessed $found" >&2
+    else
+        echo "rhythm: origin/HEAD is unset and the remote did not answer; guessed $found" >&2
+    fi
     printf '%s\n' "$found"
 }
 branch=$(default_branch)
