@@ -2837,6 +2837,39 @@ check "unmeasured with a transcript but no turn answered yet prints nothing" "" 
 check "unmeasured past the first turn says so once" "1" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl" | grep -c 'unmeasured')"
 check "unmeasured stays silent the second time" "" "$(gate_t g-turn "$GH/transcripts/past-turn.jsonl")"
 
+# « Unmeasured » is a finding about the tap, so it fires only when the tap has not fed the
+# session. The status line renders after a turn, so a prompt that follows a pause, or a long
+# turn, meets a tap file older than the gauge's freshness window: the file is there and
+# carries the window, the gauge reads the transcript's last usage against it, and that is a
+# measure, not a failure. A first render with no figure yet (`context_percent` null) is the
+# same case. The gate says what it read, so the reader is not sent to reinstall a working tap.
+printf '{"type":"user","message":{"role":"user","content":"hi"}}\n{"type":"assistant","message":{"role":"assistant","model":"a-model","usage":{"input_tokens":1,"cache_creation_input_tokens":100000,"cache_read_input_tokens":249999}}}\n' > "$GH/transcripts/used-350k.jsonl"
+printf '{"type":"user","message":{"role":"user","content":"hi"}}\n{"type":"assistant","message":{"role":"assistant","model":"a-model","usage":{"input_tokens":1,"cache_creation_input_tokens":1000,"cache_read_input_tokens":1000}}}\n' > "$GH/transcripts/used-2k.jsonl"
+stale=$((now - 3600))
+printf '{"session_id":"g-stale-hi","context_percent":12,"context_used":120000,"context_total":1000000,"transcript_path":"%s","updated_epoch":%s}\n' "$GH/transcripts/used-350k.jsonl" "$stale" > "$GH/claude-orchestrator/ctx/g-stale-hi.json"
+printf '{"session_id":"g-stale-lo","context_percent":12,"context_used":120000,"context_total":1000000,"transcript_path":"%s","updated_epoch":%s}\n' "$GH/transcripts/used-2k.jsonl" "$stale" > "$GH/claude-orchestrator/ctx/g-stale-lo.json"
+printf '{"session_id":"g-null-hi","context_percent":null,"context_used":null,"context_total":1000000,"transcript_path":"%s","updated_epoch":%s}\n' "$GH/transcripts/used-350k.jsonl" "$now" > "$GH/claude-orchestrator/ctx/g-null-hi.json"
+stale_hi="$(gate_t g-stale-hi "$GH/transcripts/used-350k.jsonl")"
+check "a stale tap file with the window: the transcript's figure trips the gate" "1" \
+  "$(printf '%s\n' "$stale_hi" | grep -c 'this session is at 350,000 tokens (gate 300,000 on a 1M window)')"
+check "a stale tap file with the window: no « unmeasured » line" "0" \
+  "$(printf '%s\n' "$stale_hi" | grep -c 'unmeasured')"
+check "a stale tap file with the window: no marker is left" "" "$(ls "$GH/claude-orchestrator/ctx" | grep 'g-stale-hi.gate-unmeasured')"
+check "a stale tap file under the gate is silent" "" "$(gate_t g-stale-lo "$GH/transcripts/used-2k.jsonl")"
+check "a stale tap file under the gate leaves no marker" "" "$(ls "$GH/claude-orchestrator/ctx" | grep 'g-stale-lo.gate-unmeasured')"
+check "a first render with no figure yet: the transcript's figure trips the gate" "1" \
+  "$(gate_t g-null-hi "$GH/transcripts/used-350k.jsonl" | grep -c 'this session is at 350,000 tokens')"
+# The words say what was read: no tap file at all sends the reader to the install, a tap
+# file with no window to read a figure against does not.
+check "no tap file: the line says so and names the install" "1" \
+  "$(gate_t g-words-none "$GH/transcripts/past-turn.jsonl" | grep -c 'unmeasured: no tap file for this session.*/orchestrator:install')"
+printf '{"session_id":"g-words-nowin","context_percent":null,"context_used":null,"context_total":null,"updated_epoch":%s}\n' "$now" > "$GH/claude-orchestrator/ctx/g-words-nowin.json"
+words="$(gate_t g-words-nowin "$GH/transcripts/past-turn.jsonl")"
+check "a tap file with no figure: the line says the file is there" "1" \
+  "$(printf '%s\n' "$words" | grep -c 'unmeasured: the tap file is present but carries no figure')"
+check "a tap file with no figure: the line does not send the reader to reinstall" "0" \
+  "$(printf '%s\n' "$words" | grep -c '/orchestrator:install')"
+
 # On a window of 1,000,000 tokens or more the gate is a count, 300,000 tokens, not a share:
 # 80 % of 1M lets a session replay up to 800k of cached context on every turn. Smaller
 # windows keep 80 %. The line names the figure that tripped it.
