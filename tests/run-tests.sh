@@ -3219,7 +3219,23 @@ printf '/dev/ttys901 %s\n/dev/ttys902 %s\n' "$SGA" "$SGA" > "$SG/cwds"; printf '
 check "a read past the deadline counts as no pull request, never a crash: only the agent read in time is named" \
   "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #12, OPEN). Stand it down now.|1" \
   "$(SG_DEADLINE=1 sg 'Waiting.' | reason)|$(wc -l < "$SG/gh-views" | tr -d ' ')"
-check "and the late read is a log line" "1" "$(sglog | grep -c '| error | pull request of /dev/ttys902 unread: the overall deadline of 1s passed before git$')"
+check "and the late read is a log line" "1" "$(sglog | grep -c '| error | pull request of /dev/ttys902 unread: the overall deadline of 1s passed before the launcher'"'"'s reads$')"
+# With the deadline already passed, `pull_request_of` reads nothing: not the launcher's process
+# table and working directory (`host_cli_cwd`, its own calls), not git, not gh.
+check "a passed deadline: no launcher read, no gh call, one log line, no pull request" "None|0|0|1" \
+  "$(ORCHESTRATOR_STATE_DIR="$SGS" "$py" -c "
+import sys, time; sys.path.insert(0, '$SG/hooks'); sys.path.insert(0, '$SG/skills/iterm-agents/scripts')
+import stop_gate as g
+reads = {'launcher': 0, 'run': 0}
+class L:
+    def host_cli_cwd(self, tty): reads['launcher'] += 1; return '/'
+g.launcher = lambda: L()
+def fake_run(*a, **k): reads['run'] += 1; return '', '', 1
+g.run = fake_run
+logged = []
+g.log = lambda *f: logged.append(f)
+g.STARTED = time.monotonic() - 1000
+print(g.pull_request_of('/dev/ttys901', 'w'), reads['launcher'], reads['run'], len(logged), sep='|')")"
 sg_idle_pr OPEN; sg_listing "$IDLE" "$IDLE2"; sg_chain /dev/ttys901 S-ME /dev/ttys902 S-ME
 printf '/dev/ttys901 %s\n/dev/ttys902 %s\n' "$SGA" "$SGA" > "$SG/cwds"
 check "two idle agents: one read each, both named" "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #12, OPEN), Agent : two [c3d4e5] (pull request #12, OPEN). Stand it down now.|2" \

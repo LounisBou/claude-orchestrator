@@ -230,7 +230,12 @@ def own_agents(rows, own_tty, who):
 def pull_request_of(tty, who):
     """(number, state) of the pull request of the branch checked out where the agent on `tty`
     works, or None. One `gh` call; the working directory and the branch are local reads. Any
-    read that fails, or runs past the deadline, is one log line and no pull request."""
+    read that fails, or runs past the deadline (tested first, before the launcher's own reads),
+    is one log line and no pull request."""
+    if time.monotonic() - STARTED > DEADLINE:
+        log(who, "error", "pull request of %s unread: the overall deadline of %gs passed before "
+            "the launcher's reads" % (tty, DEADLINE))
+        return None
     try:
         cwd = launcher().host_cli_cwd(tty)
         if not cwd:
