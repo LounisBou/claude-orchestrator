@@ -108,6 +108,8 @@ if is_class 'REVIEW agent'; then
 fi
 
 # The awk helpers shared by the checks that must not read a forbidding clause as an order.
+# Both passes run under LC_ALL=C: under a UTF-8 locale a multibyte character (an em dash, a
+# guillemet) before a phrase made the byte-offset arithmetic below blind to it.
 AWK_CLAUSES='
     # Is the text before position p, from the start of its clause, forbidding?
     function negated(text, p,   head, q, start) {
@@ -142,7 +144,7 @@ AWK_CLAUSES='
 while IFS=$'\t' read -r bg_n bg_msg; do
     [ -n "${bg_n:-}" ] || continue
     say "$bg_n" "$bg_msg"
-done < <(awk "$AWK_CLAUSES"'
+done < <(LC_ALL=C awk "$AWK_CLAUSES"'
     BEGIN { infence = 0 }
     {
         line = $0
@@ -176,7 +178,7 @@ if is_class implementer; then
     while IFS=$'\t' read -r pd_n pd_msg; do
         [ -n "${pd_n:-}" ] || continue
         say "$pd_n" "$pd_msg"
-    done < <(awk "$AWK_CLAUSES"'
+    done < <(LC_ALL=C awk "$AWK_CLAUSES"'
         BEGIN {
             n = 0
             phrase[++n] = "clean(-| )?up[^.;]*after (the )?merge"; name[n] = "cleanup after merge"

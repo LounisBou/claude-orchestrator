@@ -1025,6 +1025,15 @@ PHASEFILLED="$B/phase-filled.md"
 sed -e 's/{{[A-Z_]*}}/x/g' -e '1s/.*/# scratch/' "$ROOT/templates/agent-phase-brief.md" > "$PHASEFILLED"
 check "the repository's own phase template, filled, holds no post-delivery duty" "0" \
   "$(bash "$LINT" "$PHASEFILLED" 2>&1 | grep -c 'duty after delivery')"
+# The clause awk must read a line the same way under any locale: a multibyte character before
+# the phrase (an em dash, a guillemet) made it blind under a UTF-8 locale, so both passes run
+# under LC_ALL=C. The locale is set here, not inherited from the runner.
+ok_brief "$B/loc-duty.md"; printf 'Report \xe2\x80\x94 \xc2\xab then stand by for questions.\n' >> "$B/loc-duty.md"
+check "check 9 sees a duty after a multibyte character under a UTF-8 locale" "1" \
+  "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/loc-duty.md" 2>&1 | grep -c 'duty after delivery')"
+ok_brief "$B/loc-bg.md"; printf 'Report \xe2\x80\x94 \xc2\xab then run it in the background.\n' >> "$B/loc-bg.md"
+check "check 7 sees a background order after a multibyte character under a UTF-8 locale" "1" \
+  "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/loc-bg.md" 2>&1 | grep -c 'background')"
 check_status "a brief that does not exist is an error" 1 bash "$LINT" "$B/absent.md"
 check_status "no argument is an error" 1 bash "$LINT"
 
