@@ -117,7 +117,7 @@ Otherwise the stop is refused, with the reason that fits:
 | Case | Reason sent back |
 |---|---|
 | no busy agent, no valid line | « Nothing will wake you: no agent of yours is running. Launch what you announced, or, if a question truly blocks, end with the line waiting: operator — blocks: <what it blocks>, or with waiting: done. The line goes as the message's last line, no markup. » |
-| an idle agent whose pull request is open or merged | « Idle after its delivery: <agent> (pull request #<n>, <OPEN or MERGED>). Stand it down now. » |
+| an idle agent whose pull request is open or merged | « Idle with its pull request open or merged: <agent> (pull request #<n>, <OPEN or MERGED>). Stand it down now — or, if it waits on a question you have not answered, answer it. » |
 | only idle agents | « <agent> is idle: its notice was spent. Read its report or relaunch it. » |
 | a question without `blocks:` | « Your question blocks nothing declared: advance everything that can advance; its answer will come in a later turn. » |
 | `done` against a checkout or a running agent | « Not done: <checkout or agent> is still there. Finish it, or say what blocks it. » |

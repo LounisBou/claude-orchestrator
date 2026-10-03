@@ -3181,25 +3181,24 @@ sg_idle_pr() {  # <state> [number]: agent one idle, its checkout on feat/one, it
   printf '/dev/ttys901 %s\n' "$SGA" > "$SG/cwds"
   printf '{"number": %s, "state": "%s"}\n' "${2:-12}" "$1" > "$SG/view-feat_one"
 }
-SGDONE='stand it down now.'
 sg_idle_pr OPEN
 check "an idle agent with its pull request open: refused, agent and pull request named" \
-  "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #12, OPEN). Stand it down now." \
+  "block|Idle with its pull request open or merged: Agent : one [b2c3d4] (pull request #12, OPEN). Stand it down now — or, if it waits on a question you have not answered, answer it." \
   "$(sg 'Waiting on agent one.' | reason)"
 check "the refusal is logged" "1" "$(sglog | grep -c '| check1 | idle-delivered$')"
 sg_idle_pr MERGED 13
-check "an idle agent with its pull request merged: refused" "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #13, MERGED). Stand it down now." \
+check "an idle agent with its pull request merged: refused" "block|Idle with its pull request open or merged: Agent : one [b2c3d4] (pull request #13, MERGED). Stand it down now — or, if it waits on a question you have not answered, answer it." \
   "$(sg 'Waiting on agent one.' | reason)"
 sg_idle_pr OPEN
-check "a machine line declaring a block does not lift it" "block|Idle after its delivery" \
+check "a machine line declaring a block does not lift it" "block|Idle with its pull request open or merged" \
   "$(sg 'Which base?
 
-waiting: operator — blocks: the base' | reason | cut -c1-29)"
-check "waiting: done does not lift it" "block|Idle after its delivery" "$(sg 'All done.
+waiting: operator — blocks: the base' | reason | cut -c1-47)"
+check "waiting: done does not lift it" "block|Idle with its pull request open or merged" "$(sg 'All done.
 
-waiting: done' | reason | cut -c1-29)"
+waiting: done' | reason | cut -c1-47)"
 sg_idle_pr OPEN; sg_listing "$IDLE" 'w1/t3 | /dev/ttys902 | ◐ Agent : two | Agent : two [c3d4e5]'; sg_chain /dev/ttys901 S-ME /dev/ttys902 S-ME
-check "a busy agent beside it does not lift it" "block|Idle after its delivery" "$(sg 'Waiting on agent two.' | reason | cut -c1-29)"
+check "a busy agent beside it does not lift it" "block|Idle with its pull request open or merged" "$(sg 'Waiting on agent two.' | reason | cut -c1-47)"
 check "and the busy one costs no read" "1" "$(wc -l < "$SG/gh-views" | tr -d ' ')"
 sg_idle_pr CLOSED
 check "an idle agent with its pull request closed keeps today's refusal" "block|Agent : one [b2c3d4] is idle: its notice was spent. Read its report or relaunch it." \
@@ -3217,7 +3216,7 @@ check "a read that fails to parse counts as no pull request" "block|Agent : one 
 sg_idle_pr OPEN; sg_listing "$IDLE" "$IDLE2"; sg_chain /dev/ttys901 S-ME /dev/ttys902 S-ME
 printf '/dev/ttys901 %s\n/dev/ttys902 %s\n' "$SGA" "$SGA" > "$SG/cwds"; printf '2\n' > "$SG/view-sleep"
 check "a read past the deadline counts as no pull request, never a crash: only the agent read in time is named" \
-  "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #12, OPEN). Stand it down now.|1" \
+  "block|Idle with its pull request open or merged: Agent : one [b2c3d4] (pull request #12, OPEN). Stand it down now — or, if it waits on a question you have not answered, answer it.|1" \
   "$(SG_DEADLINE=1 sg 'Waiting.' | reason)|$(wc -l < "$SG/gh-views" | tr -d ' ')"
 check "and the late read is a log line" "1" "$(sglog | grep -c '| error | pull request of /dev/ttys902 unread: the overall deadline of 1s passed before the launcher'"'"'s reads$')"
 # With the deadline already passed, `pull_request_of` reads nothing: not the launcher's process
@@ -3226,7 +3225,7 @@ check "a passed deadline: no launcher read, no gh call, one log line, no pull re
   "$(ORCHESTRATOR_STATE_DIR="$SGS" "$py" -c "
 import sys, time; sys.path.insert(0, '$SG/hooks'); sys.path.insert(0, '$SG/skills/iterm-agents/scripts')
 import stop_gate as g
-reads = {'launcher': 0, 'run': 0}
+reads = dict(launcher=0, run=0)
 class L:
     def host_cli_cwd(self, tty): reads['launcher'] += 1; return '/'
 g.launcher = lambda: L()
@@ -3238,7 +3237,7 @@ g.STARTED = time.monotonic() - 1000
 print(g.pull_request_of('/dev/ttys901', 'w'), reads['launcher'], reads['run'], len(logged), sep='|')")"
 sg_idle_pr OPEN; sg_listing "$IDLE" "$IDLE2"; sg_chain /dev/ttys901 S-ME /dev/ttys902 S-ME
 printf '/dev/ttys901 %s\n/dev/ttys902 %s\n' "$SGA" "$SGA" > "$SG/cwds"
-check "two idle agents: one read each, both named" "block|Idle after its delivery: Agent : one [b2c3d4] (pull request #12, OPEN), Agent : two [c3d4e5] (pull request #12, OPEN). Stand it down now.|2" \
+check "two idle agents: one read each, both named" "block|Idle with its pull request open or merged: Agent : one [b2c3d4] (pull request #12, OPEN), Agent : two [c3d4e5] (pull request #12, OPEN). Stand it down now — or, if it waits on a question you have not answered, answer it.|2" \
   "$(sg 'Waiting.' | reason)|$(wc -l < "$SG/gh-views" | tr -d ' ')"
 
 sg_reset

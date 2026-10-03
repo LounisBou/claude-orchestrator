@@ -26,11 +26,11 @@ glyph at all no agent running there.
 
 Check 1 first refuses, whatever the machine line says and whatever another agent is doing,
 while an agent of this orchestrator is idle and its pull request is OPEN or MERGED: its
-delivery is over, its tab is only left behind, and the refusal names it with « stand it down
-now ». The pull request is found from the agent's tty alone: the working directory of the
-host process there (the launcher's `host_cli_cwd`), that checkout's branch, and one
-`gh pr view <branch> --json number,state` per idle agent, none for a busy one. A read that
-fails or runs past the deadline is a log line and counts as no pull request.
+delivery is over, its tab is only left behind, and the refusal names it, with « stand it down
+now » or, if the agent waits on a question, « answer it ». The pull request is found from the
+agent's tty alone: the working directory of the host process there (the launcher's
+`host_cli_cwd`), that checkout's branch, and one `gh pr view <branch> --json number,state` per idle agent, none for a busy
+one. A read that fails or runs past the deadline is a log line and counts as no pull request.
 
 Check 2, the real CI state, runs only when Check 1 let the stop pass. Each open pull
 request of the operator's own (`--author @me`) in the session's repository whose head differs from the head this hook last
@@ -123,7 +123,8 @@ NOTHING = ("Nothing will wake you: no agent of yours is running. Launch what you
 MALFORMED = ("Your last line is not the machine line: end the message with the line "
              "waiting: operator — blocks: <what it blocks>, or with waiting: done, "
              "as the message's last line, no markup.")
-IDLE_DELIVERED = "Idle after its delivery: %s. Stand it down now."
+IDLE_DELIVERED = ("Idle with its pull request open or merged: %s. "
+                  "Stand it down now — or, if it waits on a question you have not answered, answer it.")
 IDLE_ONE = "%s is idle: its notice was spent. Read its report or relaunch it."
 IDLE_MANY = "%s are idle: their notices were spent. Read their reports or relaunch them."
 QUESTION = ("Your question blocks nothing declared: advance everything that can advance; "
