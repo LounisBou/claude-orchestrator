@@ -3870,6 +3870,17 @@ check "and by default it reports ready" "yes" "$(spells "$ROOT/skills/orchestrat
 check "the review rules point to the skill for the watch" "yes" "$(spells "$ORCH_REFS/review.md" 'SKILL.md, « Carried at every step », says how')"
 check "the lifecycle never rotates an agent, nor spawns a session, to watch CI" "yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'is stood down, never rotated, and no session is spawned to watch CI')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent whose remaining work is waiting on CI is not rotated')"
+check "a time in a state or journal line is read from the clock, never estimated" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A time in a state or journal line is read from the clock, never estimated')|$(spells "$ROOT/skills/orchestrator/SKILL.md" '`date +%H:%M`, or the event'"'"'s own git or `gh` timestamp')"
+check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when its failure is outside what the pull request touches')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only a second red, or a red in what the pull request touches')"
+check "the re-run is the failed jobs, once" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 're-run the failed jobs once with `gh run rerun <run-id> --failed`')"
+check "a mechanical base merge is the orchestrator's, in place; one that decides behaviour is a correction" "yes|yes" \
+  "$(spells "$ORCH_REFS/review.md" 'conflicts are mechanical (no behaviour decided) is yours, done in place in a checkout and never by a spawned session')|$(spells "$ORCH_REFS/review.md" 'one that decides behaviour goes to a correction session')"
+check "succession prunes the state file and archives the finished journal" "yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" 'Prune the state file before you hand over')"
+check "the succession brief inherits a pruned state file and does not load the archive" "yes" \
+  "$(spells "$SUCC" 'pruned by your predecessor to what is live, its finished journal archived in a file you are not asked to load')"
 check "the README's hooks table names the Stop hook" "yes" "$(spells "$ROOT/README.md" 'hook `Stop`')"
 check "the eval selection says its two stop-gate cases grade the staged spawn line and do not run the hook" "2" \
   "$(grep -E '^\| 5[12] \|' "$ROOT/evals/SELECTION.md" | grep -c 'under staging; it does not run the hook')"
