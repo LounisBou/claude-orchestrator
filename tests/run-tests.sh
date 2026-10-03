@@ -1034,6 +1034,24 @@ check "check 9 sees a duty after a multibyte character under a UTF-8 locale" "1"
 ok_brief "$B/loc-bg.md"; printf 'Report \xe2\x80\x94 \xc2\xab then run it in the background.\n' >> "$B/loc-bg.md"
 check "check 7 sees a background order after a multibyte character under a UTF-8 locale" "1" \
   "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/loc-bg.md" 2>&1 | grep -c 'background')"
+# A phrase QUOTED is a mention, not an order: inside backticks, inside guillemets, or on a line
+# inside a fence. The same phrase left bare on the same line is still read. Run under a UTF-8
+# locale, where the guillemets are multibyte.
+for quoted in 'The old clause « stand by » is removed.' 'The old clause `stand by` is removed.' \
+              'The old clause « after merge » and `once merged` are removed.'; do
+  ok_brief "$B/q.md"; printf '%s\n' "$quoted" >> "$B/q.md"
+  check "a quoted phrase is not a duty: $quoted" "0" \
+    "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/q.md" 2>&1 | grep -c 'duty after delivery')"
+done
+ok_brief "$B/q-fence.md"; printf '```\nStand by for questions.\n```\n' >> "$B/q-fence.md"
+check "a phrase inside a fence is not a duty" "0" \
+  "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/q-fence.md" 2>&1 | grep -c 'duty after delivery')"
+ok_brief "$B/q-bare.md"; printf 'The clause « stand by » is removed; once merged, stand by.\n' >> "$B/q-bare.md"
+check "the same phrase unquoted on the same line is still a duty" "2" \
+  "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/q-bare.md" 2>&1 | grep -c 'duty after delivery')"
+ok_brief "$B/q-bare2.md"; printf 'The clause `stand by` is removed; stand by anyway.\n' >> "$B/q-bare2.md"
+check "a bare phrase after a backticked one is still a duty" "1" \
+  "$(LC_ALL=fr_FR.UTF-8 bash "$LINT" "$B/q-bare2.md" 2>&1 | grep -c 'duty after delivery')"
 check_status "a brief that does not exist is an error" 1 bash "$LINT" "$B/absent.md"
 check_status "no argument is an error" 1 bash "$LINT"
 

@@ -174,12 +174,28 @@ done < <(LC_ALL=C awk "$AWK_CLAUSES"'
 #    the sweep's; a red after delivery goes to a fresh session. A clause that FORBIDS the duty
 #    ("never stand by") reads the opposite way and raises nothing, by the same rule as
 #    check 7. One finding per phrase and line; the cleanup phrase covers its own "after merge".
+#    A phrase quoted (backticks, guillemets) or inside a fence is a mention, not an order.
 if is_class implementer; then
     while IFS=$'\t' read -r pd_n pd_msg; do
         [ -n "${pd_n:-}" ] || continue
         say "$pd_n" "$pd_msg"
     done < <(LC_ALL=C awk "$AWK_CLAUSES"'
+        # The text with every quoted span removed: a phrase in backticks or in guillemets (two
+        # bytes each under the C locale) is mentioned, not ordered. An unclosed opener is kept.
+        function cut(text, opener, closer,   a, rest, b) {
+            while ((a = index(text, opener)) > 0) {
+                rest = substr(text, a + length(opener))
+                b = index(rest, closer)
+                if (b == 0) break
+                text = substr(text, 1, a - 1) " " substr(rest, b + length(closer))
+            }
+            return text
+        }
+        function unquoted(text) {
+            return cut(cut(text, "`", "`"), "\302\253", "\302\273")
+        }
         BEGIN {
+            infence = 0
             n = 0
             phrase[++n] = "clean(-| )?up[^.;]*after (the )?merge"; name[n] = "cleanup after merge"
             phrase[++n] = "(^|[^a-z])after (the )?merge"; name[n] = "after merge"; plain[n] = 1
@@ -190,7 +206,9 @@ if is_class implementer; then
             phrase[++n] = "(^|[^a-z])stay available"; name[n] = "stay available"
         }
         {
-            lower = tolower($0)
+            if ($0 ~ /^[[:space:]]*```/) { infence = !infence; next }
+            if (infence) next
+            lower = unquoted(tolower($0))
             cleanup = 0
             for (i = 1; i <= n; i++) {
                 if (plain[i] && cleanup) continue
