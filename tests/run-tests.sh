@@ -1156,6 +1156,10 @@ ok_brief "$B/bg-false.md"; printf -- '- Every call carries `run_in_background: f
 check_status "run_in_background set to false is not a finding" 0 bash "$LINT" "$B/bg-false.md"
 ok_brief "$B/bg-second.md"; printf 'Never run the lint in the background, and run the suite in the background.\n' >> "$B/bg-second.md"
 check_status "a second trigger on a line is read in its own clause" 1 bash "$LINT" "$B/bg-second.md"
+ok_brief "$B/bg-nothing.md"; printf 'NOTHING runs in the background.\n' >> "$B/bg-nothing.md"
+check_status "nothing forbids the background" 0 bash "$LINT" "$B/bg-nothing.md"
+ok_brief "$B/bg-run-it.md"; printf 'Run it in the background.\n' >> "$B/bg-run-it.md"
+check_status "run it in the background is still a finding" 1 bash "$LINT" "$B/bg-run-it.md"
 
 check "the shipped templates raise no background finding" "0" \
   "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -cE 'background|run_in_background|ending in')"
