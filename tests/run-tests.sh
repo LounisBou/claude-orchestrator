@@ -3874,11 +3874,14 @@ check "a time in a state or journal line is read from the clock, never estimated
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A time in a state or journal line is read from the clock, never estimated')|$(spells "$ROOT/skills/orchestrator/SKILL.md" '`date +%H:%M`, or the event'"'"'s own git or `gh` timestamp')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when its failure is outside what the pull request touches')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only a second red, or a red in what the pull request touches')"
-check "the re-run is the failed jobs, once" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 're-run the failed jobs once with `gh run rerun <run-id> --failed`')"
+check "the re-run is the failed jobs, once, after the failing job's cause is named in one line" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 're-run the failed jobs once with `gh run rerun <run-id> --failed`')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'after naming the failing job'"'"'s cause in one line (the flake or the infrastructure fault, read in its log)')"
+check "the design carries the re-run of a red outside what the pull request touches" "yes|yes" \
+  "$(spells "$ROOT/docs/design.md" 'a red outside what the pull request touches is re-run once (failed jobs) and the watch re-armed')|$(spells "$ROOT/docs/design.md" 'a second red, or a red in what it touches, is reported and corrected')"
 check "a mechanical base merge is the orchestrator's, in place; one that decides behaviour is a correction" "yes|yes" \
   "$(spells "$ORCH_REFS/review.md" 'conflicts are mechanical (no behaviour decided) is yours, done in place in a checkout and never by a spawned session')|$(spells "$ORCH_REFS/review.md" 'one that decides behaviour goes to a correction session')"
-check "succession prunes the state file and archives the finished journal" "yes" \
-  "$(spells "$ORCH_REFS/lifecycle.md" 'Prune the state file before you hand over')"
+check "succession prunes the state file and archives the finished journal" "yes|yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" 'Prune the state file before you hand over')|$(spells "$ORCH_REFS/lifecycle.md" 'the finished journal moves to an archive file')"
 check "the succession brief inherits a pruned state file and does not load the archive" "yes" \
   "$(spells "$SUCC" 'pruned by your predecessor to what is live, its finished journal archived in a file you are not asked to load')"
 check "the README's hooks table names the Stop hook" "yes" "$(spells "$ROOT/README.md" 'hook `Stop`')"
