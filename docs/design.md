@@ -56,6 +56,7 @@ skills/iterm-agents/references/commands.md   the script's commands, how it build
 skills/iterm-agents/scripts/iterm-agent.sh   entry point: resolves an interpreter
 skills/iterm-agents/scripts/iterm_agent.py   the implementation, over the app API
 skills/orchestrator/scripts/brief-lint.sh   lints a brief before it is dispatched, warning on its findings
+skills/orchestrator/scripts/ci-watch.sh      the one wait on a pull request's checks, in the background, ending in one line and a code
 skills/orchestrator/scripts/dispatch-record.sh  one row per dispatch, and the routing signal
 skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's local material; a pinned worktree per review round
 skills/orchestrator/scripts/rhythm.sh       an audit's net balance, from git alone
@@ -407,6 +408,7 @@ Every project-specific fact is removed; the skill states the rule and leaves the
 |---|---|---|
 | `skills/iterm-agents/scripts/iterm-agent.sh`, `iterm_agent.py` | lists, spawns, verifies, reads, closes, moves and rotates tabs through the app's API; resolves a tier | sections 14, 19 to 22, 24 to 27, 29, 31, 34, 38, 39, 42 to 46, 48, 49, 51, 52, 57; its commands: `skills/iterm-agents/references/commands.md` |
 | `skills/orchestrator/scripts/brief-lint.sh` | lints a brief before it is dispatched, warning on its findings | sections 11, 12 |
+| `skills/orchestrator/scripts/ci-watch.sh` | the one wait on a pull request's checks, in the background, ending in one line and a code | section 62 |
 | `skills/orchestrator/scripts/dispatch-record.sh` | one row per dispatch; the routing signals; the readiness gate | sections 13, 55, 58 |
 | `skills/orchestrator/scripts/workspace.sh` | a clone per phase with the project's local material; a pinned worktree per review round; their deletion and the sweep of the leftovers | sections 30, 35, 36, 37, 40, 61 |
 | `skills/orchestrator/scripts/rhythm.sh` | an audit's net balance, from git alone | section 52 |

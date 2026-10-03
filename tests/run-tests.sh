@@ -3275,6 +3275,8 @@ echo "== stop gate hook =="
 # prints the listing file and a fake `workspace.sh list` printing the checkouts file; a
 # fake `gh` on PATH answers from files and records each `pr checks` call.
 SG="$WORK/stop-gate"
+# The hook spells its own path normalised; the suite's temporary directory may end in a slash.
+SGW="$(printf '%s' "$SG" | sed 's|//|/|g')/skills/orchestrator/scripts/ci-watch.sh"
 SGB="$SG/bin"; SGS="$SG/state"; SGP="$SG/sgproj"
 mkdir -p "$SG/hooks" "$SG/skills/iterm-agents/scripts" "$SG/skills/orchestrator/scripts" "$SGB" "$SGS/chains" "$SGP"
 cp "$ROOT/hooks/stop-gate.sh" "$ROOT/hooks/stop_gate.py" "$ROOT/hooks/session_name.py" "$SG/hooks/" 2>/dev/null
@@ -3307,6 +3309,22 @@ case "\$1 \$2" in
 esac
 EOF
 chmod +x "$SGB/gh" "$SG/skills/iterm-agents/scripts/iterm-agent.sh" "$SG/skills/orchestrator/scripts/workspace.sh"
+# The one process-table read of check 2 (`ps -axo command`) answers from a file and counts
+# its calls; every other `ps` is the real one. Made where check 2 starts: a case of check 1
+# replaces and removes the `ps` of the suite.
+sg_fake_ps() {
+cat > "$SGB/ps" <<EOF
+#!/bin/bash
+if [ "\$*" = "-axo command" ]; then
+  echo x >> "$SG/ps-calls"
+  [ -f "$SG/ps-fail" ] && { echo "ps: operation not permitted" >&2; exit 1; }
+  cat "$SG/ps-live" 2>/dev/null
+  exit 0
+fi
+exec /bin/ps "\$@"
+EOF
+chmod +x "$SGB/ps"
+}
 git -C "$SGP" init -q 2>/dev/null
 
 ORCHROW='w1/t1 | /dev/ttys900 | ✳ Orch : f | Orch : f [a1b2c3] | self'
@@ -3321,7 +3339,7 @@ sg_chain() {  # <tty> <owner> ...: the chain of the orchestrator's tty, in launc
 # The session's name is read from the process table the way the launcher reads it (`--name`):
 # the suite's stand-in for `ps` is a file, and the session's own tty is given.
 sg_ps() { printf '/dev/ttys900 host-cli %s\n' "$1" > "$SG/ps"; }
-sg_reset() { rm -f "$SG/prs" "$SG/gh-views" "$SG/cwds" "$SG"/view-* "$SG/gh-calls" "$SG/gh-args" "$SG/gh-offline" "$SG"/checks-* "$SG/transcript" "$SGS/stop-gate.log"; rm -rf "$SGS/stop-gate" "$SGS/records"; rm -f "$SG"/sweep-* "$SGS/sweep.stamp"; : > "$SG/checkouts"; sg_ps '--name Orch : f [a1b2c3]'; sg_listing; sg_chain; }
+sg_reset() { rm -f "$SG/prs" "$SG/gh-views" "$SG/cwds" "$SG"/view-* "$SG/gh-calls" "$SG/gh-args" "$SG/gh-offline" "$SG"/checks-* "$SG/transcript" "$SGS/stop-gate.log" "$SG/ps-live" "$SG/ps-calls" "$SG/ps-fail"; rm -rf "$SGS/stop-gate" "$SGS/records"; rm -f "$SG"/sweep-* "$SGS/sweep.stamp"; : > "$SG/checkouts"; sg_ps '--name Orch : f [a1b2c3]'; sg_listing; sg_chain; }
 # sg <message> [stop_hook_active] [session id]: the hook's stdout. SG_TRANSCRIPT names the
 # payload's transcript, SG_ITERM stands in for ITERM_SESSION_ID, SG_DEADLINE for the hook's.
 sg() {
@@ -3641,6 +3659,7 @@ check "an unreadable checkout list lets a done stop pass" "" "$(sg 'waiting: don
 check "and logs it" "1" "$(sglog | grep -c '| error | ')"
 
 echo "-- check 2: the real CI state, once per head"
+sg_fake_ps
 # A head is recorded with its state: pending once a stop has refused it while pending, done
 # once its checks have all finished. A pending head refuses once, and again only when a
 # check turns red.
@@ -3649,7 +3668,7 @@ printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"
 printf '[{"name": "build", "bucket": "pending"}, {"name": "lint", "bucket": "pending"}, {"name": "test", "bucket": "pass"}]\n' > "$SG/checks-12"
 echo 8 > "$SG/checks-12.code"
 check "pending checks on a new head: refused with the real state" \
-  "block|#12 at abc1234: 2 checks pending (build, lint), 0 failing (). Report this state as it is, or wait for the end in one call: \`timeout 590 gh pr checks 12 --watch --fail-fast\`." \
+  "block|#12 at abc1234: 2 checks pending (build, lint), 0 failing (). Report this state as it is; to wait for the end, start \`$SGW 12\` with \`run_in_background\` (timeout 7200000), never in the foreground." \
   "$(sg 'The reds are fixed, CI is green.' | reason)"
 check "the CI refusal is logged" "1" "$(sglog | grep -c '| check2 | ci-not-finished | #12 at abc1234')"
 check "the pending head is recorded as pending" "12 abc1234def5678abc1234def5678abc1234def56 pending" "$(cat "$SGS/stop-gate/sg-1.heads" 2>/dev/null)"
@@ -3662,6 +3681,50 @@ echo 0 > "$SG/checks-12.code"
 check "pending, pending, then green: the stop passes" "" "$(sg 'CI is green.')"
 check "and the finished head is recorded as done" "12 abc1234def5678abc1234def5678abc1234def56 done" "$(cat "$SGS/stop-gate/sg-1.heads")"
 check "one refusal for this session, one for the other" "2" "$(sglog | grep -c '| check2 | ci-not-finished | #12 at abc1234')"
+
+# A pending head with a `ci-watch.sh <n>` process alive is being waited for: it does not
+# refuse the stop. One read of the process table serves every pull request of the check.
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}, {"number": 13, "headRefOid": "1234abcd5678ef901234abcd5678ef901234abcd"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-12"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-13"
+printf 'bash %s/skills/orchestrator/scripts/ci-watch.sh 12 --interval 10\ngh pr checks 12 --watch --fail-fast\n' "$SG" > "$SG/ps-live"
+check "pending checks with a live watch for one pull request: only the other is refused" \
+  "block|#13 at 1234abc: 1 checks pending (build), 0 failing ()" "$(sg 'Pushed.' | reason | sed 's/\. Report.*//')"
+check "the process table is read once for both" "1" "$(grep -c . "$SG/ps-calls")"
+check "the watched head is not recorded, so it is told once if the watch dies" "13 1234abcd5678ef901234abcd5678ef901234abcd pending" "$(cat "$SGS/stop-gate/sg-1.heads")"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-12"
+printf '/bin/bash %s/skills/orchestrator/scripts/ci-watch.sh 12\n' "$SG" > "$SG/ps-live"
+check "a live watch: the stop passes, silently" "" "$(sg 'Pushed.')"
+rm -f "$SG/ps-live"
+check "the watch gone: one refusal, naming the background command" \
+  "block|#12 at abc1234: 1 checks pending (build), 0 failing (). Report this state as it is; to wait for the end, start \`$SGW 12\` with \`run_in_background\` (timeout 7200000), never in the foreground." \
+  "$(sg 'Pushed.' | reason)"
+check "and never twice for that head" "" "$(sg 'Pushed.')"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-12"
+printf 'bash %s/skills/orchestrator/scripts/ci-watch.sh 120\nvim ci-watch.sh 12\ngrep ci-watch.sh 12\n' "$SG" > "$SG/ps-live"
+check "a watch of pull request 120 and an editor open on the script are no watch of 12" "block|#12 at abc1234" "$(sg 'Pushed.' | reason | cut -c1-20)"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"
+printf '[{"name": "build", "bucket": "pending"}]\n' > "$SG/checks-12"
+: > "$SG/ps-fail"
+check "a process table that cannot be read counts as no watch: refused" "block|#12 at abc1234" "$(sg 'Pushed.' | reason | cut -c1-20)"
+check "and the failure is logged" "1" "$(sglog | grep -c '| error | ps ')"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 7, "headRefOid": "0011223344556677889900112233445566778899"}]\n' > "$SG/prs"
+printf '[{"name": "test", "bucket": "fail"}, {"name": "lint", "bucket": "pending"}]\n' > "$SG/checks-7"
+printf 'bash %s/skills/orchestrator/scripts/ci-watch.sh 7\n' "$SG" > "$SG/ps-live"
+check "a failing check refuses even with a live watch: a red is treated" "block|#7 at 0011223: 1 checks pending (lint), 1 failing (test)" \
+  "$(sg 'Waiting.' | reason | sed 's/\. Report.*//')"
+sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
+printf '[{"number": 3, "headRefOid": "aaaa1111bbbb2222cccc3333dddd4444eeee5555"}]\n' > "$SG/prs"
+printf '[{"name": "test", "bucket": "pass"}]\n' > "$SG/checks-3"
+sg 'CI is green.' >/dev/null
+check "no pending head: the process table is not read" "0" "$(grep -c . "$SG/ps-calls" 2>/dev/null || echo 0)"
 
 # Pending, then one check turns red while another is still pending: refused again with the
 # red named, once; the finished red is the same failure and does not refuse a third time.
@@ -3708,7 +3771,7 @@ printf '[{"number": 7, "headRefOid": "0011223344556677889900112233445566778899"}
 printf '[{"name": "test", "bucket": "fail"}, {"name": "e2e", "bucket": "cancel"}, {"name": "lint", "bucket": "pass"}]\n' > "$SG/checks-7"
 echo 1 > "$SG/checks-7.code"
 check "failing checks: refused with the real state" \
-  "block|#7 at 0011223: 0 checks pending (), 2 failing (test, e2e). Report this state as it is, or wait for the end in one call: \`timeout 590 gh pr checks 7 --watch --fail-fast\`." \
+  "block|#7 at 0011223: 0 checks pending (), 2 failing (test, e2e). Report this state as it is; to wait for the end, start \`$SGW 7\` with \`run_in_background\` (timeout 7200000), never in the foreground." \
   "$(sg 'Only the known red remains.' | reason)"
 check "failing checks on a finished head: recorded" "7 0011223344556677889900112233445566778899 done" "$(cat "$SGS/stop-gate/sg-1.heads")"
 check "and the same head never refuses twice" "1|" "$(grep -c . "$SG/gh-calls")|$(sg 'Only the known red remains.')"
