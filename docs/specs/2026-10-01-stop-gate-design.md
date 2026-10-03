@@ -133,19 +133,29 @@ costs no further call.
 
 **Facts.** For each such pull request, `gh pr checks <NNN>` on its current head.
 
-**Refusal, once per finished head.** When any check on that head is pending or failing, the
-stop is refused with the real state. A head whose checks have all finished is recorded as
-reported, so the same head never refuses twice; a head with a check still pending is not
-recorded, so the next stop reads it again and a check that has turned red refuses it with
-the failing check named:
+**Refusal, once while pending, again on red.** Ruled by the operator (2026-10-03). When any
+check on that head is pending or failing, the stop is refused with the real state, once: the
+head is recorded `pending`. A pending head already told passes silently while nothing
+fails; as soon as a check fails, even while others are still pending, it refuses again with
+the failing check named, once per failing set (the names are kept in the record). A head
+whose checks have all finished is recorded `done`, so the same head never refuses twice:
 
 « #NNN at <short sha>: <n> checks pending (<names>), <m> failing (<names>). Report this
 state as it is, or wait for the end in one call: `timeout 590 gh pr checks NNN --watch --fail-fast`. »
 
-All checks finished and passing: the head is recorded, the stop passes, nothing is
-written. A head is recorded only when it has checks and none is pending. A head whose check
-list is empty is not green but unread (a push is seen before its checks are registered): it
-is not recorded either, and is read again at the next stop. The hook judges no cause and reads no claim: it puts the real state in front of
+All checks finished and passing: the head is recorded `done`, the stop passes, nothing is
+written. A head whose check list is empty is not green but unread (a push is seen before its
+checks are registered): nothing is recorded, and it is read again at the next stop. A moved
+head starts over. The record is `<number> <head> <pending|done> [<failing names>]` (a line of
+two fields, written by the previous version, reads as done):
+
+```
+no checks yet             -> nothing recorded, read again
+pending, first seen       -> refuse once, record pending
+pending, seen, no failure -> pass
+a check failing           -> refuse once per failing set, then record (done when finished)
+all finished, green       -> record done, pass
+``` The hook judges no cause and reads no claim: it puts the real state in front of
 the orchestrator before the message it ends on, whatever that message says.
 
 **Limit, stated.** The hook does not stop the orchestrator from writing a false sentence
