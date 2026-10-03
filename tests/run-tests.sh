@@ -3905,13 +3905,20 @@ check "a sweep that fails never refuses the stop" "" "$(sg 'I launched the phase
 check "and the failure is logged" "1" "$(sglog | grep -c '| sweep | error | exit 3: boom$')"
 
 sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
-echo 20 > "$SG/sweep-sleep"
+# The stub sleeps a duration carrying this run's pid, so only its own leftover is counted: a
+# bare `sleep 20` belongs to whichever other run of the suite is at this check.
+own_sleeps() { ps -axo command | grep -c "^sleep 20\\.$$\$"; }
+echo "20.$$" > "$SG/sweep-sleep"
 t0=$SECONDS
 out=$(SG_DEADLINE=6 sg 'I launched the phase.')
 elapsed=$((SECONDS - t0))
 check "a sweep that overruns is stopped inside the budget, the stop passes" "|1|0" \
-  "$out|$([ "$elapsed" -lt 12 ] && echo 1 || echo 0)|$(ps -axo command | grep -c '^sleep 20$')"
+  "$out|$([ "$elapsed" -lt 12 ] && echo 1 || echo 0)|$(own_sleeps)"
 check "and the overrun is logged" "1" "$(sglog | grep -c '| sweep | error | did not finish within')"
+# Another run of the suite sleeping 20 seconds at the same moment is not this run's leftover.
+sleep 20 & stray=$!
+check "a stray sleep 20 of another process is not counted" "0" "$(own_sleeps)"
+kill "$stray"; wait "$stray" 2>/dev/null
 
 sg_reset; sg_listing "$BUSY"; sg_chain /dev/ttys901 S-ME
 SG_DEADLINE=3 sg 'I launched the phase.' >/dev/null
