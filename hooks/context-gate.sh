@@ -58,7 +58,7 @@ case "$name" in
     "Agent :"*)
         role_line="Finish the unit in progress, report to your orchestrator with your measured context, and stop; no new phase is dispatched to you." ;;
     "Audit :"*)
-        role_line="Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop. Work he gave you after the report still in hand: succeed — $(cd "$HERE/.." && pwd)/templates/auditor-succession-brief.md, then tell him." ;;
+        role_line="Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop. Work he gave you after the report still in hand: succeed — $(cd "$HERE/.." && pwd)/templates/auditor-succession-brief.md; tell him before you hand over." ;;
     "Coord :"*)
         role_line="With no relay in flight, succeed as skills/coordination/SKILL.md « Your context » says, then tell the operator." ;;
     *) exit 0 ;;

@@ -2504,6 +2504,10 @@ check "the audit brief still forbids every other file, a commit, a push and any 
   "$(grep -c '^(no method file, no register, no script), no commit, no push' "$AUDBRIEF")|$(grep -c 'You order nothing and apply nothing' "$AUDBRIEF")|$(grep -c 'message no session other than your own' "$AUDBRIEF")"
 check "and carries the succession: the template, the spawn line in full, the operator told" "1|1|1" \
   "$(grep -c 'SUCCESSION_TEMPLATE}}. beside the report' "$AUDBRIEF")|$(grep -c -- '--successor --inherit-model --permission-mode auto --prompt "Read and execute ' "$AUDBRIEF")|$(grep -c 'He closes this tab' "$AUDBRIEF")"
+# The predecessor tells the operator BEFORE it hands over, as /orchestrator:succeed orders it:
+# « handed over » is its last message, nothing follows it.
+check "the audit brief has the predecessor tell the operator, then wait, then hand over as its last message" "1|1|0" \
+  "$(grep -c 'Tell the operator in one line that you are handing over' "$AUDBRIEF")|$(grep -c 'handed over » as your last message' "$AUDBRIEF")|$(grep -c 'Then tell the operator' "$AUDBRIEF")"
 AUDBRIEFSPAWN=$(grep -m1 -o '{{ITERM_AGENT_SH}} spawn .*' "$AUDBRIEF" 2>/dev/null | sed -e 's/^{{ITERM_AGENT_SH}} spawn //' -e 's/`.*$//' \
   -e 's#{{REPOSITORY}}#'"$WORK"'#' -e 's#<succession brief path>#/tmp/audit-succession-brief.md#')
 audbriefspawn() { eval "set -- $AUDBRIEFSPAWN"; audsucc "$@"; }
@@ -3029,7 +3033,7 @@ check "an agent is told to finish its unit, report its context, and stop" "1" \
 # the report, it writes the one report and stops; work he gave it after the report still in
 # hand, it succeeds with the auditor's succession template, at a path it can open.
 check "an auditor is told to write its one report and stop, or to succeed when work after it is in hand" "1|1|1" \
-  "$(role_line 'Audit : method [c3d4e5]' | grep -c '^CONTEXT GATE: this session is at 85% (gate 80%)\. Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop\. Work he gave you after the report still in hand: succeed — ')|$(role_line 'Audit : method [c3d4e5]' | grep -c 'succeed — /.*/templates/auditor-succession-brief\.md, then tell him\.$')|$(f=$(role_line 'Audit : method [c3d4e5]' | sed -n 's/.*succeed — \(\/[^,]*\), then tell him\.$/\1/p'); [ "$f" = "$ROOT/templates/auditor-succession-brief.md" ] && echo 1 || echo 0)"
+  "$(role_line 'Audit : method [c3d4e5]' | grep -c '^CONTEXT GATE: this session is at 85% (gate 80%)\. Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop\. Work he gave you after the report still in hand: succeed — ')|$(role_line 'Audit : method [c3d4e5]' | grep -c 'succeed — /.*/templates/auditor-succession-brief\.md; tell him before you hand over\.$')|$(f=$(role_line 'Audit : method [c3d4e5]' | sed -n 's/.*succeed — \(\/[^;]*\); tell him before you hand over\.$/\1/p'); [ "$f" = "$ROOT/templates/auditor-succession-brief.md" ] && echo 1 || echo 0)"
 check "the coordinator is told to succeed when no relay is in flight" "1" \
   "$(role_line 'Coord : machine' | grep -c '^CONTEXT GATE: this session is at 85% (gate 80%)\. With no relay in flight, succeed as skills/coordination/SKILL\.md « Your context » says, then tell the operator\.$')"
 check "each role gets exactly one line" "1|1|1|1" \

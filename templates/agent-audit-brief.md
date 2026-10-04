@@ -70,5 +70,6 @@ or before it is written, you write the one report and stop.
    {{ITERM_AGENT_SH}} spawn --dir {{REPOSITORY}} --successor --inherit-model --permission-mode auto --prompt "Read and execute <succession brief path>"
    ```
 
-3. Wait for « takeover confirmed ». Answer it with « handed over » as your last message and
-   end the turn: the successor closes this tab. Then tell the operator, as you would have.
+3. Tell the operator in one line that you are handing over: to whom, and what is still owed
+   him. THEN wait for « takeover confirmed », answer it with
+   « handed over » as your last message and end the turn: the successor closes this tab.
