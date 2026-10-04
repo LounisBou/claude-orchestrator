@@ -487,7 +487,7 @@ An agent at the context gate is replaced: `rotate` spawns the fresh session from
 
 ### 9.4 The audit
 
-An auditor weighs the method's cost against its yield and proposes to the operator, who launched it; it writes one report and stops: section 52.
+An auditor weighs the method's cost against its yield and proposes to the operator, who launched it; it writes one report and stops: section 52. Kept on by the operator past its report, it succeeds at its gate instead, like the coordinator below: `templates/auditor-succession-brief.md`, `spawn --successor` from an `Audit :` session.
 
 ### 9.5 The coordinator
 
@@ -703,7 +703,7 @@ An orchestrator's deliveries are read by its reviews; its METHOD was read by nob
 
 **What it does.** It starts from the stock — what is in place, what it costs, what it has yielded — shows the net balance — lines added and removed under the product against the instruments, time in gates against time producing — re-reads the figure of each proposal the previous audit made, and proposes at most five changes, each « remove X » or « restore Y » with its expected gain, its cost and the figure that will check it. Removing is proposed as freely as adding; adding asks for a product defect as its evidence. It writes one report under the briefs directory's `audits/`, tells the operator, and stops.
 
-**What it does not do.** It writes no other file, applies nothing, orders nothing and messages no session. The orchestrator's skill says nothing about it: a proposal the operator relays is his word, like any other. There is no end command: the audit ends by itself, and the operator closes its tab.
+**What it does not do.** It writes no other file, applies nothing, orders nothing and messages no session. The orchestrator's skill says nothing about it: a proposal the operator relays is his word, like any other. There is no end command: the audit ends by itself, and the operator closes its tab. **Kept on past its report.** An operator who keeps the auditor working after its report (an annex, a proposal to relay) meets its gate with work in hand: the hook's `Audit :` line then says to succeed, not to stop. The auditor writes the succession brief (`templates/auditor-succession-brief.md`, the report's path and what the operator gave it after it), spawns its successor with `spawn --successor`, waits for « takeover confirmed » and answers « handed over »; the successor closes its tab. The launcher derives the successor's `Audit :` name from the caller's, as for `Orch :`, places it immediately right of the caller (so, once the predecessor is closed, in the auditor's own place left of its orchestrator), and hands and takes no chain. With no work after the report, or before it, the rule is unchanged: the one report, then stop.
 
 **An auditor is a third kind of session** for the launcher: `spawn --auditor` places it immediately left of its caller, on the caller's model and under remote control, but writes it into no chain, because an auditor written into the chain would become the anchor the orchestrator's next agent lands after (`skills/iterm-agents/references/commands.md`). Its place is read after the spawn and repaired if wrong: the launcher lists the real tab order, moves the auditor left of its caller when it is not there, reads again, and if it is still wrong says so on stdout with the `move` that repairs it and exits non-zero, the session kept; a listing it cannot read, or a terminal whose API cannot serve the move, is said as such rather than as a misplacement.
 
