@@ -2138,6 +2138,12 @@ check "an orchestrator's successor from the same state still hands the chain ove
   "$(succ "$PSTAB" --successor | sed -n 's/^chain=//p')"
 check "a typed audit title is still refused beside --successor, and a 26-character subject is refused" "1|1" \
   "$(audsucc --successor --title 'Audit : x' | grep -c "an audit title is an auditor's")|$(printf '/dev/ttys900 /opt/x/host --name Audit : %s --permission-mode auto\n' "$AUD26" > "$WORK/ps-audit-long.txt"; AUDPS="$WORK/ps-audit-long.txt"; audsucc --successor >/dev/null 2>&1; echo $?)"
+# An auditor's successor runs on the caller's model and comes up under remote control under its
+# name: a tier, a model or no remote control beside --successor is refused, one flag at a time.
+for AUDSUCCFLAG in "--tier standard" "--model a-model" "--no-remote-control"; do
+  check "an auditor's successor refuses ${AUDSUCCFLAG%% *}, and says so" "1|1" \
+    "$(audsucc --successor $AUDSUCCFLAG >/dev/null 2>&1; echo $?)|$(audsucc --successor $AUDSUCCFLAG | grep -c -- "spawn: refused: ${AUDSUCCFLAG%% *} is not an auditor's successor's")"
+done
 
 # An auditor lands where it was told only if the terminal's API answered; the API-less rung
 # places nothing, and any other cause leaves the tab elsewhere with the launch reported as
