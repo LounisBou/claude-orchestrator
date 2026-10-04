@@ -73,6 +73,7 @@ templates/agent-comments-brief.md    one pass over a pull request's open threads
 templates/orchestrator-succession-brief.md
 templates/agent-audit-brief.md       one audit of the method: the stock, the net balance, proposals, then stop
 templates/coordinator-succession-brief.md  the coordinator's successor: close the predecessor, then register
+templates/auditor-succession-brief.md  the auditor's successor, for an auditor kept on past its report: close the predecessor
 commands/install.md                  wires the tap, creates the state directory
 commands/uninstall.md                restores the previous status line
 commands/status.md                   live sessions and their measured context fill
