@@ -61,7 +61,9 @@ or before it is written, you write the one report and stop.
 
 1. Copy `{{SUCCESSION_TEMPLATE}}` beside the report as the succession brief and fill every
    placeholder: the report's path, each item he gave you after it with its state and
-   what is still owed him, your name, reference and tty (`ListAgents`; the launcher's `list`).
+   what is still owed him, your name, reference and tty (`ListAgents`; the launcher's `list`),
+   the template's own absolute path (`{{SUCCESSION_TEMPLATE}}`) and the repository
+   (`{{REPOSITORY}}`).
 2. Spawn the successor — no title, it takes yours:
 
    ```
