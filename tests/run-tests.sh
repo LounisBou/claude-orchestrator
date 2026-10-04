@@ -2138,6 +2138,13 @@ check "an orchestrator's successor from the same state still hands the chain ove
   "$(succ "$PSTAB" --successor | sed -n 's/^chain=//p')"
 check "a typed audit title is still refused beside --successor, and a 26-character subject is refused" "1|1" \
   "$(audsucc --successor --title 'Audit : x' | grep -c "an audit title is an auditor's")|$(printf '/dev/ttys900 /opt/x/host --name Audit : %s --permission-mode auto\n' "$AUD26" > "$WORK/ps-audit-long.txt"; AUDPS="$WORK/ps-audit-long.txt"; audsucc --successor >/dev/null 2>&1; echo $?)"
+# The 25-character subject is the longest an auditor's title takes: it is ACCEPTED as a
+# successor, under the caller's name, right of it, in no chain. That half falls with the auditor
+# branch removed, which the refusal of 26 alone does not (it fails either title shape).
+printf '/dev/ttys900 /opt/x/host --name Audit : %s --permission-mode auto\n' "$AUD25" > "$WORK/ps-audit-25.txt"
+AUD25OUT=$(AUDPS="$WORK/ps-audit-25.txt"; audsucc --successor)
+check "a 25-character subject is accepted as a successor: the caller's name, right of it, in no chain" "1|right|none" \
+  "$(printf '%s' "$AUD25OUT" | grep -c "^name=Audit : $AUD25\$")|$(printf '%s' "$AUD25OUT" | sed -n 's/^side=//p')|$(printf '%s' "$AUD25OUT" | sed -n 's/^chain=//p')"
 # An auditor's successor runs on the caller's model and comes up under remote control under its
 # name: a tier, a model or no remote control beside --successor is refused, one flag at a time.
 for AUDSUCCFLAG in "--tier standard" "--model a-model" "--no-remote-control"; do
