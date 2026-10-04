@@ -3959,6 +3959,8 @@ check "the audit report keeps a dated name whose date is date +%F run at launch,
   "$(spells "$ROOT/commands/audit.md" '`<briefs dir>/audits/<date>-<subject>.md`, where `<date>` is the output of `date +%F` run now, never typed')|$(spells "$ROOT/commands/audit.md" "the previous report's file name, which a command wrote")"
 check "the coordinator's succession brief is named with no date" "yes|no" \
   "$(spells "$ROOT/skills/coordination/SKILL.md" '<state dir>/coordinator/succession-brief.md')|$(spells "$ROOT/skills/coordination/SKILL.md" 'succession-<date>')"
+check "a relayed ruling is dated by a command, pasted, never from memory" "yes|no" \
+  "$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated (`date -u +%FT%TZ`, pasted),')|$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated,')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when its failure is outside what the pull request touches')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only a second red, or a red in what the pull request touches')"
 check "the re-run is the failed jobs, once, after the failing job's cause is named in one line" "yes|yes" \
