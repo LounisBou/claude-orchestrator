@@ -176,6 +176,18 @@ check "the undraft and the plain rebase have their rows" "1|1" \
 check "the force push has its red flag" "1" \
   "$(grep -c "a force push other than a rebase" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before" "$ROOT/skills/orchestrator/SKILL.md")"
+# The rulebook is loaded whole at every start and every takeover: its size is bounded, and what
+# only one step needs lives in the reference that step names.
+check "the orchestrator rulebook stays at 21,000 bytes or fewer" "yes" \
+  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 21000 ] && echo yes || echo no)"
+check "the phase rules and the prerequisites live in the briefs reference" "yes|yes|yes|yes" \
+  "$(spells "$ORCH_REFS/briefs.md" '## Phase & PR rules')|$(spells "$ORCH_REFS/briefs.md" '**One kind of change per phase.**')|$(spells "$ORCH_REFS/briefs.md" '**One writer per checkout, and a checkout per phase.**')|$(spells "$ORCH_REFS/briefs.md" '**Every figure in the plan carries the command that produces it**')"
+check "the directives rule and the guard live in the briefs reference" "yes|yes" \
+  "$(spells "$ORCH_REFS/briefs.md" '## When a decision changes, the directives change in the same move')|$(spells "$ORCH_REFS/briefs.md" '**A guard over your own directives is the one instrument you may write yourself**')"
+check "environment preparation, pipelining and the tab-close row live in the lifecycle reference" "yes|yes|yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" '**Environment preparation is orchestrator housekeeping**')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent may pipeline only when PR N+1 is dispatched to that same agent')|$(spells "$ORCH_REFS/lifecycle.md" 'The agent acknowledged its stand-down, the tab can close')"
+check "the one-round rule, depth versus scope and the publishing rule live in the review reference" "yes|yes|yes" \
+  "$(spells "$ORCH_REFS/review.md" '**One review round, one correction round, and you close it.**')|$(spells "$ORCH_REFS/review.md" '**Depth vs scope**')|$(spells "$ORCH_REFS/review.md" 'a thread closed by a change is answered by the change')"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
 check "two anchors are refused at spawn" "refused" "$anchors"
