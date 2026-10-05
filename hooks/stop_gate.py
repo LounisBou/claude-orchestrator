@@ -229,6 +229,11 @@ def own_agents(rows, own_tty, who):
     for entry in entries:
         row = by_tty.get(entry["tty"])
         state = activity(row["title"]) if row else None
+        if state == "idle" and iterm_agent.is_resident(entry):
+            # Spawned with --resident: idle by design while a background command of its own
+            # waits, and that command wakes it as a running turn would. Never one to read or
+            # relaunch: counted as busy.
+            state = "busy"
         if state:
             agents.append((label(row), state, entry["tty"]))
     return agents
