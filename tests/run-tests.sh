@@ -148,6 +148,18 @@ check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE 
 # Every agent that works in a checkout keeps its scratch where the close takes it.
 check "the phase, review and comments briefs keep scratch in the session's host scratchpad" "yes|yes|yes" \
   "$(for t in phase review comments; do carries "$ROOT/templates/agent-$t-brief.md" "lives in your own session's host scratchpad directory"; done | paste -sd'|' -)"
+# An orchestrator's context grows after its takeover mostly by the reports it reads: every
+# agent's report is capped, the « wrong or doubtful » line excepted, and no brief still
+# orders the long report with named sections.
+check "the phase, rotation, comments and review briefs cap the report" "yes|yes|yes|yes" \
+  "$(for t in phase rotation comments review; do spells "$ROOT/templates/agent-$t-brief.md" 'is never cut to fit the cap'; done | paste -sd'|' -)"
+check "no agent brief orders a report with named sections" "no|no|no|no" \
+  "$(for t in phase rotation comments review; do carries "$ROOT/templates/agent-$t-brief.md" 'named sections'; done | paste -sd'|' -)"
+check "the review brief writes each finding on one line of at most 200 characters" "yes" \
+  "$(spells "$ROOT/templates/agent-review-brief.md" 'each finding is ONE line of at most 200 characters')"
+# The cap leaves the machine line where the orchestrator's gate reads it: last.
+check "the review report still ends with the norms-check line" "yes" \
+  "$(sed -n '/^## 4\. Report shape/,/^## 5\./p' "$ROOT/templates/agent-review-brief.md" | grep -v '^## 5\.' | grep -v '^$' | tail -1 | grep -qF 'End the report with one machine line and nothing after it: `norms-check:' && echo yes || echo no)"
 # A predecessor started by hand lists as `(host default)`; the host refuses closing a session the
 # plugin did not launch unless the operator's word is already in the conversation, so the successor
 # asks him up front, before « takeover confirmed ». Step 4 is read with its line breaks folded for
