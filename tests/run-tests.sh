@@ -3316,6 +3316,10 @@ echo "== ci-watch =="
 # `view` (one `<STATE> <head>` line per call, the last one repeated), `reg` (one answer per
 # registration read: a count, `none` or `fail`), `failing` (the names read after a red) and
 # `watch-code` (what the watch exits with, its output a marker that must never reach stdout).
+# A merged pull request is followed onto its base branch: `merge` (`<sha> <base>`), `runs`
+# (one answer per run list: `<id>:<workflow>` pairs joined by `;`, or `-` for none),
+# `run-codes` (`<id> <code>` lines, what each run watch exits with, 0 by default) and `jobs`
+# (the failing job names read after a red run).
 CW="$WORK/ci-watch"
 CWB="$CW/bin"; CWS="$CW/state"
 mkdir -p "$CWB" "$CWS"
@@ -3331,8 +3335,19 @@ nth() {  # <file> <counter>: the nth line of <file> for the nth call, the last o
   sed -n "\${n}p" "\$1"
 }
 case "\$1 \$2" in
-  "pr view") [ -f "$CW/view" ] || { echo "gh: HTTP 502" >&2; exit 1; }
-             nth "$CW/view" view-n ;;
+  "pr view")
+    case "\$*" in
+      *mergeCommit*) [ -f "$CW/merge" ] || { echo "gh: HTTP 404" >&2; exit 1; }
+                     cat "$CW/merge" ;;
+      *) [ -f "$CW/view" ] || { echo "gh: HTTP 502" >&2; exit 1; }
+         nth "$CW/view" view-n ;;
+    esac ;;
+  "run list") r=\$(nth "$CW/runs" runs-n) || { echo "gh: HTTP 502" >&2; exit 1; }
+              [ "\$r" = - ] || printf '%s\n' "\$r" | tr ';' '\n' | tr ':' '\t' ;;
+  "run watch") echo "RUN-WATCH-MARKER"
+               c=\$(awk -v id="\$3" '\$1 == id { print \$2 }' "$CW/run-codes" 2>/dev/null)
+               exit "\${c:-0}" ;;
+  "run view") cat "$CW/jobs" 2>/dev/null ;;
   "pr checks")
     case "\$*" in
       *--watch*) echo "WATCH-OUTPUT-MARKER"; exit "\$(cat "$CW/watch-code" 2>/dev/null || echo 0)" ;;
@@ -3355,13 +3370,18 @@ CWSCRIPT="$ROOT/skills/orchestrator/scripts/ci-watch.sh"
 cw() {
   local view="$1" reg="$2" code="$3" failing="$4" out rc
   shift 4
-  rm -f "$CW"/gh-calls "$CW"/view "$CW"/reg "$CW"/failing "$CW"/watch-code "$CW"/view-n "$CW"/reg-n
+  rm -f "$CW"/gh-calls "$CW"/view "$CW"/reg "$CW"/failing "$CW"/watch-code "$CW"/view-n "$CW"/reg-n \
+    "$CW"/merge "$CW"/runs "$CW"/runs-n "$CW"/run-codes "$CW"/jobs
+  [ -z "${CW_MERGE:-}" ] || printf '%b\n' "$CW_MERGE" > "$CW/merge"
+  [ -z "${CW_RUNS:-}" ] || printf '%b\n' "$CW_RUNS" > "$CW/runs"
+  [ -z "${CW_RUN_CODES:-}" ] || printf '%b\n' "$CW_RUN_CODES" > "$CW/run-codes"
+  [ -z "${CW_JOBS:-}" ] || printf '%b\n' "$CW_JOBS" > "$CW/jobs"
   [ -z "$view" ] || printf '%b\n' "$view" > "$CW/view"
   [ -z "$reg" ] || printf '%b\n' "$reg" > "$CW/reg"
   [ -z "$failing" ] || printf '%b\n' "$failing" > "$CW/failing"
   printf '%s\n' "$code" > "$CW/watch-code"
   out=$(env PATH="$CWB:$PATH" ORCHESTRATOR_STATE_DIR="$CWS" CI_WATCH_REGISTER_WAIT="${CW_WAIT:-2}" \
-    bash "$CWSCRIPT" "$@" 2>/dev/null); rc=$?
+    CI_WATCH_BASE_WAIT="${CW_BASE_WAIT:-2}" CI_WATCH_BASE_WORKFLOWS="${CW_BASE_WORKFLOWS:-}" bash "$CWSCRIPT" "$@" 2>/dev/null); rc=$?
   printf '%s|%s' "$out" "$rc"
 }
 check "ci-watch exists" "yes" "$([ -f "$CWSCRIPT" ] && echo yes || echo no)"
@@ -3378,11 +3398,49 @@ check "checks registered after the first read (a fresh push) are waited for, not
   "$(cw "OPEN $HA" "none\n2" 0 "" 7 --interval 1)"
 check "moved: the head differs when the watch returns, exit 3" "ci-watch: moved 7 $HA $HB|3" \
   "$(cw "OPEN $HA\nOPEN $HB" "2" 1 "test" 7 --interval 1)"
-check "closed: exit 4, naming the state" "ci-watch: closed 7 MERGED|4" \
-  "$(cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+check "closed without merge: exit 4, naming the state" "ci-watch: closed 7 CLOSED|4" \
+  "$(cw "OPEN $HA\nCLOSED $HA" "2" 0 "" 7 --interval 1)"
+check "and no base branch run is looked for" "0" "$(grep -c '^run ' "$CW/gh-calls")"
 check "already closed at the first read: exit 4" "ci-watch: closed 7 CLOSED|4" \
   "$(cw "CLOSED $HA" "2" 0 "" 7 --interval 1)"
 check "and nothing is watched" "0" "$(grep -c -e '--watch' "$CW/gh-calls")"
+# Merged: the same watch follows the push run of the merge commit on the base branch.
+HM=cccc3333dddd4444eeee5555ffff6666aaaa1111
+check "merged then green on the base branch: exit 0" "ci-watch: base-green 7 $HM|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+# Two lists: the one that finds the run, and the one after its watch that finds nothing new.
+check "the push runs are read on the base branch at the merge commit" "2|2|1" \
+  "$(grep -c '^run list' "$CW/gh-calls")|$(grep -c "^run list --branch main --commit $HM --event push" "$CW/gh-calls")|$(grep -c '^run watch 101 --exit-status' "$CW/gh-calls")"
+check "the run watch's output never reaches stdout, it lands in a log file" "1|0" \
+  "$(grep -rl RUN-WATCH-MARKER "$CWS" 2>/dev/null | wc -l | tr -d ' ')|$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1 | grep -c RUN-WATCH-MARKER)"
+check "already merged at the first read: the base branch is followed, the checks never watched" "ci-watch: base-green 7 $HM|0|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)|$(grep -c -e '--watch' "$CW/gh-calls")"
+check "merged then red: the run and its failing jobs on the line, exit 6" "ci-watch: base-red 7 $HM 101 test, lint|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" CW_JOBS="test\nlint" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+check "merged with no push run within the bound: exit 7" "ci-watch: base-no-run 7 $HM|7" \
+  "$(CW_BASE_WAIT=1 CW_MERGE="$HM main" CW_RUNS="-" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a push run registered after the first read is waited for" "ci-watch: base-green 7 $HM|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="-\n101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a run registered while another was watched is watched too" "ci-watch: base-red 7 $HM 102 e2e|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI\n101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "every push run is followed when no workflow is named" "ci-watch: base-red 7 $HM 102 e2e|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a named workflow filters out another" "ci-watch: base-green 7 $HM|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --base-workflow CI --interval 1)"
+check "and the other run is never watched" "0" "$(grep -c '^run watch 102' "$CW/gh-calls")"
+check "the workflows can be named in the environment, comma-separated" "ci-watch: base-green 7 $HM|0" \
+  "$(CW_BASE_WORKFLOWS="Lint,CI" CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a workflow name can be repeated on the command line" "ci-watch: base-red 7 $HM 102 e2e|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --base-workflow Slow --base-workflow CI --interval 1)"
+check "--no-base: merged exits at once, exit 4" "ci-watch: closed 7 MERGED|4" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --no-base --interval 1)"
+check "and no base branch run is looked for" "0" "$(grep -c '^run ' "$CW/gh-calls")"
+check "unread: the merge commit cannot be read, exit 5" "ci-watch: unread 7 gh pr view failed: gh: HTTP 404|5" \
+  "$(cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "unread: the base branch's runs cannot be read, exit 5" "ci-watch: unread 7 gh run list failed: gh: HTTP 502|5" \
+  "$(CW_MERGE="$HM main" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "unread: a red run with no failing job named, exit 5" "5" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" cw "MERGED $HA" "2" 0 "" 7 --interval 1 | sed 's/.*|//')"
 check "unread: the pull request cannot be read, exit 5" "ci-watch: unread 7 gh pr view failed: gh: HTTP 502|5" \
   "$(cw "" "2" 0 "" 7 --interval 1)"
 check "unread: the registration read fails, exit 5" "ci-watch: unread 7 gh pr checks failed: error connecting to api.github.com|5" \
@@ -3391,6 +3449,8 @@ check "unread: the watch fails with no failing check named, exit 5" "5" \
   "$(cw "OPEN $HA" "2" 4 "" 7 --interval 1 | sed 's/.*|//')"
 check "the repository is passed on to every gh call" "0" \
   "$(cw "OPEN $HA" "2" 0 "" 7 --repo o/r --interval 1 >/dev/null; grep -vc -e '-R o/r' "$CW/gh-calls")"
+check "the repository is passed on to every gh call of the base branch's follow" "0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "MERGED $HA" "2" 0 "" 7 --repo o/r --interval 1 >/dev/null; grep -vc -e '-R o/r' "$CW/gh-calls")"
 check "the interval is passed on to the watch" "1" \
   "$(cw "OPEN $HA" "2" 0 "" 7 --interval 3 >/dev/null; grep -c -e '--watch --fail-fast --interval 3' "$CW/gh-calls")"
 check "no loop on gh pr view: two reads in all, before and after the watch" "2" \
