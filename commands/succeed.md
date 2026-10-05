@@ -12,7 +12,10 @@ Preconditions, verify each before acting:
 - the project state file is current — status lives once, there;
 - the standing succession brief exists; otherwise instantiate
   `${CLAUDE_PLUGIN_ROOT}/templates/orchestrator-succession-brief.md` into the
-  project's briefs directory, filling every `{{PLACEHOLDER}}`.
+  project's briefs directory, filling every `{{PLACEHOLDER}}`;
+- its « Live state » section is filled now, from the state file's live part (the section is
+  the hand-over copy of it; status still lives once, in the state file), and the whole brief
+  stays within 10,000 characters: the lint refuses more.
 
 Then:
 
