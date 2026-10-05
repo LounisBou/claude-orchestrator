@@ -160,6 +160,20 @@ check "the review brief writes each finding on one line of at most 200 character
 # The cap leaves the machine line where the orchestrator's gate reads it: last.
 check "the review report still ends with the norms-check line" "yes" \
   "$(sed -n '/^## 4\. Report shape/,/^## 5\./p' "$ROOT/templates/agent-review-brief.md" | grep -v '^## 5\.' | grep -v '^$' | tail -1 | grep -qF 'End the report with one machine line and nothing after it: `norms-check:' && echo yes || echo no)"
+# The comments agent's assessments are rendered to the operator item by item: the 3-line cap
+# would cut the reviewer's words out of them.
+check "the comments brief exempts each per-thread assessment from the 3-line cap" "yes" \
+  "$(spells "$ROOT/templates/agent-comments-brief.md" "except the per-thread assessments: each is sent in full, the reviewer's words included")"
+# The cap asks for context_tokens in the final report; the gauge line must not forbid it there.
+check "the phase, comments and rotation briefs report context_tokens in the final report" "yes|yes|yes" \
+  "$(for t in phase comments rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'your context_tokens in the final report'; done | paste -sd'|' -)"
+check "the phase, comments and rotation gauge lines report the context in the final report" "yes|yes|yes" \
+  "$(for t in phase comments rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'when the orchestrator asks, and in the final report'; done | paste -sd'|' -)"
+# review.md asks for each finding's proposed fix; the one-line finding keeps it as its last field.
+check "the review brief's finding line ends with the proposed fix" "yes" \
+  "$(spells "$ROOT/templates/agent-review-brief.md" '`[severity] file:line — the claim — the evidence in a few words — proposed fix`')"
+check "the comments brief's end report carries the threads and their outcomes" "yes" \
+  "$(spells "$ROOT/templates/agent-comments-brief.md" 'threads and their outcomes')"
 # A predecessor started by hand lists as `(host default)`; the host refuses closing a session the
 # plugin did not launch unless the operator's word is already in the conversation, so the successor
 # asks him up front, before « takeover confirmed ». Step 4 is read with its line breaks folded for
