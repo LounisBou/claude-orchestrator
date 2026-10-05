@@ -3313,7 +3313,8 @@ check "without jq a marked session is let through, with one warning line" "0|1|1
 echo "== ci-watch =="
 # The one way to wait on CI: a script an orchestrator starts in the background, that exits on
 # the end of the checks with one line and a code. A fake `gh` on PATH answers from files:
-# `view` (one `<STATE> <head>` line per call, the last one repeated), `reg` (one answer per
+# `view` (one `<STATE> <head> [auto]` line per call, the last one repeated, `auto` when the
+# pull request has auto-merge enabled), `reg` (one answer per
 # registration read: a count, `none` or `fail`), `failing` (the names read after a red) and
 # `watch-code` (what the watch exits with, its output a marker that must never reach stdout).
 # A merged pull request is followed onto its base branch: `merge` (`<sha> <base>`), `runs`
@@ -3396,7 +3397,7 @@ cw() {
   [ -z "$failing" ] || printf '%b\n' "$failing" > "$CW/failing"
   printf '%s\n' "$code" > "$CW/watch-code"
   out=$(env PATH="$CWB:$PATH" ORCHESTRATOR_STATE_DIR="$CWS" CI_WATCH_REGISTER_WAIT="${CW_WAIT:-2}" \
-    CI_WATCH_BASE_WAIT="${CW_BASE_WAIT:-2}" CI_WATCH_BASE_WORKFLOWS="${CW_BASE_WORKFLOWS:-}" bash "$CWSCRIPT" "$@" 2>/dev/null); rc=$?
+    CI_WATCH_BASE_WAIT="${CW_BASE_WAIT:-2}" CI_WATCH_MERGE_WAIT="${CW_MERGE_WAIT:-4}" CI_WATCH_BASE_WORKFLOWS="${CW_BASE_WORKFLOWS:-}" bash "$CWSCRIPT" "$@" 2>/dev/null); rc=$?
   printf '%s|%s' "$out" "$rc"
 }
 check "ci-watch exists" "yes" "$([ -f "$CWSCRIPT" ] && echo yes || echo no)"
@@ -3468,6 +3469,23 @@ check "the workflows can be named in the environment, comma-separated" "ci-watch
   "$(CW_BASE_WORKFLOWS="Lint,CI" CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a workflow name can be repeated on the command line" "ci-watch: base-red 7 $HM 102 e2e|6" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --base-workflow Slow --base-workflow CI --interval 1)"
+# Green with auto-merge enabled: the merge is coming, so the watch waits for it and follows the
+# base branch, instead of ending on a green nobody re-arms after.
+check "green with auto-merge: the merge is waited for, then the base branch followed" "ci-watch: base-green 7 $HM|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "OPEN $HA\nOPEN $HA auto\nOPEN $HA auto\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+check "auto-merge is read with the state, once per interval until the merge" "4" "$(grep -c '^pr view 7 --json state,headRefOid,autoMergeRequest' "$CW/gh-calls")"
+check "green with auto-merge, then red on the base branch: exit 6" "ci-watch: base-red 7 $HM 101 test|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" CW_JOBS="test:failure" cw "OPEN $HA\nOPEN $HA auto\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+check "green with auto-merge, not merged within the bound: green, exit 0" "ci-watch: green 7 $HA|0" \
+  "$(CW_MERGE_WAIT=1 cw "OPEN $HA\nOPEN $HA auto" "2" 0 "" 7 --interval 1)"
+check "green with auto-merge, then the head moves: exit 3" "ci-watch: moved 7 $HA $HB|3" \
+  "$(cw "OPEN $HA\nOPEN $HA auto\nOPEN $HB auto" "2" 0 "" 7 --interval 1)"
+check "green with auto-merge, then closed without merge: exit 4" "ci-watch: closed 7 CLOSED|4" \
+  "$(cw "OPEN $HA\nOPEN $HA auto\nCLOSED $HA" "2" 0 "" 7 --interval 1)"
+check "green with auto-merge, then auto-merge disabled: green, exit 0" "ci-watch: green 7 $HA|0" \
+  "$(cw "OPEN $HA\nOPEN $HA auto\nOPEN $HA" "2" 0 "" 7 --interval 1)"
+check "green with auto-merge and --no-base: green at once, the merge not waited for" "ci-watch: green 7 $HA|0|2" \
+  "$(cw "OPEN $HA\nOPEN $HA auto\nMERGED $HA" "2" 0 "" 7 --no-base --interval 1)|$(grep -c '^pr view' "$CW/gh-calls")"
 check "--no-base: merged exits at once, exit 4" "ci-watch: closed 7 MERGED|4" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --no-base --interval 1)"
 check "and no base branch run is looked for" "0" "$(grep -c '^run ' "$CW/gh-calls")"
@@ -4055,6 +4073,10 @@ check "a merged pull request's base branch run is followed, and a red one never 
   "$(spells "$ORCH_REFS/review.md" "Merged: the same watch follows the base branch's run")|$(spells "$ORCH_REFS/review.md" 'a red base branch is never left standing')|$(spells "$ORCH_REFS/review.md" 'fixed at once in its own pull request, dispatched to a fresh session')|$(spells "$ORCH_REFS/review.md" 'Base-no-run with `filtered=0`: nothing')"
 check "a filter that matches nothing is reported as a misnamed workflow" "yes" \
   "$(spells "$ORCH_REFS/review.md" '`filtered` above 0 means a misnamed workflow, the filter leaving out every run there was, reported to the operator in one line')"
+check "after a merge by hand the watch is started again, and enters on MERGED" "yes" \
+  "$(spells "$ORCH_REFS/review.md" 'after you merge a pull request yourself, or the operator does, start `ci-watch.sh <n>` again in the background — it enters on MERGED and follows the base branch')"
+check "green with auto-merge: the watch waits for the merge, and nobody waits outside it" "yes|no" \
+  "$(spells "$ORCH_REFS/review.md" 'a watch that sees auto-merge enabled on green does not exit: it waits, bounded, for the merge and follows the base branch')|$(spells "$ORCH_REFS/review.md" 'nobody waits for MERGED')"
 check "a base run cancelled for a newer push is not read as a red" "yes" \
   "$(spells "$ORCH_REFS/review.md" 'A base run cancelled for a newer push is no red: the watch follows the newest run of that workflow on the branch and reports it with its own sha')"
 check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes" "$(spells "$ORCH_REFS/review.md" 'never a loop on `gh pr view` or `gh pr checks`, never a wait for MERGED')"

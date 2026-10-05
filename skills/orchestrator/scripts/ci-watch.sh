@@ -11,7 +11,9 @@
 # What it does: reads the head once; waits, bounded, for checks to be registered on it (a
 # push is seen before its checks, and « no checks reported » right then is not a red); runs
 # `gh pr checks --watch --fail-fast`, its output in a log file under the state directory,
-# never on stdout; reads the pull request once more when the watch returns.
+# never on stdout; reads the pull request once more when the watch returns. Green with
+# auto-merge enabled is not the end: the merge is coming, and nobody re-arms a watch after it,
+# so the pull request is read again at the interval, bounded, until it merges.
 #
 # A pull request found merged, at either read, is followed onto its base branch: a flaky test
 # green on the merge ref can still turn the base branch red, and nobody else watches that run.
@@ -23,7 +25,7 @@
 # reported with its own sha. A cancelled run with no newer one is a red.
 #
 # stdout, one line, and the exit code the caller reads without opening the log:
-#   ci-watch: green <pr> <head>                                 0
+#   ci-watch: green <pr> <head>                                 0  with auto-merge: no merge within the bound
 #   ci-watch: red <pr> <head> <failing check names>             1
 #   ci-watch: no-checks <pr> <head>                             2  none registered within the bound
 #   ci-watch: moved <pr> <old head> <new head>                  3  re-arm on the new head
@@ -39,6 +41,8 @@
 # followed workflow is misnamed, and the operator is told.
 #
 # CI_WATCH_REGISTER_WAIT bounds the wait for registration, in seconds (default 180).
+# CI_WATCH_MERGE_WAIT bounds the wait for an auto-merge after green, in seconds (default 1800),
+# so that the whole watch stays inside the host's background bound.
 # CI_WATCH_BASE_WAIT bounds the wait for a push run on the base branch, in seconds (default 600).
 # Which workflows are followed there: `--base-workflow <name>` (repeatable), else
 # CI_WATCH_BASE_WORKFLOWS (comma-separated names), else every push run on the merge commit.
@@ -48,6 +52,7 @@ set -uo pipefail
 STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
 REGISTER_WAIT="${CI_WATCH_REGISTER_WAIT:-180}"
 BASE_WAIT="${CI_WATCH_BASE_WAIT:-600}"
+MERGE_WAIT="${CI_WATCH_MERGE_WAIT:-1800}"
 usage="usage: ci-watch.sh <pr> [--repo <owner/repo>] [--interval <s>] [--base-workflow <name>]... [--no-base]"
 
 pr="${1:-}"
@@ -71,24 +76,26 @@ done
 case "$interval" in ''|*[!0-9]*|0) unread "the interval is a positive number of seconds" ;; esac
 case "$REGISTER_WAIT" in ''|*[!0-9]*) unread "CI_WATCH_REGISTER_WAIT is a number of seconds" ;; esac
 case "$BASE_WAIT" in ''|*[!0-9]*) unread "CI_WATCH_BASE_WAIT is a number of seconds" ;; esac
+case "$MERGE_WAIT" in ''|*[!0-9]*) unread "CI_WATCH_MERGE_WAIT is a number of seconds" ;; esac
 if [ ${#workflows[@]} -eq 0 ] && [ -n "${CI_WATCH_BASE_WORKFLOWS:-}" ]; then
     IFS=, read -r -a workflows <<< "$CI_WATCH_BASE_WORKFLOWS"
 fi
 
 first_line() { head -n 1 | tr -d '\r'; }
 
-# `<STATE> <head>` of the pull request, one read.
+# The pull request's `state`, `head` and `auto` (`auto` when auto-merge is enabled), one read.
 read_pr() {
-    local out err
+    local out err rest
     err=$(mktemp "${TMPDIR:-/tmp}/ci-watch.XXXXXX") || unread "cannot create a temporary file"
-    out=$(gh pr view "$pr" ${repo[@]+"${repo[@]}"} --json state,headRefOid \
-        --jq '.state + " " + .headRefOid' 2>"$err")
+    out=$(gh pr view "$pr" ${repo[@]+"${repo[@]}"} --json state,headRefOid,autoMergeRequest \
+        --jq '.state + " " + .headRefOid + (if .autoMergeRequest then " auto" else "" end)' 2>"$err")
     if [ $? -ne 0 ] || [ -z "$out" ]; then
         local why; why=$(first_line < "$err"); rm -f "$err"
         unread "gh pr view failed: ${why:-no answer}"
     fi
     rm -f "$err"
-    state="${out%% *}"; head="${out#* }"
+    state="${out%% *}"; rest="${out#* }"; head="${rest%% *}"
+    auto=""; [ "$rest" = "$head" ] || auto="${rest#* }"
 }
 
 # Sets `log` to the log file of this pull request, `<suffix>` naming which watch writes it.
@@ -212,7 +219,20 @@ read_pr
 [ "$state" = OPEN ] || ended
 [ "$head" = "$first" ] || { say "moved $pr $first $head"; exit 3; }
 
-[ "$watch" -eq 0 ] && { say "green $pr $head"; exit 0; }
+if [ "$watch" -eq 0 ]; then
+    if [ "$base" = 1 ] && [ "$auto" = auto ]; then
+        # Auto-merge will merge: wait for it, bounded, and follow the base branch.
+        deadline=$((SECONDS + MERGE_WAIT))
+        while [ "$SECONDS" -lt "$deadline" ]; do
+            sleep "$interval"
+            read_pr
+            [ "$state" = OPEN ] || ended
+            [ "$head" = "$first" ] || { say "moved $pr $first $head"; exit 3; }
+            [ "$auto" = auto ] || break
+        done
+    fi
+    say "green $pr $head"; exit 0
+fi
 
 names=$(gh pr checks "$pr" ${repo[@]+"${repo[@]}"} --json name,bucket \
     --jq '.[] | select(.bucket == "fail" or .bucket == "cancel") | .name' 2>/dev/null | paste -sd, - | sed 's/,/, /g')
