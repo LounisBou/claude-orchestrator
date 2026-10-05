@@ -52,7 +52,7 @@ This section is the hand-over copy of the live part of the project state file `{
 
 ## Standing context — stable pointers, not status (status lives in the state file)
 
-- Read each of these by the section a task needs — `grep -n` for the heading, then `sed -n <from>,<to>p` — never whole at takeover, never several in one `cat`:
+- Read each of these by the section a task needs — `grep -n` for the heading, then `sed -n <from>,<to>p` — never whole at takeover, never several in one `cat`. A pointer the project does not have is written `none` (a project with no spec or runbook), never an invented path:
   - project state file: `{{STATE_FILE}}`
   - spec: `{{SPEC}}`
   - plan: `{{PLAN}}`
