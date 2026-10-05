@@ -4422,6 +4422,15 @@ s = open(sys.argv[1]).read()
 create = s.find('create tab')
 remember = s.find('set prev to current tab')
 print('reselects' if -1 < remember < create < s.find('select prev', create) else 'no')" "$AS_SENT")"
+check "the re-selection is guarded, so a tab closed meanwhile cannot fail the spawn" "guarded" \
+  "$("$py" -c "
+import sys
+s = open(sys.argv[1]).read()
+select = s.find('select prev', s.find('create tab'))
+opened = s.rfind('try', 0, select)
+closed = s.find('end try', select)
+ret = s.find('return newTty', select)
+print('guarded' if -1 < opened < select < closed < ret else 'no')" "$AS_SENT")"
 
 echo "== iterm-agents: a self-anchor the app cannot resolve is lost, not fatal (§51) =="
 # Two refusals that look alike and are not. A NAMED anchor the app does not know is a tab
