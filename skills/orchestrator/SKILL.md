@@ -121,6 +121,7 @@ These bind at actions no reference is loaded for — a message sent, a report re
 - **Wait on CI in one background watch per pull request, never in the foreground.** When a pull request you own is opened or its head moves, read `references/review.md`, « Checks, in one background watch », and start the watch: one per pull request, never two, in the background, and nobody waits for MERGED.
 - **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something has already broken the "status lives once" rule. This is a standing property, not a pre-compaction chore.
 - **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read what the artifacts say — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw, which is not what is, and the operator's own hand between two of your turns is the commonest difference. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, the agents on it stood down and their tabs closed like any finished delivery. A round dispatched on a head the operator has already merged is paid for in full and reads nothing.
+- **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
 - **Measure, never estimate, your own context**: load `orchestrator:context-gauge` and run its script at every quiet boundary and before dispatching any phase.
 - **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends. The one exception is the CI watch above, which ends by waking you.
@@ -147,6 +148,7 @@ An agent reports its measured context as it nears the gate, and when you ask bef
 **Both readings, on every agent-produced pull request, before its verdict: the evidence review of `references/review.md` AND the project's norms check.** The norms check belongs to the round's review session and runs in the pinned worktree, report-only: it writes nothing, fixes nothing, and its exit code is not a verdict. Its findings come back like any others — verify each on the artifact, keep or drop by pertinence AND severity — and item 9 of « Review on evidence » governs the ones existing code contradicts. Neither the size of the diff, nor the tier the implementer ran at, nor a green gate waives it.
 
 **One review round, one correction round, and you close it; ready is the operator's turn, and the pull request stays in draft.** Both rules are in `references/review.md`, « Thresholds a verdict never crosses »: read them before any verdict and before telling the operator « ready ».
+
 ## The operator decides; the orchestrator runs
 
 **A command the orchestrator could run is the orchestrator's to run.** Opening and tagging
@@ -179,7 +181,7 @@ permission laundering; asking the operator is the same thing with a better excus
 
 ## Where the rest lives
 
-- `references/briefs.md`: « Prerequisites and phase rules »; « When a decision changes, the directives change in the same move », with its guard over your own directives.
+- `references/briefs.md`: « Prerequisites and phase rules »; the directives rule (see « Carried at every step »), with its guard over your own directives.
 - `references/lifecycle.md`: « Boundaries that stay yours » (environment preparation, pipelining) and the tab-close rationalization.
 - `references/review.md`: « Depth vs scope, and the rationalizations observed ».
 

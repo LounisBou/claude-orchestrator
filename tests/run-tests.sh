@@ -180,6 +180,9 @@ check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request
 # only one step needs lives in the reference that step names.
 check "the orchestrator rulebook stays at 21,000 bytes or fewer" "yes" \
   "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 21000 ] && echo yes || echo no)"
+# The directives rule moved out of the rulebook; the trigger that makes a session read it stays.
+check "the rulebook says when to read the directives rule: a ruling arrives or a defect is about to be repaired" "yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`')"
 check "the phase rules and the prerequisites live in the briefs reference" "yes|yes|yes|yes" \
   "$(spells "$ORCH_REFS/briefs.md" '## Phase & PR rules')|$(spells "$ORCH_REFS/briefs.md" '**One kind of change per phase.**')|$(spells "$ORCH_REFS/briefs.md" '**One writer per checkout, and a checkout per phase.**')|$(spells "$ORCH_REFS/briefs.md" '**Every figure in the plan carries the command that produces it**')"
 check "the directives rule and the guard live in the briefs reference" "yes|yes" \
