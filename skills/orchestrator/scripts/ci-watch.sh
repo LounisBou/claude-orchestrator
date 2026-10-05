@@ -18,6 +18,9 @@
 # It reads the merge commit and the base branch, waits, bounded, for the push runs on that
 # branch at that commit, and watches each to its end (`gh run watch --exit-status`, its output
 # in a log file too), re-listing once they end so a run registered late is watched as well.
+# A run cancelled there is no red: the branch's concurrency cancels it for a newer push, so the
+# newest push run of the same workflow on that branch is followed instead, and its outcome is
+# reported with its own sha. A cancelled run with no newer one is a red.
 #
 # stdout, one line, and the exit code the caller reads without opening the log:
 #   ci-watch: green <pr> <head>                                 0
@@ -28,6 +31,7 @@
 #   ci-watch: closed <pr> MERGED                                4  merged, with --no-base only
 #   ci-watch: unread <pr> <reason>                              5  gh failed, or a bad call
 #   ci-watch: base-green <pr> <sha>                             0  merged, the base branch's runs green
+#                                                                  (the sha of a cancelled run's successor)
 #   ci-watch: base-red <pr> <sha> <run id> <failing job names>  6  the first red run on the base branch
 #   ci-watch: base-no-run <pr> <sha> filtered=<n>               7  no push run within the bound
 #
@@ -106,7 +110,7 @@ followed() {
 # the base branch's push runs at the merge commit, unless --no-base.
 ended() {
     { [ "$state" = MERGED ] && [ "$base" = 1 ]; } || { say "closed $pr $state"; exit 4; }
-    local err out sha branch deadline seen=" " left=" " new id name code jobs
+    local err out sha at green branch deadline seen=" " left=" " new names i id name code jobs next
     err=$(mktemp "${TMPDIR:-/tmp}/ci-watch.XXXXXX") || unread "cannot create a temporary file"
     out=$(gh pr view "$pr" ${repo[@]+"${repo[@]}"} --json mergeCommit,baseRefName \
         --jq '(.mergeCommit.oid // "") + " " + .baseRefName' 2>"$err")
@@ -129,32 +133,49 @@ ended() {
             unread "gh run list failed: ${why:-no answer}"
         fi
         rm -f "$err"
-        new=()
+        new=(); names=()
         while IFS=$'\t' read -r id name; do
             [ -n "$id" ] || continue
             case "$seen" in *" $id "*) continue ;; esac
-            if followed "$name"; then new+=("$id")
+            if followed "$name"; then new+=("$id"); names+=("$name")
             else case "$left" in *" $id "*) ;; *) left="$left$id " ;; esac
             fi
         done <<< "$out"
         if [ ${#new[@]} -eq 0 ]; then
             # Every run listed has been watched green: one listing more found nothing new.
-            [ "$seen" != " " ] && { say "base-green $pr $sha"; exit 0; }
+            [ "$seen" != " " ] && { say "base-green $pr ${green:-$sha}"; exit 0; }
             [ "$SECONDS" -ge "$deadline" ] && { set -- $left; say "base-no-run $pr $sha filtered=$#"; exit 7; }
             sleep "$interval"
             continue
         fi
-        for id in "${new[@]}"; do
-            seen="$seen$id "
-            gh run watch "$id" ${repo[@]+"${repo[@]}"} --exit-status --interval "$interval" >> "$log" 2>&1
-            code=$?
-            [ "$code" -eq 0 ] && continue
-            jobs=$(gh run view "$id" ${repo[@]+"${repo[@]}"} --json jobs \
-                --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .name' \
-                2>/dev/null | paste -sd, - | sed 's/,/, /g')
-            [ -n "$jobs" ] || unread "gh run watch $id exited $code with no failing job named (log: $log)"
-            say "base-red $pr $sha $id $jobs"
-            exit 6
+        for i in "${!new[@]}"; do
+            id="${new[$i]}"; name="${names[$i]}"; at="$sha"
+            while :; do
+                seen="$seen$id "
+                gh run watch "$id" ${repo[@]+"${repo[@]}"} --exit-status --interval "$interval" >> "$log" 2>&1
+                code=$?
+                [ "$code" -eq 0 ] && break
+                if [ "$(gh run view "$id" ${repo[@]+"${repo[@]}"} --json conclusion --jq .conclusion 2>/dev/null)" = cancelled ]; then
+                    err=$(mktemp "${TMPDIR:-/tmp}/ci-watch.XXXXXX") || unread "cannot create a temporary file"
+                    out=$(gh run list ${repo[@]+"${repo[@]}"} --branch "$branch" --workflow "$name" --event push \
+                        --limit 1 --json databaseId,headSha --jq '.[] | "\(.databaseId) \(.headSha)"' 2>"$err")
+                    if [ $? -ne 0 ]; then
+                        local why; why=$(first_line < "$err"); rm -f "$err"
+                        unread "gh run list failed: ${why:-no answer}"
+                    fi
+                    rm -f "$err"
+                    next="${out%% *}"
+                    case "$next" in ''|*[!0-9]*) next=0 ;; esac
+                    # Only a newer run replaces it; the cancelled run itself listed means none came.
+                    [ "$next" -gt "$id" ] && { id="$next"; at="${out#* }"; green="$at"; continue; }
+                fi
+                jobs=$(gh run view "$id" ${repo[@]+"${repo[@]}"} --json jobs \
+                    --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out") | .name' \
+                    2>/dev/null | paste -sd, - | sed 's/,/, /g')
+                [ -n "$jobs" ] || unread "gh run watch $id exited $code with no failing job named (log: $log)"
+                say "base-red $pr $at $id $jobs"
+                exit 6
+            done
         done
     done
 }

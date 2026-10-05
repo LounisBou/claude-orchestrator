@@ -3321,6 +3321,8 @@ echo "== ci-watch =="
 # `run-codes` (`<id> <code> [<conclusion>]` lines, what each run watch exits with, 0 by default,
 # and the run's conclusion, read from the code when not given) and `jobs` (`<name>:<conclusion>`
 # lines). `gh run view` answers with the run as JSON and runs the script's own --jq filter on it.
+# `newest` answers the read of a workflow's newest push run on the branch, one `<id> <sha>` line
+# per call, the last one repeated.
 CW="$WORK/ci-watch"
 CWB="$CW/bin"; CWS="$CW/state"
 mkdir -p "$CWB" "$CWS"
@@ -3343,8 +3345,13 @@ case "\$1 \$2" in
       *) [ -f "$CW/view" ] || { echo "gh: HTTP 502" >&2; exit 1; }
          nth "$CW/view" view-n ;;
     esac ;;
-  "run list") r=\$(nth "$CW/runs" runs-n) || { echo "gh: HTTP 502" >&2; exit 1; }
-              [ "\$r" = - ] || printf '%s\n' "\$r" | tr ';' '\n' | tr ':' '\t' ;;
+  "run list")
+    case "\$*" in
+      *--workflow*) r=\$(nth "$CW/newest" newest-n) || { echo "gh: HTTP 502" >&2; exit 1; }
+                    [ "\$r" = - ] || echo "\$r" ;;
+      *) r=\$(nth "$CW/runs" runs-n) || { echo "gh: HTTP 502" >&2; exit 1; }
+         [ "\$r" = - ] || printf '%s\n' "\$r" | tr ';' '\n' | tr ':' '\t' ;;
+    esac ;;
   "run watch") echo "RUN-WATCH-MARKER"
                c=\$(awk -v id="\$3" '\$1 == id { print \$2 }' "$CW/run-codes" 2>/dev/null)
                exit "\${c:-0}" ;;
@@ -3378,11 +3385,12 @@ cw() {
   local view="$1" reg="$2" code="$3" failing="$4" out rc
   shift 4
   rm -f "$CW"/gh-calls "$CW"/view "$CW"/reg "$CW"/failing "$CW"/watch-code "$CW"/view-n "$CW"/reg-n \
-    "$CW"/merge "$CW"/runs "$CW"/runs-n "$CW"/run-codes "$CW"/jobs
+    "$CW"/merge "$CW"/runs "$CW"/runs-n "$CW"/run-codes "$CW"/jobs "$CW"/newest "$CW"/newest-n
   [ -z "${CW_MERGE:-}" ] || printf '%b\n' "$CW_MERGE" > "$CW/merge"
   [ -z "${CW_RUNS:-}" ] || printf '%b\n' "$CW_RUNS" > "$CW/runs"
   [ -z "${CW_RUN_CODES:-}" ] || printf '%b\n' "$CW_RUN_CODES" > "$CW/run-codes"
   [ -z "${CW_JOBS:-}" ] || printf '%b\n' "$CW_JOBS" > "$CW/jobs"
+  [ -z "${CW_NEWEST:-}" ] || printf '%b\n' "$CW_NEWEST" > "$CW/newest"
   [ -z "$view" ] || printf '%b\n' "$view" > "$CW/view"
   [ -z "$reg" ] || printf '%b\n' "$reg" > "$CW/reg"
   [ -z "$failing" ] || printf '%b\n' "$failing" > "$CW/failing"
@@ -3435,6 +3443,24 @@ check "a run registered while another was watched is watched too" "ci-watch: bas
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI\n101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "every push run is followed when no workflow is named" "ci-watch: base-red 7 $HM 102 e2e|6" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+# A base run cancelled by the branch's concurrency, for a newer push, is not a red: the newest
+# push run of the same workflow on that branch is followed instead, and reported with its sha.
+HN=dddd4444eeee5555ffff6666aaaa1111bbbb2222
+HO=eeee5555ffff6666aaaa1111bbbb2222cccc3333
+check "a cancelled base run is not a red: the newer run is followed, green with its own sha" "ci-watch: base-green 7 $HN|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1 cancelled" CW_NEWEST="103 $HN" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "the newer run is read for the same workflow on the base branch, and watched" "1|1" \
+  "$(grep -c '^run list --branch main --workflow CI --event push' "$CW/gh-calls")|$(grep -c '^run watch 103 --exit-status' "$CW/gh-calls")"
+check "the newer run red: its run, its sha and its failing jobs on the line" "ci-watch: base-red 7 $HN 103 test|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1 cancelled\n103 1" CW_JOBS="build:success\ntest:failure" CW_NEWEST="103 $HN" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a newer run cancelled in turn is followed on to the next" "ci-watch: base-green 7 $HO|0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1 cancelled\n103 1 cancelled" CW_NEWEST="103 $HN\n104 $HO" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a cancelled run with no newer one is reported red, its cancelled jobs named" "ci-watch: base-red 7 $HM 101 test|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1 cancelled" CW_JOBS="build:success\ntest:cancelled" CW_NEWEST="101 $HM" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "a run red at the merge commit keeps its sha when another run was replaced" "ci-watch: base-red 7 $HM 102 test|6" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="101 1 cancelled\n102 1" CW_JOBS="test:failure" CW_NEWEST="103 $HN" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+check "the repository is passed on to every gh call that follows a cancelled run" "0" \
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1 cancelled" CW_NEWEST="103 $HN" cw "MERGED $HA" "2" 0 "" 7 --repo o/r --interval 1 >/dev/null; grep -vc -e '-R o/r' "$CW/gh-calls")"
 check "a named workflow filters out another" "ci-watch: base-green 7 $HM|0" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --base-workflow CI --interval 1)"
 check "and the other run is never watched" "0" "$(grep -c '^run watch 102' "$CW/gh-calls")"
@@ -4029,6 +4055,8 @@ check "a merged pull request's base branch run is followed, and a red one never 
   "$(spells "$ORCH_REFS/review.md" "Merged: the same watch follows the base branch's run")|$(spells "$ORCH_REFS/review.md" 'a red base branch is never left standing')|$(spells "$ORCH_REFS/review.md" 'fixed at once in its own pull request, dispatched to a fresh session')|$(spells "$ORCH_REFS/review.md" 'Base-no-run with `filtered=0`: nothing')"
 check "a filter that matches nothing is reported as a misnamed workflow" "yes" \
   "$(spells "$ORCH_REFS/review.md" '`filtered` above 0 means a misnamed workflow, the filter leaving out every run there was, reported to the operator in one line')"
+check "a base run cancelled for a newer push is not read as a red" "yes" \
+  "$(spells "$ORCH_REFS/review.md" 'A base run cancelled for a newer push is no red: the watch follows the newest run of that workflow on the branch and reports it with its own sha')"
 check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes" "$(spells "$ORCH_REFS/review.md" 'never a loop on `gh pr view` or `gh pr checks`, never a wait for MERGED')"
 check "the orchestrator skill no longer re-reads the checks at each idle notice" "no" "$(spells "$ORCH_REFS/review.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
 check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ORCH_REFS/review.md" "in a project whose method opts into auto-merge, nothing")"
