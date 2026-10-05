@@ -41,8 +41,6 @@ At the dispatch gate you read the context against the gate of SKILL.md, « Thres
 
 ### Prerequisites
 
-## Prerequisites
-
 A validated spec and a phase plan containing, per phase: scope, files, **exact interface signatures** (what a phase produces = what the next consumes; agents share no memory), test matrix, definition of done, and your review focus. **Every figure in the plan carries the command that produces it** — an agent re-runs it, never believes it, and so do you. No dispatch without both.
 
 ### Phase & PR rules
