@@ -3682,6 +3682,12 @@ check "the idle refusal is logged" "1" "$(sglog | grep -c '| check1 | idle-agent
 sg_reset; sg_listing "$IDLE"
 printf '{"tab_id": "t-ttys901", "tty": "/dev/ttys901", "owner": "S-ME", "resident": true}\n' > "$SGS/chains/ttys900.jsonl"
 check "a resident idle agent and nothing else: the stop passes" "" "$(sg 'Waiting on agent one.')"
+# It lifts the last fallback only: another idle agent beside it is still refused.
+sg_reset; sg_listing "$IDLE" 'w1/t3 | /dev/ttys902 | ✳ Agent : two | Agent : two [c3d4e5]'
+printf '{"tab_id": "t-ttys901", "tty": "/dev/ttys901", "owner": "S-ME", "resident": true}\n{"tab_id": "t-ttys902", "tty": "/dev/ttys902", "owner": "S-ME"}\n' > "$SGS/chains/ttys900.jsonl"
+check "a resident idle agent beside another idle agent: refused on the other one" \
+  "block|Agent : two [c3d4e5] is idle: its notice was spent. Read its report or relaunch it." \
+  "$(sg 'Waiting on agent two.' | reason)"
 sg_reset; sg_listing "$IDLE"
 printf '{"tab_id": "t-ttys901", "tty": "/dev/ttys901", "owner": "S-ME", "resident": false}\n' > "$SGS/chains/ttys900.jsonl"
 check "the same agent not resident: refused as before" \
@@ -3873,6 +3879,12 @@ check "open rows hold done only: a busy agent still lets the stop pass" "" "$(sg
 sg_reset; rm -f "$SGREC"; sg_rec open "$SGREC" --class n-bis --tier light --label "left open" >/dev/null; printf '/ws/sgproj/phase-4 | feat/p4 | abc1234 | clean | pushed\n' > "$SG/checkouts"
 check "a checkout and an open row: both are said" \
   "block|Not done: /ws/sgproj/phase-4 is still there. Finish it, or say what blocks it. Not done: row 1 (left open) is open. Dispatch it, close it, or say what blocks it." \
+  "$(sg 'waiting: done' | reason)"
+sg_reset; rm -f "$SGREC"; sg_rec open "$SGREC" --class n-bis --tier light --label "left open" >/dev/null
+sg_listing "$IDLE"
+printf '{"tab_id": "t-ttys901", "tty": "/dev/ttys901", "owner": "S-ME", "resident": true}\n' > "$SGS/chains/ttys900.jsonl"
+check "a resident idle agent does not lift done: the open row still refuses" \
+  "block|Not done: row 1 (left open) is open. Dispatch it, close it, or say what blocks it." \
   "$(sg 'waiting: done' | reason)"
 rm -f "$SGREC"
 
