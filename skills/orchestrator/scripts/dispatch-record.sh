@@ -248,12 +248,11 @@ summary)
         --open) only_open=1 ;;
         *) die "summary: unknown argument ${3} (expected --open)" ;;
     esac
+    [ -f "$record" ] || { echo "dispatch-record: no record at $record"; exit 0; }
     if [ "$only_open" = 1 ]; then
-        [ -f "$record" ] || exit 0
         jq -sr '.[] | select(.state == "open") | "open=\(.id) label=\(.label)"' "$record"
         exit $?
     fi
-    [ -f "$record" ] || { echo "dispatch-record: no record at $record"; exit 0; }
     jq -sr '
       group_by(.class + " " + .tier)
       | map({class: .[0].class, tier: .[0].tier,

@@ -362,6 +362,8 @@ check "summary --open prints no class, signal, cascade or escape line" "0" \
 check "plain summary still prints the class lines and the open rows" "2|1" \
   "$(bash "$REC" summary "$RO" | grep -c '^class=')|$(bash "$REC" summary "$RO" | grep -c '^open=')"
 check_status "summary --open of an absent record is not an error" 0 bash "$REC" summary "$WORK/absent.jsonl" --open
+check "summary --open of an absent record says so, as summary does" "dispatch-record: no record at $WORK/absent.jsonl" \
+  "$(bash "$REC" summary "$WORK/absent.jsonl" --open)"
 check "the succession brief's step 2 runs summary --open" "1" \
   "$(grep -c 'dispatch-record.sh summary {{DISPATCH_RECORD}} --open' "$ROOT/templates/orchestrator-succession-brief.md")"
 
