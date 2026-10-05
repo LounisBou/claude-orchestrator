@@ -14,8 +14,10 @@ Preconditions, verify each before acting:
   `${CLAUDE_PLUGIN_ROOT}/templates/orchestrator-succession-brief.md` into the
   project's briefs directory, filling every `{{PLACEHOLDER}}`;
 - its « Live state » section is filled now, from the state file's live part (the section is
-  the hand-over copy of it; status still lives once, in the state file), and the whole brief
-  stays within 10,000 characters: the lint refuses more.
+  the hand-over copy of it; status still lives once, in the state file). The brief is standing:
+  after its first use the five fields hold the last handover's text, not placeholders, so the
+  predecessor overwrites the previous handover's Live state, never appends to it. The whole
+  brief stays within 10,000 characters: the lint refuses more.
 
 Then:
 

@@ -4001,6 +4001,9 @@ check "step 5 announces the successor's own measured context from the gauge" "1|
 # The predecessor fills the section before the spawn, and keeps the whole brief short.
 check "succeed.md and the lifecycle reference have the predecessor fill Live state and hold the brief to 10,000 characters" "yes|yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'Live state')|$(spells "$ROOT/commands/succeed.md" '10,000 characters')|$(spells "$ORCH_REFS/lifecycle.md" 'Live state')|$(spells "$ORCH_REFS/lifecycle.md" '10,000 characters')"
+# The brief is standing: after its first use the section holds the last handover, not placeholders.
+check "succeed.md and the lifecycle reference have the predecessor overwrite the previous Live state, never append" "yes|yes" \
+  "$(spells "$ROOT/commands/succeed.md" "overwrites the previous handover's Live state")|$(spells "$ORCH_REFS/lifecycle.md" "overwrites the previous handover's Live state")"
 check "the lifecycle's step 3 reads the brief and its Live state, not whole files" "no|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'read the brief and its pointed state')|$(spells "$ORCH_REFS/lifecycle.md" 'read the rulebook and the brief, whose Live state is the hand-over copy of the state file')"
 check "the design says what a successor reads at takeover, and why" "yes|yes" \
