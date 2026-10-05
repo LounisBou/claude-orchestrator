@@ -29,7 +29,10 @@
 #   ci-watch: unread <pr> <reason>                              5  gh failed, or a bad call
 #   ci-watch: base-green <pr> <sha>                             0  merged, the base branch's runs green
 #   ci-watch: base-red <pr> <sha> <run id> <failing job names>  6  the first red run on the base branch
-#   ci-watch: base-no-run <pr> <sha>                            7  no push run within the bound
+#   ci-watch: base-no-run <pr> <sha> filtered=<n>               7  no push run within the bound
+#
+# `filtered` counts the push runs on that commit the workflow filter left out: above 0, a
+# followed workflow is misnamed, and the operator is told.
 #
 # CI_WATCH_REGISTER_WAIT bounds the wait for registration, in seconds (default 180).
 # CI_WATCH_BASE_WAIT bounds the wait for a push run on the base branch, in seconds (default 600).
@@ -103,7 +106,7 @@ followed() {
 # the base branch's push runs at the merge commit, unless --no-base.
 ended() {
     { [ "$state" = MERGED ] && [ "$base" = 1 ]; } || { say "closed $pr $state"; exit 4; }
-    local err out sha branch deadline seen=" " new id name code jobs
+    local err out sha branch deadline seen=" " left=" " new id name code jobs
     err=$(mktemp "${TMPDIR:-/tmp}/ci-watch.XXXXXX") || unread "cannot create a temporary file"
     out=$(gh pr view "$pr" ${repo[@]+"${repo[@]}"} --json mergeCommit,baseRefName \
         --jq '(.mergeCommit.oid // "") + " " + .baseRefName' 2>"$err")
@@ -130,12 +133,14 @@ ended() {
         while IFS=$'\t' read -r id name; do
             [ -n "$id" ] || continue
             case "$seen" in *" $id "*) continue ;; esac
-            followed "$name" && new+=("$id")
+            if followed "$name"; then new+=("$id")
+            else case "$left" in *" $id "*) ;; *) left="$left$id " ;; esac
+            fi
         done <<< "$out"
         if [ ${#new[@]} -eq 0 ]; then
             # Every run listed has been watched green: one listing more found nothing new.
             [ "$seen" != " " ] && { say "base-green $pr $sha"; exit 0; }
-            [ "$SECONDS" -ge "$deadline" ] && { say "base-no-run $pr $sha"; exit 7; }
+            [ "$SECONDS" -ge "$deadline" ] && { set -- $left; say "base-no-run $pr $sha filtered=$#"; exit 7; }
             sleep "$interval"
             continue
         fi

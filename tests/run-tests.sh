@@ -3424,8 +3424,11 @@ check "already merged at the first read: the base branch is followed, the checks
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)|$(grep -c -e '--watch' "$CW/gh-calls")"
 check "merged then red: the run and its failing jobs on the line, exit 6" "ci-watch: base-red 7 $HM 101 test, lint|6" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" CW_JOBS="build:success\ntest:failure\ndocs:skipped\nlint:failure" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
-check "merged with no push run within the bound: exit 7" "ci-watch: base-no-run 7 $HM|7" \
+check "merged with no push run within the bound: exit 7, none filtered out" "ci-watch: base-no-run 7 $HM filtered=0|7" \
   "$(CW_BASE_WAIT=1 CW_MERGE="$HM main" CW_RUNS="-" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+# A misnamed workflow: every push run is left out, and the line says how many, each run once.
+check "a filter that matches nothing says how many runs it left out" "ci-watch: base-no-run 7 $HM filtered=2|7" \
+  "$(CW_BASE_WAIT=1 CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" cw "MERGED $HA" "2" 0 "" 7 --base-workflow Ci --interval 1)"
 check "a push run registered after the first read is waited for" "ci-watch: base-green 7 $HM|0" \
   "$(CW_MERGE="$HM main" CW_RUNS="-\n101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a run registered while another was watched is watched too" "ci-watch: base-red 7 $HM 102 e2e|6" \
@@ -4023,7 +4026,9 @@ check "the orchestrator skill arms one background watch per pull request" "yes|y
 check "and reads each ending: red, no checks, closed, unread" "yes|yes|yes|yes" \
   "$(spells "$ORCH_REFS/review.md" 'dispatch the correction at once, to a fresh session')|$(spells "$ORCH_REFS/review.md" 'No checks: ready on the suite')|$(spells "$ORCH_REFS/review.md" 'Closed: stop the work on it')|$(spells "$ORCH_REFS/review.md" 'Unread, or the timeout: re-arm once, then report')"
 check "a merged pull request's base branch run is followed, and a red one never left standing" "yes|yes|yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" "Merged: the same watch follows the base branch's run")|$(spells "$ORCH_REFS/review.md" 'a red base branch is never left standing')|$(spells "$ORCH_REFS/review.md" 'fixed at once in its own pull request, dispatched to a fresh session')|$(spells "$ORCH_REFS/review.md" 'Base-no-run: nothing')"
+  "$(spells "$ORCH_REFS/review.md" "Merged: the same watch follows the base branch's run")|$(spells "$ORCH_REFS/review.md" 'a red base branch is never left standing')|$(spells "$ORCH_REFS/review.md" 'fixed at once in its own pull request, dispatched to a fresh session')|$(spells "$ORCH_REFS/review.md" 'Base-no-run with `filtered=0`: nothing')"
+check "a filter that matches nothing is reported as a misnamed workflow" "yes" \
+  "$(spells "$ORCH_REFS/review.md" '`filtered` above 0 means a misnamed workflow, the filter leaving out every run there was, reported to the operator in one line')"
 check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes" "$(spells "$ORCH_REFS/review.md" 'never a loop on `gh pr view` or `gh pr checks`, never a wait for MERGED')"
 check "the orchestrator skill no longer re-reads the checks at each idle notice" "no" "$(spells "$ORCH_REFS/review.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
 check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ORCH_REFS/review.md" "in a project whose method opts into auto-merge, nothing")"
