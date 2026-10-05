@@ -3318,8 +3318,9 @@ echo "== ci-watch =="
 # `watch-code` (what the watch exits with, its output a marker that must never reach stdout).
 # A merged pull request is followed onto its base branch: `merge` (`<sha> <base>`), `runs`
 # (one answer per run list: `<id>:<workflow>` pairs joined by `;`, or `-` for none),
-# `run-codes` (`<id> <code>` lines, what each run watch exits with, 0 by default) and `jobs`
-# (the failing job names read after a red run).
+# `run-codes` (`<id> <code> [<conclusion>]` lines, what each run watch exits with, 0 by default,
+# and the run's conclusion, read from the code when not given) and `jobs` (`<name>:<conclusion>`
+# lines). `gh run view` answers with the run as JSON and runs the script's own --jq filter on it.
 CW="$WORK/ci-watch"
 CWB="$CW/bin"; CWS="$CW/state"
 mkdir -p "$CWB" "$CWS"
@@ -3347,7 +3348,13 @@ case "\$1 \$2" in
   "run watch") echo "RUN-WATCH-MARKER"
                c=\$(awk -v id="\$3" '\$1 == id { print \$2 }' "$CW/run-codes" 2>/dev/null)
                exit "\${c:-0}" ;;
-  "run view") cat "$CW/jobs" 2>/dev/null ;;
+  "run view") # the run as JSON, the caller's own --jq run on it
+              rc=\$(awk -v id="\$3" '\$1 == id { print \$2 }' "$CW/run-codes" 2>/dev/null)
+              c=\$(awk -v id="\$3" '\$1 == id { print \$3 }' "$CW/run-codes" 2>/dev/null)
+              [ -n "\$c" ] || { [ "\${rc:-0}" = 0 ] && c=success || c=failure; }
+              j=\$(cat "$CW/jobs" 2>/dev/null | jq -Rn '[inputs | select(length > 0) | split(":") | {name: .[0], conclusion: .[1]}]')
+              f=.; while [ \$# -gt 0 ]; do [ "\$1" = --jq ] && f="\$2"; shift; done
+              jq -nr --arg c "\$c" --argjson j "\$j" '{conclusion: \$c, jobs: \$j}' | jq -r "\$f" ;;
   "pr checks")
     case "\$*" in
       *--watch*) echo "WATCH-OUTPUT-MARKER"; exit "\$(cat "$CW/watch-code" 2>/dev/null || echo 0)" ;;
@@ -3416,22 +3423,22 @@ check "the run watch's output never reaches stdout, it lands in a log file" "1|0
 check "already merged at the first read: the base branch is followed, the checks never watched" "ci-watch: base-green 7 $HM|0|0" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)|$(grep -c -e '--watch' "$CW/gh-calls")"
 check "merged then red: the run and its failing jobs on the line, exit 6" "ci-watch: base-red 7 $HM 101 test, lint|6" \
-  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" CW_JOBS="test\nlint" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI" CW_RUN_CODES="101 1" CW_JOBS="build:success\ntest:failure\ndocs:skipped\nlint:failure" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --interval 1)"
 check "merged with no push run within the bound: exit 7" "ci-watch: base-no-run 7 $HM|7" \
   "$(CW_BASE_WAIT=1 CW_MERGE="$HM main" CW_RUNS="-" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a push run registered after the first read is waited for" "ci-watch: base-green 7 $HM|0" \
   "$(CW_MERGE="$HM main" CW_RUNS="-\n101:CI" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a run registered while another was watched is watched too" "ci-watch: base-red 7 $HM 102 e2e|6" \
-  "$(CW_MERGE="$HM main" CW_RUNS="101:CI\n101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI\n101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "every push run is followed when no workflow is named" "ci-watch: base-red 7 $HM 102 e2e|6" \
-  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a named workflow filters out another" "ci-watch: base-green 7 $HM|0" \
-  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --base-workflow CI --interval 1)"
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --base-workflow CI --interval 1)"
 check "and the other run is never watched" "0" "$(grep -c '^run watch 102' "$CW/gh-calls")"
 check "the workflows can be named in the environment, comma-separated" "ci-watch: base-green 7 $HM|0" \
-  "$(CW_BASE_WORKFLOWS="Lint,CI" CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
+  "$(CW_BASE_WORKFLOWS="Lint,CI" CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --interval 1)"
 check "a workflow name can be repeated on the command line" "ci-watch: base-red 7 $HM 102 e2e|6" \
-  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="e2e" cw "MERGED $HA" "2" 0 "" 7 --base-workflow Slow --base-workflow CI --interval 1)"
+  "$(CW_MERGE="$HM main" CW_RUNS="101:CI;102:Slow" CW_RUN_CODES="102 1" CW_JOBS="unit:success\ne2e:failure" cw "MERGED $HA" "2" 0 "" 7 --base-workflow Slow --base-workflow CI --interval 1)"
 check "--no-base: merged exits at once, exit 4" "ci-watch: closed 7 MERGED|4" \
   "$(CW_MERGE="$HM main" CW_RUNS="101:CI" cw "OPEN $HA\nMERGED $HA" "2" 0 "" 7 --no-base --interval 1)"
 check "and no base branch run is looked for" "0" "$(grep -c '^run ' "$CW/gh-calls")"
