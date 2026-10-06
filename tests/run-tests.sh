@@ -4263,7 +4263,7 @@ sg_ignored_head "[$WIP, {\"name\": \"test\", \"bucket\": \"fail\"}]"
 printf 'acme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
 check "one more failing check, not listed: refused, naming only that one" \
   "block|#8 at 8888aaa: 0 checks pending (), 1 failing (test)" "$(sg 'Pushed.' | reason | sed 's/\. Report.*//')"
-sg_ignored_head "[$WIP, {\"name\": \"build\", \"bucket\": \"pending\"}]"
+sg_ignored_head "[$WIP, {\"name\": \"build\", \"bucket\": \"pending\"}, {\"name\": \"test\", \"bucket\": \"pass\"}]"
 printf 'acme/api wip-check / wip-check\nacme/api build\n' > "$SGS/ignored-checks"
 check "a listed pending check is dropped too" "|8 8888aaaa8888aaaa8888aaaa8888aaaa8888aaaa done" \
   "$(sg 'Pushed.')|$(cat "$SGS/stop-gate/sg-1.heads")"
@@ -4280,6 +4280,33 @@ sg_ignored_head "[$WIP]"
 printf '# a comment\n\nmalformed\nacme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
 check "a comment, a blank and a malformed line are skipped; the valid entry applies" "" "$(sg 'Pushed.')"
 check "and the malformed line is logged once" "1" "$(sglog | grep -c 'ignored-checks | malformed line')"
+# A head whose only registered checks are ignored ones is a head with no check yet: unrecorded,
+# read again at the next stop.
+sg_ignored_head "[$WIP]"
+printf 'acme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
+check "a head whose only check is a listed failing one: no refusal, and not recorded" "|" \
+  "$(sg 'Pushed.')|$(cat "$SGS/stop-gate/sg-1.heads" 2>/dev/null)"
+printf '[%s, {"name": "test", "bucket": "fail"}]\n' "$WIP" > "$SG/checks-8"
+check "and at the next stop, with a real failing check added, it refuses" \
+  "block|#8 at 8888aaa: 0 checks pending (), 1 failing (test)" "$(sg 'Pushed.' | reason | sed 's/\. Report.*//')"
+# A repository that cannot be read filters nothing and never ends the CI check.
+sg_ignored_head "[$WIP, {\"name\": \"test\", \"bucket\": \"fail\"}]"
+printf 'acme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
+rm -f "$SG/repo"
+check "a failing repository read: the refusal is still made, with nothing filtered" \
+  "block|#8 at 8888aaa: 0 checks pending (), 2 failing (wip-check / wip-check, test)" \
+  "$(sg 'Pushed.' | reason | sed 's/\. Report.*//')"
+check "and one line says the repository was not read" "1" "$(sglog | grep -c 'ignored-checks | repository unread')"
+sg_ignored_head "[$WIP]"
+printf '{}\n' > "$SG/repo"
+printf 'acme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
+check "an answer with no nameWithOwner is the same: nothing filtered, one line" "block|1" \
+  "$(sg 'Pushed.' | reason | cut -c1-5)|$(sglog | grep -c 'ignored-checks | repository unread')"
+# The repository is compared without regard to case.
+sg_ignored_head "[$WIP]"
+printf '{"nameWithOwner": "Acme/API"}\n' > "$SG/repo"
+printf 'acme/api wip-check / wip-check\n' > "$SGS/ignored-checks"
+check "an entry typed in lowercase drops the check of the canonically cased repository" "" "$(sg 'Pushed.')"
 
 sg_reset; sg_listing "$IDLE"; sg_chain /dev/ttys901 S-ME
 printf '[{"number": 12, "headRefOid": "abc1234def5678abc1234def5678abc1234def56"}]\n' > "$SG/prs"

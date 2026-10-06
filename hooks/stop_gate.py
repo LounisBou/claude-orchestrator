@@ -479,8 +479,17 @@ def ignored_checks(cwd, who):
         entries.append((repo, name.strip()))
     if not entries:
         return set()
-    repo = gh_json(["repo", "view", "--json", "nameWithOwner"], cwd).get("nameWithOwner")
-    return {name for owner_repo, name in entries if owner_repo == repo}
+    # A repository that cannot be read filters nothing: the CI check goes on without the file.
+    try:
+        answer = gh_json(["repo", "view", "--json", "nameWithOwner"], cwd)
+        repo = answer.get("nameWithOwner") if isinstance(answer, dict) else None
+    except Unread as exc:
+        log(who, "ignored-checks", "repository unread", str(exc))
+        return set()
+    if not repo:
+        log(who, "ignored-checks", "repository unread", "no nameWithOwner in the answer")
+        return set()
+    return {name for owner_repo, name in entries if owner_repo.casefold() == repo.casefold()}
 
 
 def check_ci(cwd, session_id, who=""):
@@ -509,13 +518,14 @@ def check_ci(cwd, session_id, who=""):
             continue
         checks = gh_json(["pr", "checks", number, "--json", "name,bucket"], cwd,
                          tolerated=("no checks reported",))
+        checks = [c for c in checks if c["name"] not in ignored]
         if not checks:
-            # A push seen before its checks were registered: unread, read again at the next
-            # stop. A head already told as pending keeps its record.
+            # A push seen before its checks were registered, or a head whose only checks are
+            # ignored ones: unread, read again at the next stop. A head already told as
+            # pending keeps its record.
             if seen:
                 heads[number] = seen
             continue
-        checks = [c for c in checks if c["name"] not in ignored]
         pending = [c["name"] for c in checks if c.get("bucket") == "pending"]
         failing = [c["name"] for c in checks if c.get("bucket") in ("fail", "cancel")]
         told = seen[2] if seen else frozenset()
