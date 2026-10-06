@@ -3557,6 +3557,8 @@ check "a run of the head unfinished at a passing watch that ends green: green, e
   "$(CW_HEAD_RUNS="201:queued\n201:completed" cw "OPEN $HA" "2" 0 "" 7 --interval 1)|$(grep -c -e '--watch' "$CW/gh-calls")"
 check "the head moves while its runs are waited for: exit 3" "ci-watch: moved 7 $HA $HB|3" \
   "$(CW_HEAD_RUNS="201:in_progress\n201:completed" cw "OPEN $HA\nOPEN $HA\nOPEN $HB" "2" 0 "" 7 --interval 1)"
+check "a head moved during a run watch is seen at once, before any second checks watch" "ci-watch: moved 7 $HA $HB|3|1" \
+  "$(CW_HEAD_RUNS="201:in_progress\n201:completed" cw "OPEN $HA\nOPEN $HA\nOPEN $HB" "2" 0 "" 7 --interval 1)|$(grep -c -e '--watch' "$CW/gh-calls")"
 check "closed while its runs are waited for: exit 4" "ci-watch: closed 7 CLOSED|4" \
   "$(CW_HEAD_RUNS="201:in_progress\n201:completed" cw "OPEN $HA\nOPEN $HA\nCLOSED $HA" "2" 0 "" 7 --interval 1)"
 check "unread: the head's runs cannot be read, exit 5" "ci-watch: unread 7 gh run list failed: gh: HTTP 502|5" \

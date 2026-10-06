@@ -14,8 +14,9 @@
 # never on stdout; reads the pull request once more when the watch returns. The watch ends once
 # the checks it knows are done, maybe before a slower workflow's checks are registered: every
 # workflow run of the head is read, each unfinished one watched to its end (`gh run watch`),
-# and the checks watched again, until none is unfinished; the wait restarts its bound,
-# CI_WATCH_REGISTER_WAIT, at each run watched, and a run still unfinished past it is unread.
+# and the checks watched again, until none is unfinished. The bound, CI_WATCH_REGISTER_WAIT, is
+# no limit on how long a run may take: it bounds how long a run already watched may stay listed
+# unfinished (the listing's lag), restarts at each run watched, and past it the watch is unread.
 # Green with auto-merge enabled is not the end: the merge is coming, and nobody re-arms a watch after it,
 # so the pull request is read again at the interval, bounded, until it merges.
 #
@@ -250,6 +251,11 @@ while [ "$watch" -eq 0 ]; do
             gh run watch "$id" ${repo[@]+"${repo[@]}"} --interval "$interval" >> "$log" 2>&1
         done
         if [ "$fresh" = 1 ]; then
+            # The run watches may have lasted long: a head moved or a pull request closed meanwhile
+            # is said now, not after a checks watch has waited for the new head's checks.
+            read_pr
+            [ "$state" = OPEN ] || ended
+            [ "$head" = "$first" ] || { say "moved $pr $first $head"; exit 3; }
             deadline=$((SECONDS + REGISTER_WAIT))
         else
             [ "$SECONDS" -ge "$deadline" ] && unread "workflow runs of the head still unfinished:" $pending
