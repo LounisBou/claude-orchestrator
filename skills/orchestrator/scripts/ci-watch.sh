@@ -138,12 +138,17 @@ real_failures() {
     rm -f "$err"
 }
 
-# After a watch that exited non-zero on a draft: when every failing check is a draft guard, the
-# watch counts as a pass (`watch` 0) and the green path goes on.
+# After a watch that exited non-zero on a draft: when at least one check fails and every failing
+# one is a draft guard, the watch counts as a pass (`watch` 0) and the green path goes on. A watch
+# that failed with no failing check (an API error) is no pass: it takes the path of a non-draft.
 settle_draft() {
     [ "$watch" -ne 0 ] && [ "$draft" = draft ] || return 0
     real_failures
-    [ -n "$real" ] || watch=0
+    [ -z "$real" ] || return 0
+    local failing
+    failing=$(gh pr checks "$pr" ${repo[@]+"${repo[@]}"} --json name,bucket \
+        --jq '.[] | select(.bucket == "fail" or .bucket == "cancel") | .name' 2>/dev/null)
+    [ -z "$failing" ] || watch=0
 }
 
 # Sets `log` to the log file of this pull request, `<suffix>` naming which watch writes it.

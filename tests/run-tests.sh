@@ -3605,6 +3605,76 @@ print(", ".join(sorted(draft_guard.guards("acme/thing", json.loads(os.environ["D
 PYEOF
 )"
 
+# A trailing comment is no part of the definition; a draft test written only in one is no guard.
+IFS= read -r -d '' WF_TRAIL <<'EOF'
+name: CI
+on: pull_request
+jobs:
+  trailing:
+    runs-on: u # pull_request.draft
+    steps:
+      - run: make test
+EOF
+DGSHA_T=dddd000000000000000000000000000000000004
+dg_run 560 .github/workflows/ci.yml "$DGSHA_T"
+dg_file .github/workflows/ci.yml "$DGSHA_T" "$WF_TRAIL"
+C_TRAIL='{"name": "trailing", "bucket": "fail", "link": "'"$(dg_link 560 9007)"'"}'
+dg_reset
+check "a draft test only in a trailing comment is no guard: the check is reported" "trailing|0" \
+  "$(dg true "[$C_TRAIL]")"
+
+# One run, many failing names: its workflow file is read once, not once per name.
+IFS= read -r -d '' WF_MATRIX <<'EOF'
+name: CI
+on: pull_request
+jobs:
+  a:
+    runs-on: u
+  b:
+    runs-on: u
+  c:
+    runs-on: u
+EOF
+DGSHA_M=eeee000000000000000000000000000000000005
+dg_run 561 .github/workflows/ci.yml "$DGSHA_M"
+dg_file .github/workflows/ci.yml "$DGSHA_M" "$WF_MATRIX"
+dg_check() { printf '{"name": "%s", "bucket": "fail", "link": "%s"}' "$1" "$(dg_link "$2" "$3")"; }
+dg_reset
+dg true "[$(dg_check a 561 1), $(dg_check b 561 2), $(dg_check c 561 3)]" >/dev/null
+check "three failing names of one run cost one read of the workflow file" "1" \
+  "$(grep -c '^api repos/acme/thing/contents/' "$DG/gh-calls")"
+
+# The verdict entry is keyed by the head sha too: one check name, one workflow path, two heads whose
+# files disagree, two verdicts.
+IFS= read -r -d '' WF_GATE_ON <<'EOF'
+name: CI
+on: pull_request
+jobs:
+  gate:
+    runs-on: u
+    steps:
+      - run: test "${{ github.event.pull_request.draft }}" != "true"
+EOF
+IFS= read -r -d '' WF_GATE_OFF <<'EOF'
+name: CI
+on: pull_request
+jobs:
+  gate:
+    runs-on: u
+    steps:
+      - run: make test
+EOF
+DGSHA_G1=ffff000000000000000000000000000000000006
+DGSHA_G2=0000ffff00000000000000000000000000000007
+dg_run 562 .github/workflows/ci.yml "$DGSHA_G1"
+dg_file .github/workflows/ci.yml "$DGSHA_G1" "$WF_GATE_ON"
+dg_run 563 .github/workflows/ci.yml "$DGSHA_G2"
+dg_file .github/workflows/ci.yml "$DGSHA_G2" "$WF_GATE_OFF"
+dg_reset
+dg true "[$(dg_check gate 562 4)]" >/dev/null
+check "the same check name and workflow path at another head is classified on its own file" "gate|0" \
+  "$(dg true "[$(dg_check gate 563 5)]")"
+
 echo "== ci-watch =="
 # The one way to wait on CI: a script an orchestrator starts in the background, that exits on
 # the end of the checks with one line and a code. A fake `gh` on PATH answers from files:
@@ -3886,6 +3956,13 @@ check "the same failures on a pull request that is no draft: red naming both, --
   "$(rm -rf "$CWS/draft-guard"; cw "OPEN $HA" "2" 1 "wip-check / wip-check\ntests" 7 --interval 1)|$(grep -c -e '--fail-fast' "$CW/gh-calls")|$(grep -c '^api' "$CW/gh-calls")"
 check "a pull request made ready during the watch reads its guard as a red" "ci-watch: red 7 $HA wip-check / wip-check, tests|1" \
   "$(rm -rf "$CWS/draft-guard"; cw "$CWD\nOPEN $HA" "2" 1 "wip-check / wip-check\ntests" 7 --interval 1)"
+# A watch that exits non-zero names no failing check when `gh` itself failed (an API error): that is
+# no draft guard, so it must not settle to a pass.
+printf '[%s]\n' "$C_PASS" > "$CW/checks-link"
+check "a draft whose watch exits non-zero with no failing check is not green: unread, exit 5" "5" \
+  "$(rm -rf "$CWS/draft-guard"; cw "$CWD" "2" 1 "" 7 --interval 1 | sed 's/.*|//')"
+check "and its report never says green" "0" \
+  "$(rm -rf "$CWS/draft-guard"; cw "$CWD" "2" 1 "" 7 --interval 1 | grep -c 'ci-watch: green')"
 rm -f "$CW/checks-link"
 check "a draft whose failing checks cannot be classified: unread, exit 5" "ci-watch: unread 7 draft_guard|5" \
   "$(rm -rf "$CWS/draft-guard"; cw "$CWD" "2" 1 "wip-check / wip-check" 7 --interval 1 | sed 's/\(draft_guard\).*|/\1|/')"

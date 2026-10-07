@@ -87,8 +87,15 @@ def _indent(line):
 
 def _content(line):
     """The line without its trailing comment; blank when it is only one."""
-    stripped = line.strip()
-    return "" if stripped.startswith("#") else line.rstrip()
+    quote_char = None
+    for n, char in enumerate(line):
+        if quote_char:
+            quote_char = None if char == quote_char else quote_char
+        elif char in "'\"":
+            quote_char = char
+        elif char == "#" and (n == 0 or line[n - 1] in " \t"):
+            return line[:n].rstrip()
+    return line.rstrip()
 
 
 def _unquote(value):
@@ -256,6 +263,13 @@ def guards(repo, checks, cache_dir, gh):
     """The names of the failing checks (bucket `fail`) of a draft pull request that are draft
     guards. Anything unread, unmatched or unparseable is not one."""
     found = set()
+    texts = {}
+
+    def read_once(path, sha):
+        if (path, sha) not in texts:
+            texts[(path, sha)] = read_file(repo, path, sha, gh)
+        return texts[(path, sha)]
+
     for check in checks if isinstance(checks, list) else []:
         try:
             if check.get("bucket") != "fail":
@@ -268,7 +282,7 @@ def guards(repo, checks, cache_dir, gh):
             slot = _entry_path(cache_dir, "workflow", repo, path, sha)
             verdicts = _load(slot)
             if name not in verdicts:
-                verdict = classify(name, lambda p: read_file(repo, p, sha, gh), path)
+                verdict = classify(name, lambda p: read_once(p, sha), path)
                 verdicts[name] = verdict
                 _store(cache_dir, slot, verdicts)
             if verdicts[name] is True:
