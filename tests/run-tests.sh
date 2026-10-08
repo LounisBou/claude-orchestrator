@@ -77,7 +77,7 @@ echo "== repository policy =="
 # name deletes the whole line whatever it said, so this check would report a clean
 # repository without ever reading a single file.
 policy_hits() {
-  ( cd "$ROOT" && grep -rniI 'claude' . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=plans \
+  ( cd "$ROOT" && grep -rniI 'claude' . --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.superpowers --exclude-dir=plans \
       --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh \
     | grep -viE '~/\.claude/|\$HOME/\.claude|CLAUDE_CONFIG_DIR|CLAUDE_PLUGIN_ROOT|CLAUDE_CODE_SESSION_ID|ORCHESTRATOR_HOST_CLI|claude-orchestrator|\.claude-plugin|/\.claude/|\.claude\.json|LounisBou/claude-statusbar|LounisBou/claude-plugins-marketplace|/tmp/claude-' || true )
 }
@@ -93,14 +93,14 @@ rm -f "$PROBE"
 check "the policy guard can see a violation" "1" "$seen"
 
 # The tiers exist so no model family name has to appear here.
-hits=$(grep -rniIE '\b(opus|sonnet|haiku)\b' "$ROOT" --exclude-dir=.git --exclude-dir=.claude --exclude-dir=plans \
+hits=$(grep -rniIE '\b(opus|sonnet|haiku)\b' "$ROOT" --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.superpowers --exclude-dir=plans \
   --exclude=plan.md --exclude=CLAUDE.md --exclude=run-tests.sh || true)
 check "no model family name in the plugin" "" "$hits"
 
 # Nothing tied to one machine or one project enters the generic plugin: no absolute home
 # path, no real session reference (the documented example is the six-hex placeholder
 # a1b2c3), no path into a downstream project's tree.
-hits=$(grep -rnIE '/Users/|/home/[a-z]|\[[0-9a-f]{6}\]|docs/reference/|BUGS\.md|IMPLEMENTATION\.md' "$ROOT" --exclude-dir=.git --exclude=.git --exclude-dir=.claude --exclude=plan.md --exclude=run-tests.sh \
+hits=$(grep -rnIE '/Users/|/home/[a-z]|\[[0-9a-f]{6}\]|docs/reference/|BUGS\.md|IMPLEMENTATION\.md' "$ROOT" --exclude-dir=.git --exclude=.git --exclude-dir=.claude --exclude-dir=.superpowers --exclude=plan.md --exclude=run-tests.sh \
   | grep -vE '\[a1b2c3\]' || true)
 check "nothing project- or machine-specific in the plugin" "" "$hits"
 
