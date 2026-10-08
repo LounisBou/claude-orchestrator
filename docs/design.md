@@ -98,6 +98,8 @@ tests/fixtures/transcript.jsonl      a transcript tail for the gauge's computed 
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
 docs/design.md                       this document
 docs/specs/2026-10-01-stop-gate-design.md  the stop gate's approved spec
+docs/specs/2026-10-07-hooks-module-design.md  the hooks module's approved spec
+docs/plans/2026-10-07-hooks-module-plan.md     the hooks module's implementation plan
 evals/README.md                      how the behaviour suite is staged, run and read
 evals/SELECTION.md                   the cases chosen, and the criteria that chose them
 evals/baseline-0.34.0.json           the first baseline run, with and without the plugin

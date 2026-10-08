@@ -90,7 +90,7 @@ hooks/
 
 Hard cutover in one release (0.49.0): no dual system, no compatibility writes
 beyond the one measure file. Each domain module carries its own `*.test.ts`,
-run by `claude plugin test`; `claude plugin validate` runs in CI and lists the
+run by the host's `plugin test`; the host's `plugin validate` runs in CI and lists the
 events and API calls the module makes. Development happens against the checkout
 with `--plugin-dir` (hot reload on save); installed copies are cached by
 version, so releases bump the version as today.
@@ -203,12 +203,12 @@ Removed in one release:
 
 ## Testing
 
-- One `.test.ts` per domain, run without a session by `claude plugin test`:
+- One `.test.ts` per domain, run without a session by the host's `plugin test`:
   tokeniser fixtures ported from the shell suite (including the Unicode and
   heredoc cases), double-gate boundaries (79/80 percent, 299,999/300,000
   tokens, windows at and above 1,000,000), role lines per name prefix,
   unmeasured-once semantics, store round-trip and purge, command outputs.
-- `claude plugin validate` in CI: the static pass that lists events and API
+- The host's `plugin validate` in CI: the static pass that lists events and API
   calls, so a renamed event or method fails the build, not the field.
 - The 26 skill evals are updated where they referenced `context-gauge.sh` or
   the tap; trigger evals unchanged.

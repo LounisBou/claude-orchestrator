@@ -4,7 +4,7 @@
 
 **Goal:** Move the context measurement, the three gates and the cross-session state into one in-process hooks module, and cut over in release 0.49.0.
 
-**Architecture:** `hooks/hooks.json` gains a `modules` array pointing at `hooks/register.ts`, which mounts four domain modules (`gauge.ts`, `guards.ts`, `supervision.ts`, `commands.ts`) plus two pure helpers (`gauge-core.ts`, `tokenizer.ts`, `session-name.ts`). Every domain carries a `*.test.ts` run by `claude plugin test`. The shell hooks, the tap and `ctx/` are removed in the same release.
+**Architecture:** `hooks/hooks.json` gains a `modules` array pointing at hooks/register.ts, which mounts four domain modules (`gauge.ts`, `guards.ts`, `supervision.ts`, `commands.ts`) plus two pure helpers (`gauge-core.ts`, `tokenizer.ts`, `session-name.ts`). Every domain carries a `*.test.ts` run by `claude plugin test`. The shell hooks, the tap and `ctx/` are removed in the same release.
 
 **Tech Stack:** TypeScript loaded directly by the host (no build step), `claude plugin test` / `claude plugin validate`, the existing shell test suite for the parts that stay shell.
 
@@ -36,15 +36,14 @@ Five input classes the task tests do not fully pin; each line's test is added to
 ### Task 1: Module scaffold and test chain
 
 **Files:**
-- Create: `hooks/register.ts`
-- Create: `hooks/hooks/__snapshot__` (nothing — see below)
+- Create: hooks/register.ts
 - Modify: `hooks/hooks.json`
-- Test: `hooks/tests/scaffold.test.ts`
+- Test: hooks/tests/scaffold.test.ts
 
 Note: the spec's `register.js` becomes `register.ts` for a uniform TypeScript module set — same entry, same role.
 
 **Interfaces:**
-- Produces: `register(on: Function): void` exported from `hooks/register.ts`; `hooks.json` `modules: ["./register.ts"]`.
+- Produces: `register(on: Function): void` exported from hooks/register.ts; `hooks.json` `modules: ["./register.ts"]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -108,9 +107,9 @@ git commit -m "feat(hooks): load the module scaffold behind the shell hooks"
 ### Task 2: gauge-core — measurement, double gate, measure file, model drift
 
 **Files:**
-- Create: `hooks/gauge-core.ts` (pure functions, no host API)
-- Create: `hooks/gauge.ts` (event wiring)
-- Test: `hooks/tests/gauge-core.test.ts`
+- Create: hooks/gauge-core.ts (pure functions, no host API)
+- Create: hooks/gauge.ts (event wiring)
+- Test: hooks/tests/gauge-core.test.ts
 
 **Interfaces:**
 - Consumes: nothing (first domain).
@@ -325,8 +324,8 @@ git commit -m "feat(gauge): measure the context from session events into one fil
 ### Task 3: gauge — the AbovePrompt band
 
 **Files:**
-- Modify: `hooks/gauge.ts`
-- Test: `hooks/tests/gauge-band.test.ts`
+- Modify: hooks/gauge.ts
+- Test: hooks/tests/gauge-band.test.ts
 
 **Interfaces:**
 - Consumes: `tripGate`, the reading stored by the `session.measure` handler (module variable `current: MeasureReading | null`, set in Task 2 step 5).
@@ -406,9 +405,9 @@ git commit -m "feat(gauge): draw the context fill above the prompt"
 ### Task 4: session-name — the one reading of a session's name
 
 **Files:**
-- Create: `hooks/session-name.ts`
-- Test: `hooks/tests/session-name.test.ts`
-- Test fixture: `tests/fixtures/transcript-renamed.jsonl`
+- Create: hooks/session-name.ts
+- Test: hooks/tests/session-name.test.ts
+- Test fixture: tests/fixtures/transcript-renamed.jsonl
 
 **Interfaces:**
 - Consumes: nothing.
@@ -512,9 +511,9 @@ git commit -m "feat(hooks): read a session's name in-process"
 ### Task 5: guards — the context gate on prompt.submit
 
 **Files:**
-- Create: `hooks/guards.ts`
-- Modify: `hooks/register.ts` (mount)
-- Test: `hooks/tests/context-gate.test.ts`
+- Create: hooks/guards.ts
+- Modify: hooks/register.ts (mount)
+- Test: hooks/tests/context-gate.test.ts
 
 **Interfaces:**
 - Consumes: `roleOf`, `readName` (Task 4), `tripGate`, `parseMeasure` (Task 2).
@@ -612,12 +611,12 @@ git commit -m "feat(guards): speak the context gate from the module on every pro
 ### Task 6: tokenizer — the push tokeniser, ported to TypeScript
 
 **Files:**
-- Create: `hooks/tokenizer.ts`
-- Test: `hooks/tests/tokenizer.test.ts`
+- Create: hooks/tokenizer.ts
+- Test: hooks/tests/tokenizer.test.ts
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `detectForces(command: string): string[]` — every reason a `git push` in the command line is forced, empty when none. Ported from the awk tokeniser in `hooks/push-guard.sh:49-219`, whose header comment (`push-guard.sh:14-27`) is the specification.
+- Produces: `detectForces(command: string): string[]` — every reason a `git push` in the command line is forced, empty when none. Ported from the awk tokeniser in hooks/push-guard.sh:49-219, whose header comment (`push-guard.sh:14-27`) is the specification.
 
 - [ ] **Step 1: Write the failing tests — the fixtures move, they do not shrink**
 
@@ -686,7 +685,7 @@ test('everything the shell suite accepted is accepted here', () => {
 })
 ```
 
-The remaining cases from `tests/run-tests.sh:3410-3430` (comment lines, `$((...))` arithmetic containing `<<`, nested quotes in the delimiter, and the Unicode command line) move into these two arrays the same way — read them from the shell suite while porting; nothing is dropped.
+The remaining cases from tests/run-tests.sh:3410-3430 (comment lines, `$((...))` arithmetic containing `<<`, nested quotes in the delimiter, and the Unicode command line) move into these two arrays the same way — read them from the shell suite while porting; nothing is dropped.
 
 - [ ] **Step 2: Run to verify failure.**
 
@@ -751,8 +750,8 @@ git commit -m "feat(guards): tokenize shell command lines for the push guard in-
 ### Task 7: guards — the push guard on tool.call
 
 **Files:**
-- Modify: `hooks/guards.ts`
-- Test: `hooks/tests/push-guard.test.ts`
+- Modify: hooks/guards.ts
+- Test: hooks/tests/push-guard.test.ts
 
 **Interfaces:**
 - Consumes: `detectForces` (Task 6).
@@ -825,9 +824,9 @@ git commit -m "feat(guards): refuse the forced pushes the launcher forbids, in-p
 ### Task 8: guards — the stop gate on classic.Stop
 
 **Files:**
-- Modify: `hooks/guards.ts`
-- Create: `hooks/stop-gate.ts` (the ported logic: listing, wake check, heads, CI read)
-- Test: `hooks/tests/stop-gate.test.ts`
+- Modify: hooks/guards.ts
+- Create: hooks/stop-gate.ts (the ported logic: listing, wake check, heads, CI read)
+- Test: hooks/tests/stop-gate.test.ts
 
 **Interfaces:**
 - Consumes: `readName`/`roleOf` (Task 4), `$.process.run`, `$.fs.read`, ci-watch's precomputed files under the state dir.
@@ -867,7 +866,7 @@ test('a CI read that exceeds the budget degrades to pass-and-log', async () => {
 
 - [ ] **Step 3: Port the logic**
 
-Port `stop_gate.py` function by function into `hooks/stop-gate.ts`, same names, same split: `listing()` and `ownAgents()` over the launcher's listing (through `$.process.run`), `pullRequestOf()`, `checkWake()` (`stop_gate.py:356-395`), `headsPath()/readHeads()/writeHeads()` on `$.fs`, `checkCi()` (`stop_gate.py:537-595`) reading ci-watch's precomputed data — no synchronous network, everything through `withBudget`. The `classic.Stop` handler: read `e` (the same stdin JSON: `stop_hook_active`, `transcript_path`, `session_id`), refuse at most once per turn, log and pass on any failure.
+Port `stop_gate.py` function by function into hooks/stop-gate.ts, same names, same split: `listing()` and `ownAgents()` over the launcher's listing (through `$.process.run`), `pullRequestOf()`, `checkWake()` (`stop_gate.py:356-395`), `headsPath()/readHeads()/writeHeads()` on `$.fs`, `checkCi()` (`stop_gate.py:537-595`) reading ci-watch's precomputed data — no synchronous network, everything through `withBudget`. The `classic.Stop` handler: read `e` (the same stdin JSON: `stop_hook_active`, `transcript_path`, `session_id`), refuse at most once per turn, log and pass on any failure.
 
 - [ ] **Step 4: Run tests, live smoke** (an orchestrator with a busy agent refuses to stop once, then passes).
 
@@ -881,9 +880,9 @@ git commit -m "feat(guards): hold a stop until something will wake the orchestra
 ### Task 9: supervision — the shared store
 
 **Files:**
-- Create: `hooks/supervision.ts`
-- Modify: `hooks/register.ts`
-- Test: `hooks/tests/supervision.test.ts`
+- Create: hooks/supervision.ts
+- Modify: hooks/register.ts
+- Test: hooks/tests/supervision.test.ts
 
 **Interfaces:**
 - Consumes: the reading from `gauge.ts` (module export `current`), `roleOf`/`readName`.
@@ -902,10 +901,10 @@ test('the key is per session id', () => {
 
 test('two sessions writing at once keep both rows', async ($) => {
   await writeSession($, 'first', { role: 'agent', context_percent: 40 })
-  await writeSession($, 'second', { role: 'agent', context_percent: 60 })
+  await writeSession($, 'second', { role: 'agent', context_percent: 55 })
   const rows = await readSessions($)
   expect(rows['sessions/first'].context_percent).toBe(40)
-  expect(rows['sessions/second'].context_percent).toBe(60)
+  expect(rows['sessions/second'].context_percent).toBe(55)
 })
 
 test('a session end removes its row', async ($) => {
@@ -929,8 +928,8 @@ git commit -m "feat(supervision): share every session's state through the host s
 ### Task 10: supervision — the coordinator pane
 
 **Files:**
-- Modify: `hooks/supervision.ts`
-- Test: `hooks/tests/pane.test.ts`
+- Modify: hooks/supervision.ts
+- Test: hooks/tests/pane.test.ts
 
 **Interfaces:**
 - Consumes: `readSessions` (Task 9), `roleOf`.
@@ -962,9 +961,9 @@ git commit -m "feat(supervision): show the supervised sessions in a dock pane"
 ### Task 11: commands — status, progress, agents become instant
 
 **Files:**
-- Create: `hooks/commands.ts`
-- Modify: `hooks/register.ts`
-- Test: `hooks/tests/commands.test.ts`
+- Create: hooks/commands.ts
+- Modify: hooks/register.ts
+- Test: hooks/tests/commands.test.ts
 
 **Interfaces:**
 - Consumes: `readSessions` (Task 9), `parseMeasure`.
@@ -1103,7 +1102,7 @@ git commit -m "chore: release 0.49.0"
 ### Task 15: bugs-bot 0.2.0 — the coordinated release
 
 **Files** (in `~/dev/claude-bugs-bot`):
-- Modify: `bugs_bot/gate.py` (measure source), `.claude-plugin/plugin.json` (dependency floor), `tests/test_gate_measure.py`, `tests/test_succession.py`, `skills/bugs-bot/SKILL.md`, `agent/AGENT.md`
+- Modify: `bugs_bot/gate.py` (measure source), `.claude-plugin/plugin.json` (dependency floor), tests/test_gate_measure.py, tests/test_succession.py, skills/bugs-bot/SKILL.md, `agent/AGENT.md`
 
 **Interfaces:**
 - Consumes: `~/.claude/claude-orchestrator/measure/<session-id>.json`, one line, the `MeasureReading` shape of Task 2.
