@@ -1,9 +1,11 @@
 // hooks/guards.ts
-// The guards in-process, and the walks they walk. This first half is the
-// context gate, hooks/context-gate.sh ported: on every prompt of a session the
+// The guards in-process, and the walks they walk. The context gate,
+// hooks/context-gate.sh ported: on every prompt of a session the
 // orchestration named, the fill the gauge measured, said to the model past the
-// gate — never a line the user must relay. The push guard and the stop gate
-// land beside it in their own tasks.
+// gate — never a line the user must relay. The push guard beside it,
+// hooks/push-guard.sh ported: every Bash call of a session the launcher
+// spawned read for a force, every force but the rebase's lease refused. The
+// stop gate lands in its own task.
 //
 // The engine fences $ to the file that received it — never passed across an
 // import, a noun of it never read as a value — so the session-name walk and
@@ -11,6 +13,7 @@
 // while their parsing stays pure in session-name.ts.
 import { roleOf, isTitle, titleOf, parentAndTty, launchNameOfListing } from './session-name.ts'
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
+import { detectForces } from './tokenizer.ts'
 
 // The config dir, gauge.ts's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -44,6 +47,18 @@ function auditorBrief(root: string): string {
 export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string, root = ''): string {
   if (!gate.tripped) return ''
   return `CONTEXT GATE: this session is at ${gate.words}. ${roleLine(role, root)}`
+}
+
+// The push decision, hooks/push-guard.sh's refusal ported: nothing in a session
+// the launcher did not mark (its build command exports the marker), and in a
+// marked one every force but the rebase's lease refused. The denial text is
+// push-guard.sh:226 verbatim, the tokeniser's reason strings spliced where the
+// shell spliced its awk's — they are pinned equal by the tokeniser's fixtures.
+export function pushDecision(spawned: string | null | undefined, command: string): { deny: string } | null {
+  if (!spawned) return null                        // the operator's own sessions: untouched
+  const forces = detectForces(command)
+  if (forces.length === 0) return null
+  return { deny: `git push refused: this session was spawned by the launcher, and the only forced push allowed here is --force-with-lease=<branch>:<sha> with the sha you read. Seen: ${forces.join(', ')}. If the command only mentions a push, put text that mentions a push in a file (\`git commit -F\`, \`gh … --body-file\`).` }
 }
 
 // prompt.submit's `context` is a list of blocks: what the model reads beside the
@@ -266,6 +281,30 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     // Focus 2's law, here for the walks). Either way the prompt is let
     // through, and the state dir says why; next is replay-safe in a catch,
     // called or not.
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // The push guard (push-guard.sh ported). tool.call's input carries the tool's
+  // arguments beside the tool's name — `e.command`, never a nested `input` —
+  // and the deny the engine documents for the event is `{ deny: reason }`, the
+  // decision's own shape already; the matcher keeps it to Bash calls.
+  on('tool.call', { tool: 'Bash' }, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      const spawned = await $.env.get('ORCHESTRATOR_SPAWNED')
+      const decision = pushDecision(spawned, String(e.command ?? ''))
+      if (decision) return decision
+      return next(e)
+    } catch (err) {
+      // A guard that cannot read its input lets the call through and says so —
+      // one line in the log, the shell guard's own failure posture.
+      await logLine($, (err as Error).message)
+      return next(e)
+    }
+  }).catch(async ($: any, e: any, next: any) => {
+    // The registered net the plan's every-handler rule asks validate to see,
+    // the prompt's own law one handler up: the call is let through, the state
+    // dir says why, and next is replay-safe in a catch, called or not.
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })

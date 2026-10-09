@@ -39,6 +39,7 @@ const PUSHVALUED = new Set(['--repo', '--push-option', '--receive-pack', '--exec
 
 export function detectForces(command: string): string[] {
   const found: string[] = []
+  // Dedup is exact where the awk's was substring — a deliberate widening: the module's « Seen: … » can name a reason the shell guard suppressed; verdicts identical.
   const seen = (reason: string) => { if (!found.includes(reason)) found.push(reason) }
 
   // The whole command, the awk's `s` — one trailing newline appended the way the
