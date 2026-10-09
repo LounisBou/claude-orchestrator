@@ -120,7 +120,7 @@ git commit -m "feat(hooks): load the module scaffold behind the shell hooks"
 - Amends Task 1's scaffold test: `toEqual(['session.start'])` relaxes to `toContain('session.start')` — gauge mounts `session.measure` beside it (pre-flight ruling) — and the fake's handler check lands with the same edit (review finding: the fake ignored its handler argument).
 - Produces:
   - `tripGate(percent: number | null, tokens: number | null, window: number | null, env?: { gate?: number; gateTokens?: number; largeWindow?: number }): { tripped: boolean; words: string }`
-  - `measureFilePath(sessionId: string): string` → `~/.claude/claude-orchestrator/measure/<id>.json` (honours `CLAUDE_CONFIG_DIR`)
+  - `measureFilePath(config: string, sessionId: string): string` → `<config>/claude-orchestrator/measure/<id>.json`; `configDir($)` in `gauge.ts` resolves `CLAUDE_CONFIG_DIR` through `$.env.get` (the module sandbox exposes no `process` global — ratified at the Task 2 review)
   - `writeMeasure($: { fs: { write(p: string, c: string): Promise<unknown> } }, sessionId: string, reading: MeasureReading): Promise<void>`
   - `type MeasureReading = { context_tokens: number; context_window: number; context_percent: number; model: string; updated_at: string }`
 
@@ -195,13 +195,12 @@ export function tripGate(
   return { tripped: false, words: '' }
 }
 
-export function measureFilePath(sessionId: string): string {
-  const config = process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`
+export function measureFilePath(config: string, sessionId: string): string {
   return `${config}/claude-orchestrator/measure/${sessionId}.json`
 }
 ```
 
-`writeMeasure` serialises one JSON line through `$.fs.write`; it lives in `gauge.ts` because it takes `$`.
+`configDir($): Promise<string>` (in `gauge.ts`) resolves `CLAUDE_CONFIG_DIR`, else `$HOME/.claude`, through `$.env.get` — the module sandbox exposes no `process` global (ratified at the Task 2 review). `writeMeasure` serialises one JSON line through `$.fs.write`; it lives in `gauge.ts` because it takes `$`.
 
 - [ ] **Step 4: Run to verify pass**
 
@@ -238,7 +237,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         model: String(model ?? 'unavailable'),
         updated_at: new Date().toISOString(),
       }
-      await $.fs.write(measureFilePath(e.sessionId ?? await $.session.id()), JSON.stringify(reading) + '\n')
+      await $.fs.write(measureFilePath(await configDir($), e.sessionId ?? await $.session.id()), JSON.stringify(reading) + '\n')
       if (lastModel !== null && lastModel !== reading.model) {
         await $.ui.toast(driftAnnouncement(reading.model, lastModel))
       }
@@ -254,7 +253,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 }
 
 async function logLine($: any, message: string): Promise<void> {
-  const config = process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`
+  // Shared read-modify-write, best effort: concurrent sessions may interleave lines.
+  // logLine stamps the module name — call sites pass the bare message, no prefix.
+  const config = await configDir($)
   const existing = await $?.fs?.read?.(`${config}/claude-orchestrator/hooks-module.log`).catch?.(() => '') ?? ''
   await $?.fs?.write?.(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | gauge | ${message}\n`)
 }
@@ -333,8 +334,9 @@ git commit -m "feat(gauge): measure the context from session events into one fil
 - Test: hooks/tests/gauge-band.test.ts
 
 **Interfaces:**
-- Consumes: `tripGate`, the reading stored by the `session.measure` handler (module variable `current: MeasureReading | null`, set in Task 2 step 5).
+- Consumes: `tripGate`, the reading kept by the `session.measure` handler — expose it as `export function currentReading(): MeasureReading | null` over the private `current` variable (Task 2 left it unexported; Task 2 review finding). Also export `configDir($)` from `gauge.ts`: Task 5 reads the measure file through it.
 - Produces: an `ui.render` handler on `component: 'AbovePrompt'`.
+- Carries (Task 2 review minors, adjudicated to this task — it already edits gauge.ts): the `session.end` handler gains the same `e.sessionId ?? await $.session.id()` fallback as `session.measure`; the `logLine` call sites drop their `gauge: `/`band: ` prefix (`logLine` stamps the module name itself); the scaffold test's title says what it now asserts, not "exactly one".
 
 - [ ] **Step 1: Write the failing test**
 
@@ -379,7 +381,7 @@ In `register`:
     try {
       const surfaces = await $.session.surfaces()
       if (!surfaces?.draws) return next(e)   // Review Focus 5: nothing draws → skip silently
-      const tree = bandTree(current)
+      const tree = bandTree(currentReading())
       if (!tree) return next(e)
       const el = await $.ui.resolve(e)
       // Draw: one Text row (label), colored when past the gate; the host's own
@@ -557,6 +559,7 @@ test('below the gate nothing is said', () => {
 // hooks/guards.ts — the context gate half (push and stop halves land in Tasks 6-8)
 import { roleOf } from './session-name.ts'
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
+import { configDir } from './gauge.ts'
 
 export function roleLine(role: string): string {
   // Verbatim from hooks/context-gate.sh:57-63 — the four role answers.
@@ -582,7 +585,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const role = roleOf(name)
       if (!role) return next(e)                       // a session never spoken to
       const sessionId = await $.session.id()
-      const raw = await $?.fs?.read?.(measureFilePath(sessionId)).catch?.(() => null) ?? null
+      const raw = await $?.fs?.read?.(measureFilePath(await configDir($), sessionId)).catch?.(() => null) ?? null
       const reading = parseMeasure(String(raw ?? ''))
       if (!reading) {
         if (!saidUnmeasured && await transcriptHasAnswer($, e.transcript_path ?? '')) {
@@ -890,7 +893,7 @@ git commit -m "feat(guards): hold a stop until something will wake the orchestra
 - Test: hooks/tests/supervision.test.ts
 
 **Interfaces:**
-- Consumes: the reading from `gauge.ts` (module export `current`), `roleOf`/`readName`.
+- Consumes: the reading from `gauge.ts` (`currentReading()`), `roleOf`/`readName`.
 - Produces: store key `sessions/<session-id>` → `{ role, name, repo, context_percent, context_tokens, window, model, busy, updated_at }` (`type SessionRow`); `writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void>`, `readSessions($: any): Promise<Record<string, SessionRow>>`, `deleteSession($: any, id: string): Promise<void>`, `sessionKey(id: string): string`.
 
 - [ ] **Step 1: Write the failing tests — Review Focus 4 lives here**
