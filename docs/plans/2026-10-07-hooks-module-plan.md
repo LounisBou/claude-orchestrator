@@ -19,6 +19,7 @@
 - Host version floor: 2.1.287, checked by `install.sh`.
 - Hard cutover: nothing of the tap/`ctx/` pipeline survives in 0.49.0 beyond the single `measure/<session-id>.json` file.
 - Every handler registers a `.catch` that logs one line to the state dir and never blocks.
+- Engine laws, ratified at the Task 5 review (the plan's earlier sketches predate them): `$` is fenced to the file that received it — never passed across an import, always spelled `$.noun.event(...)` at the call site, `$.env.get` takes a literal name; and `on(...)` chains `.catch(handler)` inline at the registration site — the engine checks for it and refuses the module without it. Shared logic splits pure (importable, plain values) from $-holding (stays in the file whose handler received `$`).
 - The measure file is the only channel to external processes; the store is never read from outside a session.
 - `$.fs.write` is non-atomic: every reader of `measure/*.json` treats an unparseable line as unmeasured.
 
@@ -845,9 +846,9 @@ git commit -m "feat(guards): refuse the forced pushes the launcher forbids, in-p
 - Test: hooks/tests/stop-gate.test.ts
 
 **Interfaces:**
-- Consumes: `readName`/`roleOf` (Task 4), `$.process.run`, `$.fs.read`, ci-watch's precomputed files under the state dir.
+- Consumes: `readName` (exported from hooks/guards.ts since Task 5's restructure — the `$` fence), `roleOf` (hooks/session-name.ts), `$.process.run`, `$.fs.read`, ci-watch's precomputed files under the state dir.
 - Sandbox facts (verified by Task 4 against the shipped types): `$.fs.read` offers no ranges and refuses past 4 MiB — transcript reads go through bounded `dd if=<path> bs=65536 skip=<n> count=1` windows via `$.process.run` (argv-only, no pipes), the pattern hooks/session-name.ts established; `$.fs.stat` gives the size; the cut first line carries on every block except the file-starting one.
-- Produces: `checkWake(...)`/`checkCi(...)` ports and a `classic.Stop` handler answering the same block decision as `stop_gate.py:647-651`.
+- Produces: `checkWake(...)`/`checkCi(...)` ports and a `classic.Stop` handler answering the same block decision as `stop_gate.py:647-651`. The handler registers in guards.ts, where `$` and `readName` live — hooks/stop-gate.ts holds the ported logic over plain values, the $-holding reads happening in the handler and their results passing in. The module event carries no `transcript_path`: locate the transcript by session id under `<config>/projects/*/<sessionId>.jsonl`, the way guards.ts's `transcriptPathOf` does (memoized per load), and verify the event's real field names against the generated types.
 
 - [ ] **Step 1: Verify the blocking contract first**
 
@@ -934,7 +935,7 @@ test('a session end removes its row', async ($) => {
 
 - [ ] **Step 2: Run to verify failure.**
 
-- [ ] **Step 3: Implement** — `writeSession` reads the key, merges the patch, writes back (per-key writes do not collide across sessions); hooks into `session.measure` (gauge.ts calls `writeSession` with the fresh reading) and `session.end` (delete). Stale rows: `readSessions` drops rows whose `updated_at` is older than one hour.
+- [ ] **Step 3: Implement** — `writeSession` reads the key, merges the patch, writes back (per-key writes do not collide across sessions); hooks into `session.measure` and `session.end` with its OWN registered handlers in supervision.ts — the `$` fence forbids gauge.ts calling an imported `writeSession($)`; the fresh figure comes through `currentReading()` (imported plain, no `$` argument), and the `$.fs` calls live in supervision.ts's handlers. A consumer that did not receive `$` (commands.ts, Task 11) reads the store through its own `$.fs` call plus supervision.ts's pure row parser. Stale rows: `readSessions` drops rows whose `updated_at` is older than one hour.
 
 - [ ] **Step 4: Run tests, commit**
 
@@ -1041,7 +1042,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 }
 ```
 
-Command names are verified against the generated types — if a plugin's module commands are not prefixed, the names become `status`/`progress`/`agents` and the markdown commands are deleted in Task 12 either way.
+Command names are verified against the generated types — if a plugin's module commands are not prefixed, the names become `status`/`progress`/`agents` and the markdown commands are deleted in Task 12 either way. The store read inside commands.ts is its own `$.fs` call plus supervision.ts's pure row parser — `readSessions($)` cannot cross an import (the `$` fence, Task 5's law); the sketch's line adjusts accordingly, and every `on(...)` chains `.catch(handler)` inline.
 
 - [ ] **Step 3: Run tests, live smoke (`/orchestrator:status` answers while a turn runs), commit**
 
