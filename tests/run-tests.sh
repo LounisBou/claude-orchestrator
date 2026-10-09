@@ -576,7 +576,53 @@ check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --hea
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
 check "and names the subcommands it expects" "1" \
-  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped or summary)')"
+  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped, cost or summary)')"
+
+# A pair row names the alias and the effort it ran on, and carries what its sessions cost:
+# rounds alone cannot say whether a lighter pair paid. The tier rows above print unchanged.
+CSTATE="$WORK/cstate"; mkdir -p "$CSTATE/routing"
+cp "$ROOT/tests/fixtures/routing/prices.json" "$CSTATE/routing/prices.json"
+crec() { ORCHESTRATOR_STATE_DIR="$CSTATE" ORCHESTRATOR_PROJECTS_DIR="$ROOT/tests/fixtures/routing/projects" bash "$REC" "$@"; }
+PR="$WORK/pairs.jsonl"
+p1=$(crec open "$PR" --class behaviour-phase --model a-model --effort medium --label "p1")
+check "a pair row carries model and effort" "a-model|medium|false|0" \
+  "$(jq -r 'select(.id==1)|[.model,.effort,.explore,.cost_usd]|map(tostring)|join("|")' "$PR")"
+crec cost "$PR" "$p1" --session s-1 >/dev/null
+check "cost adds the session's measured cost to the row" "0.1701|s-1" \
+  "$(jq -r 'select(.id==1)|[(.cost_usd*10000|round/10000|tostring), (.sessions|join(","))]|join("|")' "$PR")"
+check "the same session twice is not counted twice" "0.1701" \
+  "$(crec cost "$PR" "$p1" --session s-1 2>/dev/null; jq -r 'select(.id==1)|.cost_usd*10000|round/10000' "$PR")"
+check "cost records the identifier the row's alias resolved to" "a-model-1" "$(jq -r '.["a-model"]' "$CSTATE/routing/aliases.json")"
+crec close "$PR" "$p1" --verdict approved >/dev/null
+check "summary prints the pair and its average cost" "1" \
+  "$(crec summary "$PR" | grep -c '^class=behaviour-phase pair=a-model/medium dispatches=1 closed=1 rounds_avg=0 cost_avg=0.1701$')"
+# A pair row with no effort ran on the host's default: it says so rather than print a pair cut short.
+crec open "$WORK/pair-noeffort.jsonl" --class n-bis --model b-model >/dev/null
+check "a pair row without an effort groups as the host's default" "1" \
+  "$(crec summary "$WORK/pair-noeffort.jsonl" | grep -c '^class=n-bis pair=b-model/default dispatches=1 closed=0 rounds_avg=0$')"
+check_status "open refuses an unknown effort" 1 crec open "$PR" --class x --model a-model --effort huge
+check_status "open wants a tier or a model" 1 crec open "$PR" --class x
+check_status "an effort without a model is refused" 1 crec open "$PR" --class x --tier light --effort low
+check_status "cost wants a session" 1 crec cost "$PR" "$p1"
+check_status "cost of a session with no transcript is an error" 1 crec cost "$PR" "$p1" --session s-404
+# An unpriced model leaves the row's cost incomplete, and the summary averages only rows
+# whose cost is whole: a partial figure would rank a pair cheaper than it is.
+p2=$(crec open "$PR" --class behaviour-phase --model a-model --effort medium)
+mkdir -p "$WORK/cstate-noprice"
+ORCHESTRATOR_STATE_DIR="$WORK/cstate-noprice" ORCHESTRATOR_PROJECTS_DIR="$ROOT/tests/fixtures/routing/projects" bash "$REC" cost "$PR" "$p2" --session s-1 >/dev/null 2>&1
+check "an unpriced session marks the row cost_incomplete" "true|s-1" \
+  "$(jq -r --argjson i "$p2" 'select(.id==$i)|[(.cost_incomplete|tostring), (.sessions|join(","))]|join("|")' "$PR")"
+crec close "$PR" "$p2" --verdict approved >/dev/null
+check "an incomplete cost stays out of the average" "1" \
+  "$(crec summary "$PR" | grep -c '^class=behaviour-phase pair=a-model/medium dispatches=2 closed=2 rounds_avg=0 cost_avg=0.1701$')"
+# Exploration: a failed one freezes the class; three that close in one round promote the pair.
+e1=$(crec open "$PR" --class conversion-phase --model a-model --effort low --explore)
+crec round "$PR" "$e1" >/dev/null; crec round "$PR" "$e1" >/dev/null; crec close "$PR" "$e1" --verdict approved >/dev/null
+check "an exploration that cost a corrective round freezes its class" "1" "$(crec summary "$PR" | grep -c '^frozen=conversion-phase$')"
+for i in 1 2 3; do e=$(crec open "$PR" --class n-bis --model a-model --effort low --explore); crec round "$PR" "$e" >/dev/null; crec close "$PR" "$e" --verdict approved >/dev/null; done
+check "three explorations closed in one round promote the pair" "1" "$(crec summary "$PR" | grep -c '^promote=n-bis a-model/low$')"
+check "an escaped defect on an exploration freezes its class too" "1|0" \
+  "$(crec escaped "$PR" "$e" >/dev/null; crec summary "$PR" | grep -c '^frozen=n-bis$')|$(crec summary "$PR" | grep -c '^promote=n-bis')"
 
 echo "== workspace =="
 
