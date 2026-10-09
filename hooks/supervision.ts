@@ -2,10 +2,12 @@
 // The shared store: one row per live session — the figures the gauge measured,
 // the name the walk read, the repository of the working directory — written by
 // this file's own session.measure handler and removed by its session.end, one
-// file per key under the module's state root. The pane (Task 10) reads the
-// rows in this same file; a consumer that holds no $ of the writing side (the
-// commands, Task 11) reads the same files through its own $.fs calls plus the
-// pure row parser below.
+// file per key under the module's state root. The coordinator pane below reads
+// the rows in this same file, opened for the supervising roles on their
+// session.start and drawn on the pane's own render, sorted by rotation
+// urgency; a consumer that holds no $ of the writing side (the commands, a
+// later task) reads the same files through its own $.fs calls plus the pure
+// row parser below.
 //
 // The engine fences $ to the file that received it — never passed across an
 // import — so this file spells its own env resolution, its own log stamp, its
@@ -13,7 +15,9 @@
 // cross as a plain import (currentReading, no $ argument) and the name runs
 // over the walk's pure core with readers built here.
 import { currentReading } from './gauge.ts'
+import { tripGate } from './gauge-core.ts'
 import { roleOf, walkName, BLOCK } from './session-name.ts'
+import { withDeadline, isDegradedPass } from './stop-gate.ts'
 
 // One row per live session, the store's whole schema.
 export type SessionRow = {
@@ -32,6 +36,19 @@ export type SessionRow = {
 // without its end event — a crash, a kill — and the store does not keep it
 // past the figures it would show.
 const STALE_AFTER_MS = 60 * 60 * 1000
+
+// The coordinator pane this file draws beside the store it reads: the id names
+// it at the engine (the open, the render's requestId, a later close), the
+// title its tab while more than one pane is open. The id's spelling is the
+// shipped type's own contract — letters, digits, `_` and `-`, at most 64.
+const PANE_ID = 'supervision'
+const PANE_TITLE = 'Supervised sessions'
+
+// The sort's one law: a row past the rotation gate outranks every row below
+// it, however full each side is; within a side, the fill descends. The floor
+// is any number no honest fill reaches, added to the fill so the order stays
+// one comparison.
+const GATE_URGENCY_FLOOR = 1000
 
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -69,7 +86,9 @@ export function parseSessionRow(text: string): SessionRow | null {
 // writeSession reads the key's file, merges the patch over what it finds and
 // writes it back stamped: per-key writes do not collide across sessions, and
 // the stamp the row is judged stale by is the write's own unless the patch
-// carries one (the measure handler passes the reading's own time).
+// carries one (the measure handler passes the reading's own time). The measure
+// handler is the only writer of a key: a same-key race is last-writer-wins,
+// at most one measure of freshness.
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
   const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
   const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
@@ -111,6 +130,66 @@ export async function deleteSession($: any, id: string): Promise<void> {
   await $.fs.write(`${storeDir(await configDir($))}/${sessionKey(id)}`, '')
 }
 
+// The reading's age, the pane row's last element: how long ago the row's own
+// measure stamped it. A stamp that parses to nothing names no age (an
+// unparseable stamp cannot be judged stale either, and the store has already
+// dropped the rows an hour old), so the buckets stop at hours.
+function ageLabel(updated_at: string, now: number): string | null {
+  const at = Date.parse(updated_at)
+  if (!Number.isFinite(at)) return null
+  const minutes = Math.floor((now - at) / 60000)
+  if (minutes < 1) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  return `${Math.floor(minutes / 60)}h`
+}
+
+// The pane's rows, the store read end to end and sorted by rotation urgency:
+// the sessions past the gate first (they are the rotation's next moves), then
+// the rest, each side by fill descending. The label carries what the design
+// names — the name, the role, the fill against the gate, the reading's age —
+// with the gate the gauge's own double gate, so a session past it by tokens
+// alone on a wide window is marked past it here too.
+export function paneRows(rows: Record<string, SessionRow>): { label: string; urgency: number }[] {
+  const now = Date.now()
+  return Object.values(rows)
+    .map(row => {
+      const past = tripGate(row.context_percent, row.context_tokens, row.window).tripped
+      const parts = [
+        row.name ?? 'unnamed',
+        row.role ?? 'no role',
+        `${row.context_percent}%${past ? ' past the gate' : ''}`,
+      ]
+      const age = ageLabel(row.updated_at, now)
+      if (age !== null) parts.push(age)
+      return { label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + row.context_percent }
+    })
+    .sort((a, b) => b.urgency - a.urgency)
+}
+
+// The bound on this file's side reads — the name walk, the origin read — the
+// guards' own deadline convention inherited at the Task 9 review's word: well
+// inside the ten seconds a handler owns, so a read that cannot answer in time
+// is quietly no name (no repository), never a late row or a held measure. The
+// operator's env knob turns it, milliseconds like its name says.
+async function sideReadBoundMs($: any): Promise<number> {
+  const raw = await $.env.get('ORCHESTRATOR_SIDE_READ_MS')
+  const n = raw === undefined ? NaN : Number(raw)
+  return Number.isFinite(n) && n > 0 ? n : 2000
+}
+
+// The session's name under the side-read bound, this file's own walk over its
+// own readers (the per-file convention the fence leaves no way around): null
+// when the walk loses its race — the row keeps its figures and goes unnamed.
+async function nameWithinBound($: any, sessionId: string): Promise<string | null> {
+  const walked = await withDeadline(walkName(
+    (argv: readonly string[]) => $.process.run(argv),
+    async (path: string) => (await $.fs.stat(path)).size,
+    (path: string, index: number) => readRange($, path, index),
+    await transcriptPathOf($, sessionId),
+  ), await sideReadBoundMs($))
+  return isDegradedPass(walked) ? null : walked.name
+}
+
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
   // The engine allows one no-matcher registration per event, and the gauge
   // owns session.measure's and session.end's: this domain observes the same
@@ -128,16 +207,15 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const reading = currentReading()
       if (reading) {
         const sessionId = e.sessionId ?? await $.session.id()
-        const { name } = await walkName(
-          (argv: readonly string[]) => $.process.run(argv),
-          async (path: string) => (await $.fs.stat(path)).size,
-          (path: string, index: number) => readRange($, path, index),
-          await transcriptPathOf($, sessionId),
-        )
+        // The side reads run bounded: a walk or an origin read that cannot
+        // answer in time is quietly no name and no repository — the figures
+        // still land, and the next measure names the row.
+        const name = await nameWithinBound($, sessionId)
+        const origin = await withDeadline(repoOf($), await sideReadBoundMs($))
         await writeSession($, sessionId, {
           role: roleOf(name),
           name,
-          repo: await repoOf($),
+          repo: isDegradedPass(origin) ? null : origin,
           context_percent: reading.context_percent,
           context_tokens: reading.context_tokens,
           window: reading.context_window,
@@ -168,6 +246,67 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await logLine($, (err as Error).message)
     }
     return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // The scaffold bare-registered session.start, and the engine allows the
+  // second registration of an event only through a matcher: {} names every
+  // field of no one, so every start reaches the handler and the role check —
+  // the pane belongs to the supervising roles alone — stays inside it.
+  on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      // A session that draws nowhere yet (a -p run, the SDK) has no surface
+      // that places a pane, and no later event re-offers the open: the start
+      // is answered without spending the walk on it.
+      if (e.surface) {
+        const name = await nameWithinBound($, await $.session.id())
+        const role = roleOf(name)
+        if (role === 'coordinator' || role === 'orchestrator') {
+          // Unasked — the shipped types' own word for an open no person's
+          // command stands behind — the pane waits undrawn under 144 columns
+          // and seats itself when the terminal widens or the person opens it;
+          // and the open is idempotent, one pane per id, a re-open retitles.
+          await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
+        }
+      }
+    } catch (err) {
+      // A start is never held on the pane's own failure; it is said.
+      await logLine($, (err as Error).message)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // The pane's own render, the band handler's posture: the matcher names the
+  // render envelope's component and requestId — the pane's id, which the open
+  // and a later close name too — so the rows are drawn in this plugin's pane
+  // alone and never in another plugin's. No surfaces check here: a pane render
+  // is raised only where a surface already draws it, placed by the surface.
+  on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      // The store at draw time is the whole refresh story: the gauge's own
+      // invalidate after every measure re-raises this render (an invalidate is
+      // any plugin's whose matcher may select it), so the pane follows this
+      // session's turn cadence, and the rows the other sessions write land in
+      // the files and are read here on the next draw. Display only: nothing is
+      // written back, not into the store and not into the event.
+      const rows = paneRows(await readSessions($))
+      const el = $.ui.resolve(e)
+      return el.Box({
+        flexDirection: 'column',
+        children: rows.map(row =>
+          el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
+        ),
+      })
+    } catch (err) {
+      // A pane that fails to draw never blocks the render: the engine draws its own.
+      await logLine($, (err as Error).message)
+      return next(e)
+    }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
