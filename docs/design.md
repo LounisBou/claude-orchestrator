@@ -91,11 +91,13 @@ hooks/gauge-core.ts                  the measurement rules, pure: the double gat
 hooks/gauge.ts                       measures the context into one file per session on session events, announces model drift, and draws the fill band above the prompt
 hooks/session-name.ts                the session's naming, pure: the role prefixes, the custom-title value's normalization, the launch-name parse of a flat ps listing
 hooks/guards.ts                      the guards and the walks they walk ($ fenced to the file that holds it): the context gate on prompt.submit over the name walk and the transcript's blocks
+hooks/tokenizer.ts                   the push tokeniser, pure: the command line read the way the shell reads it (quotes, separators, heredocs, wrappers), every force a git push carries named
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
 hooks/tests/gauge-core.test.ts       the double gate's boundaries, the measure line, the drift announcement and its once rule
 hooks/tests/gauge-band.test.ts       the fill band: the quiet label, the rotation line past the gate, the nothing-drawn skip
 hooks/tests/session-name.test.ts     the role prefixes, the rename's normalization, and the last rename winning over the earlier title, read from the end in blocks
 hooks/tests/context-gate.test.ts     the four role lines verbatim, the announcement's words, and the wiring over a faked $: spoken past the gate, silent below and unscoped, unmeasured once
+hooks/tests/tokenizer.test.ts        the push tokeniser's fixtures: every forced form the shell suite refused and everything it accepted, moved module-side beside the awk until Task 12
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it
