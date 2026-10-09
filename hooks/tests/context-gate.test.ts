@@ -1,0 +1,193 @@
+// hooks/tests/context-gate.test.ts
+import { expect, test } from 'claude-code/testing'
+import { roleLine, gateAnnouncement, register as registerGuards } from '../guards.ts'
+
+test('each role gets its own line, verbatim from the shell gate', () => {
+  expect(roleLine('orchestrator')).toBe('Succeed at the next quiet boundary — run /orchestrator:succeed: spawn the successor in the operator\'s decision mode, then tell the user; do not ask.')
+  expect(roleLine('agent')).toBe('Finish the unit in progress, report to your orchestrator with your measured context, and stop; no new phase is dispatched to you.')
+  expect(roleLine('coordinator')).toContain('skills/coordination/SKILL.md')
+  expect(roleLine('auditor')).toContain('auditor-succession-brief.md')
+  expect(roleLine('none' as any)).toBe('')
+})
+
+test('the announcement names what was read', () => {
+  const a = gateAnnouncement({ tripped: true, words: '80% (gate 80%)' }, 'agent') // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  expect(a).toBe('CONTEXT GATE: this session is at 80% (gate 80%). ' + roleLine('agent')) // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+})
+
+test('below the gate nothing is said', () => {
+  expect(gateAnnouncement({ tripped: false, words: '' }, 'orchestrator')).toBe('')
+})
+
+// The wiring half. prompt.submit's input carries no transcript path (the
+// settings hook's payload did), so the gate finds the transcript the gauge's
+// own way, by session id under the projects directory, and reads the session's
+// name through the same seams the module does: the process table for the launch
+// name, the transcript's blocks for a rename. The fake spells those seams the
+// way session-name.test.ts and the band test fake theirs.
+const HOME = '/tmp/h'
+const TRANSCRIPT = `${HOME}/.claude/projects/-a-project/s-gate.jsonl`
+const MEASURE = `${HOME}/.claude/claude-orchestrator/measure/s-gate.json`
+const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
+
+// The transcript of a session a turn has answered; the rename on the last line
+// is padded — the unmeasured test below reads the session's name from it alone.
+const ANSWERED_RENAMED = [
+  '{"type":"assistant","message":{"role":"assistant","content":"an answer"}}',
+  '{"type":"custom-title","customTitle":"  Agent : padded  "}',
+].join('\n') + '\n'
+
+const MEASURED_84 = JSON.stringify({
+  context_tokens: 84000, context_window: 100000, context_percent: 84, model: 'a-model', updated_at: 't',
+})
+
+type Setup = {
+  transcript?: string
+  measure?: string
+  env?: Record<string, string>
+  noTty?: boolean
+  noLaunchName?: boolean
+  noSession?: boolean
+}
+
+function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
+  const written: string[] = []
+  const env = { HOME, ...(setup.env ?? {}) }
+  const dollar = {
+    session: {
+      id: async () => {
+        if (setup.noSession) throw new Error('no session id')
+        return 's-gate'
+      },
+    },
+    env: { get: async (name: string) => env[name] },
+    fs: {
+      read: async (p: string) => {
+        if (p === MEASURE) {
+          if (setup.measure === undefined) throw new Error('ENOENT')
+          return setup.measure
+        }
+        if (p === LOG) return ''
+        throw new Error(`unread: ${p}`)
+      },
+      write: async (p: string, text: string) => { if (p === LOG) written.push(text) },
+      stat: async (p: string) => {
+        if (p === TRANSCRIPT && setup.transcript !== undefined) {
+          return { kind: 'file', size: setup.transcript.length }
+        }
+        throw new Error('ENOENT')
+      },
+      list: async (p: string) => (
+        p === `${HOME}/.claude/projects`
+          ? [{ name: '-a-project', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+          : []
+      ),
+      exists: async (p: string) => p === TRANSCRIPT && setup.transcript !== undefined,
+    },
+    process: {
+      run: async (argv: readonly string[]) => {
+        if (argv[0] === 'sh') {
+          // selfTty's seed: a controlling tty, or none for a headless run.
+          return { exitCode: 0, stdout: setup.noTty ? '123 ??\n' : '123 ttys001\n', stderr: '' }
+        }
+        if (argv[1] === '-t') {
+          // The session's own process, as the listing prints it.
+          return { exitCode: 0, stdout: setup.noLaunchName ? '  501 host\n' : '  501 host --name Agent : belt\n', stderr: '' }
+        }
+        if (argv[0] === 'ps') return { exitCode: 0, stdout: '1 ??\n', stderr: '' }
+        if (argv[0] === 'dd') {
+          const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
+          const bs = Number(flag('bs')), skip = Number(flag('skip')), count = Number(flag('count'))
+          const text = setup.transcript ?? ''
+          return { exitCode: 0, stdout: text.slice(skip * bs, (skip + count) * bs), stderr: '' }
+        }
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    },
+  }
+  return { dollar, written }
+}
+
+function mounted(): Record<string, Function> {
+  const handlers: Record<string, Function> = {}
+  registerGuards((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    // The engine's on returns a registration taking one .catch; the fake
+    // accepts it and drops it — the body's own catch is what the wiring tests.
+    return { catch: () => undefined }
+  })
+  return handlers
+}
+
+async function submit(handlers: Record<string, Function>, dollar: any, e: object = { text: 'go', wait: false, origin: { kind: 'user' } }) {
+  let seen: unknown = null
+  await handlers['prompt.submit'](dollar, e, (x: unknown) => { seen = x; return x })
+  return seen
+}
+
+test('past the gate the role line rides the prompt as one context block', async () => {
+  const { dollar } = fakeDollar({ transcript: ANSWERED_RENAMED, measure: MEASURED_84 })
+  const seen = await submit(mounted(), dollar)
+  expect(seen).toMatchObject({
+    text: 'go',
+    context: [`CONTEXT GATE: this session is at 84% (gate 80%). ${roleLine('agent')}`], // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  })
+})
+
+test('the gate an env var lowered trips on a fill the default lets by', async () => {
+  const { dollar } = fakeDollar({
+    transcript: ANSWERED_RENAMED,
+    measure: JSON.stringify({ context_tokens: 42000, context_window: 100000, context_percent: 42, model: 'a-model', updated_at: 't' }),
+    env: { ORCHESTRATOR_CONTEXT_GATE: '1' },
+  })
+  const seen = await submit(mounted(), dollar)
+  expect((seen as any).context[0]).toContain('42% (gate 1%)')
+})
+
+test('below the gate the prompt passes on untouched, context included', async () => {
+  const { dollar } = fakeDollar({
+    transcript: ANSWERED_RENAMED,
+    measure: JSON.stringify({ context_tokens: 42000, context_window: 100000, context_percent: 42, model: 'a-model', updated_at: 't' }),
+  })
+  const e = { text: 'go', wait: false, origin: { kind: 'user' }, context: ['a prior block'] }
+  const seen = await submit(mounted(), dollar, e)
+  expect(seen).toBe(e)
+})
+
+test('an unmeasured session is told so once, after a turn has answered', async () => {
+  // No launch name, so the session is named by the padded rename alone — the
+  // reading the Carries line normalized, proven here through the gate itself.
+  const { dollar } = fakeDollar({ transcript: ANSWERED_RENAMED, noLaunchName: true })
+  const handlers = mounted()
+  const first = await submit(handlers, dollar)
+  expect(first).toMatchObject({
+    context: ['CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (80%, or 300,000 tokens on a window of 1,000,000 or more) cannot be read; measure by hand before dispatching or rotating.'], // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  })
+  // Once per session: the next prompt meets the same silence as a low fill.
+  const second = await submit(handlers, dollar)
+  expect(second).toMatchObject({ text: 'go' })
+  expect((second as any).context).toBeUndefined()
+})
+
+test('a session whose first prompt this is stays silent', async () => {
+  // No measure file and no transcript at all: the tap has not rendered for this
+  // session yet, which is not a failure it reports.
+  const { dollar } = fakeDollar({})
+  const seen = await submit(mounted(), dollar)
+  expect(seen).toMatchObject({ text: 'go' })
+  expect((seen as any).context).toBeUndefined()
+})
+
+test('a session no tty names is never spoken to', async () => {
+  const { dollar } = fakeDollar({ noTty: true, transcript: ANSWERED_RENAMED, measure: MEASURED_84 })
+  const e = { text: 'go', wait: false, origin: { kind: 'user' } }
+  expect(await submit(mounted(), dollar, e)).toBe(e)
+})
+
+test('a handler that fails lets the prompt through and logs one line', async () => {
+  const { dollar, written } = fakeDollar({ transcript: ANSWERED_RENAMED, measure: MEASURED_84, noSession: true })
+  const e = { text: 'go', wait: false, origin: { kind: 'user' } }
+  expect(await submit(mounted(), dollar, e)).toBe(e)
+  expect(written.length).toBe(1)
+  expect(written[0]).toContain('| guards |')
+})

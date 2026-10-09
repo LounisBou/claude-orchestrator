@@ -1,6 +1,10 @@
 // hooks/tests/session-name.test.ts
+// The naming domain: the pure parsers from session-name.ts, and the walk from
+// guards.ts (the engine fences $ to the file whose handlers hold it, so the
+// walk lives there — the tests follow the domain, not the file).
 import { expect, test } from 'claude-code/testing'
-import { roleOf, lastCustomTitle } from '../session-name.ts'
+import { roleOf, titleOf } from '../session-name.ts'
+import { lastCustomTitle } from '../guards.ts'
 
 test('the role is the prefix of the name', () => {
   expect(roleOf('Orch : payments')).toBe('orchestrator')
@@ -71,4 +75,17 @@ test('an entry cut by the block boundary is carried whole and still read', async
 test('a transcript no rename was written to names nothing', async () => {
   const text = '{"type":"user","message":{"role":"user","content":"a turn"}}\n'
   expect(await lastCustomTitle(fakeDollar(text), 'a-transcript.jsonl')).toBeNull()
+})
+
+// unquoted()'s own rule (session_name.py:75-78): a rename the host stored with
+// padding or surrounding quotes reads back trimmed, so its role prefix still
+// matches; what trims to nothing names nothing. titleOf carries the rule; the
+// walk returns it as the name.
+test('a padded rename reads back trimmed, quotes stripped, empties to null', async () => {
+  const entry = (title: string) => `{"type":"custom-title","customTitle":${JSON.stringify(title)}}`
+  expect(titleOf(entry('  Agent : x  '))).toBe('Agent : x')
+  expect(titleOf(entry('" Agent : quoted "'))).toBe('Agent : quoted')
+  expect(titleOf(entry('  ""  '))).toBeNull()
+  expect(titleOf('{"type":"user","message":{"role":"user","content":"no title"}}')).toBeNull()
+  expect(await lastCustomTitle(fakeDollar(entry('  Agent : x  ') + '\n'), 'a-transcript.jsonl')).toBe('Agent : x')
 })
