@@ -902,6 +902,7 @@ git commit -m "feat(guards): hold a stop until something will wake the orchestra
 **Interfaces:**
 - Consumes: the reading from `gauge.ts` (`currentReading()`), `roleOf`/`readName`.
 - Produces: store key `sessions/<session-id>` → `{ role, name, repo, context_percent, context_tokens, window, model, busy, updated_at }` (`type SessionRow`); `writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void>`, `readSessions($: any): Promise<Record<string, SessionRow>>`, `deleteSession($: any, id: string): Promise<void>`, `sessionKey(id: string): string`.
+- Carries (Task 3 review minors, adjudicated to this task — it already edits gauge.ts for the session.end hook): the `session.end` handler's empty catch logs one line through `logLine` before passing through (the plan's every-handler-logs rule); the fake `on` in `hooks/tests/gauge-band.test.ts` stores the matcher it receives and the wiring test asserts the `ui.render` registration carries `{ component: 'AbovePrompt' }` — a bare two-argument registration would pass every test while drawing on every component.
 
 - [ ] **Step 1: Write the failing tests — Review Focus 4 lives here**
 
