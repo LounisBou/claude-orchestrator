@@ -87,7 +87,10 @@ commands/coordinator.md              starts the machine's coordinator on the ope
 commands/coordinator-end.md          ends the coordinator on the operator's word; the record cleared
 hooks/hooks.json                     declares the context gate, the push guard and the stop gate
 hooks/register.ts                    the hooks module's entry point: mounts the domains as they land
+hooks/gauge-core.ts                  the measurement rules, pure: the double gate, the measure file path, tolerant parsing
+hooks/gauge.ts                       measures the context into one file per session on session events, and announces model drift
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
+hooks/tests/gauge-core.test.ts       the double gate's boundaries, the measure line, the drift announcement and its once rule
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it

@@ -1,0 +1,87 @@
+// hooks/tests/gauge-core.test.ts
+import { expect, test } from 'claude-code/testing'
+import { tripGate, parseMeasure, measureFilePath } from '../gauge-core.ts'
+import { driftAnnouncement, writeMeasure, register as registerGauge } from '../gauge.ts'
+
+test('the gate trips at 80 percent of the window', () => {
+  expect(tripGate(79, 79000, 100000).tripped).toBe(false)
+  expect(tripGate(80, 80000, 100000).tripped).toBe(true)
+})
+
+test('the gate trips at 300,000 tokens on a window of 1,000,000 or more', () => {
+  expect(tripGate(29, 299999, 1000000).tripped).toBe(false)
+  expect(tripGate(30, 300000, 1000000).tripped).toBe(true)
+  expect(tripGate(31, 310000, 1200000).tripped).toBe(true)
+})
+
+test('below the large window only the percent rules', () => {
+  expect(tripGate(50, 300000, 400000).tripped).toBe(false)
+})
+
+test('an unreadable reading never trips', () => {
+  expect(tripGate(null, null, null).tripped).toBe(false)
+})
+
+test('the tripped words name what was read', () => {
+  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  expect(tripGate(30, 300000, 1000000).words).toBe('300,000 tokens (gate 300,000 on a 1M window)')
+})
+
+test('env overrides move the thresholds', () => {
+  expect(tripGate(50, 50000, 100000, { gate: 50 }).tripped).toBe(true)
+  expect(tripGate(10, 100000, 1000000, { gateTokens: 100000 }).tripped).toBe(true)
+})
+
+test('the measure file is one JSON line at the session path', async () => {
+  const writes: [string, string][] = []
+  const $ = {
+    fs: { write: async (p: string, c: string) => { writes.push([p, c]) } },
+    env: { get: async (name: string) => (name === 'CLAUDE_CONFIG_DIR' ? '/cfg' : undefined) },
+  }
+  await writeMeasure($, 's1',
+    { context_tokens: 123, context_window: 1000, context_percent: 12, model: 'a-model', updated_at: 't' })
+  expect(measureFilePath('/cfg', 's1')).toBe('/cfg/claude-orchestrator/measure/s1.json')
+  expect(writes[0][0]).toBe('/cfg/claude-orchestrator/measure/s1.json')
+  expect(writes[0][1]).toBe('{"context_tokens":123,"context_window":1000,"context_percent":12,"model":"a-model","updated_at":"t"}\n')
+})
+
+test('a model change is announced once, naming both models', () => {
+  const a = driftAnnouncement('a-model', 'another-model')
+  expect(a).toBe('MODEL DRIFT: this session now answers as a-model; it answered as another-model until now. The host switched on its own (a refusal, an outage): say it to the operator in your next message; a succession does not repair it.')
+})
+
+test('a partial or empty measure line reads as unmeasured, never throws', () => {
+  expect(parseMeasure('')).toBeNull()
+  expect(parseMeasure('{"context_tokens":123')).toBeNull()
+  expect(parseMeasure('{"context_tokens":123,"context_window":1000,"context_percent":12,"model":"a-model","updated_at":"t"}')).toMatchObject({ context_tokens: 123 })
+})
+
+test('a fresh module load announces no drift, and a later change is announced once', async () => {
+  // A reload re-evaluates the module file, so lastModel starts at null on every
+  // load (the host refuses import() in module code, so the reload is pinned by its
+  // observable rule): the first measure of a load announces nothing — there is no
+  // previous model to drift from — and a change between two measures of the same
+  // load is announced exactly once, never re-announced on the next measure.
+  const toasts: string[] = []
+  let answersAs = 'a-model'
+  const handlers: Record<string, Function> = {}
+  registerGauge((event: string, handler: Function) => { handlers[event] = handler })
+  const $ = {
+    session: {
+      usage: async () => ({ context: { tokens: 1, window: 2, percent: 3 } }),
+      model: async () => answersAs,
+      id: async () => 's1',
+    },
+    fs: { write: async () => undefined },
+    env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
+    ui: { toast: (text: string) => { toasts.push(text) }, invalidate: () => undefined },
+  }
+  const through = (e: unknown) => e
+  await handlers['session.measure']($, {}, through)
+  expect(toasts).toEqual([])
+  answersAs = 'another-model'
+  await handlers['session.measure']($, {}, through)
+  expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
+  await handlers['session.measure']($, {}, through)
+  expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
+})
