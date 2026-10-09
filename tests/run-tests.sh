@@ -2997,6 +2997,38 @@ check_status "a missing map is not an error" 0 \
 check "resolve-tier wants exactly one tier" "ERROR: resolve-tier: exactly one tier is required (deep, standard or light)" \
   "$(bash "$AGENT" resolve-tier 2>&1)"
 
+# A tier may bind an effort with its model: effort moves token spend as much as the family.
+PMAP="$WORK/pair-map.json"
+printf '{"deep":{"model":"a-model","effort":"high"},"standard":"b-model","light":{"model":"c-model"}}' > "$PMAP"
+check "a pair binding resolves to model/effort" "a-model/high" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier deep)"
+check "a string binding still resolves to the model alone" "b-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier standard)"
+check "an object without effort resolves to the model alone" "c-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier light)"
+check "the environment may bind a pair too" "c-model/low" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" ORCHESTRATOR_TIER_DEEP=c-model/low bash "$AGENT" resolve-tier deep)"
+printf '{"deep":{"model":"a-model","effort":"huge"}}' > "$WORK/bad-effort.json"
+check "an unknown effort in the map is a refusal" \
+  "ERROR: resolve-tier: tier deep has an unknown effort: huge (expected low, medium, high, xhigh or max)" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$WORK/bad-effort.json" bash "$AGENT" resolve-tier deep 2>&1)"
+printf '{"deep":{"effort":"high"}}' > "$WORK/no-model.json"
+check_status "an object without a model is a refusal" 1 \
+  env ORCHESTRATOR_MODELS_MAP="$WORK/no-model.json" bash "$AGENT" resolve-tier deep
+pcmd() { env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p "$@" 2>/dev/null; }
+check "a pair tier types the model then the effort" "1" "$(pcmd --tier deep | grep -c -- '--model a-model --effort high')"
+check "an explicit effort wins over the map's" "1" "$(pcmd --tier deep --effort low | grep -c -- '--effort low')"
+check "an explicit effort with an explicit model" "1" "$(pcmd --model z-model --effort medium | grep -c -- '--model z-model --effort medium')"
+check "no effort anywhere: no effort argument" "0" "$(pcmd --tier standard | grep -c -- '--effort')"
+check "an unknown effort on spawn is a refusal" \
+  "ERROR: spawn: unknown effort: huge (expected low, medium, high, xhigh or max)" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p --effort huge 2>&1 | tail -1)"
+check "an auditor refuses an effort: it runs as its caller runs" "1" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' --prompt p --effort low 2>&1 | grep -c -- 'refused: --effort is not an auditor')"
+check "rotate forwards the effort to the spawn" "1" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$PMAP" \
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep --effort max --prompt p 2>&1 | grep -c -- '--model a-model --effort max')"
+
 tcmd() {
   local out
   out=$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
