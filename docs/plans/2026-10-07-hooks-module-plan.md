@@ -28,7 +28,7 @@
 Five input classes the task tests do not fully pin; each line's test is added to the owning task.
 
 1. **A partially written measure file** (non-atomic write caught mid-turn by `gate.py`) must read as unmeasured, never crash the caller → Task 2 step 6, Task 15 step 4.
-2. **A handler exceeding the 10-second budget** (slow CI read in the stop gate) must degrade to "let it pass and log", never block the stop forever → Task 8 step 2.
+2. **A handler exceeding the 10-second time bound** (slow CI read in the stop gate) must degrade to "let it pass and log", never block the stop forever → Task 8 step 2.
 3. **Hot reload resets module memory** (a re-registered module re-runs `register`) — model-drift state and unmeasured-once markers must not double-announce after a reload → Task 2 step 7 (the `null` reset covers both markers, which live in module memory).
 4. **Two sessions writing the store at once** — keys are per session id; a concurrent write to another key must not be lost → Task 9 step 1.
 5. **A surface that draws nothing** (chat panel, headless) — the band handler must skip silently, not throw → Task 3 step 3 (the `surfaces` check) and its `bandTree(null)` test case.
@@ -849,7 +849,8 @@ git commit -m "feat(guards): refuse the forced pushes the launcher forbids, in-p
 **Interfaces:**
 - Consumes: `readName` (exported from hooks/guards.ts since Task 5's restructure — the `$` fence), `roleOf` (hooks/session-name.ts), `$.process.run`, `$.fs.read`, ci-watch's precomputed files under the state dir.
 - Sandbox facts (verified by Task 4 against the shipped types): `$.fs.read` offers no ranges and refuses past 4 MiB — transcript reads go through bounded `dd if=<path> bs=65536 skip=<n> count=1` windows via `$.process.run` (argv-only, no pipes), the pattern hooks/session-name.ts established; `$.fs.stat` gives the size; the cut first line carries on every block except the file-starting one.
-- Produces: `checkWake(...)`/`checkCi(...)` ports and a `classic.Stop` handler answering the same block decision as `stop_gate.py:647-651`. The handler registers in guards.ts, where `$` and `readName` live — hooks/stop-gate.ts holds the ported logic over plain values, the $-holding reads happening in the handler and their results passing in. The module event carries no `transcript_path`: locate the transcript by session id under `<config>/projects/*/<sessionId>.jsonl`, the way guards.ts's `transcriptPathOf` does (memoized per load), and verify the event's real field names against the generated types.
+- Carries (Task 7 review minor, adjudicated): the fake `on` in each test file stays per-file — self-contained test files are this suite's convention; the third copy this task writes does not extract a shared helper. From the Task 4 review: the transcript walk scans from the end and the first hit ends it — a huge transcript with no rename costs one dd window per 64 KiB at worst.
+- Produces: `withDeadline(work, ms)` — the race the Step 2 test imports; the name follows `stop_gate.py`'s own deadline vocabulary, because the suite's policy sweep refuses the word "budget" anywhere under hooks/ (the pre-flight ruling's `withBudget` name is superseded on that ground). Also `checkWake(...)`/`checkCi(...)` ports and a `classic.Stop` handler answering the same block decision as `stop_gate.py:647-651`. The handler registers in guards.ts, where `$` and `readName` live — hooks/stop-gate.ts holds the ported logic over plain values, the $-holding reads happening in the handler and their results passing in. The module event carries no `transcript_path`: locate the transcript by session id under `<config>/projects/*/<sessionId>.jsonl`, the way guards.ts's `transcriptPathOf` does (memoized per load), and verify the event's real field names against the generated types.
 
 - [ ] **Step 1: Verify the blocking contract first**
 
@@ -860,7 +861,7 @@ Load the module with `--plugin-dir`, read `.claude-plugin/types/claude-code/inde
 ```typescript
 // hooks/tests/stop-gate.test.ts
 import { expect, test } from 'claude-code/testing'
-import { refuse, wakeDecision } from '../stop-gate.ts'
+import { refuse, wakeDecision, withDeadline } from '../stop-gate.ts'
 
 test('a refusal is the documented shape', () => {
   expect(refuse('an agent of yours is still busy')).toEqual({ decision: 'block', reason: 'an agent of yours is still busy' })
@@ -874,18 +875,18 @@ test('a busy own agent holds the stop', () => {
   expect(wakeDecision({ busyOwnAgents: ['Agent : belt-p3'], blockingQuestion: null, openRows: [] }).decision).toBe('block')
 })
 
-test('a CI read that exceeds the budget degrades to pass-and-log', async () => {
-  const slow = new Promise((resolve) => setTimeout(resolve, 60000))
-  const outcome = await Promise.race([withBudget(slow, 10), Promise.resolve({ decision: 'pass', degraded: true })])
+test('a CI read that exceeds its time bound degrades to pass-and-log', async () => {
+  const slow = new Promise((resolve) => setTimeout(resolve, 250))
+  const outcome = await withDeadline(slow, 10)
   expect(outcome.decision).toBe('pass')
 })
 ```
 
-`withBudget(work, ms)` races the work against a timer; the stop gate wraps every `$.process.run`/`$.fs.read` in it — a gate that cannot read in time lets the stop pass, and the log says so.
+`withDeadline(work, ms)` races the work against a timer and answers the degraded pass when the work loses the race; the stop gate wraps every `$.process.run`/`$.fs.read` in it — a gate that cannot read in time lets the stop pass, and the log says so.
 
 - [ ] **Step 3: Port the logic**
 
-Port `stop_gate.py` function by function into hooks/stop-gate.ts, same names, same split: `listing()` and `ownAgents()` over the launcher's listing (through `$.process.run`), `pullRequestOf()`, `checkWake()` (`stop_gate.py:356-395`), `headsPath()/readHeads()/writeHeads()` on `$.fs`, `checkCi()` (`stop_gate.py:537-595`) reading ci-watch's precomputed data — no synchronous network, everything through `withBudget`. The `classic.Stop` handler: read `e` (the same stdin JSON: `stop_hook_active`, `transcript_path`, `session_id`), refuse at most once per turn, log and pass on any failure.
+Port `stop_gate.py` function by function into hooks/stop-gate.ts, same names, same split: `listing()` and `ownAgents()` over the launcher's listing (through `$.process.run`), `pullRequestOf()`, `checkWake()` (`stop_gate.py:356-395`), `headsPath()/readHeads()/writeHeads()` on `$.fs`, `checkCi()` (`stop_gate.py:537-595`) reading ci-watch's precomputed data — no synchronous network, everything through `withDeadline`. The `classic.Stop` handler: read `e` (its real fields verified against the generated types — `stop_hook_active` and the session id at least; no `transcript_path`, the transcript comes through `transcriptPathOf`), refuse at most once per turn, log and pass on any failure.
 
 - [ ] **Step 4: Run tests, live smoke** (an orchestrator with a busy agent refuses to stop once, then passes).
 
