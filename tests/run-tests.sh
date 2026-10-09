@@ -6262,6 +6262,22 @@ check "a corrective round or an escaped defect grades a row as a failure" "class
 check_status "no trial and no record row is a refusal" 1 rcal demo
 check_status "a record that does not exist is a refusal" 1 rcal demo --from-record "$WORK/no-such-record.jsonl"
 
+echo "== routing: the skill =="
+
+MR="$ROOT/skills/model-routing/SKILL.md"
+check "the skill picks a pair through routing.py pick" "yes" "$(spells "$MR" 'routing.py pick --repo')"
+check "the skill records each session's cost" "yes" "$(spells "$MR" 'dispatch-record.sh cost')"
+check "the skill bounds exploration to one notch" "yes" "$(spells "$MR" 'one notch')"
+check "the skill names what is never explored" "yes" "$(carries "$MR" 'never explored')"
+check "the skill points at the calibration reference" "yes" "$(spells "$MR" 'references/calibration.md')"
+check "the skill keeps the budget out of the choice" "yes" "$(carries "$MR" 'never read the subscription gauge to choose')"
+check "the skill folds a promotion into the table from the record" "yes" "$(spells "$MR" 'routing.py calibrate <slug> --from-record <record>')"
+check "the skill's table names every class pick knows, in backticks" "" \
+  "$(for c in $(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(" ".join(sorted(m.CLASS_TIERS)))' "$ROUTING"); do grep -qF "\`$c\`" "$MR" || echo "$c"; done)"
+MRC="$ROOT/skills/model-routing/references/calibration.md"
+check "the calibration reference walks the bench in the operator's order" "yes|yes|yes" \
+  "$(spells "$MRC" 'max-usd')|$(spells "$MRC" 'generalize')|$(spells "$MRC" 'export')"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
