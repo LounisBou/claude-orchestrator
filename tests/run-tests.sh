@@ -603,15 +603,23 @@ check "a pair row without an effort groups as the host's default" "1" \
 check_status "open refuses an unknown effort" 1 crec open "$PR" --class x --model a-model --effort huge
 check_status "open wants a tier or a model" 1 crec open "$PR" --class x
 check_status "an effort without a model is refused" 1 crec open "$PR" --class x --tier light --effort low
+check_status "an exploration without a model is refused" 1 crec open "$PR" --class x --tier light --explore
 check_status "cost wants a session" 1 crec cost "$PR" "$p1"
 check_status "cost of a session with no transcript is an error" 1 crec cost "$PR" "$p1" --session s-404
+# A transcript with no assistant usage is a refusal, and the row is left as it was.
+sessions_before=$(jq -c --argjson i "$p1" 'select(.id==$i)|.sessions' "$PR")
+check_status "cost of a session with no usage is an error" 1 crec cost "$PR" "$p1" --session s-4
+check "and the row's sessions are unchanged" "$sessions_before" \
+  "$(jq -c --argjson i "$p1" 'select(.id==$i)|.sessions' "$PR")"
 # An unpriced model leaves the row's cost incomplete, and the summary averages only rows
 # whose cost is whole: a partial figure would rank a pair cheaper than it is.
+# The incomplete row carries a positive partial cost (s-2 priced, s-3 not): the average
+# must drop it on cost_incomplete, not because its cost happens to be zero.
 p2=$(crec open "$PR" --class behaviour-phase --model a-model --effort medium)
-mkdir -p "$WORK/cstate-noprice"
-ORCHESTRATOR_STATE_DIR="$WORK/cstate-noprice" ORCHESTRATOR_PROJECTS_DIR="$ROOT/tests/fixtures/routing/projects" bash "$REC" cost "$PR" "$p2" --session s-1 >/dev/null 2>&1
-check "an unpriced session marks the row cost_incomplete" "true|s-1" \
-  "$(jq -r --argjson i "$p2" 'select(.id==$i)|[(.cost_incomplete|tostring), (.sessions|join(","))]|join("|")' "$PR")"
+crec cost "$PR" "$p2" --session s-2 >/dev/null
+crec cost "$PR" "$p2" --session s-3 >/dev/null 2>&1
+check "an unpriced session marks the row cost_incomplete, its priced one still counted" "true|s-2,s-3|0.028" \
+  "$(jq -r --argjson i "$p2" 'select(.id==$i)|[(.cost_incomplete|tostring), (.sessions|join(",")), (.cost_usd*10000|round/10000|tostring)]|join("|")' "$PR")"
 crec close "$PR" "$p2" --verdict approved >/dev/null
 check "an incomplete cost stays out of the average" "1" \
   "$(crec summary "$PR" | grep -c '^class=behaviour-phase pair=a-model/medium dispatches=2 closed=2 rounds_avg=0 cost_avg=0.1701$')"
@@ -621,6 +629,9 @@ crec round "$PR" "$e1" >/dev/null; crec round "$PR" "$e1" >/dev/null; crec close
 check "an exploration that cost a corrective round freezes its class" "1" "$(crec summary "$PR" | grep -c '^frozen=conversion-phase$')"
 for i in 1 2 3; do e=$(crec open "$PR" --class n-bis --model a-model --effort low --explore); crec round "$PR" "$e" >/dev/null; crec close "$PR" "$e" --verdict approved >/dev/null; done
 check "three explorations closed in one round promote the pair" "1" "$(crec summary "$PR" | grep -c '^promote=n-bis a-model/low$')"
+for i in 1 2 3; do e=$(crec open "$WORK/pair-noeffort.jsonl" --class n-bis --model b-model --explore); crec round "$WORK/pair-noeffort.jsonl" "$e" >/dev/null; crec close "$WORK/pair-noeffort.jsonl" "$e" --verdict approved >/dev/null; done
+check "three explorations of a pair with no effort promote it as the host's default" "1" \
+  "$(crec summary "$WORK/pair-noeffort.jsonl" | grep -c '^promote=n-bis b-model/default$')"
 check "an escaped defect on an exploration freezes its class too" "1|0" \
   "$(crec escaped "$PR" "$e" >/dev/null; crec summary "$PR" | grep -c '^frozen=n-bis$')|$(crec summary "$PR" | grep -c '^promote=n-bis')"
 
@@ -6115,6 +6126,16 @@ check "cost of a session: one usage per message id, subagents included, tiered p
   "$(rcost --session s-1)"
 check "cost of one transcript file, by path" "0.1695" \
   "$(rcost "$RFIX/projects/-repo/s-1.jsonl" --json | jq -r '.cost_usd|.*10000|round/10000')"
+check "a placeholder message with an all-zero usage is neither priced nor named" "0" \
+  "$(rcost --session s-1 2>&1 | grep -c 'synthetic')"
+# The upper rates apply when fresh input plus cache reads pass the threshold: 50000 + 60000
+# is 110000 > 100000 though input alone is below it. 50000 * 0.5 + 60000 * 0.05 = 28000
+# micro-dollars; at the lower rates it would be 5600.
+check "the tiered price is judged on the whole prompt, not on fresh input alone" \
+  "cost_usd=0.028000 models=c-model-1 tokens_in=50000 tokens_out=0 cache_read=60000 cache_write=0" \
+  "$(rcost --session s-2)"
+check_status "a transcript with no assistant usage is a refusal, never a cost of zero" 1 rcost --session s-4
+check "and the refusal names the session" "1" "$(rcost --session s-4 2>&1 | grep -c 's-4')"
 rm "$RSTATE/routing/prices.json"
 check "no price file: the cost is unknown, never guessed" "cost_usd=unknown" \
   "$(rcost --session s-1 2>/dev/null | cut -d' ' -f1)"

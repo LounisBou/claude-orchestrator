@@ -33,6 +33,7 @@ DEFAULTS_DIR = os.environ.get("ORCHESTRATOR_ROUTING_DEFAULTS") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "defaults")
 EFFORTS = ("low", "medium", "high", "xhigh", "max")
 TIERS = ("deep", "standard", "light")
+TOKEN_KEYS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
 def die(msg):
@@ -84,7 +85,8 @@ def session_transcripts(session):
 
 def message_usages(paths):
     """One usage per message id: the host writes one line per content block, and every one
-    of them repeats the whole message's usage.
+    of them repeats the whole message's usage. A message whose four token counts are all
+    zero is the host's own placeholder, not a model's work: it is neither priced nor named.
     """
     seen = {}
     anonymous = []
@@ -99,7 +101,8 @@ def message_usages(paths):
                 if not isinstance(msg, dict) or entry.get("type") != "assistant":
                     continue
                 usage, model = msg.get("usage"), msg.get("model")
-                if not isinstance(usage, dict) or not model:
+                if not isinstance(usage, dict) or not model or not any(
+                        usage.get(k) for k in TOKEN_KEYS):
                     continue
                 if msg.get("id"):
                     seen[msg["id"]] = (model, usage)
@@ -131,7 +134,10 @@ def measure(paths):
     prices = read_json(os.path.join(ROUTING_DIR, "prices.json"), {})
     out = {"cost_usd": 0.0, "models": {}, "tokens_in": 0, "tokens_out": 0,
            "cache_read": 0, "cache_write": 0}
-    for model, usage in message_usages(paths):
+    usages = message_usages(paths)
+    if not usages:
+        die("cost: no message carries usage in %s" % ", ".join(paths))
+    for model, usage in usages:
         out["tokens_in"] += usage.get("input_tokens", 0) or 0
         out["tokens_out"] += usage.get("output_tokens", 0) or 0
         out["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0

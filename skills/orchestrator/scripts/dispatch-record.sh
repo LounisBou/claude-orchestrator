@@ -151,6 +151,7 @@ open)
     [ -z "$tier" ] || case "$tier" in deep|standard|light) ;; *) die "open: unknown tier: $tier (expected deep, standard or light)" ;; esac
     [ -z "$effort" ] || case " $EFFORTS " in *" $effort "*) ;; *) die "open: unknown effort: $effort (expected low, medium, high, xhigh or max)" ;; esac
     [ -z "$effort" ] || [ -n "$model" ] || die "open: --effort needs --model"
+    [ "$explore" = false ] || [ -n "$model" ] || die "open: --explore needs --model"
     id=$(next_id)
     mkdir -p "$(dirname "$record")"
     jq -nc --argjson id "$id" --arg c "$class" --arg t "$tier" --arg l "$label" \
