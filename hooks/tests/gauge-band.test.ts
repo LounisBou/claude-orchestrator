@@ -22,9 +22,17 @@ test('a session nothing has measured yet draws no band', () => {
 
 test('the band skips when nothing draws, and draws the fill when something does', async () => {
   const handlers: Record<string, Function> = {}
+  // The fake stores the matcher it receives, not just the handler: a bare
+  // two-argument registration would pass every test below while the engine
+  // drew the band on every component it renders — the registration is pinned
+  // to the one component the band belongs to.
+  const matchers: Record<string, object | undefined> = {}
   registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
     handlers[args[0]] = args[args.length - 1] as Function
+    matchers[args[0]] = args.length === 3 ? args[1] : undefined
+    return { catch: () => undefined }
   })
+  expect(matchers['ui.render']).toEqual({ component: 'AbovePrompt' })
   let surfaces: readonly string[] = []
   const $ = {
     session: {
@@ -65,4 +73,33 @@ test('the band skips when nothing draws, and draws the fill when something does'
   // The component's own contract: a survey holding the band wins, the hook yields.
   const held = await render({ surface: 'terminal', component: 'AbovePrompt', requestId: 'r3', props: { hasSurvey: true } })
   expect(held).toEqual({ passed: { surface: 'terminal', component: 'AbovePrompt', requestId: 'r3', props: { hasSurvey: true } } })
+})
+
+test('a session end that cannot purge the measure file is said, and blocks nothing', async () => {
+  // The every-handler-logs rule: the end is never held on the store's own
+  // failure, but the failure is not swallowed either — one line, the gauge's
+  // own stamp naming the half that failed.
+  const handlers: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  const written: string[] = []
+  const $ = {
+    session: { id: async () => 's1' },
+    env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
+    fs: {
+      read: async () => '',
+      write: async (p: string, text: string) => {
+        if (p.endsWith('hooks-module.log')) written.push(text)
+        else throw new Error('EIO: the measure file cannot be written')
+      },
+    },
+  }
+  const e = { sessionId: 's1' }
+  const answer = await handlers['session.end']($, e, (x: unknown) => x)
+  expect(answer).toBe(e)
+  expect(written.length).toBe(1)
+  expect(written[0]).toContain('| gauge |')
+  expect(written[0]).toContain('EIO')
 })

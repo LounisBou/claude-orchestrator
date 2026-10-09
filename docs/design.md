@@ -86,11 +86,12 @@ commands/audit.md                    launches an audit of the method on the oper
 commands/coordinator.md              starts the machine's coordinator on the operator's word, announced to every orchestrator
 commands/coordinator-end.md          ends the coordinator on the operator's word; the record cleared
 hooks/hooks.json                     declares the context gate, the push guard and the stop gate
-hooks/register.ts                    the hooks module's entry point: mounts the domains as they land
+hooks/register.ts                    the hooks module's entry point: mounts the domains as they land, the gauge before the store that reads its figure
 hooks/gauge-core.ts                  the measurement rules, pure: the double gate, the measure file path, tolerant parsing
 hooks/gauge.ts                       measures the context into one file per session on session events, announces model drift, and draws the fill band above the prompt
-hooks/session-name.ts                the session's naming, pure: the role prefixes, the custom-title value's normalization, the launch-name parse of a flat ps listing
-hooks/guards.ts                      the guards and the walks they walk ($ fenced to the file that holds it): the context gate on prompt.submit over the name walk and the transcript's blocks, the push guard on tool.call over the tokeniser's forces, the stop gate on classic.Stop over the launcher's listing, the chain and ci-watch's logs
+hooks/session-name.ts                the session's naming, pure: the role prefixes, the custom-title value's normalization, the launch-name parse of a flat ps listing, and the name walk itself over injected reader thunks
+hooks/guards.ts                      the guards ($ fenced to the file that holds it): the context gate on prompt.submit over the name walk's core and the transcript's blocks, the push guard on tool.call over the tokeniser's forces, the stop gate on classic.Stop over the launcher's listing, the chain and ci-watch's logs
+hooks/supervision.ts                 the shared store: one row per live session under the state root, written on session.measure beside the gauge and removed on session.end, one file per key read through the pure row parser
 hooks/tokenizer.ts                   the push tokeniser, pure: the command line read the way the shell reads it (quotes, separators, heredocs, wrappers), every force a git push carries named
 hooks/stop-gate.ts                   the stop gate's checks, pure: the wake decision over the launcher's listing and the chain, the once-per-tell CI decision over ci-watch's precomputed logs, the deadline race
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
@@ -101,6 +102,7 @@ hooks/tests/context-gate.test.ts     the four role lines verbatim, the announcem
 hooks/tests/tokenizer.test.ts        the push tokeniser's fixtures: every forced form the shell suite refused and everything it accepted, moved module-side beside the awk until Task 12
 hooks/tests/push-guard.test.ts       the push decision's marker, lease and unread-command boundaries, and the wiring over a faked $: denied without the tool asked, unmarked and failing reads passing through
 hooks/tests/stop-gate.test.ts        the stop gate's decision shapes and refusal texts, the once-per-tell CI record, and the wiring over a faked $: the classic.Stop fields pinned, the quiet scope, the degraded read passing
+hooks/tests/supervision.test.ts      the store's per-session keys and merges, the stale and truncated rows read as no row, and the wiring over a faked $: the composed register carrying the second measure's figure, the name from the walk, the repository from the origin read
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it

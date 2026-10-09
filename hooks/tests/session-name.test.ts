@@ -1,10 +1,10 @@
 // hooks/tests/session-name.test.ts
-// The naming domain: the pure parsers from session-name.ts, and the walk from
-// guards.ts (the engine fences $ to the file whose handlers hold it, so the
-// walk lives there — the tests follow the domain, not the file).
+// The naming domain: the pure parsers and the walk's core from session-name.ts
+// (the engine fences $ to the file whose handlers hold it, so the walk runs
+// over reader thunks the $-holding files build — the tests build the same
+// ones guards.ts builds, over their own fake $).
 import { expect, test } from 'claude-code/testing'
-import { roleOf, titleOf } from '../session-name.ts'
-import { lastCustomTitle } from '../guards.ts'
+import { roleOf, titleOf, lastCustomTitle, BLOCK } from '../session-name.ts'
 
 test('the role is the prefix of the name', () => {
   expect(roleOf('Orch : payments')).toBe('orchestrator')
@@ -43,6 +43,19 @@ function fakeDollar(text: string): any {
   }
 }
 
+// The walk's core driven the way the $-holding files drive it: stat for the
+// size, dd for the window, both plain thunks over the fake $.
+const lastTitle = (dollar: any, path: string): Promise<string | null> =>
+  lastCustomTitle(
+    async (p: string) => (await dollar.fs.stat(p)).size,
+    async (p: string, index: number) => {
+      const { exitCode, stdout } = await dollar.process.run(['dd', `if=${p}`, `bs=${BLOCK}`, `skip=${index}`, 'count=1'])
+      if (exitCode !== 0) throw new Error(`dd exited ${exitCode} on ${p}`)
+      return stdout
+    },
+    path,
+  )
+
 // The brief spells the fixture from the repo root; the plugin test runner
 // stands in hooks/. The spelling that stats is the one read, wherever the
 // runner's working directory is.
@@ -59,7 +72,7 @@ async function spelled(dollar: any, path: string): Promise<string> {
 test('the last custom-title entry wins, read from the end', async ($: any) => {
   const path = 'tests/fixtures/transcript-renamed.jsonl'
   const dollar = ($ && $.fs && $.process) ? $ : fakeDollar(FIXTURE_TEXT)
-  expect(await lastCustomTitle(dollar, await spelled(dollar, path))).toBe('Agent : renamed-later')
+  expect(await lastTitle(dollar, await spelled(dollar, path))).toBe('Agent : renamed-later')
 })
 
 test('an entry cut by the block boundary is carried whole and still read', async () => {
@@ -69,12 +82,12 @@ test('an entry cut by the block boundary is carried whole and still read', async
   // crosses it: its head closes the last block's first line, its rest opens
   // the block before, and only the carried cut line joins the two halves.
   const text = 'a'.repeat(BLOCK - 10) + '\n' + entry + '\n'
-  expect(await lastCustomTitle(fakeDollar(text), 'a-transcript.jsonl')).toBe('Agent : straddles-the-cut')
+  expect(await lastTitle(fakeDollar(text), 'a-transcript.jsonl')).toBe('Agent : straddles-the-cut')
 })
 
 test('a transcript no rename was written to names nothing', async () => {
   const text = '{"type":"user","message":{"role":"user","content":"a turn"}}\n'
-  expect(await lastCustomTitle(fakeDollar(text), 'a-transcript.jsonl')).toBeNull()
+  expect(await lastTitle(fakeDollar(text), 'a-transcript.jsonl')).toBeNull()
 })
 
 // unquoted()'s own rule (session_name.py:75-78): a rename the host stored with
@@ -87,7 +100,7 @@ test('a padded rename reads back trimmed, quotes stripped, empties to null', asy
   expect(titleOf(entry('" Agent : quoted "'))).toBe('Agent : quoted')
   expect(titleOf(entry('  ""  '))).toBeNull()
   expect(titleOf('{"type":"user","message":{"role":"user","content":"no title"}}')).toBeNull()
-  expect(await lastCustomTitle(fakeDollar(entry('  Agent : x  ') + '\n'), 'a-transcript.jsonl')).toBe('Agent : x')
+  expect(await lastTitle(fakeDollar(entry('  Agent : x  ') + '\n'), 'a-transcript.jsonl')).toBe('Agent : x')
 })
 
 // title_in answers its FIRST match from the end unconditionally, and unquoted
@@ -99,7 +112,7 @@ test('a padded rename reads back trimmed, quotes stripped, empties to null', asy
 test('a last rename that names nothing unnames the session, the rename before it notwithstanding', async () => {
   const entry = (title: string) => `{"type":"custom-title","customTitle":${JSON.stringify(title)}}`
   const earlier = entry('Agent : earlier') + '\n'
-  const walk = (text: string) => lastCustomTitle(fakeDollar(text), 'a-transcript.jsonl')
+  const walk = (text: string) => lastTitle(fakeDollar(text), 'a-transcript.jsonl')
   expect(await walk(earlier + entry('   ') + '\n')).toBeNull()
   expect(await walk(earlier + entry('  "  ') + '\n')).toBeNull()
   expect(await walk(earlier + '{"type":"custom-title","customTitle":42}\n')).toBeNull()

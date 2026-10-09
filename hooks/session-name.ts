@@ -1,12 +1,26 @@
 // hooks/session-name.ts
 // The pure half of the session's naming, ported from hooks/session_name.py: the
 // parsers the walk feeds — the role of a name, the value of a custom-title
-// entry, the name a flat ps listing was launched with. The walk itself (the
-// process table, the transcript's blocks) lives in guards.ts: the engine fences
-// $ to the file that received it — never passed across an import, a noun of it
-// never read as a value — so every $.noun call is spelled where a handler holds
-// it, and only plain data crosses between the files.
+// entry, the name a flat ps listing was launched with — and the walk itself,
+// running over injected plain reader thunks. The engine fences $ to the file
+// that received it — never passed across an import, a noun of it never read as
+// a value — so the reads stay in the files whose handlers hold $ (guards.ts,
+// supervision.ts), each building the same thunks over its own $ while this
+// file holds the walk's logic once.
 const NAME_READABLE_MAX = 40
+
+// The block the transcript walks read: dd's window, the unit the carry logic
+// below counts in. Exported: the $-holding halves size their windows with it.
+export const BLOCK = 65536
+
+// The walk's reads, injected as plain function values, never $: `run` covers
+// the process table (the self-tty seed, the launch listing), `sizeOf` and
+// `readText` the transcript's blocks — one BLOCK-sized window at `index`,
+// counted from the file's start, the reader the engine's own range-less fs
+// makes dd spell.
+export type Run = (argv: readonly string[]) => Promise<{ exitCode: number; stdout?: string; stderr?: string }>
+export type SizeOf = (path: string) => Promise<number>
+export type ReadText = (path: string, index: number) => Promise<string>
 
 export function roleOf(name: string | null): 'orchestrator' | 'agent' | 'auditor' | 'coordinator' | null {
   if (!name) return null
@@ -60,4 +74,87 @@ export function launchNameOfListing(out: string): string | null {
     return joined.length <= NAME_READABLE_MAX ? joined : null
   }
   return null
+}
+
+// --- the walk itself (moved home from guards.ts, unchanged in behavior) -------------------
+
+// self_tty() ported (iterm_agent.py): the session's own tty, found by walking
+// up the process table. The sandbox exposes no process global, so the walk is
+// seeded by a shell child of this very session: its controlling tty is the
+// session's tab, and its parent is the session's own process.
+async function selfTty(run: Run): Promise<string | null> {
+  let ask: readonly string[] = ['sh', '-c', 'ps -o ppid=,tty= -p $$']
+  for (let i = 0; i < 12; i++) {
+    let out = ''
+    try {
+      out = (await run(ask)).stdout ?? ''
+    } catch {
+      return null
+    }
+    if (!out) return null
+    const { ppid, tty } = parentAndTty(out)
+    if (tty && tty !== '??' && tty !== '-') return `/dev/${tty}`
+    if (!/^\d+$/.test(ppid) || Number(ppid) <= 1) return null
+    ask = ['ps', '-p', ppid, '-o', 'ppid=,tty=']
+  }
+  return null
+}
+
+// session_name_on() ported (iterm_agent.py): the name the session on a tty was
+// launched with, from the same listing the launcher prints (the parse itself,
+// flat line and all, is launchNameOfListing above).
+async function launchNameOn(run: Run, tty: string): Promise<string | null> {
+  let out: string
+  try {
+    out = (await run(['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid=,command='])).stdout ?? ''
+  } catch {
+    return null
+  }
+  return launchNameOfListing(out)
+}
+
+// A port of title_in() in hooks/session_name.py:51-72 — seek from the end in
+// BLOCK-sized steps, carry the cut first line, answer the LAST custom-title
+// entry (a rename comes after the original title) unconditionally: an entry
+// that names nothing leaves the session unnamed, it does not resurrect the
+// name before it.
+export async function lastCustomTitle(sizeOf: SizeOf, readText: ReadText, path: string): Promise<string | null> {
+  if (!path) return null
+  try {
+    const size = await sizeOf(path)
+    let carry = ''
+    for (let index = Math.max(0, Math.ceil(size / BLOCK) - 1); index >= 0; index--) {
+      const chunk = (await readText(path, index)) + carry
+      const lines = chunk.split('\n')
+      // Unless this block starts the file, its first line is cut: its
+      // beginning lives one block to the left, so it is carried there.
+      carry = index > 0 ? (lines.shift() ?? '') : ''
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (isTitle(lines[i])) {
+          // title_in answers its first match from the end unconditionally:
+          // a rename to whitespace — or a value the host did not store as a
+          // string — reads back null here and the walk stops, unnamed.
+          return titleOf(lines[i])
+        }
+      }
+    }
+    return null
+  } catch {
+    // A transcript that cannot be read, or a block that will not come back,
+    // names nothing — the caller falls back to its own quiet path.
+    return null
+  }
+}
+
+// read_name() ported (session_name.py:81-92): the tty first — a session with
+// none (a headless run) is named by nobody — then the launch name, else the
+// transcript's last rename. The readers are the caller's own, built over the $
+// the caller's file holds; the walk is this file's, shared by every domain
+// that names a session (the guards' gates, the store's row).
+export async function walkName(
+  run: Run, sizeOf: SizeOf, readText: ReadText, transcriptPath: string,
+): Promise<{ tty: string | null; name: string | null }> {
+  const tty = await selfTty(run)
+  if (!tty) return { tty: null, name: null }
+  return { tty, name: (await launchNameOn(run, tty)) ?? await lastCustomTitle(sizeOf, readText, transcriptPath) }
 }

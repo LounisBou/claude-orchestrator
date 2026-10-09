@@ -10,11 +10,11 @@
 // declared block, the end of a watched pull request's checks.
 //
 // The engine fences $ to the file that received it — never passed across an
-// import, a noun of it never read as a value — so the session-name walk and
-// the transcript block reader live here, next to the handlers that hold $,
-// while their parsing stays pure in session-name.ts and the stop gate's
-// decisions in stop-gate.ts.
-import { roleOf, isTitle, titleOf, parentAndTty, launchNameOfListing } from './session-name.ts'
+// import, a noun of it never read as a value — so the transcript block reader
+// lives here, next to the handlers that hold $, while the name walk's logic
+// stays pure in session-name.ts (readName below delegates to it over this
+// file's own readers) and the stop gate's decisions in stop-gate.ts.
+import { roleOf, walkName, BLOCK } from './session-name.ts'
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { detectForces } from './tokenizer.ts'
 import {
@@ -111,7 +111,6 @@ function unmeasuredAnnouncement(env: { gate?: number; gateTokens?: number; large
 // unread. dd counts its windows from the file's start, so the blocks are
 // aligned there; that changes only which bytes share a read, never what is
 // scanned, and the short window is the one holding the file's end.
-const BLOCK = 65536
 
 async function readRange($: any, path: string, index: number): Promise<string> {
   const { exitCode, stdout } = await $.process.run(['dd', `if=${path}`, `bs=${BLOCK}`, `skip=${index}`, 'count=1'])
@@ -119,82 +118,19 @@ async function readRange($: any, path: string, index: number): Promise<string> {
   return stdout
 }
 
-// A port of title_in() in hooks/session_name.py:51-72 — seek from the end in
-// BLOCK-sized steps, carry the cut first line, answer the LAST custom-title
-// entry (a rename comes after the original title) unconditionally: an entry
-// that names nothing leaves the session unnamed, it does not resurrect the
-// name before it.
-export async function lastCustomTitle($: any, path: string): Promise<string | null> {
-  if (!path) return null
-  try {
-    const size = (await $.fs.stat(path)).size
-    let carry = ''
-    for (let index = Math.max(0, Math.ceil(size / BLOCK) - 1); index >= 0; index--) {
-      const chunk = (await readRange($, path, index)) + carry
-      const lines = chunk.split('\n')
-      // Unless this block starts the file, its first line is cut: its
-      // beginning lives one block to the left, so it is carried there.
-      carry = index > 0 ? (lines.shift() ?? '') : ''
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (isTitle(lines[i])) {
-          // title_in answers its first match from the end unconditionally:
-          // a rename to whitespace — or a value the host did not store as a
-          // string — reads back null here and the walk stops, unnamed.
-          return titleOf(lines[i])
-        }
-      }
-    }
-    return null
-  } catch {
-    // A transcript that cannot be read, or a block that will not come back,
-    // names nothing — the caller falls back to its own quiet path.
-    return null
-  }
-}
-
-// self_tty() ported (iterm_agent.py): the session's own tty, found by walking
-// up the process table. The sandbox exposes no process global, so the walk is
-// seeded by a shell child of this very session: its controlling tty is the
-// session's tab, and its parent is the session's own process.
-async function selfTty($: any): Promise<string | null> {
-  let ask: readonly string[] = ['sh', '-c', 'ps -o ppid=,tty= -p $$']
-  for (let i = 0; i < 12; i++) {
-    let out = ''
-    try {
-      out = (await $.process.run(ask)).stdout
-    } catch {
-      return null
-    }
-    if (!out) return null
-    const { ppid, tty } = parentAndTty(out)
-    if (tty && tty !== '??' && tty !== '-') return `/dev/${tty}`
-    if (!/^\d+$/.test(ppid) || Number(ppid) <= 1) return null
-    ask = ['ps', '-p', ppid, '-o', 'ppid=,tty=']
-  }
-  return null
-}
-
-// session_name_on() ported (iterm_agent.py): the name the session on a tty was
-// launched with, from the same listing the launcher prints (the parse itself,
-// flat line and all, is session-name.ts's).
-async function launchNameOn($: any, tty: string): Promise<string | null> {
-  let out: string
-  try {
-    out = (await $.process.run(['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid=,command='])).stdout
-  } catch {
-    return null
-  }
-  return launchNameOfListing(out)
-}
-
 // read_name() ported (session_name.py:81-92): the tty first — a session with
 // none (a headless run) is named by nobody — then the launch name, else the
-// transcript's last rename. Exported: the stop gate (Task 8) reads the same
-// name in this same file.
+// transcript's last rename. The walk itself is session-name.ts's pure core;
+// this file's $ builds the readers it runs over (the fence law: $ never
+// crosses an import). Exported: the stop gate (Task 8) reads the same name in
+// this same file.
 export async function readName($: any, transcriptPath: string): Promise<{ tty: string | null; name: string | null }> {
-  const tty = await selfTty($)
-  if (!tty) return { tty: null, name: null }
-  return { tty, name: (await launchNameOn($, tty)) ?? await lastCustomTitle($, transcriptPath) }
+  return walkName(
+    (argv: readonly string[]) => $.process.run(argv),
+    async (path: string) => (await $.fs.stat(path)).size,
+    (path: string, index: number) => readRange($, path, index),
+    transcriptPath,
+  )
 }
 
 // prompt.submit's input carries no transcript path — that field belongs to the

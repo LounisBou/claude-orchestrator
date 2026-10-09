@@ -82,7 +82,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // $.fs offers no remove: an empty file reads as unmeasured everywhere, and
       // install.sh purges the stale ones.
       await $.fs.write(measureFilePath(await configDir($), e.sessionId ?? await $.session.id()), '')
-    } catch { /* never blocks */ }
+    } catch (err) {
+      // Never blocks the end; the failure is said — one line, the
+      // every-handler-logs rule.
+      await logLine($, (err as Error).message)
+    }
     return next(e)
   })
   on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any, next: (e: any) => any) => {
