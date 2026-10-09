@@ -97,7 +97,7 @@ tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
 tests/fixtures/transcript.jsonl      a transcript tail for the gauge's computed tier
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
-tests/fixtures/routing/prices.json, tests/fixtures/routing/projects/-repo/s-1.jsonl, tests/fixtures/routing/projects/-repo/s-1/subagents/agent-x.jsonl  a price file and a session with a subagent, for routing.py cost
+tests/fixtures/routing/prices.json, tests/fixtures/routing/projects/-repo/s-1.jsonl, tests/fixtures/routing/projects/-repo/s-1/subagents/agent-x.jsonl, tests/fixtures/routing/projects/-repo/s-2.jsonl, tests/fixtures/routing/projects/-repo/s-3.jsonl, tests/fixtures/routing/projects/-repo/s-4.jsonl  a price file, a session with a subagent, a prompt crossing the tiered threshold through cache reads, an unpriced model and a transcript with no usage, for routing.py cost
 docs/design.md                       this document
 docs/specs/2026-10-01-stop-gate-design.md  the stop gate's approved spec
 evals/README.md                      how the behaviour suite is staged, run and read
