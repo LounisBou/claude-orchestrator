@@ -14,7 +14,8 @@
 
 - English only, everywhere; never name the vendor, the product or a model in prose — the runtime is "the host". Load-bearing identifiers are exempt: `~/.claude/`, `.claude-plugin/`, `hooks.json` keys, event names (`tool.call`, `prompt.submit`, `session.measure`, `classic.Stop`), env vars (`CLAUDE_PLUGIN_ROOT`, `CLAUDE_CODE_SESSION_ID`, `ORCHESTRATOR_*`), the repository name.
 - Conventional commits, imperative subject, body explains why; no co-author or tool attribution, ever.
-- `./tests/run-tests.sh` passes after every task; `claude plugin test` passes in `hooks/` after every task that adds one.
+- `./tests/run-tests.sh` passes after every task — run it after the task's commit, never before: the design-layout check reads tracked files, and a file the commit adds but the layout does not name turns the next run red. A task that creates or deletes a file updates the `## 2. Layout` block of `docs/design.md` in the same commit.
+- The host's `plugin test ..` passes from `hooks/` after every task that adds one.
 - Host version floor: 2.1.287, checked by `install.sh`.
 - Hard cutover: nothing of the tap/`ctx/` pipeline survives in 0.49.0 beyond the single `measure/<session-id>.json` file.
 - Every handler registers a `.catch` that logs one line to the state dir and never blocks.
@@ -54,7 +55,10 @@ import { register } from '../register.ts'
 
 test('register mounts exactly one session.start handler', () => {
   const mounted: string[] = []
-  register((event: string, _matcher: object | null, _handler: Function) => { mounted.push(event) })
+  register((event: string, handler: Function) => {
+    if (typeof handler !== 'function') throw new Error(`no handler mounted for ${event}`)
+    mounted.push(event)
+  })
   expect(mounted).toEqual(['session.start'])
 })
 ```
@@ -63,7 +67,7 @@ test('register mounts exactly one session.start handler', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd hooks && claude plugin test`
+Run: `cd hooks && claude plugin test ..`
 Expected: FAIL — no `modules` entry, nothing loads.
 
 - [ ] **Step 3: Write the scaffold**
@@ -80,8 +84,8 @@ Expected: FAIL — no `modules` entry, nothing loads.
 // hooks/register.ts
 // Entry point of the hooks module: mounts the four domains. Each domain lands in
 // its own task; until then the module only proves the chain loads.
-export function register(on: (event: string, matcher: object | null, handler: Function) => unknown) {
-  on('session.start', null, async ($: unknown, e: unknown, next: (e: unknown) => unknown) => next(e))
+export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
+  on('session.start', async ($: unknown, e: unknown, next: (e: unknown) => unknown) => next(e))
 }
 ```
 
@@ -89,7 +93,7 @@ The three settings-hook blocks (`UserPromptSubmit`, `PreToolUse`, `Stop`) stay i
 
 - [ ] **Step 4: Validate and test**
 
-Run: `claude plugin validate .. && cd hooks && claude plugin test`
+Run: `claude plugin validate .. && cd hooks && claude plugin test ..`
 Expected: validate lists `hooks: session.start`; tests PASS.
 
 - [ ] **Step 5: Live smoke**
@@ -113,6 +117,7 @@ git commit -m "feat(hooks): load the module scaffold behind the shell hooks"
 
 **Interfaces:**
 - Consumes: nothing (first domain).
+- Amends Task 1's scaffold test: `toEqual(['session.start'])` relaxes to `toContain('session.start')` — gauge mounts `session.measure` beside it (pre-flight ruling) — and the fake's handler check lands with the same edit (review finding: the fake ignored its handler argument).
 - Produces:
   - `tripGate(percent: number | null, tokens: number | null, window: number | null, env?: { gate?: number; gateTokens?: number; largeWindow?: number }): { tripped: boolean; words: string }`
   - `measureFilePath(sessionId: string): string` → `~/.claude/claude-orchestrator/measure/<id>.json` (honours `CLAUDE_CONFIG_DIR`)
@@ -158,7 +163,7 @@ test('env overrides move the thresholds', () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `cd hooks && claude plugin test`
+Run: `cd hooks && claude plugin test ..`
 Expected: FAIL — `gauge-core.ts` does not exist.
 
 - [ ] **Step 3: Implement**
@@ -200,7 +205,7 @@ export function measureFilePath(sessionId: string): string {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `cd hooks && claude plugin test`
+Run: `cd hooks && claude plugin test ..`
 Expected: PASS.
 
 - [ ] **Step 5: Wire the events in gauge.ts**
@@ -221,8 +226,8 @@ export function driftAnnouncement(model: string, previous: string): string {
   return `MODEL DRIFT: this session now answers as ${model}; it answered as ${previous} until now. The host switched on its own (a refusal, an outage): say it to the operator in your next message; a succession does not repair it.`
 }
 
-export function register(on: (event: string, matcher: object | null, handler: Function) => unknown) {
-  on('session.measure', null, async ($: any, e: any, next: (e: any) => any) => {
+export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
+  on('session.measure', async ($: any, e: any, next: (e: any) => any) => {
     try {
       const usage = await $.session.usage()
       const model = await $.session.model()
@@ -258,7 +263,7 @@ async function logLine($: any, message: string): Promise<void> {
 Mount it from `register.ts`: `import { register as registerGauge } from './gauge.ts'` and call `registerGauge(on)` inside `register`. Delete the file at `session.end`:
 
 ```typescript
-  on('session.end', null, async ($: any, e: any, next: (e: any) => any) => {
+  on('session.end', async ($: any, e: any, next: (e: any) => any) => {
     try { /* $.fs has no delete; truncation marks it stale, install purges the dir */ }
     catch { /* never blocks */ }
     return next(e)
@@ -313,7 +318,7 @@ The rule it pins: `lastModel` starts `null` on every load — drift is only anno
 
 - [ ] **Step 9: Run all, commit**
 
-Run: `cd hooks && claude plugin test && cd .. && ./tests/run-tests.sh`
+Run: `cd hooks && claude plugin test .. && cd .. && ./tests/run-tests.sh`
 Expected: PASS (shell suite untouched — the shell hooks still run).
 
 ```bash
@@ -389,7 +394,7 @@ In `register`:
 
 The exact props of `AbovePrompt` and the element factory signatures come from the generated types in `.claude-plugin/types/` (written on first `--plugin-dir` load); the handler above is adjusted to those signatures, not the other way around.
 
-- [ ] **Step 4: Run tests** — `cd hooks && claude plugin test` — PASS.
+- [ ] **Step 4: Run tests** — `cd hooks && claude plugin test ..` — PASS.
 
 - [ ] **Step 5: Live smoke with hot reload**
 
@@ -569,9 +574,9 @@ export function gateAnnouncement(gate: { tripped: boolean; words: string }, role
   return `CONTEXT GATE: this session is at ${gate.words}. ${roleLine(role)}`
 }
 
-export function register(on: (event: string, matcher: object | null, handler: Function) => unknown) {
+export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
   let saidUnmeasured = false
-  on('prompt.submit', null, async ($: any, e: any, next: (e: any & { context?: string }) => any) => {
+  on('prompt.submit', async ($: any, e: any, next: (e: any & { context?: string }) => any) => {
     try {
       const { name } = await readName($, e.transcript_path ?? '')
       const role = roleOf(name)
@@ -738,7 +743,7 @@ export function detectForces(command: string): string[] {
 
 Each awk function maps to one TypeScript function with the same behaviour and the same test coverage; the awk source stays in the repo until Task 12 and is deleted only after the fixtures pass against the port. When a case fails, fix the port, never the fixture.
 
-- [ ] **Step 4: Run until green** — `cd hooks && claude plugin test`. This is the highest-risk port of the plan; when a case fails, fix the port, never the fixture.
+- [ ] **Step 4: Run until green** — `cd hooks && claude plugin test ..`. This is the highest-risk port of the plan; when a case fails, fix the port, never the fixture.
 
 - [ ] **Step 5: Commit**
 
@@ -1007,9 +1012,9 @@ async function registerCommands($: any): Promise<void> {
   }
 }
 
-export function register(on: (event: string, matcher: object | null, handler: Function) => unknown) {
+export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
   for (const event of ['session.start', 'session.measure']) {
-    on(event, null, async ($: any, e: any, next: (e: any) => any) => {
+    on(event, async ($: any, e: any, next: (e: any) => any) => {
       await registerCommands($).catch(() => undefined)
       return next(e)
     })
@@ -1052,7 +1057,7 @@ git commit -m "feat(commands): answer status, progress and agents without a mode
 
 - [ ] **Step 5: Full run + live smoke**
 
-Run: `./tests/run-tests.sh && cd hooks && claude plugin test && claude plugin validate ..`
+Run: `./tests/run-tests.sh && cd hooks && claude plugin test .. && claude plugin validate ..`
 Live: fresh session through the launcher — band shows, gate speaks past 80 %, forced push refused, stop held with a busy agent, `/orchestrator:status` instant.
 
 - [ ] **Step 6: Commit**
@@ -1093,7 +1098,7 @@ git commit -m "docs(skills): the module owns the facts, the rulebook keeps the j
 - [ ] **Step 2: Version and marketplace bump** — plugin.json to 0.49.0, the marketplace entry to the same.
 - [ ] **Step 3: Full gates then release**
 
-Run: `./tests/run-tests.sh && cd hooks && claude plugin test && claude plugin validate .. && grep -rniI 'claude' . --exclude-dir=.git` (only exempt occurrences), then the usual release flow.
+Run: `./tests/run-tests.sh && cd hooks && claude plugin test .. && claude plugin validate .. && grep -rniI 'claude' . --exclude-dir=.git` (only exempt occurrences), then the usual release flow.
 
 ```bash
 git commit -m "chore: release 0.49.0"
