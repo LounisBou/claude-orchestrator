@@ -6024,6 +6024,32 @@ check "without ORCHESTRATOR_HOST_CLI the host's name is the launcher's default" 
 check "the script never spells the host's name" "0" "$(grep -v 'CLAUDE_CONFIG_DIR' "$COORD" | grep -ci 'claude')"
 check "an unknown subcommand is refused" "exit 1" "$(coord_status bogus)"
 
+echo "== routing: cost =="
+
+ROUTING="$ROOT/skills/model-routing/scripts/routing.py"
+RFIX="$ROOT/tests/fixtures/routing"
+RSTATE="$WORK/rstate"; mkdir -p "$RSTATE/routing"
+cp "$RFIX/prices.json" "$RSTATE/routing/prices.json"
+rcost() { ORCHESTRATOR_STATE_DIR="$RSTATE" ORCHESTRATOR_PROJECTS_DIR="$RFIX/projects" python3 "$ROUTING" cost "$@"; }
+
+check "cost of a session: one usage per message id, subagents included, tiered price applied" \
+  "cost_usd=0.170100 models=a-model-1,c-model-1 tokens_in=202000 tokens_out=4000 cache_read=10000 cache_write=3000" \
+  "$(rcost --session s-1)"
+check "cost of one transcript file, by path" "0.1695" \
+  "$(rcost "$RFIX/projects/-repo/s-1.jsonl" --json | jq -r '.cost_usd|.*10000|round/10000')"
+rm "$RSTATE/routing/prices.json"
+check "no price file: the cost is unknown, never guessed" "cost_usd=unknown" \
+  "$(rcost --session s-1 2>/dev/null | cut -d' ' -f1)"
+check "no price file: stderr names the model" "1" \
+  "$(rcost --session s-1 2>&1 >/dev/null | grep -c 'no price for a-model-1')"
+cp "$RFIX/prices.json" "$RSTATE/routing/prices.json"
+check_status "an unknown session is a refusal" 1 rcost --session s-404
+check "a transcript path that does not exist is a refusal, never a cost of zero" "ERROR: cost: no transcript at $WORK/none.jsonl" \
+  "$(rcost "$WORK/none.jsonl" 2>&1)"
+rcost --session s-1 --alias a-model >/dev/null
+check "the alias records the identifier it resolved to" "a-model-1" \
+  "$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
