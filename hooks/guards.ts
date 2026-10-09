@@ -18,7 +18,7 @@ import { roleOf, isTitle, titleOf, parentAndTty, launchNameOfListing } from './s
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { detectForces } from './tokenizer.ts'
 import {
-  refuse, withDeadline, isDegradedPass,
+  refuse, withDeadline, isDegradedPass, type DegradedPass,
   listing, chainEntries, ownAgents, pullRequestOf, openRows, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchedNumbers,
   checkWake, checkWakeDone, checkCi,
@@ -327,6 +327,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // hook, the shell gate answers the same stops — both firing is expected, never
   // deduplicated.
   on('classic.Stop', async ($: any, e: any, next: (e: any) => any) => {
+    // The sweep's one shot, armed once the stop is known Orch-scoped: every passing
+    // exit below calls it before next(e), a refusal never does, and the catch does too
+    // (the shell gate's own finally — a stop the gate could not read through passes all
+    // the same, and sweeps). Null until the scope is settled, so a failure before it
+    // sweeps nothing.
+    let sweepAtStop: (() => Promise<void>) | null = null
     try {
       // At most one refusal per turn (stop_gate.py:653-654): the host re-fires the stop
       // with the marker set, and the gate steps aside before it reads anything.
@@ -348,6 +354,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const state = `${await configDir($)}/claude-orchestrator`
       const root = (await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? ''
       const until = Date.now() + await stopDeadline($)
+      let swept = false
+      sweepAtStop = async () => {
+        if (swept) return
+        swept = true
+        await runSweep($, state, root, until)
+      }
       // Check 1, what will wake you. The agents of this orchestrator are the chain
       // entries its own session wrote, still running one by the listing's glyph.
       const rows = listing(await mustRun($, ['bash', `${root}/skills/iterm-agents/scripts/iterm-agent.sh`, 'list'], "the launcher's listing", until))
@@ -386,10 +398,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // precomputed state, no synchronous network at a stop.
       if (!sessionId) {
         await logLine($, 'stop gate: no session id: the reported heads cannot be kept')
+        await sweepAtStop?.()
         return next(e)
       }
       const watches = await listCiWatches($, `${state}/ci-watch`, until)
-      if (watches === null) return next(e)
+      if (watches === null) {
+        await sweepAtStop?.()
+        return next(e)
+      }
       const logs = []
       for (const entry of watches) {
         const number = watchNumberOf(entry.name)
@@ -421,6 +437,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         await logLine($, `stop gate: check2 ci-not-finished ${lines.map(l => l.split('. Report')[0]).join(' ; ')}`)
         return refuse(lines.join('\n'))
       }
+      // The checks have let the stop pass: the sweep runs now, last and never part of
+      // the decision (the design's « The sweep runs by itself »).
+      await sweepAtStop?.()
       return next(e)
     } catch (err) {
       // A gate that cannot read lets the stop pass and says so — one line, already
@@ -429,6 +448,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (!(err instanceof GateUnread)) {
         await logLine($, `stop gate: ${String((err as Error)?.message ?? err)}`)
       }
+      // The shell gate swept in a finally over its checks: a stop it could not read
+      // through passes all the same, and sweeps. Never after a refusal — a refusal
+      // returns above, before this.
+      await sweepAtStop?.()
       return next(e)
     }
   }).catch(async ($: any, e: any, next: any) => {
@@ -448,6 +471,57 @@ async function logLine($: any, message: string): Promise<void> {
     const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
     await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | guards | ${message}\n`)
   } catch { /* the log itself never blocks the handler that failed */ }
+}
+
+// --- the sweep (stop_gate.py:595-642) -----------------------------------------------------
+
+// What the sweep leaves of the deadline for the stop's own answer (the python's
+// SWEEP_MARGIN).
+const SWEEP_MARGIN = 3.0
+
+const firstLine = (text: string): string => text.trim().split('\n')[0] ?? ''
+
+// sweep_due()/sweep() ported: `workspace.sh sweep` within what is left of the deadline,
+// at most once per interval, everything it does a log line — never a refusal, never a
+// held stop. The stamp is the shell gate's own `sweep.stamp`, shared on purpose unlike
+// the heads record's `.mheads` split: its token is a time, the same fact for both
+// gates, and one file holds them to one sweep per interval between them until the
+// shell half retires. It is written BEFORE the run, so a sweep that hangs is not
+// retried by every stop that follows it.
+async function runSweep($: any, stateDir: string, root: string, until: number): Promise<void> {
+  try {
+    // What is left of the whole gate's deadline, minus the margin its own exit needs.
+    // Under a second, or not due: nothing runs, nothing is said.
+    const left = (until - Date.now()) / 1000 - SWEEP_MARGIN
+    if (left < 1) return
+    let mtimeMs: number | null = null
+    try { mtimeMs = (await $.fs.stat(`${stateDir}/sweep.stamp`)).mtimeMs } catch { mtimeMs = null }
+    const every = (Number(await $.env.get('ORCHESTRATOR_SWEEP_INTERVAL')) || 600) * 1000
+    if (mtimeMs !== null && Date.now() - mtimeMs < every) return
+    await $.fs.write(`${stateDir}/sweep.stamp`, `${Math.floor(Date.now() / 1000)}\n`)
+    // The script's own `--deadline` self-limits between items, the real bound; the
+    // timeoutMs is the engine's kill of what ignores it (the python killed the process
+    // group itself), and the race keeps the stop's answer inside the deadline whatever
+    // happens. A run that overruns or cannot start is one line — it did not finish.
+    const ms = Math.round((left + 1.5) * 1000)
+    const outcome = await withDeadline(
+      $.process.run(
+        ['bash', `${root}/skills/orchestrator/scripts/workspace.sh`, 'sweep', '--deadline', String(Math.floor(left))],
+        { timeoutMs: ms },
+      ),
+      ms,
+    ).catch((): DegradedPass => ({ decision: 'pass', degraded: true }))
+    if (isDegradedPass(outcome)) {
+      await logLine($, `stop gate: sweep error did not finish within ${Math.floor(left + 1.5)}s`)
+      return
+    }
+    for (const line of String(outcome.stdout ?? '').split('\n')) {
+      if (line.startsWith('deleted ')) await logLine($, `stop gate: sweep deleted ${line.slice('deleted '.length)}`)
+    }
+    if (outcome.exitCode !== 0) {
+      await logLine($, `stop gate: sweep error exit ${outcome.exitCode}: ${firstLine(String(outcome.stderr ?? ''))}`)
+    }
+  } catch { /* the sweep never refuses or delays a stop; its failures are said above */ }
 }
 
 // --- the stop gate's reads (hooks/stop_gate.py ported; the decisions in stop-gate.ts) -----

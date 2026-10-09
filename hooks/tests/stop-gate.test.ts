@@ -267,6 +267,7 @@ const CHAIN = `${STATE}/chains/ttys001.jsonl`
 const REGISTER = `${STATE}/records/a1b2c3`
 const RECORD = '/tmp/h/rec/round.jsonl'
 const HEADS = `${STATE}/stop-gate/a1b2c3.mheads`
+const STAMP = `${STATE}/sweep.stamp`
 const CIDIR = `${STATE}/ci-watch`
 const PROJECTS = `${HOME}/.claude/projects`
 const TRANSCRIPT = `${HOME}/elsewhere/s-stop.jsonl`
@@ -295,12 +296,16 @@ type Setup = {
   env?: Record<string, string>
   hangListing?: boolean
   failCiList?: boolean
+  stampMtimeMs?: number
+  sweep?: { exitCode: number; stdout: string; stderr: string }
+  hangSweep?: boolean
 }
 
-function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string> } {
+function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string } } {
   const written: string[] = []
   const ran: string[] = []
   const wrote: Record<string, string> = {}
+  const stamp: { atRun?: string } = {}
   const env = {
     HOME, CLAUDE_PLUGIN_ROOT: '/plugins/orch-root', ITERM_SESSION_ID: 'w0t0:2:17',
     ORCHESTRATOR_HOST_CLI: 'hostcli', ...(setup.env ?? {}),
@@ -326,6 +331,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
       stat: async (p: string) => {
         if (p === TRANSCRIPT && setup.transcript !== undefined) {
           return { kind: 'file', size: setup.transcript.length, mtimeMs: 0, isLink: false }
+        }
+        if (p === STAMP && setup.stampMtimeMs !== undefined) {
+          return { kind: 'file', size: 12, mtimeMs: setup.stampMtimeMs, isLink: false }
         }
         throw new Error('ENOENT')
       },
@@ -374,6 +382,12 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
           if (setup.hangListing) return new Promise(() => undefined)
           return { exitCode: 0, stdout: setup.listing ?? '', stderr: '' }
         }
+        if (argv[0] === 'bash' && argv[1] === WORKSPACE && argv[2] === 'sweep') {
+          // The stamp as it stood when the sweep began: it must already be written.
+          stamp.atRun = wrote[STAMP]
+          if (setup.hangSweep) return new Promise(() => undefined)
+          return { exitCode: setup.sweep?.exitCode ?? 0, stdout: setup.sweep?.stdout ?? '', stderr: setup.sweep?.stderr ?? '' }
+        }
         if (argv[0] === 'bash' && argv[1] === WORKSPACE) return { exitCode: 0, stdout: setup.workspace ?? '', stderr: '' }
         if (argv[0] === 'dd') {
           const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
@@ -385,7 +399,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
       },
     },
   }
-  return { dollar, written, ran, wrote }
+  return { dollar, written, ran, wrote, stamp }
 }
 
 function mounted(): { handlers: Record<string, Function>; matchers: Record<string, object | undefined> } {
@@ -562,4 +576,119 @@ test('a directory that cannot be read lets the stop pass and says so', async () 
   expect(written.length).toBe(2)
   expect(written[1]).toContain('| guards |')
   expect(written[1]).toContain('unread')
+})
+
+// --- the sweep -----------------------------------------------------------------------------
+
+// A passing, scoped stop: the blocks line releases check 1 and no ci-watch log exists,
+// so the stop reaches the sweep at its final exit.
+const PASSING = { last_assistant_message: 'a report\nwaiting: operator — blocks: the report' }
+// Fifteen minutes old: past the default interval, inside a longer override.
+const OLD_STAMP = Date.now() - 15 * 60 * 1000
+const sweepLine = (ran: readonly string[]) => ran.find(l => l.includes(' sweep --deadline'))
+
+test('a sweep that ran within the interval is not run again', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote, written } = fakeDollar({ stampMtimeMs: Date.now() })
+  const { answer, passed } = await stop(handlers['classic.Stop'], dollar, stopEvent(PASSING))
+  expect(answer).toBe(passed)
+  expect(sweepLine(ran)).toBeUndefined()
+  expect(wrote[STAMP]).toBeUndefined()
+  expect(written.filter(l => l.includes('sweep')).length).toBe(0)
+})
+
+test('a due sweep runs once, writes the shared stamp first, and logs its deletions', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({
+    stampMtimeMs: OLD_STAMP,
+    sweep: { exitCode: 0, stdout: 'deleted /tmp/h/work/repo/belt\nkept /tmp/h/work/repo/pin: dirty\n', stderr: '' },
+  })
+  const { answer, passed } = await stop(handlers['classic.Stop'], fx.dollar, stopEvent(PASSING))
+  expect(answer).toBe(passed)
+  // The shell gate's own stamp file, shared: epoch seconds and a newline, before the run.
+  expect(Object.keys(fx.wrote)).toContain(STAMP)
+  expect(fx.wrote[STAMP]).toMatch(/^\d{10}\n$/)
+  expect(fx.stamp.atRun).toBe(fx.wrote[STAMP])
+  expect(sweepLine(fx.ran)).toContain(`bash ${WORKSPACE} sweep --deadline`)
+  expect(fx.written.some(l => l.includes('sweep deleted /tmp/h/work/repo/belt'))).toBe(true)
+  expect(fx.written.some(l => l.includes('kept'))).toBe(false)
+})
+
+test('a sweep that overruns lets the stop answer on time, said once, the stamp already written', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({
+    stampMtimeMs: OLD_STAMP, hangSweep: true, env: { ORCHESTRATOR_STOP_GATE_DEADLINE: '5' },
+  })
+  const e = stopEvent(PASSING)
+  const started = Date.now()
+  const { answer } = await stop(handlers['classic.Stop'], fx.dollar, e)
+  expect(answer).toBe(e)
+  expect(Date.now() - started).toBeLessThan(10000)
+  expect(fx.written.filter(l => l.includes('did not finish within')).length).toBe(1)
+  // The stamp was written before a run that never answers: the next stop will not retry it.
+  expect(fx.stamp.atRun).toMatch(/^\d{10}\n$/)
+})
+
+test('no time left in the deadline skips the sweep silently', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote, written } = fakeDollar({
+    stampMtimeMs: OLD_STAMP, env: { ORCHESTRATOR_STOP_GATE_DEADLINE: '2' },
+  })
+  const { answer, passed } = await stop(handlers['classic.Stop'], dollar, stopEvent(PASSING))
+  expect(answer).toBe(passed)
+  expect(sweepLine(ran)).toBeUndefined()
+  expect(wrote[STAMP]).toBeUndefined()
+  expect(written.filter(l => l.includes('sweep')).length).toBe(0)
+})
+
+test('the interval is read from the environment, a longer one holding the sweep back', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote } = fakeDollar({ stampMtimeMs: OLD_STAMP, env: { ORCHESTRATOR_SWEEP_INTERVAL: '1200' } })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(sweepLine(ran)).toBeUndefined()
+  expect(wrote[STAMP]).toBeUndefined()
+})
+
+test('a refused stop runs no sweep', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote } = fakeDollar({ stampMtimeMs: OLD_STAMP })
+  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({}))
+  expect((refused.answer as any).block).toContain('Nothing will wake you')
+  expect(sweepLine(ran)).toBeUndefined()
+  expect(wrote[STAMP]).toBeUndefined()
+})
+
+test('a session outside the orchestration runs no sweep', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote } = fakeDollar({ stampMtimeMs: OLD_STAMP, launchName: 'Agent : belt' })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(sweepLine(ran)).toBeUndefined()
+  expect(wrote[STAMP]).toBeUndefined()
+})
+
+test('a stop the gate could not read through still sweeps — the shell gate\'s own finally', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran, wrote } = fakeDollar({ stampMtimeMs: OLD_STAMP, failCiList: true })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(sweepLine(ran)).toBeDefined()
+  expect(wrote[STAMP]).toMatch(/^\d{10}\n$/)
+})
+
+test('a sweep that fails is said with its first stderr line', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    stampMtimeMs: OLD_STAMP,
+    sweep: { exitCode: 3, stdout: '', stderr: 'kept /tmp/h/work/repo/pin: no pull request\nand more\n' },
+  })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('sweep error exit 3: kept /tmp/h/work/repo/pin: no pull request'))).toBe(true)
+  expect(written.some(l => l.includes('and more'))).toBe(false)
 })
