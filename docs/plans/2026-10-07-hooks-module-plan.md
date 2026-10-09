@@ -904,10 +904,11 @@ git commit -m "feat(guards): hold a stop until something will wake the orchestra
 **Files:**
 - Create: hooks/supervision.ts
 - Modify: hooks/register.ts
+- Modify: hooks/session-name.ts, hooks/guards.ts (the name walk's pure core moves home; `readName` delegates, behavior unchanged)
 - Test: hooks/tests/supervision.test.ts
 
 **Interfaces:**
-- Consumes: the reading from `gauge.ts` (`currentReading()`), `roleOf`/`readName`.
+- Consumes: `currentReading()` from `gauge.ts` (plain import, no `$`), `roleOf` from `session-name.ts` (pure), and the name walk's pure core — extracted this task into `session-name.ts` over injected plain reader thunks (`run`, `readText`), with `guards.ts`'s `$`-holding `readName` delegating to it unchanged in behavior. The `$` fence forbids importing `readName` itself into supervision.ts, and duplicating the walk would be the standing duplication finding; the Global Constraints' own pure/$-holding split is the shape.
 - Produces: store key `sessions/<session-id>` → `{ role, name, repo, context_percent, context_tokens, window, model, busy, updated_at }` (`type SessionRow`); `writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void>`, `readSessions($: any): Promise<Record<string, SessionRow>>`, `deleteSession($: any, id: string): Promise<void>`, `sessionKey(id: string): string`.
 - Carries (Task 3 review minors, adjudicated to this task — it already edits gauge.ts for the session.end hook): the `session.end` handler's empty catch logs one line through `logLine` before passing through (the plan's every-handler-logs rule); the fake `on` in `hooks/tests/gauge-band.test.ts` stores the matcher it receives and the wiring test asserts the `ui.render` registration carries `{ component: 'AbovePrompt' }` — a bare two-argument registration would pass every test while drawing on every component.
 
@@ -939,7 +940,7 @@ test('a session end removes its row', async ($) => {
 
 - [ ] **Step 2: Run to verify failure.**
 
-- [ ] **Step 3: Implement** — `writeSession` reads the key, merges the patch, writes back (per-key writes do not collide across sessions); hooks into `session.measure` and `session.end` with its OWN registered handlers in supervision.ts — the `$` fence forbids gauge.ts calling an imported `writeSession($)`; the fresh figure comes through `currentReading()` (imported plain, no `$` argument), and the `$.fs` calls live in supervision.ts's handlers. A consumer that did not receive `$` (commands.ts, Task 11) reads the store through its own `$.fs` call plus supervision.ts's pure row parser. Stale rows: `readSessions` drops rows whose `updated_at` is older than one hour.
+- [ ] **Step 3: Implement** — `writeSession` reads the key, merges the patch, writes back (per-key writes do not collide across sessions); hooks into `session.measure` and `session.end` with its OWN registered handlers in supervision.ts — the `$` fence forbids gauge.ts calling an imported `writeSession($)`; the fresh figure comes through `currentReading()` (imported plain, no `$` argument), and the `$.fs` calls live in supervision.ts's handlers. A consumer that did not receive `$` (commands.ts, Task 11) reads the store through its own `$.fs` call plus supervision.ts's pure row parser. Stale rows: `readSessions` drops rows whose `updated_at` is older than one hour. The store lives under the module's state root, `<config>/claude-orchestrator/store/`, one file per key (`$.fs.write` creates the directories) — Review Focus 4's two-session write is per-key by construction. The measure handler fills the figures and `model` from `currentReading()`, `role`/`name` through the extracted core over supervision.ts's own readers, `repo` through its own one-line `git remote get-url origin` read (the per-file convention — `repositoryOf` is `$`-holding in guards.ts), `busy` defaulting false. `deleteSession` removes the row: verify whether `$.fs` offers a remove and use it if so; else truncate the key's file to empty and let the row parser read an absent, empty or unparseable row as no row — the measure-file doctrine, the one-hour staleness collecting the rest.
 
 - [ ] **Step 4: Run tests, commit**
 
