@@ -90,8 +90,9 @@ hooks/register.ts                    the hooks module's entry point: mounts the 
 hooks/gauge-core.ts                  the measurement rules, pure: the double gate, the measure file path, tolerant parsing
 hooks/gauge.ts                       measures the context into one file per session on session events, announces model drift, and draws the fill band above the prompt
 hooks/session-name.ts                the session's naming, pure: the role prefixes, the custom-title value's normalization, the launch-name parse of a flat ps listing
-hooks/guards.ts                      the guards and the walks they walk ($ fenced to the file that holds it): the context gate on prompt.submit over the name walk and the transcript's blocks, the push guard on tool.call over the tokeniser's forces
+hooks/guards.ts                      the guards and the walks they walk ($ fenced to the file that holds it): the context gate on prompt.submit over the name walk and the transcript's blocks, the push guard on tool.call over the tokeniser's forces, the stop gate on classic.Stop over the launcher's listing, the chain and ci-watch's logs
 hooks/tokenizer.ts                   the push tokeniser, pure: the command line read the way the shell reads it (quotes, separators, heredocs, wrappers), every force a git push carries named
+hooks/stop-gate.ts                   the stop gate's checks, pure: the wake decision over the launcher's listing and the chain, the once-per-tell CI decision over ci-watch's precomputed logs, the deadline race
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
 hooks/tests/gauge-core.test.ts       the double gate's boundaries, the measure line, the drift announcement and its once rule
 hooks/tests/gauge-band.test.ts       the fill band: the quiet label, the rotation line past the gate, the nothing-drawn skip
@@ -99,6 +100,7 @@ hooks/tests/session-name.test.ts     the role prefixes, the rename's normalizati
 hooks/tests/context-gate.test.ts     the four role lines verbatim, the announcement's words, and the wiring over a faked $: spoken past the gate, silent below and unscoped, unmeasured once
 hooks/tests/tokenizer.test.ts        the push tokeniser's fixtures: every forced form the shell suite refused and everything it accepted, moved module-side beside the awk until Task 12
 hooks/tests/push-guard.test.ts       the push decision's marker, lease and unread-command boundaries, and the wiring over a faked $: denied without the tool asked, unmarked and failing reads passing through
+hooks/tests/stop-gate.test.ts        the stop gate's decision shapes and refusal texts, the once-per-tell CI record, and the wiring over a faked $: the classic.Stop fields pinned, the quiet scope, the degraded read passing
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it
