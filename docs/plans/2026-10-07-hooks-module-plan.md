@@ -773,6 +773,7 @@ git commit -m "feat(guards): tokenize shell command lines for the push guard in-
 **Interfaces:**
 - Consumes: `detectForces` (Task 6).
 - Produces: `pushDecision(spawned: string | null | undefined, command: string): { deny: string } | null` — pure, exported from `guards.ts`; the `tool.call` handler is a thin wiring around it.
+- Carries (Task 6 review minor, adjudicated to this task — it acquires the consumer of the reason strings): a one-line comment at `seen` in hooks/tokenizer.ts records the deliberate widening — the port dedups reasons by exact match where the awk dedups by substring, so the module's « Seen: … » can name a reason the shell guard suppressed (verdicts identical; pinned by the reviewer's differential).
 
 - [ ] **Step 1: Write the failing test**
 
