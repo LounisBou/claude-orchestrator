@@ -64,7 +64,8 @@ skills/orchestrator/scripts/rhythm.sh       an audit's net balance, from git alo
 skills/coordination/SKILL.md         the coordinator: answers from the facts, flags collisions, relays what is the operator's, its succession
 skills/coordinator/scripts/coordinator.sh  the coordinator's record, and the facts: register, clear, lookup, facts, owners
 skills/model-routing/SKILL.md        which capability tier a dispatch gets
-skills/model-routing/scripts/routing.py  what a session cost, measured from its transcript
+skills/model-routing/scripts/routing.py  what a session cost, a repository's profile, the pair a class is picked on, and the tables calibrated from trials and record rows
+skills/model-routing/defaults/README.md  what the shipped tier/effort tables are and how they are made
 skills/context-gauge/SKILL.md        how a session reads its own context fill
 skills/context-gauge/scripts/context-gauge.sh
 skills/context-gauge/scripts/statusline-tap.sh
@@ -98,6 +99,7 @@ tests/e2e.sh                         one real round: a tab, a session, a close
 tests/fixtures/transcript.jsonl      a transcript tail for the gauge's computed tier
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
 tests/fixtures/routing/prices.json, tests/fixtures/routing/projects/-repo/s-1.jsonl, tests/fixtures/routing/projects/-repo/s-1/subagents/agent-x.jsonl, tests/fixtures/routing/projects/-repo/s-2.jsonl, tests/fixtures/routing/projects/-repo/s-3.jsonl, tests/fixtures/routing/projects/-repo/s-4.jsonl  a price file, a session with a subagent, a prompt crossing the tiered threshold through cache reads, an unpriced model and a transcript with no usage, for routing.py cost
+tests/fixtures/routing/trees/laravel/composer.json, tests/fixtures/routing/trees/laravel/artisan, tests/fixtures/routing/trees/plugin/.claude-plugin/plugin.json, tests/fixtures/routing/trees/plugin/run.sh, tests/fixtures/routing/trees/plugin/a.sh, tests/fixtures/routing/trees/plugin/b.py, tests/fixtures/routing/trees/pycli/pyproject.toml, tests/fixtures/routing/trees/pycli/bin/tool, tests/fixtures/routing/trees/jslib/package.json, tests/fixtures/routing/trees/jslib/index.js  four marker trees a profile is inferred from, for routing.py profile and pick
 docs/design.md                       this document
 docs/specs/2026-10-01-stop-gate-design.md  the stop gate's approved spec
 evals/README.md                      how the behaviour suite is staged, run and read

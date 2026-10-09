@@ -6149,6 +6149,58 @@ rcost --session s-1 --alias a-model >/dev/null
 check "the alias records the identifier it resolved to" "a-model-1" \
   "$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
 
+echo "== routing: pick =="
+
+T="$ROOT/tests/fixtures/routing/trees"
+check "profile: a composer project with artisan" "php/laravel-app" "$(python3 "$ROUTING" profile "$T/laravel")"
+check "profile: a plugin by its manifest, language by dominant extension" "shell/plugin" "$(python3 "$ROUTING" profile "$T/plugin")"
+check "profile: a python project with a bin entry point" "python/cli" "$(python3 "$ROUTING" profile "$T/pycli")"
+check "profile: a node package with no entry point" "javascript/library" "$(python3 "$ROUTING" profile "$T/jslib")"
+check_status "profile: no path is a refusal" 1 python3 "$ROUTING" profile
+
+PS="$WORK/pstate"; mkdir -p "$PS/routing/tables" "$PS/routing/projects/laravel"
+printf '{"deep":"a-model","standard":{"model":"b-model","effort":"medium"},"light":"c-model"}' > "$PS/models.json"
+printf '{"slug":"laravel","repo":"%s","profile":"php/laravel-app","tasks":[]}' "$T/laravel" > "$PS/routing/projects/laravel/manifest.json"
+DEF="$WORK/defaults"; mkdir -p "$DEF"
+rpick() { ORCHESTRATOR_STATE_DIR="$PS" ORCHESTRATOR_ROUTING_DEFAULTS="$DEF" python3 "$ROUTING" pick --repo "$T/laravel" "$@"; }
+check "nothing measured: the tier table through the map" "pair=b-model/medium source=tier-table" "$(rpick --class behaviour-phase)"
+check "nothing measured, a tier bound to a model alone" "pair=c-model source=tier-table" "$(rpick --class search)"
+mv "$PS/models.json" "$PS/models.json.off"
+check "nothing measured and nothing bound: the host's default" "pair=host-default source=tier-table" "$(rpick --class search)"
+mv "$PS/models.json.off" "$PS/models.json"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"light/high"}}}' > "$DEF/global.json"
+check "a shipped default resolves its tier through the map" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"deep/low"}}}' > "$DEF/profile-php-laravel-app.json"
+check "a shipped profile default beats the shipped global one" "pair=a-model/low source=shipped:profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"nonsense/low"}}}' > "$DEF/profile-php-laravel-app.json"
+check "a shipped default on a tier the map does not bind falls through" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"c-model/medium","models":["c-model-1"]}}}' > "$PS/routing/tables/global.json"
+check "the local global table beats the shipped defaults" "pair=c-model/medium source=global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"b-model/low","models":["b-model-1"]}}}' > "$PS/routing/tables/profile-php-laravel-app.json"
+check "the profile table beats the global one" "pair=b-model/low source=profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","models":["a-model-1"],"ladder":[{"pair":"c-model/high","eligible":false},{"pair":"a-model/low","eligible":true}]},"conversion-phase":{"pair":"a-model/medium","models":["a-model-1"],"ladder":[{"pair":"a-model/low","eligible":false},{"pair":"a-model/medium","eligible":true}]},"contract-phase":{"pair":"a-model/high","models":["a-model-1"]}}}' > "$PS/routing/tables/project-laravel.json"
+check "the project table beats them all" "pair=a-model/low source=project:laravel" "$(rpick --class behaviour-phase)"
+printf '{"a-model":"a-model-2"}' > "$PS/routing/aliases.json"
+check "an entry measured on another identifier is flagged stale" "pair=a-model/low source=project:laravel stale" "$(rpick --class behaviour-phase)"
+check_status "an unknown class is a refusal" 1 rpick --class nonsense
+# Exploration: three one-round closes at the class's pair, none escaped, and a class that may be explored.
+ER="$WORK/explore.jsonl"; : > "$ER"
+for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed"}\n' "$i" >> "$ER"; done
+check "three clean closes offer one notch down: no eligible cheaper rung, no lower effort, so the next lighter family" \
+  "explore=b-model/low" "$(rpick --class behaviour-phase --record "$ER" | sed -n 2p)"
+check "two clean closes are not enough" "1" \
+  "$(sed -n 1,2p "$ER" > "$WORK/two.jsonl"; rpick --class behaviour-phase --record "$WORK/two.jsonl" | wc -l | tr -d ' ')"
+check "a line of the record that does not read is skipped, not fatal" "explore=b-model/low" \
+  "$({ cat "$ER"; echo '{"id":'; } > "$WORK/torn.jsonl"; rpick --class behaviour-phase --record "$WORK/torn.jsonl" 2>/dev/null | sed -n 2p)"
+check "an escaped defect at the class's pair closes the exploration" "1" \
+  "$({ cat "$ER"; printf '{"id":4,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed","escaped":true}\n'; } > "$WORK/esc.jsonl"; rpick --class behaviour-phase --record "$WORK/esc.jsonl" | wc -l | tr -d ' ')"
+check "a failed exploration freezes the class for the build" "1" \
+  "$({ cat "$ER"; printf '{"id":5,"class":"behaviour-phase","model":"b-model","effort":"low","rounds":2,"state":"closed","explore":true}\n'; } > "$WORK/frozen.jsonl"; rpick --class behaviour-phase --record "$WORK/frozen.jsonl" | wc -l | tr -d ' ')"
+check "a notch the ladder measured below the floor is never offered" "1" \
+  "$(for i in 1 2 3; do printf '{"id":%d,"class":"conversion-phase","model":"a-model","effort":"medium","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/conv.jsonl"; rpick --class conversion-phase --record "$WORK/conv.jsonl" | wc -l | tr -d ' ')"
+check "a contract phase is never explored, measured or not" "1" \
+  "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
