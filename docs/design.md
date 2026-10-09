@@ -89,9 +89,11 @@ hooks/hooks.json                     declares the context gate, the push guard a
 hooks/register.ts                    the hooks module's entry point: mounts the domains as they land
 hooks/gauge-core.ts                  the measurement rules, pure: the double gate, the measure file path, tolerant parsing
 hooks/gauge.ts                       measures the context into one file per session on session events, announces model drift, and draws the fill band above the prompt
+hooks/session-name.ts                the session's name in-process: the launch name from the process table, else the last rename read from the transcript's end
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
 hooks/tests/gauge-core.test.ts       the double gate's boundaries, the measure line, the drift announcement and its once rule
 hooks/tests/gauge-band.test.ts       the fill band: the quiet label, the rotation line past the gate, the nothing-drawn skip
+hooks/tests/session-name.test.ts     the role prefixes, and the last rename winning over the earlier title, read from the end in blocks
 hooks/context-gate.sh                the gate the harness enforces, not the model
 hooks/push-guard.sh                  refuses a force push other than a rebase's lease, in a launcher-spawned session
 hooks/stop-gate.sh                   holds an orchestrator's stop until something will wake it, and puts its pull requests' real checks in front of it
@@ -101,6 +103,7 @@ install.sh, uninstall.sh
 tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
 tests/fixtures/transcript.jsonl      a transcript tail for the gauge's computed tier
+tests/fixtures/transcript-renamed.jsonl  a transcript whose last custom-title entry is a rename
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
 docs/design.md                       this document
 docs/specs/2026-10-01-stop-gate-design.md  the stop gate's approved spec
