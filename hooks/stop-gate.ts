@@ -181,16 +181,25 @@ export function ownAgents(rows: readonly Row[], entries: readonly ChainEntry[], 
   return { agents, resident }
 }
 
-// chain_read() ported over an already-read text: entries with a tab id and a tty;
-// a line that is no entry is no entry.
+// chain_read() ported over an already-read text (iterm_agent.py:1009-1020): entries
+// with a tab id and a tty. One line that is no JSON empties the whole file, as the
+// launcher's own read does — its writes are atomic, so a bad line means the file is
+// not a chain, and the remains of a non-atomic write must not leave a stranger's
+// entry anchoring the stop. An entry that parses but is no dict, or carries no tab
+// id, is dropped alone.
 export function chainEntries(text: string): ChainEntry[] {
   const entries: ChainEntry[] = []
   for (const line of text.split('\n')) {
     if (!line.trim()) continue
+    let entry: unknown
     try {
-      const entry = JSON.parse(line)
-      if (entry && typeof entry === 'object' && entry.tab_id && typeof entry.tty === 'string') entries.push(entry)
-    } catch { /* a line that is no entry is no entry */ }
+      entry = JSON.parse(line)
+    } catch {
+      return []
+    }
+    if (entry && typeof entry === 'object' && (entry as ChainEntry).tab_id && typeof (entry as ChainEntry).tty === 'string') {
+      entries.push(entry as ChainEntry)
+    }
   }
   return entries
 }
@@ -344,10 +353,29 @@ export function writeHeads(heads: Heads): string {
   }).join('')
 }
 
-const encodeName = (name: string) => name.replace(/[^A-Za-z0-9_.~-]/g, ch =>
-  [...ch].map(c => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')).join(''))
-const decodeName = (name: string) => name.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) =>
-  String.fromCharCode(parseInt(hex, 16)))
+// The names on a heads line are percent-encoded as their UTF-8 bytes — python's
+// quote(safe="")/unquote over the unreserved set: a check name carries whatever the
+// forge allows, and a code point above latin-1 is several bytes that must survive the
+// write/read cycle as one character, or the once-per-tell comparison reads a set that
+// never equals the one it recorded and the same failing set is re-told at every stop.
+const NAME_ENCODER = new TextEncoder()
+const NAME_DECODER = new TextDecoder()
+
+const encodeName = (name: string): string => {
+  let out = ''
+  for (const ch of name) {
+    if (/[A-Za-z0-9._-]/.test(ch)) out += ch
+    else for (const b of NAME_ENCODER.encode(ch)) out += '%' + b.toString(16).toUpperCase().padStart(2, '0')
+  }
+  return out
+}
+
+const decodeName = (text: string): string => {
+  // The escapes are collected as bytes and decoded together: one character is several
+  // consecutive escapes, and taking them one at a time re-spells it wrong.
+  const escaped = text.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+  return NAME_DECODER.decode(Uint8Array.from(escaped, ch => ch.charCodeAt(0)))
+}
 
 // --- check 2, over ci-watch's precomputed data (stop_gate.py:450-461, 537-592) -------------
 
@@ -381,6 +409,15 @@ export function watchNumberOf(name: string): string | null {
   return m ? m[1] : null
 }
 
+// The slug part of a log name — the repository the watch was named for. ci-watch's
+// own log_file() spells it `owner/name` with every character outside its kept set
+// turned to `_`, or `here` when the watch was armed in the checkout itself (no
+// --repo): the scope of check 2 is decided on it.
+export function watchSlug(name: string): string | null {
+  const m = /^(.+)-pr\d+(?:-base)?\.log$/.exec(name)
+  return m ? m[1] : null
+}
+
 // watched_numbers() ported: the pull request numbers a ci-watch process is alive for.
 // `ci-watch.sh <n>` as a process's command line: the script run by a shell or by its
 // own path, then the number. An editor open on the script, or a `grep ci-watch.sh 12`,
@@ -411,6 +448,14 @@ const setsEqual = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
 // tell starts over. A head waited on in the background is not told and not recorded, so
 // a watch that dies is told once; a head whose checks are all ignored, or none read at
 // all, is unread: read again at the next stop, recorded only if it already had a record.
+//
+// Declared deviation: the draft-guard filter is dropped. The shell gate read each
+// open pull request's isDraft from gh and let a guard that fails by design while the
+// request is a draft stand untold (stop_gate.py:565-567, its draft_guards at :511-534);
+// a ci-watch log carries no draft flag and no local read can supply one, so inventing
+// the signal would tell a red that is not one, or hide one that is. ignored-checks
+// remains the operator's fallback for the drafting window: its listed name goes with
+// the guard for as long as the request is a draft.
 export function checkCi(input: {
   logs: readonly CiWatchLog[]
   reported: Heads

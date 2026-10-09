@@ -20,7 +20,7 @@ import { detectForces } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
   listing, chainEntries, ownAgents, pullRequestOf, openRows, projectCheckouts,
-  headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchedNumbers,
+  headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchSlug, watchedNumbers,
   checkWake, checkWakeDone, checkCi,
 } from './stop-gate.ts'
 
@@ -366,6 +366,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const chain = await quietly($, () => $.fs.read(`${state}/chains/${tty.split('/').pop()}.jsonl`), until, '')
       const session = (await $.env.get('ITERM_SESSION_ID')) ?? ''
       const owner = session.includes(':') ? session.slice(session.lastIndexOf(':') + 1) : ''
+      if (!owner) {
+        // Said once per stop, as the shell gate said it (stop_gate.py:232): without the
+        // owner no chain entry is counted, and the operator should know why the gate
+        // saw no agent of its own — a recycled tty's occupant would have been counted.
+        await logLine($, 'stop gate: ITERM_SESSION_ID is not set: no chain entry is counted')
+      }
       const { agents, resident } = ownAgents(rows, chainEntries(String(chain)), owner)
       const delivered: string[] = []
       for (const agent of agents) {
@@ -406,10 +412,29 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         await sweepAtStop?.()
         return next(e)
       }
+      // The universe of check 2 is the session's repository alone (stop_gate.py:546-548
+      // told only the operator's own OPEN pull requests of the repository the stop's cwd
+      // works in): a log is kept when its slug — the repository ci-watch named it for,
+      // `owner/name` sanitized the way its log_file() sanitizes, or `here` for a watch
+      // armed in the checkout itself without --repo — is this repository's or `here`.
+      // Another repository's dead watch never refuses this stop; a repository that
+      // cannot be read keeps `here` alone, the name ci-watch itself falls back to. One
+      // widening stays, declared: a dead watch of THIS repository's closed or merged
+      // pull request is still told once per tell — the shell gate read `--state open`
+      // live at the stop and a log name carries no state — and a `here` log is
+      // ambiguous by ci-watch's own naming, whichever checkout armed it.
+      let resolvedRepo: { name: string | null; why: string } | null = null
+      const repository = async () => (resolvedRepo ??= await repositoryOf($, String(e.cwd ?? ''), until))
+      const slugOf = (name: string) => name.replace(/[^A-Za-z0-9._-]/g, '_')
       const logs = []
       for (const entry of watches) {
         const number = watchNumberOf(entry.name)
         if (!number || entry.kind !== 'file') continue
+        const watched = watchSlug(entry.name)
+        if (watched !== 'here') {
+          const repo = await repository()
+          if (watched !== (repo.name ? slugOf(repo.name) : null)) continue
+        }
         const buckets = parseCiWatchLog(await mustReadText($, `${state}/ci-watch/${entry.name}`, `the ci-watch log ${entry.name}`, until))
         logs.push({ number, tell: String(entry.mtimeMs), checks: Object.entries(buckets).map(([name, bucket]) => ({ name, bucket })) })
       }
@@ -424,7 +449,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         logs,
         reported,
         watched,
-        ignored: await ignoredChecks($, state, String(e.cwd ?? ''), until),
+        ignored: await ignoredChecks($, state, repository, until),
         watchCommand: `${root}/skills/orchestrator/scripts/ci-watch.sh`,
       })
       // The record is written before the refusal is answered, the shell gate's own
@@ -502,15 +527,23 @@ async function runSweep($: any, stateDir: string, root: string, until: number): 
     // The script's own `--deadline` self-limits between items, the real bound; the
     // timeoutMs is the engine's kill of what ignores it (the python killed the process
     // group itself), and the race keeps the stop's answer inside the deadline whatever
-    // happens. A run that overruns or cannot start is one line — it did not finish.
+    // happens. A run that cannot start is said as its own failure (the python's except
+    // naming it, stop_gate.py:642); a run that overruns the bound is one line — it did
+    // not finish.
     const ms = Math.round((left + 1.5) * 1000)
-    const outcome = await withDeadline(
-      $.process.run(
-        ['bash', `${root}/skills/orchestrator/scripts/workspace.sh`, 'sweep', '--deadline', String(Math.floor(left))],
-        { timeoutMs: ms },
-      ),
-      ms,
-    ).catch((): DegradedPass => ({ decision: 'pass', degraded: true }))
+    let outcome: { exitCode: number; stdout?: string; stderr?: string } | DegradedPass
+    try {
+      outcome = await withDeadline(
+        $.process.run(
+          ['bash', `${root}/skills/orchestrator/scripts/workspace.sh`, 'sweep', '--deadline', String(Math.floor(left))],
+          { timeoutMs: ms },
+        ),
+        ms,
+      )
+    } catch (err) {
+      await logLine($, `stop gate: sweep error ${String((err as Error)?.message ?? err)}`)
+      return
+    }
     if (isDegradedPass(outcome)) {
       await logLine($, `stop gate: sweep error did not finish within ${Math.floor(left + 1.5)}s`)
       return
@@ -640,28 +673,58 @@ async function readRecords($: any, state: string, sessionId: string, until: numb
   return texts
 }
 
+// The session's repository (`owner/name`), read from the origin remote of the cwd —
+// the same fact the shell gate read from gh, a local read now. Null when it cannot be
+// known; `why` is the half-line ignored-checks says when it had entries to match.
+async function repositoryOf($: any, cwd: string, until: number): Promise<{ name: string | null; why: string }> {
+  const remote = await inTime($, () => $.process.run(['git', '-C', cwd, 'remote', 'get-url', 'origin']), until)
+  if (!remote) return { name: null, why: 'the origin remote did not answer in time' }
+  if (remote.exitCode !== 0) return { name: null, why: 'git remote get-url origin did not answer' }
+  const url = String(remote.stdout ?? '').trim()
+  const name = /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(url)?.[1]
+  if (!name) return { name: null, why: url ? `the origin URL names no repository: ${url}` : 'the origin URL is empty' }
+  return { name, why: '' }
+}
+
 // ignored_checks() ported (stop_gate.py:481-508): the names of the checks the machine
-// ignores for the repository of the cwd, one `<owner>/<repo> <check name>` per line.
-// The shell gate read the repository from gh at the stop; the module reads it from the
-// origin remote — a local read, no network at a stop. A file that cannot be read, or a
-// repository that cannot be known, filters nothing: a red is never lost for want of a
-// read.
-async function ignoredChecks($: any, state: string, cwd: string, until: number): Promise<Set<string>> {
-  const text = String(await quietly($, () => $.fs.read(`${state}/ignored-checks`), until, ''))
-  if (!text.trim()) return new Set()
+// ignores for the session's repository, one `<owner>/<repo> <check name>` per line. An
+// absent file is empty; a malformed line is said and dropped (stop_gate.py:498); a file
+// that cannot be read, or a repository that cannot be known, is said once (its
+// unreadable line at :507) and filters nothing: a red is never lost for want of a read.
+async function ignoredChecks(
+  $: any,
+  state: string,
+  repository: () => Promise<{ name: string | null; why: string }>,
+  until: number,
+): Promise<Set<string>> {
+  let raw: unknown = null
+  try {
+    const left = until - Date.now()
+    raw = left > 0 ? await withDeadline($.fs.read(`${state}/ignored-checks`), left) : null
+  } catch (err) {
+    const message = String((err as Error)?.message ?? err)
+    if (!/ENOENT|no such/i.test(message)) {
+      await logLine($, `stop gate: ignored-checks unreadable: ${message}`)
+    }
+    return new Set()
+  }
+  if (raw === null || isDegradedPass(raw)) return new Set()
   const entries: [string, string][] = []
-  for (const line of text.split('\n')) {
+  for (const line of String(raw).split('\n')) {
     if (!line.trim() || line.trim().startsWith('#')) continue
     const [repo, ...rest] = line.trim().split(/\s+/)
     const name = rest.join(' ').trim()
     if (repo.includes('/') && name) entries.push([repo, name])
+    else await logLine($, `stop gate: ignored-checks malformed line: ${line}`)
   }
   if (entries.length === 0) return new Set()
-  const remote = await inTime($, () => $.process.run(['git', '-C', cwd, 'remote', 'get-url', 'origin']), until)
-  const url = remote && remote.exitCode === 0 ? String(remote.stdout ?? '').trim() : ''
-  const repo = /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(url)?.[1]
-  if (!repo) return new Set()
-  return new Set(entries.filter(([ownerRepo]) => ownerRepo.toLowerCase() === repo.toLowerCase()).map(([, name]) => name))
+  const repo = await repository()
+  if (repo.name === null) {
+    await logLine($, `stop gate: ignored-checks repository unread: ${repo.why}`)
+    return new Set()
+  }
+  const wanted = repo.name.toLowerCase()
+  return new Set(entries.filter(([ownerRepo]) => ownerRepo.toLowerCase() === wanted).map(([, name]) => name))
 }
 
 // The watches ci-watch left behind (check 2's data): an absent directory is no watch

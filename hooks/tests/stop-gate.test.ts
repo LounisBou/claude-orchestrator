@@ -10,7 +10,7 @@ import {
   refuse, wakeDecision, withDeadline, isDegradedPass,
   machineLine, readHeads, writeHeads, headsPath, listing, ownAgents, openRows,
   projectCheckouts, watchedNumbers, parseCiWatchLog, watchNumberOf, pullRequestOf,
-  checkWake, checkWakeDone, checkCi,
+  checkWake, checkWakeDone, checkCi, chainEntries,
 } from '../stop-gate.ts'
 import { register as registerGuards } from '../guards.ts'
 
@@ -76,6 +76,15 @@ test('the listing parses the launcher rows and drops the marks', () => {
     { tty: '/dev/ttys001', title: 'a title', name: 'Orch : belt' },
     { tty: '/dev/ttys002', title: '⠋ Agent : belt', name: 'Agent : belt-p3' },
   ])
+})
+
+test('a chain file with one corrupt line reads as empty', () => {
+  // The launcher's chain_read empties the whole file on one bad line (its writes are
+  // atomic, so a bad line means the file is not a chain), and the remains of a
+  // non-atomic write must not anchor on a stranger's surviving entry.
+  expect(chainEntries('{"tab_id":"T1","tty":"/dev/ttys002","owner":"17"}\nnot json\n{"tab_id":"T2","tty":"/dev/ttys003","owner":"17"}\n')).toEqual([])
+  expect(chainEntries('{"tab_id":"T1","tty":"/dev/ttys002"}\n{"tty":"/dev/ttys003"}\n'))
+    .toEqual([{ tab_id: 'T1', tty: '/dev/ttys002' }])
 })
 
 test('own agents are the owner entries that still run one, residents apart', () => {
@@ -151,6 +160,10 @@ test('a heads record reads and writes the same line', () => {
   // A two-field line, written by the previous shape, reads as done; a bad state is skipped.
   expect(readHeads('170 abc123\n').get('170')).toEqual(['abc123', 'done', new Set()])
   expect(readHeads('170 abc123 weird x\n').size).toBe(0)
+  // A name carries whatever the forge allows, beyond latin-1: the record survives the
+  // cycle as UTF-8 bytes (python's quote/unquote), a comma and a percent included.
+  const wide = writeHeads(new Map([['160', ['t1', 'pending', new Set(['✓ lint', '🚀 deploy', 'a,b', '100%'])]]]))
+  expect(readHeads(wide).get('160')![2]).toEqual(new Set(['✓ lint', '🚀 deploy', 'a,b', '100%']))
 })
 
 test('the heads path is per session and sanitised', () => {
@@ -299,6 +312,12 @@ type Setup = {
   stampMtimeMs?: number
   sweep?: { exitCode: number; stdout: string; stderr: string }
   hangSweep?: boolean
+  sweepStartFail?: boolean
+  origin?: string
+  ignoredText?: string
+  failIgnoredRead?: boolean
+  failLogRead?: boolean
+  hangHeadsWrite?: boolean
 }
 
 function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string } } {
@@ -319,12 +338,20 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         if (p === RECORD) return (setup.records ?? [])[0] ?? ''
         if (p === HEADS) return setup.heads ?? ''
         if (p === LOG) return ''
-        if (p.startsWith(`${CIDIR}/`)) return setup.ciLogs?.[p.slice(CIDIR.length + 1)]?.text ?? ''
-        // The ignored-checks file is absent: the same answer a missing file gives.
-        if (p === `${STATE}/ignored-checks`) throw new Error(`ENOENT: ${p}`)
+        if (p === `${STATE}/ignored-checks`) {
+          if (setup.failIgnoredRead) throw new Error('EACCES: permission denied')
+          if (setup.ignoredText !== undefined) return setup.ignoredText
+          // Absent: the same answer a missing file gives.
+          throw new Error(`ENOENT: ${p}`)
+        }
+        if (p.startsWith(`${CIDIR}/`)) {
+          if (setup.failLogRead) throw new Error('EIO: the log cannot be read')
+          return setup.ciLogs?.[p.slice(CIDIR.length + 1)]?.text ?? ''
+        }
         throw new Error(`unread: ${p}`)
       },
       write: async (p: string, text: string) => {
+        if (p === HEADS && setup.hangHeadsWrite) return new Promise(() => undefined)
         if (p === LOG) written.push(text)
         else wrote[p] = text
       },
@@ -367,6 +394,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         if (argv[0] === 'lsof') {
           return { exitCode: 0, stdout: `p77\nn${setup.agentCwd ?? '/tmp/h/work/belt'}\n`, stderr: '' }
         }
+        if (argv[0] === 'git' && argv[3] === 'remote') {
+          return setup.origin ? { exitCode: 0, stdout: `${setup.origin}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'no origin' }
+        }
         if (argv[0] === 'git' && argv[3] === 'symbolic-ref') {
           return setup.agentBranch ? { exitCode: 0, stdout: setup.agentBranch, stderr: '' } : { exitCode: 1, stdout: '', stderr: '' }
         }
@@ -385,6 +415,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         if (argv[0] === 'bash' && argv[1] === WORKSPACE && argv[2] === 'sweep') {
           // The stamp as it stood when the sweep began: it must already be written.
           stamp.atRun = wrote[STAMP]
+          if (setup.sweepStartFail) return Promise.reject(new Error('spawn bash ENOENT'))
           if (setup.hangSweep) return new Promise(() => undefined)
           return { exitCode: setup.sweep?.exitCode ?? 0, stdout: setup.sweep?.stdout ?? '', stderr: setup.sweep?.stderr ?? '' }
         }
@@ -534,6 +565,8 @@ test('a pending ci-watch log holds the stop once and records the telling', async
   expect((held.answer as any).block).toContain('#160')
   expect((held.answer as any).block).toContain('run_in_background')
   expect(first.wrote[HEADS]).toBe('160 1728000000000 pending test\n')
+  // Check 2 pays no network at the stop: no gh call on its path either.
+  expect(first.ran.filter(l => l.startsWith('gh')).length).toBe(0)
   // Told once: the next stop passes and leaves the record as it is.
   const second = fakeDollar({
     ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\ntest\tfail\t30\tu\n' } },
@@ -691,4 +724,137 @@ test('a sweep that fails is said with its first stderr line', async () => {
   expect(answer).toBe(e)
   expect(written.some(l => l.includes('sweep error exit 3: kept /tmp/h/work/repo/pin: no pull request'))).toBe(true)
   expect(written.some(l => l.includes('and more'))).toBe(false)
+})
+
+// --- fix round 2: the scope of the telling, the record's codec, the dropped lines ------
+
+test('a failing check named beyond latin-1 is told once for its tell', async () => {
+  const { handlers } = mounted()
+  const message = { last_assistant_message: 'waiting: operator — blocks: the report' }
+  // One pending check beside the failing one: the record keeps the pending state and
+  // the failing SET, and the next stop compares that set — where the codec shows.
+  const log = 'build\tpending\t9\tu\n🚀 deploy\tfail\t30\tu\n'
+  const first = fakeDollar({ ciLogs: { 'here-pr161.log': { mtimeMs: 1728000000000, text: log } } })
+  const held = await stop(handlers['classic.Stop'], first.dollar, stopEvent(message))
+  expect((held.answer as any).block).toContain('🚀 deploy')
+  // The record carries the name as its UTF-8 bytes; the next stop at the same tell
+  // decodes the same set back and does not refuse again — the once-per-tell law.
+  const second = fakeDollar({
+    ciLogs: { 'here-pr161.log': { mtimeMs: 1728000000000, text: log } }, heads: first.wrote[HEADS],
+  })
+  const passed = await stop(handlers['classic.Stop'], second.dollar, stopEvent(message))
+  expect(passed.answer).toBe(passed.passed)
+})
+
+test("another repository's watch never refuses this stop", async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    origin: 'git@github.com:me/belt.git',
+    ciLogs: { 'other_repo-pr99.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' } },
+  })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.filter(l => l.includes('#99')).length).toBe(0)
+})
+
+test("this repository's slug-named watch is told beside the checkout's own", async () => {
+  const { handlers } = mounted()
+  const { dollar } = fakeDollar({
+    origin: 'git@github.com:me/belt.git',
+    ciLogs: {
+      'me_belt-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' },
+      'here-pr161.log': { mtimeMs: 1728000000000, text: 'test\tfail\t30\tu\n' },
+    },
+  })
+  const held = await stop(handlers['classic.Stop'], dollar, stopEvent(PASSING))
+  expect((held.answer as any).block).toContain('#160')
+  expect((held.answer as any).block).toContain('#161')
+})
+
+test('a stop without ITERM_SESSION_ID is told that no chain entry is counted', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({ env: { ITERM_SESSION_ID: '' } })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('ITERM_SESSION_ID is not set: no chain entry is counted'))).toBe(true)
+})
+
+test('ignored-checks says its malformed lines and still filters the well-formed ones', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    origin: 'git@github.com:me/belt.git',
+    ignoredText: 'me/belt build\nno-slash-name\n',
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tfail\t30\tu\n' } },
+  })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('ignored-checks malformed line: no-slash-name'))).toBe(true)
+})
+
+test('a repository that cannot be read filters nothing and is said', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    ignoredText: 'me/belt build\n',
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tfail\t30\tu\n' } },
+  })
+  const held = await stop(handlers['classic.Stop'], dollar, stopEvent(PASSING))
+  expect((held.answer as any).block).toContain('1 failing (build)')
+  expect(written.some(l => l.includes('ignored-checks repository unread'))).toBe(true)
+})
+
+test('an ignored-checks file that cannot be read is said, and filters nothing', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    failIgnoredRead: true,
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tfail\t30\tu\n' } },
+  })
+  const held = await stop(handlers['classic.Stop'], dollar, stopEvent(PASSING))
+  expect((held.answer as any).block).toContain('1 failing (build)')
+  expect(written.some(l => l.includes('ignored-checks unreadable'))).toBe(true)
+})
+
+test('a sweep that cannot start is said with its own failure', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({ stampMtimeMs: OLD_STAMP, sweepStartFail: true })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('sweep error spawn bash ENOENT'))).toBe(true)
+  expect(written.some(l => l.includes('did not finish within'))).toBe(false)
+})
+
+test('a heads record that cannot be written lets the stop pass and is said', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    hangHeadsWrite: true, env: { ORCHESTRATOR_STOP_GATE_DEADLINE: '0.05' },
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' } },
+  })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('the reported heads unread: the write did not answer in time'))).toBe(true)
+})
+
+test('a ci-watch log that cannot be read lets the stop pass and is said', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({
+    failLogRead: true,
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' } },
+  })
+  const e = stopEvent(PASSING)
+  const { answer } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(e)
+  expect(written.some(l => l.includes('the ci-watch log here-pr160.log unread: EIO: the log cannot be read'))).toBe(true)
+})
+
+test('a stop with no session id passes, said once', async () => {
+  const { handlers } = mounted()
+  const { dollar, written } = fakeDollar({})
+  const e = stopEvent({ ...PASSING, session_id: '' })
+  const { answer, passed } = await stop(handlers['classic.Stop'], dollar, e)
+  expect(answer).toBe(passed)
+  expect(written.filter(l => l.includes('no session id: the reported heads cannot be kept')).length).toBe(1)
 })
