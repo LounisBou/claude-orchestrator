@@ -19,6 +19,16 @@ test('below the gate nothing is said', () => {
   expect(gateAnnouncement({ tripped: false, words: '' }, 'orchestrator')).toBe('')
 })
 
+test("the auditor's brief is named openably, from any cwd", () => {
+  // An auditor's cwd is the audited repo, not the checkout, so the line carries
+  // the plugin root the host sets; a trailing slash on the root changes nothing.
+  // Without a root the spelling stays relative — the shell gate still
+  // absolutizes it until Task 12 retires it.
+  expect(roleLine('auditor', '/plugins/orch-root')).toContain('/plugins/orch-root/templates/auditor-succession-brief.md')
+  expect(roleLine('auditor', '/plugins/orch-root/')).toContain('/plugins/orch-root/templates/auditor-succession-brief.md')
+  expect(roleLine('auditor')).toContain('templates/auditor-succession-brief.md')
+})
+
 // The wiring half. prompt.submit's input carries no transcript path (the
 // settings hook's payload did), so the gate finds the transcript the gauge's
 // own way, by session id under the projects directory, and reads the session's
@@ -47,6 +57,7 @@ type Setup = {
   env?: Record<string, string>
   noTty?: boolean
   noLaunchName?: boolean
+  launchName?: string
   noSession?: boolean
 }
 
@@ -92,7 +103,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
         }
         if (argv[1] === '-t') {
           // The session's own process, as the listing prints it.
-          return { exitCode: 0, stdout: setup.noLaunchName ? '  501 host\n' : '  501 host --name Agent : belt\n', stderr: '' }
+          return { exitCode: 0, stdout: setup.noLaunchName ? '  501 host\n' : `  501 host --name ${setup.launchName ?? 'Agent : belt'}\n`, stderr: '' }
         }
         if (argv[0] === 'ps') return { exitCode: 0, stdout: '1 ??\n', stderr: '' }
         if (argv[0] === 'dd') {
@@ -182,6 +193,32 @@ test('a session no tty names is never spoken to', async () => {
   const { dollar } = fakeDollar({ noTty: true, transcript: ANSWERED_RENAMED, measure: MEASURED_84 })
   const e = { text: 'go', wait: false, origin: { kind: 'user' } }
   expect(await submit(mounted(), dollar, e)).toBe(e)
+})
+
+test('a rename that names nothing leaves the gate silent past the gate itself', async () => {
+  // No launch name, so the session is named by its renames alone; the last one
+  // names nothing, and the walk must not resurrect the Agent : rename before
+  // it — the session is unnamed, and no role is spoken to.
+  const renamedAway = [
+    '{"type":"assistant","message":{"role":"assistant","content":"an answer"}}',
+    '{"type":"custom-title","customTitle":"Agent : earlier"}',
+    '{"type":"custom-title","customTitle":"   "}',
+  ].join('\n') + '\n'
+  const { dollar } = fakeDollar({ transcript: renamedAway, measure: MEASURED_84, noLaunchName: true })
+  const e = { text: 'go', wait: false, origin: { kind: 'user' } }
+  expect(await submit(mounted(), dollar, e)).toBe(e)
+})
+
+test("an auditor past the gate is shown the brief's absolute place", async () => {
+  const { dollar } = fakeDollar({
+    transcript: ANSWERED_RENAMED,
+    measure: MEASURED_84,
+    launchName: 'Audit : 1712',
+    env: { CLAUDE_PLUGIN_ROOT: '/plugins/orch-root' },
+  })
+  const seen = await submit(mounted(), dollar)
+  expect((seen as any).context[0]).toContain('/plugins/orch-root/templates/auditor-succession-brief.md')
+  expect((seen as any).context[0]).not.toContain(' succeed — templates/')
 })
 
 test('a handler that fails lets the prompt through and logs one line', async () => {

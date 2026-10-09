@@ -18,22 +18,32 @@ async function configDir($: any): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
 }
 
-export function roleLine(role: string): string {
+export function roleLine(role: string, root = ''): string {
   // Verbatim from hooks/context-gate.sh:57-63 — the four role answers. The
-  // auditor's brief is named from the repository's root, not the shell's
-  // absolute install path: the line names the file, the checkout places it.
+  // auditor's brief is spelled from a root the handler reads: an auditor's cwd
+  // is the audited repo, so a path relative to the checkout names a file the
+  // model cannot open.
   switch (role) {
     case 'orchestrator': return 'Succeed at the next quiet boundary — run /orchestrator:succeed: spawn the successor in the operator\'s decision mode, then tell the user; do not ask.'
     case 'agent': return 'Finish the unit in progress, report to your orchestrator with your measured context, and stop; no new phase is dispatched to you.'
-    case 'auditor': return 'Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop. Work he gave you after the report still in hand: succeed — templates/auditor-succession-brief.md; tell him before you hand over.'
+    case 'auditor': return `Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop. Work he gave you after the report still in hand: succeed — ${auditorBrief(root)}; tell him before you hand over.`
     case 'coordinator': return 'With no relay in flight, succeed as skills/coordination/SKILL.md « Your context » says, then tell the operator.'
     default: return ''
   }
 }
 
-export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string): string {
+// The auditor's succession brief, openable from any cwd: the shell gate spelled
+// the checkout's absolute root for the same reason. The root the host sets for
+// the plugin is threaded in from the handler that reads it; without one the
+// spelling stays relative — exposed the day Task 12 retires the shell gate that
+// absolutizes it today.
+function auditorBrief(root: string): string {
+  return root ? `${root.replace(/\/+$/, '')}/templates/auditor-succession-brief.md` : 'templates/auditor-succession-brief.md'
+}
+
+export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string, root = ''): string {
   if (!gate.tripped) return ''
-  return `CONTEXT GATE: this session is at ${gate.words}. ${roleLine(role)}`
+  return `CONTEXT GATE: this session is at ${gate.words}. ${roleLine(role, root)}`
 }
 
 // prompt.submit's `context` is a list of blocks: what the model reads beside the
@@ -87,7 +97,9 @@ async function readRange($: any, path: string, index: number): Promise<string> {
 
 // A port of title_in() in hooks/session_name.py:51-72 — seek from the end in
 // BLOCK-sized steps, carry the cut first line, answer the LAST custom-title
-// entry (a rename comes after the original title).
+// entry (a rename comes after the original title) unconditionally: an entry
+// that names nothing leaves the session unnamed, it does not resurrect the
+// name before it.
 export async function lastCustomTitle($: any, path: string): Promise<string | null> {
   if (!path) return null
   try {
@@ -101,8 +113,10 @@ export async function lastCustomTitle($: any, path: string): Promise<string | nu
       carry = index > 0 ? (lines.shift() ?? '') : ''
       for (let i = lines.length - 1; i >= 0; i--) {
         if (isTitle(lines[i])) {
-          const t = titleOf(lines[i])
-          if (t !== null) return t
+          // title_in answers its first match from the end unconditionally:
+          // a rename to whitespace — or a value the host did not store as a
+          // string — reads back null here and the walk stops, unnamed.
+          return titleOf(lines[i])
         }
       }
     }
@@ -221,6 +235,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const { name } = await readName($, transcript ?? '')
       const role = roleOf(name)
       if (!role) return next(e)                       // a session never spoken to
+      // Only the auditor's line names a file, so only that role pays the read:
+      // the root the host sets for the plugin makes the brief openable from the
+      // audited repo's cwd. If the host hands none, the spelling falls back to
+      // relative — exposed the day Task 12 retires the shell gate below.
+      const root = role === 'auditor' ? ((await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? '') : ''
       let raw: string | null = null
       try { raw = await $.fs.read(measureFilePath(await configDir($), sessionId)) } catch { /* no file yet: unmeasured */ }
       const reading = parseMeasure(String(raw ?? ''))
@@ -232,7 +251,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         return next(e)
       }
       const gate = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, await gateEnv($))
-      const announcement = gateAnnouncement(gate, role)
+      const announcement = gateAnnouncement(gate, role, root)
       if (announcement) return next({ ...e, context: joinContext(e.context, announcement) })
     } catch (err) {
       // A gate that cannot measure lets the prompt through and says so once in

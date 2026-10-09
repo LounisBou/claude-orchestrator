@@ -89,3 +89,18 @@ test('a padded rename reads back trimmed, quotes stripped, empties to null', asy
   expect(titleOf('{"type":"user","message":{"role":"user","content":"no title"}}')).toBeNull()
   expect(await lastCustomTitle(fakeDollar(entry('  Agent : x  ') + '\n'), 'a-transcript.jsonl')).toBe('Agent : x')
 })
+
+// title_in answers its FIRST match from the end unconditionally, and unquoted
+// maps both a value the host did not store as a string and one that trims to
+// nothing to None — terminal: the LAST rename decides even when it names
+// nothing, and the walk must not resurrect the name before it. An operator who
+// de-roles an agent by renaming it away would keep being addressed as an agent
+// past the gate otherwise.
+test('a last rename that names nothing unnames the session, the rename before it notwithstanding', async () => {
+  const entry = (title: string) => `{"type":"custom-title","customTitle":${JSON.stringify(title)}}`
+  const earlier = entry('Agent : earlier') + '\n'
+  const walk = (text: string) => lastCustomTitle(fakeDollar(text), 'a-transcript.jsonl')
+  expect(await walk(earlier + entry('   ') + '\n')).toBeNull()
+  expect(await walk(earlier + entry('  "  ') + '\n')).toBeNull()
+  expect(await walk(earlier + '{"type":"custom-title","customTitle":42}\n')).toBeNull()
+})
