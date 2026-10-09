@@ -1,5 +1,5 @@
 // hooks/gauge.ts
-import { measureFilePath, type MeasureReading } from './gauge-core.ts'
+import { measureFilePath, tripGate, type MeasureReading } from './gauge-core.ts'
 
 // Module memory only — a reload resets both, by design (Review Focus 3): drift is
 // announced between two measures of the same load, never re-announced from a stale
@@ -7,13 +7,22 @@ import { measureFilePath, type MeasureReading } from './gauge-core.ts'
 let current: MeasureReading | null = null
 let lastModel: string | null = null
 
+// The band's input: null until the first measure of a load fills it — the usage
+// fields are optional in the shipped types before the first answered turn, so a null
+// reading is the expected start, not an error.
+export function currentReading(): MeasureReading | null {
+  return current
+}
+
 export function driftAnnouncement(model: string, previous: string): string {
   // Verbatim from hooks/context-gate.sh:94 — the host can switch the answering
   // model under a session (a refusal, an outage) and no other surface shows it.
   return `MODEL DRIFT: this session now answers as ${model}; it answered as ${previous} until now. The host switched on its own (a refusal, an outage): say it to the operator in your next message; a succession does not repair it.`
 }
 
-async function configDir($: any): Promise<string> {
+// Exported for the guards: whatever reads the measure file from a handler resolves
+// the config dir through this same seam (the sandbox exposes no process global).
+export async function configDir($: any): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
 }
 
@@ -25,6 +34,22 @@ export async function writeMeasure(
   // One JSON line; the trailing newline ends it, and a partial line reads as
   // unmeasured everywhere ($.fs.write is not atomic).
   await $.fs.write(measureFilePath(await configDir($), sessionId), JSON.stringify(reading) + '\n')
+}
+
+// What the band above the prompt says: a plain description, so the rules stay testable
+// apart from the surface. The concrete elements come from $.ui.resolve(e) at render
+// time; below the gate no rotation line exists, and the quiet band stays one row.
+export type BandDescription = {
+  label: string
+  past: boolean
+  note: string | null
+}
+
+export function bandTree(reading: MeasureReading | null): BandDescription | null {
+  if (!reading) return null
+  const past = tripGate(reading.context_percent, reading.context_tokens, reading.context_window).tripped
+  const label = `context ${reading.context_percent}% · ${reading.context_tokens.toLocaleString('en-US')}/${reading.context_window.toLocaleString('en-US')}`
+  return { label, past, note: past ? 'rotation gate — succeed at the next quiet boundary' : null }
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
@@ -48,7 +73,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       $.ui.invalidate('ui.render')
     } catch (err) {
       // A measure that fails never blocks: the next turn measures again.
-      await logLine($, `gauge: ${(err as Error).message}`)
+      await logLine($, (err as Error).message)
     }
     return next(e)
   })
@@ -56,9 +81,36 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     try {
       // $.fs offers no remove: an empty file reads as unmeasured everywhere, and
       // install.sh purges the stale ones.
-      await $.fs.write(measureFilePath(await configDir($), e.sessionId), '')
+      await $.fs.write(measureFilePath(await configDir($), e.sessionId ?? await $.session.id()), '')
     } catch { /* never blocks */ }
     return next(e)
+  })
+  on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      // Where nothing draws (a chat panel, a headless run) the band is skipped
+      // silently: the gauge stays readable through the measure file and the gate.
+      const surfaces = await $.session.surfaces()
+      if (!surfaces || surfaces.length === 0) return next(e)
+      // The component's own contract: a survey holding the band wins, the hook yields.
+      if (e.props.hasSurvey) return next(e)
+      const tree = bandTree(currentReading())
+      if (!tree) return next(e)
+      // A read, not a dispatch: the table is the surface's own, and the tree is
+      // returned as the band's drawing — the component's props are read-only, so
+      // nothing is written back into e.
+      const el = $.ui.resolve(e)
+      return el.Box({
+        flexDirection: 'column',
+        children: [
+          el.Text({ color: tree.past ? 'warning' : 'subtle', children: tree.label }),
+          ...(tree.note ? [el.Text({ color: 'warning', children: tree.note })] : []),
+        ],
+      })
+    } catch (err) {
+      // A band that fails to draw never blocks the render: the engine draws its own.
+      await logLine($, (err as Error).message)
+      return next(e)
+    }
   })
 }
 

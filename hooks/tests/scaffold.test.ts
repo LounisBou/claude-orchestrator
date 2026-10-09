@@ -2,11 +2,12 @@
 import { expect, test } from 'claude-code/testing'
 import { register } from '../register.ts'
 
-test('register mounts exactly one session.start handler', () => {
+test('the module chain loads and mounts session.start among its handlers', () => {
   const mounted: string[] = []
-  register((event: string, handler: Function) => {
-    if (typeof handler !== 'function') throw new Error(`no handler mounted for ${event}`)
-    mounted.push(event)
+  register((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    const handler = args[args.length - 1]
+    if (typeof handler !== 'function') throw new Error(`no handler mounted for ${args[0]}`)
+    mounted.push(args[0])
   })
   expect(mounted).toContain('session.start')
 })
