@@ -531,6 +531,7 @@ git commit -m "feat(hooks): read a session's name in-process"
 **Interfaces:**
 - Consumes: `roleOf`, `readName` (Task 4), `tripGate`, `parseMeasure` (Task 2).
 - Produces: `roleLine(role: string): string` — the exact four lines from `context-gate.sh:57-63`; a `prompt.submit` handler.
+- Carries (Task 4 review minor, adjudicated to this task — it is the first consumer of the name): `titleOf` in hooks/session-name.ts ports `unquoted()`'s normalization — strip whitespace, then surrounding quotes, then whitespace again, an empty result reads as null (`session_name.py`'s own rule); a padded rename `  Agent : x  ` must read back trimmed, with a test line in hooks/tests/session-name.test.ts proving it.
 
 - [ ] **Step 1: Write the failing tests**
 
