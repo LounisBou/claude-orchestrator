@@ -6201,6 +6201,67 @@ check "a notch the ladder measured below the floor is never offered" "1" \
 check "a contract phase is never explored, measured or not" "1" \
   "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
 
+echo "== routing: calibrate =="
+
+CS="$WORK/calstate"; mkdir -p "$CS/routing/projects/demo"
+TR="$CS/routing/projects/demo/trials.jsonl"; : > "$TR"
+trial() { # class pair status cost
+  printf '{"task":"t","class":"%s","pair":"%s","rep":1,"models":{"%s-1":%s},"cost_usd":%s,"status":"%s"}\n' \
+    "$1" "$2" "${2%%/*}" "$4" "$4" "$3" >> "$TR"; }
+for i in 1 2 3 4; do trial behaviour-phase c-model/medium pass 0.10; done
+for i in 1 2; do trial behaviour-phase c-model/medium fail 0.10; done
+for i in 1 2 3 4 5 6; do trial behaviour-phase b-model/medium pass 0.30; trial behaviour-phase a-model/low pass 0.50; done
+trial behaviour-phase b-model/medium error 0.05
+for i in 1 2 3 4 5; do trial contract-phase b-model/high pass 0.40; done
+trial contract-phase b-model/high fail 0.40
+for i in 1 2 3 4 5 6; do trial contract-phase a-model/high pass 0.90; done
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"cost_' >> "$TR"; echo >> "$TR"
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/default","rep":1,"cost_usd":9,"status":"pass"}\n' >> "$TR"
+printf '{"slug":"demo","repo":"/nonexistent","profile":"x/y","tasks":[]}' > "$CS/routing/projects/demo/manifest.json"
+rcal() { ORCHESTRATOR_STATE_DIR="$CS" python3 "$ROUTING" calibrate "$@"; }
+out=$(rcal demo 2>"$WORK/cal.err")
+check "below the floor is never chosen, however cheap" "class=behaviour-phase pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.2643" \
+  "$(printf '%s\n' "$out" | grep '^class=behaviour-phase')"
+check "work nothing re-checks takes a floor of 1.0" "class=contract-phase pair=a-model/high pass_rate=1.0 n=6 expected_usd=0.9" \
+  "$(printf '%s\n' "$out" | grep '^class=contract-phase')"
+check "an error trial costs but does not count" "6|0.2643" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model/medium")|"\(.n)|\(.cost_usd*10000|round/10000)"' "$CS/routing/tables/project-demo.json")"
+check "the ladder is ordered by cost, cheapest first" "c-model/medium,b-model/medium,a-model/low" \
+  "$(jq -r '[.entries["behaviour-phase"].ladder[].pair]|join(",")' "$CS/routing/tables/project-demo.json")"
+check "the entry keeps the identifiers it was measured on" "b-model-1" \
+  "$(jq -r '.entries["behaviour-phase"].models|join(",")' "$CS/routing/tables/project-demo.json")"
+check "the entry keeps its floor, its scope and the ladder's eligibility" "9|10|project:demo|false,true,true" \
+  "$(jq -r '"\(.entries["behaviour-phase"].floor*10|round)|\(.entries["contract-phase"].floor*10|round)|\(.scope)|\([.entries["behaviour-phase"].ladder[].eligible]|map(tostring)|join(","))"' "$CS/routing/tables/project-demo.json")"
+check "a torn trial line and a line with no pair are skipped with a warning each, never fatal" "2" \
+  "$(grep -c 'does not read as a trial, skipped' "$WORK/cal.err")"
+printf '{"floor":{"default":0.6}}' > "$CS/routing/config.json"
+check "the operator's config sets the floor" "class=behaviour-phase pair=c-model/medium" \
+  "$(rcal demo 2>/dev/null | grep '^class=behaviour-phase' | cut -d' ' -f1-2)"
+rm "$CS/routing/config.json"
+# Fewer than six trials: no eligible pair.
+: > "$TR"; for i in 1 2 3; do trial n-bis c-model/low pass 0.01; done
+check "fewer than six trials is never eligible" "class=n-bis no eligible pair" "$(rcal demo)"
+check "and the class gets no entry" "0" "$(jq '.entries|length' "$CS/routing/tables/project-demo.json")"
+# Record rows count as trials: closed in one round and not escaped is a pass.
+RR="$WORK/calrec.jsonl"; : > "$RR"
+for i in 1 2 3 4 5 6; do printf '{"id":%d,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false}\n' "$i" >> "$RR"; done
+# Left out: an open row, a row with no measured cost, an incomplete cost, a tier row, a row with no effort.
+printf '{"id":7,"class":"n-bis","model":"c-model","effort":"low","rounds":0,"state":"open","cost_usd":0,"sessions":[],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":8,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0,"sessions":[],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":9,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":5,"sessions":["s"],"cost_incomplete":true}\n' >> "$RR"
+printf '{"id":10,"class":"n-bis","tier":"light","rounds":1,"state":"closed"}\n' >> "$RR"
+printf '{"id":11,"class":"n-bis","model":"c-model","effort":"","rounds":1,"state":"closed","cost_usd":5,"sessions":["s"],"cost_incomplete":false}\n' >> "$RR"
+check "record rows complete the measurement" "class=n-bis pair=c-model/low pass_rate=1.0 n=9 expected_usd=0.0167" \
+  "$(rcal demo --from-record "$RR")"
+printf '{"id":12,"class":"n-bis","model":"c-model","effort":"low","rounds":2,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":13,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false,"escaped":true}\n' >> "$RR"
+# Nine passes in eleven is 0.818, below the floor: both rows read as failures.
+check "a corrective round or an escaped defect grades a row as a failure" "class=n-bis no eligible pair" \
+  "$(rcal demo --from-record "$RR")"
+: > "$TR"
+check_status "no trial and no record row is a refusal" 1 rcal demo
+check_status "a record that does not exist is a refusal" 1 rcal demo --from-record "$WORK/no-such-record.jsonl"
+
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

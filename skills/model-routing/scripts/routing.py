@@ -429,7 +429,134 @@ def cmd_pick(argv):
             print("explore=%s" % below)
 
 
-COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick}
+# --- calibration --------------------------------------------------------------------
+
+MIN_TRIALS = 6
+STATUSES = ("pass", "fail", "error")
+
+
+def floors():
+    cfg = read_json(os.path.join(ROUTING_DIR, "config.json"), {}).get("floor", {})
+    return float(cfg.get("default", 0.9)), float(cfg.get("strict", 1.0))
+
+
+def is_pair(text):
+    model, sep, effort = text.partition("/") if isinstance(text, str) else ("", "", "")
+    return bool(model and sep and effort in EFFORTS)
+
+
+def read_trials(path):
+    """A trial line that is torn, or names no class, no pair or no status, is skipped with a
+    warning: a run interrupted mid-write must never cost the trials before it.
+    """
+    out = []
+    if not os.path.isfile(path):
+        return out
+    with open(path) as fh:
+        for n, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                t = json.loads(line)
+                ok = (isinstance(t, dict) and isinstance(t.get("class"), str) and is_pair(t.get("pair"))
+                      and t.get("status") in STATUSES)
+                float(t.get("cost_usd") or 0)
+            except (ValueError, TypeError, AttributeError):
+                ok = False
+            if ok:
+                out.append(t)
+            else:
+                warn("%s:%d does not read as a trial, skipped" % (path, n))
+    return out
+
+
+def record_trials(record):
+    """A closed pair row graded by the record's own signals: one round and no escaped
+    defect is a pass. Rows without a complete measured cost are left out.
+    """
+    if not os.path.isfile(record):
+        die("calibrate: no record at %s" % record)
+    out = []
+    for r in read_rows(record):
+        if r.get("state") != "closed" or not r.get("class") or not is_pair("%s/%s" % (r.get("model"), r.get("effort"))):
+            continue
+        if r.get("cost_incomplete") or not r.get("cost_usd"):
+            continue
+        ok = (r.get("rounds") or 0) <= 1 and not r.get("escaped")
+        out.append({"class": r["class"], "pair": "%s/%s" % (r["model"], r["effort"]),
+                    "cost_usd": r["cost_usd"], "models": {}, "status": "pass" if ok else "fail"})
+    return out
+
+
+def stats_of(trials):
+    """Per pair: the graded trials (`n`, `passes`) and the cost of every trial, errors
+    included - an error is paid for, it just says nothing about the pair's reliability.
+    """
+    stats = {}
+    for t in trials:
+        s = stats.setdefault(t["pair"], {"n": 0, "passes": 0, "costs": [], "models": set()})
+        s["costs"].append(float(t.get("cost_usd") or 0))
+        s["models"].update((t.get("models") or {}).keys())
+        if t.get("status") in ("pass", "fail"):
+            s["n"] += 1
+            s["passes"] += t["status"] == "pass"
+    return stats
+
+
+def select_entry(cls, stats, floor):
+    ladder = []
+    for pair, s in stats.items():
+        mean = sum(s["costs"]) / len(s["costs"]) if s["costs"] else 0.0
+        rate = s["passes"] / s["n"] if s["n"] else 0.0
+        ladder.append({"pair": pair, "n": s["n"], "pass_rate": round(rate, 4), "cost_usd": round(mean, 6),
+                       "eligible": s["n"] >= MIN_TRIALS and rate >= floor, "models": sorted(s["models"])})
+    ladder.sort(key=lambda r: (r["cost_usd"], r["pair"]))
+    for i, r in enumerate(ladder):
+        # A failure in production is paid by an escalation: the next pair up, or a retry.
+        up = ladder[i + 1]["cost_usd"] if i + 1 < len(ladder) else r["cost_usd"]
+        r["expected_usd"] = round(r["cost_usd"] + (1 - r["pass_rate"]) * up, 6)
+    eligible = [r for r in ladder if r["eligible"]]
+    if not eligible:
+        return None
+    best = min(eligible, key=lambda r: (r["expected_usd"], -r["pass_rate"]))
+    return {"pair": best["pair"], "pass_rate": best["pass_rate"], "n": best["n"],
+            "cost_usd": best["cost_usd"], "expected_usd": best["expected_usd"], "floor": floor,
+            "models": best["models"],
+            "ladder": [{k: v for k, v in r.items() if k != "models"} for r in ladder]}
+
+
+def build_table(scope, trials):
+    default, strict = floors()
+    entries, lines = {}, []
+    for cls in sorted({t["class"] for t in trials}):
+        floor = strict if cls in STRICT_CLASSES else default
+        entry = select_entry(cls, stats_of([t for t in trials if t["class"] == cls]), floor)
+        if entry:
+            entries[cls] = entry
+            lines.append("class=%s pair=%s pass_rate=%s n=%d expected_usd=%s"
+                         % (cls, entry["pair"], entry["pass_rate"], entry["n"],
+                            round(entry["expected_usd"], 4)))
+        else:
+            lines.append("class=%s no eligible pair" % cls)
+    return {"scope": scope, "generated": datetime.date.today().isoformat(), "entries": entries}, lines
+
+
+def cmd_calibrate(argv):
+    p = argparse.ArgumentParser(prog="calibrate")
+    p.add_argument("slug")
+    p.add_argument("--from-record", dest="records", action="append", default=[])
+    a = p.parse_args(argv)
+    trials = read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))
+    for rec in a.records:
+        trials += record_trials(rec)
+    if not trials:
+        die("calibrate: no trial and no record row for %s" % a.slug)
+    table, lines = build_table("project:" + a.slug, trials)
+    write_json(table_path("project:" + a.slug), table)
+    print("\n".join(lines))
+
+
+COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate}
 
 
 def main():
