@@ -256,8 +256,10 @@ async function logLine($: any, message: string): Promise<void> {
   // Shared read-modify-write, best effort: concurrent sessions may interleave lines.
   // logLine stamps the module name — call sites pass the bare message, no prefix.
   const config = await configDir($)
-  const existing = await $?.fs?.read?.(`${config}/claude-orchestrator/hooks-module.log`).catch?.(() => '') ?? ''
-  await $?.fs?.write?.(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | gauge | ${message}\n`)
+  try {
+    const existing = (await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`)) ?? ''
+    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | gauge | ${message}\n`)
+  } catch { /* a log that cannot write stays silent */ }
 }
 ```
 
@@ -307,11 +309,15 @@ Implement `parseMeasure(line: string): MeasureReading | null` — `JSON.parse` i
 Add:
 
 ```typescript
-test('a reloaded module does not inherit stale in-memory state', async ($, on) => {
+test('a reloaded module does not inherit stale in-memory state', async ($: any) => {
   // session.start re-runs register; lastModel resets, so the first measure after a
-  // reload announces nothing (no previous model to drift from).
-  const gauge = await import('../gauge.ts')
-  expect(typeof gauge.register).toBe('function')
+  // reload announces nothing (no previous model to drift from). Driven through the
+  // registered session.measure handler over a fake on/$ — the module loader refuses
+  // import() (ratified at the Task 2 review).
+  const measures: Function[] = []
+  registerGauge((event: string, handler: Function) => { if (event === 'session.measure') measures.push(handler) })
+  // three measures: a-model, a-model, b-model — the change is announced exactly once;
+  // a second registerGauge (a reload) announces nothing on its own first measure.
 })
 ```
 
@@ -336,7 +342,7 @@ git commit -m "feat(gauge): measure the context from session events into one fil
 **Interfaces:**
 - Consumes: `tripGate`, the reading kept by the `session.measure` handler — expose it as `export function currentReading(): MeasureReading | null` over the private `current` variable (Task 2 left it unexported; Task 2 review finding). Also export `configDir($)` from `gauge.ts`: Task 5 reads the measure file through it.
 - Produces: an `ui.render` handler on `component: 'AbovePrompt'`.
-- Carries (Task 2 review minors, adjudicated to this task — it already edits gauge.ts): the `session.end` handler gains the same `e.sessionId ?? await $.session.id()` fallback as `session.measure`; the `logLine` call sites drop their `gauge: `/`band: ` prefix (`logLine` stamps the module name itself); the scaffold test's title says what it now asserts, not "exactly one".
+- Carries (Task 2 review minors, adjudicated to this task — it already edits gauge.ts): the `session.end` handler gains the same `e.sessionId ?? await $.session.id()` fallback as `session.measure`; the `logLine` call sites drop their `gauge: `/`band: ` prefix (`logLine` stamps the module name itself); the scaffold test's title says what it now asserts, not "exactly one". From the Task 2 report: the sandbox exposes no `process` global and no `import()` — plain `$.…` calls inside try/catch only; the usage fields are optional in the shipped types before the first fill, so `currentReading()` staying `null` until then is the expected band input.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -585,7 +591,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const role = roleOf(name)
       if (!role) return next(e)                       // a session never spoken to
       const sessionId = await $.session.id()
-      const raw = await $?.fs?.read?.(measureFilePath(await configDir($), sessionId)).catch?.(() => null) ?? null
+      let raw: string | null = null
+      try { raw = await $.fs.read(measureFilePath(await configDir($), sessionId)) } catch { /* no file yet: unmeasured */ }
       const reading = parseMeasure(String(raw ?? ''))
       if (!reading) {
         if (!saidUnmeasured && await transcriptHasAnswer($, e.transcript_path ?? '')) {
