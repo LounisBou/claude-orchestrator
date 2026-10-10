@@ -2,12 +2,12 @@
 // The shared store: one row per live session — the figures the gauge measured,
 // the name the walk read, the repository of the working directory — written by
 // this file's own session.measure handler and removed by its session.end, one
-// file per key under the module's state root. The coordinator pane below reads
-// the rows in this same file, opened for the supervising roles on their
-// session.start and drawn on the pane's own render, sorted by rotation
-// urgency; a consumer that holds no $ of the writing side (the commands, a
-// later task) reads the same files through its own $.fs calls plus the pure
-// row parser below.
+// file per key under the module's state root. The supervision pane below reads
+// the same rows, opened only when the person types /orchestrator:supervision in
+// a coordinator session — never on a start, never in any other role: the
+// operator wants nothing placed on screen unasked. The commands hold no $ of
+// the writing side and read the same files through their own $.fs calls plus
+// the pure row parser and the urgency sort below.
 //
 // The engine fences $ to the file that received it — never passed across an
 // import — so this file spells its own env resolution, its own log stamp, its
@@ -45,10 +45,9 @@ export function isStale(row: SessionRow, now: number): boolean {
   return !Number.isFinite(at) || now - at > STALE_AFTER_MS
 }
 
-// The coordinator pane this file draws beside the store it reads: the id names
-// it at the engine (the open, the render's requestId, a later close), the
-// title its tab while more than one pane is open. The id's spelling is the
-// shipped type's own contract — letters, digits, `_` and `-`, at most 64.
+// The supervision pane: the id names it at the engine (the open, the render's
+// requestId), the title its tab while more than one pane is open. The id's
+// spelling is the shipped type's own contract — letters, digits, `_` and `-`.
 const PANE_ID = 'supervision'
 const PANE_TITLE = 'Supervised sessions'
 
@@ -257,56 +256,45 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return next(e)
   })
 
-  // The scaffold bare-registered session.start, and the engine allows the
-  // second registration of an event only through a matcher: {} names every
-  // field of no one, so every start reaches the handler and the role check —
-  // the pane belongs to the supervising roles alone — stays inside it.
-  on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
-    try {
-      // A session that draws nowhere yet (a -p run, the SDK) has no surface
-      // that places a pane, and no later event re-offers the open: the start
-      // is answered without spending the walk on it.
-      if (e.surface) {
-        const name = await nameWithinBound($, await $.session.id())
-        const role = roleOf(name)
-        if (role === 'coordinator' || role === 'orchestrator') {
-          // Unasked — the shipped types' own word for an open no person's
-          // command stands behind — the pane waits undrawn under 144 columns
-          // and seats itself when the terminal widens or the person opens it;
-          // and the open is idempotent, one pane per id, a re-open retitles.
-          await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
-        }
-      }
-    } catch (err) {
-      // A start is never held on the pane's own failure; it is said.
-      await logLine($, (err as Error).message)
+  // The pane opens on the person's own command alone — the shipped types' «
+  // asked » open, placed at any width — and only in a coordinator session: the
+  // pane lists every supervised session, which only the coordinator oversees.
+  // Anywhere else the command says so and opens nothing.
+  on('command.run', { command: 'orchestrator:supervision' }, async ($: any) => {
+    const role = roleOf(await nameWithinBound($, await $.session.id()))
+    if (role !== 'coordinator') {
+      return { text: 'The supervision pane opens in a coordinator session only (a session named « Coord : … »); /orchestrator:status lists the sessions here.' }
     }
-    return next(e)
+    // A toggle: the same command closes the pane it opened (Escape does not —
+    // the pane holds no focus), beside the pane's own ✕.
+    const panes: readonly { id: string }[] = await $.ui.panes()
+    if (panes.some(pane => pane.id === PANE_ID)) {
+      await $.ui.close({ id: PANE_ID })
+      return { text: 'Supervision pane closed.' }
+    }
+    await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
+    return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
 
-  // The pane's own render, the band handler's posture: the matcher names the
-  // render envelope's component and requestId — the pane's id, which the open
-  // and a later close name too — so the rows are drawn in this plugin's pane
-  // alone and never in another plugin's. No surfaces check here: a pane render
-  // is raised only where a surface already draws it, placed by the surface.
+  // The pane's own render: the matcher names the render envelope's component
+  // and requestId — the pane's id — so the rows are drawn in this plugin's pane
+  // alone and never in another plugin's.
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
     try {
       // The store at draw time is the whole refresh story: the gauge's own
-      // invalidate after every measure re-raises this render (an invalidate is
-      // any plugin's whose matcher may select it), so the pane follows this
-      // session's turn cadence, and the rows the other sessions write land in
-      // the files and are read here on the next draw. Display only: nothing is
-      // written back, not into the store and not into the event.
+      // invalidate after every measure re-raises this render. Display only.
       const rows = paneRows(await readSessions($))
       const el = $.ui.resolve(e)
       return el.Box({
         flexDirection: 'column',
-        children: rows.map(row =>
-          el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
-        ),
+        children: rows.length === 0
+          ? [el.Text({ color: 'subtle', children: 'no live sessions' })]
+          : rows.map(row =>
+            el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
+          ),
       })
     } catch (err) {
       // A pane that fails to draw never blocks the render: the engine draws its own.

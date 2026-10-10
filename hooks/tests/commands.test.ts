@@ -47,7 +47,7 @@ test('status lists the live sessions, the urgent first, or says none', () => {
   expect(text).toContain('Agent : hot')
   expect(text).toContain('Agent : low')
   expect(text.indexOf('Agent : hot')).toBeLessThan(text.indexOf('Agent : low'))
-  expect(statusText({})).toBe('no live sessions')
+  expect(statusText({})).toBe('Live sessions: none measured yet.')
 })
 
 test('agents keeps the implementer agents alone and says so when none runs', () => {
@@ -61,7 +61,7 @@ test('agents keeps the implementer agents alone and says so when none runs', () 
   expect(text).not.toContain('unnamed')
   expect(agentsText({
     'sessions/coord': row({ role: 'coordinator', name: 'Coord : main' }),
-  })).toBe('no implementer agents running')
+  })).toBe('Implementer agents: none running.')
 })
 
 test('a dispatch row is one JSON line, and a line that is no row is no row', () => {
@@ -187,10 +187,10 @@ test('status answers the store read through its own fs calls, dropping the stale
   fx.files.set(`${SESSIONS}/gone`, JSON.stringify(row({ name: 'Agent : gone', updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() })) + '\n')
   fx.files.set(`${SESSIONS}/torn`, 'caught mid-write')
   const answer = await status.handler(fx.dollar, { command: 'orchestrator:status', args: '' })
-  expect(answer).toEqual({ text: 'Agent : hot · agent · 85% past the gate · now' })
+  expect(answer).toEqual({ text: 'Live sessions (1), most urgent first — name · role · context · last measured:\n  Agent : hot · agent · 85% past the gate · now' })
   // An absent store is no failure: nothing was ever written.
   const bare = fakeDollar()
-  expect(await status.handler(bare.dollar, { command: 'orchestrator:status', args: '' })).toEqual({ text: 'no live sessions' })
+  expect(await status.handler(bare.dollar, { command: 'orchestrator:status', args: '' })).toEqual({ text: 'Live sessions: none measured yet.' })
 })
 
 test('agents answers the agent rows alone', async () => {
@@ -200,9 +200,9 @@ test('agents answers the agent rows alone', async () => {
   fx.files.set(`${SESSIONS}/agent`, JSON.stringify(row({ role: 'agent', name: 'Agent : belt-p3' })) + '\n')
   fx.files.set(`${SESSIONS}/coord`, JSON.stringify(row({ role: 'coordinator', name: 'Coord : main' })) + '\n')
   const answer = await agents.handler(fx.dollar, { command: 'orchestrator:agents', args: '' })
-  expect(answer).toEqual({ text: 'Agent : belt-p3 · agent · 30% · now' })
+  expect(answer).toEqual({ text: 'Implementer agents (1), most urgent first — name · role · context · last measured:\n  Agent : belt-p3 · agent · 30% · now' })
   const bare = fakeDollar()
-  expect(await agents.handler(bare.dollar, { command: 'orchestrator:agents', args: '' })).toEqual({ text: 'no implementer agents running' })
+  expect(await agents.handler(bare.dollar, { command: 'orchestrator:agents', args: '' })).toEqual({ text: 'Implementer agents: none running.' })
 })
 
 test('progress answers the records this session registered, under the side-read bound', async () => {
@@ -324,5 +324,5 @@ async function assertRejects(work: Promise<unknown>): Promise<void> {
 test('/orchestrator:status answers through the engine without a model turn', async ($, on) => {
   mock.env(on, { CLAUDE_CONFIG_DIR: '/tmp/h' })
   const answer = await $.command.run({ command: 'orchestrator:status', args: '' })
-  expect(answer).toEqual({ text: 'no live sessions' })
+  expect(answer).toEqual({ text: 'Live sessions: none measured yet.' })
 })

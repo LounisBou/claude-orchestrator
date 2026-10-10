@@ -20,8 +20,9 @@ session can read without depending on a particular status bar.
 | `/orchestrator:install` | Creates the state directory, unwires any tap a previous install left in front of your status line, and prunes what the tap left behind. Idempotent; refuses a host older than 2.1.287. |
 | `/orchestrator:uninstall` | Restores the previous status line and removes the state directory. |
 | `/orchestrator:status` | Live sessions and their context fill, the ones past the gate flagged. |
+| `/orchestrator:supervision` | Opens the supervision pane, the live sessions and their fill kept on screen — in a coordinator session (`Coord :`) only, and only when typed: no session opens it on its own. |
 | `/orchestrator:succeed` | Runs the orchestrator succession. |
-| module gate `prompt.submit` | The context gate enforced in-process by the hooks module: at or past 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more (`ORCHESTRATOR_CONTEXT_GATE`, `ORCHESTRATOR_CONTEXT_GATE_TOKENS`, `ORCHESTRATOR_LARGE_WINDOW`), every prompt of an orchestration session (named `Orch :`, `Agent :`, `Audit :` or `Coord :`) carries the line fitted to its role — succeed, or finish the unit and stop; unmeasured, it says so once. A session started by hand gets nothing. |
+| module gate `prompt.submit` | The context gate enforced in-process by the hooks module: at or past 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window (`ORCHESTRATOR_CONTEXT_GATE`, `ORCHESTRATOR_CONTEXT_GATE_TOKENS`, `ORCHESTRATOR_LARGE_WINDOW`), every prompt of an orchestration session (named `Orch :`, `Agent :`, `Audit :` or `Coord :`) carries the line fitted to its role — succeed, or finish the unit and stop; unmeasured, it says so once. A session started by hand gets nothing. |
 | module gate `tool.call` (Bash) | The push guard enforced in-process by the hooks module, in sessions the launcher spawned only: a `git push` that forces is refused unless its lease is pinned (`--force-with-lease=<branch>:<sha>`); the operator's own sessions are untouched. |
 | hook `Stop` | The stop gate enforced in-process by the hooks module, in an orchestrator's session only (its name, launched or renamed, starts with `Orch :`): the stop is refused, at most once per turn, unless something will wake the orchestrator — a busy agent of its own, a blocking question declared on the message's last line (`waiting: operator — blocks: <what it blocks>`), or `waiting: done` with nothing left (no checkout, no agent, no open dispatch-record row). Then each watched pull request of the session's repository whose ci-watch log shows checks pending or failing refuses the stop once per head with the real state — one with a `ci-watch.sh` process alive for it excepted, since that watch will wake the orchestrator. When its checks let the stop pass, it also runs `workspace.sh sweep` within what is left of its deadline, at most once per ten minutes, and logs each deletion. Its own failures let the stop pass and are logged in the module's log. |
 | `/orchestrator:agents` | Each running implementer agent's progress with its measured context — asked, then verified on the artifact. |
@@ -88,7 +89,7 @@ cat ~/.claude/claude-orchestrator/measure/$CLAUDE_CODE_SESSION_ID.json
 ```
 
 Past the gate —
-80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more —
+300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window —
 the context gate puts the role's line in front of every prompt of an
 orchestration session, and a band above the prompt shows the fill;
 `/orchestrator:status` answers the same figures for every session on the
@@ -100,7 +101,7 @@ ran 13 points above the gauge.
 1. You orchestrate; you never implement. Implementers run in separate sessions, one agent, one phase, one draft PR stacked on the previous phase's branch head. Merges are never awaited.
 2. Every brief is a file the fresh session can open, with contracts verbatim, a non-goals list ending in "STOP and ask", and state-verification commands.
 3. Review on evidence: diff it yourself, re-run the one command that decides the verdict, treat every claim — cleanup claims included — as a claim. Heavy reading goes to a review session spawned for the round (its readers sized by you, from its own reading to several lenses, and it reports once); the verdict stays with you, and the session is closed when the round is judged.
-4. Context is a gate at 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
+4. Context is a gate at 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window: never dispatch a phase to an agent past it, and an agent crossing it mid-work finishes the unit and stops. Rotation is a resume brief for a fresh session.
 5. Succession is the orchestrator's to trigger, at a quiet moment, with a standing pointer-based brief; the successor verifies the state on the artifacts, re-identifies itself to the agents, confirms the takeover, then closes the predecessor's tab.
 
 ## Tab layout

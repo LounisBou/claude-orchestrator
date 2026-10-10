@@ -1,11 +1,11 @@
 // hooks/tests/pane.test.ts
 // The coordinator pane: the store's rows sorted by rotation urgency (past the
 // gate first, then fill descending), the label the spec names (name, role, the
-// fill against the gate, the reading's age), and the wiring over a faked $ —
-// the pane opened on a coordinator's or orchestrator's session.start and on no
-// other role nor where nothing draws, the render under the pane's own matcher
-// drawing one Text row per entry, the measure's side reads bounded so a walk
-// that cannot answer in time costs the row its name, never the measure.
+// fill against the gate, the reading's age) the commands print, and the wiring
+// over a faked $ — no pane opened on any start, the pane opened by the
+// command in a coordinator session alone, the measure's side reads
+// bounded so a walk that cannot answer in time costs the row its name, never
+// the measure.
 import { expect, test } from 'claude-code/testing'
 import { paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
 import { register as registerAll } from '../register.ts'
@@ -104,6 +104,7 @@ type Fx = {
   ran: string[]
   written: string[]
   opened: object[]
+  closed: object[]
   env: Record<string, string>
 }
 
@@ -116,6 +117,8 @@ function fakeDollar(over: {
   const ran: string[] = []
   const written: string[] = []
   const opened: object[] = []
+  const closed: object[] = []
+  const open = new Set<string>()
   const env: Record<string, string> = { HOME }
   const dollar = {
     session: {
@@ -179,10 +182,16 @@ function fakeDollar(over: {
       },
     },
     ui: {
-      open: async (pane: object) => {
+      open: async (pane: { id: string }) => {
         opened.push(pane)
+        open.add(pane.id)
         return { isPlaced: true }
       },
+      close: async (pane: { id: string }) => {
+        closed.push(pane)
+        open.delete(pane.id)
+      },
+      panes: async () => [...open].map(id => ({ id, title: '' })),
       toast: () => undefined,
       invalidate: () => undefined,
       resolve: (_e: unknown) => ({
@@ -191,7 +200,7 @@ function fakeDollar(over: {
       }),
     },
   }
-  return { dollar, files, ran, written, opened, env }
+  return { dollar, files, ran, written, opened, closed, env }
 }
 
 function mounted(register: (on: any) => void): {
@@ -208,79 +217,7 @@ function mounted(register: (on: any) => void): {
   return { handlers, matchers }
 }
 
-const through = (e: unknown) => ({ passed: e })
 const startEvent = { cwd: '/tmp/w', surface: 'terminal', isInteractive: true }
-
-test('the pane registers under its own render matcher, and the second session.start carries the empty matcher', () => {
-  // The stored-matcher convention: a bare two-argument registration would pass
-  // every test below while the engine drew the pane's rows into every Pane any
-  // plugin opens. The matcher is spelled from the shipped types — the render
-  // envelope's own component and requestId, the pane's id among them — and the
-  // engine validates neither key, so the pin lives here.
-  const { matchers } = mounted(registerSupervision)
-  expect(matchers['ui.render']).toEqual({ component: 'Pane', requestId: 'supervision' })
-  expect(matchers['session.start']).toEqual({})
-})
-
-test('a coordinator or orchestrator start opens the pane; an agent or a headless start never does', async () => {
-  const { handlers } = mounted(registerSupervision)
-
-  const coord = fakeDollar({ launchName: 'Coord : main' })
-  const answered = await handlers['session.start'](coord.dollar, startEvent, through)
-  expect(answered).toEqual({ passed: startEvent })
-  expect(coord.opened).toEqual([{ id: 'supervision', title: 'Supervised sessions' }])
-
-  const orch = fakeDollar({ launchName: 'Orch : phase-3' })
-  await handlers['session.start'](orch.dollar, startEvent, through)
-  expect(orch.opened.length).toBe(1)
-
-  const agent = fakeDollar({ launchName: 'Agent : belt-p3' })
-  await handlers['session.start'](agent.dollar, startEvent, through)
-  expect(agent.opened).toEqual([])
-  expect(agent.ran.length).toBeGreaterThan(0)
-
-  // A session that draws nowhere yet (a -p run, the SDK) is answered without
-  // the walk: no surface places the pane, and no later event re-offers it.
-  const headless = fakeDollar()
-  const quiet = { cwd: '/tmp/w', surface: null, isInteractive: false }
-  await handlers['session.start'](headless.dollar, quiet, through)
-  expect(headless.opened).toEqual([])
-  expect(headless.ran).toEqual([])
-})
-
-test('the pane draws one Text row per store entry, the urgent first and warned', async () => {
-  const { handlers } = mounted(registerSupervision)
-  const fx = fakeDollar()
-  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ name: 'Agent : low', context_percent: 30 })) + '\n')
-  fx.files.set(`${SESSIONS}/hot`, JSON.stringify(row({ name: 'Agent : hot', context_percent: 85 })) + '\n')
-  const e = { surface: 'terminal', component: 'Pane', requestId: 'supervision', props: {} }
-  const tree = await handlers['ui.render'](fx.dollar, e, through)
-  const text = JSON.stringify(tree)
-  expect(text).toContain('Agent : hot')
-  expect(text).toContain('Agent : low')
-  expect(text).toContain('85%')
-  expect(text.indexOf('Agent : hot')).toBeLessThan(text.indexOf('Agent : low'))
-  expect(text.match(/"color":"warning"/g)?.length).toBe(1)
-
-  // An empty store is an empty column, not a passed-through render.
-  const bare = fakeDollar()
-  const empty = await handlers['ui.render'](bare.dollar, e, through)
-  expect(JSON.stringify(empty)).toContain('Box')
-  expect(JSON.stringify(empty)).not.toContain('Text')
-})
-
-test('a render that cannot resolve its surface is said and draws nothing of its own', async () => {
-  const { handlers } = mounted(registerSupervision)
-  const fx = fakeDollar()
-  fx.files.set(`${SESSIONS}/hot`, JSON.stringify(row({ name: 'Agent : hot', context_percent: 85 })) + '\n')
-  fx.dollar.ui.resolve = () => {
-    throw new Error('no element table for this surface')
-  }
-  const e = { surface: 'terminal', component: 'Pane', requestId: 'supervision', props: {} }
-  const answer = await handlers['ui.render'](fx.dollar, e, through)
-  expect(answer).toEqual({ passed: e })
-  expect(fx.written.some(l => l.includes('| supervision |') && l.includes('no element table'))).toBe(true)
-})
 
 // The composed chain, one list per event, driven in registration order — the
 // order the host drives the chain itself.
@@ -298,6 +235,55 @@ async function drive(chains: Record<string, Function[]>, event: string, dollar: 
     i >= (chains[event] ?? []).length ? ev : chains[event][i](dollar, ev, (x: any) => run(i + 1, x))
   return run(0, e)
 }
+
+test('no start opens the pane, whatever the role', async () => {
+  // The operator's ruling: nothing is placed on screen unasked. Supervision
+  // registers no start handler, and a start driven through the whole composed
+  // chain opens nothing, a coordinator's included.
+  const { handlers } = mounted(registerSupervision)
+  expect(handlers['session.start']).toBeUndefined()
+  const chains = composedChains()
+  for (const launchName of ['Coord : main', 'Orch : phase-3', 'Agent : belt-p3']) {
+    const fx = fakeDollar({ launchName })
+    await drive(chains, 'session.start', fx.dollar, startEvent)
+    expect(fx.opened).toEqual([])
+  }
+})
+
+test('/orchestrator:supervision opens the pane in a coordinator session alone', async () => {
+  const { handlers, matchers } = mounted(registerSupervision)
+  expect(matchers['command.run']).toEqual({ command: 'orchestrator:supervision' })
+  expect(matchers['ui.render']).toEqual({ component: 'Pane', requestId: 'supervision' })
+  const run = { command: 'orchestrator:supervision', args: '' }
+
+  const coord = fakeDollar({ launchName: 'Coord : main' })
+  expect(await handlers['command.run'](coord.dollar, run)).toEqual({ text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' })
+  expect(coord.opened).toEqual([{ id: 'supervision', title: 'Supervised sessions' }])
+  // Typed again, the command closes the pane it opened.
+  expect(await handlers['command.run'](coord.dollar, run)).toEqual({ text: 'Supervision pane closed.' })
+  expect(coord.closed).toEqual([{ id: 'supervision' }])
+  expect(coord.opened.length).toBe(1)
+
+  for (const launchName of ['Orch : phase-3', 'Agent : belt-p3', null]) {
+    const fx = fakeDollar({ launchName })
+    const answer = await handlers['command.run'](fx.dollar, run)
+    expect(answer.text).toContain('coordinator session only')
+    expect(fx.opened).toEqual([])
+  }
+})
+
+test('the pane draws one Text row per store entry, the urgent first and warned', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = fakeDollar()
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ name: 'Agent : low', context_percent: 30 })) + '\n')
+  fx.files.set(`${SESSIONS}/hot`, JSON.stringify(row({ name: 'Agent : hot', context_percent: 85 })) + '\n')
+  const e = { surface: 'terminal', component: 'Pane', requestId: 'supervision', props: {} }
+  const text = JSON.stringify(await handlers['ui.render'](fx.dollar, e, (x: unknown) => ({ passed: x })))
+  expect(text.indexOf('Agent : hot')).toBeLessThan(text.indexOf('Agent : low'))
+  expect(text.match(/"color":"warning"/g)?.length).toBe(1)
+  const empty = JSON.stringify(await handlers['ui.render'](fakeDollar().dollar, e, (x: unknown) => ({ passed: x })))
+  expect(empty).toContain('no live sessions')
+})
 
 test('a name walk that cannot answer in time costs the row its name, never the measure', async () => {
   // The Task 9 review's bounded-reads carry: the measure's side reads run

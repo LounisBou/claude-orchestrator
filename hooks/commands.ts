@@ -77,10 +77,12 @@ async function readRows($: any): Promise<Record<string, SessionRow>> {
 
 // What /orchestrator:status says: the pane's own rows as text, the urgent
 // first — the sessions past the rotation gate lead, each side by fill — one
-// line each, the same label the coordinator pane draws beside this store.
+// line each under a header naming the columns, the same label the supervision
+// pane draws beside this store.
 export function statusText(rows: Record<string, SessionRow>): string {
   const labels = paneRows(rows).map(row => row.label)
-  return labels.length === 0 ? 'no live sessions' : labels.join('\n')
+  if (labels.length === 0) return 'Live sessions: none measured yet.'
+  return [`Live sessions (${labels.length}), most urgent first — name · role · context · last measured:`, ...labels.map(label => `  ${label}`)].join('\n')
 }
 
 // What /orchestrator:agents says: the same rows cut to the implementer agents
@@ -92,7 +94,8 @@ export function agentsText(rows: Record<string, SessionRow>): string {
     if (row.role === 'agent') agents[key] = row
   }
   const labels = paneRows(agents).map(row => row.label)
-  return labels.length === 0 ? 'no implementer agents running' : labels.join('\n')
+  if (labels.length === 0) return 'Implementer agents: none running.'
+  return [`Implementer agents (${labels.length}), most urgent first — name · role · context · last measured:`, ...labels.map(label => `  ${label}`)].join('\n')
 }
 
 // One row of a dispatch record, the launcher's own schema cut to what the text
