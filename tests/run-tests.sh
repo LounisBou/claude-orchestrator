@@ -3695,6 +3695,8 @@ check "step 5 reports the context kept at « takeover confirmed », never a late
 # confirmed » reading is what the takeover's verification costs.
 check "step 1 reads its measure file in the successor's first tool call and keeps its reading as « first turn »" "1|1|1" \
   "$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, reads your own measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | awk '{ a = index($0, "reads your own measure file"); b = index($0, "Read the rulebook"); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
+check "step 1 keeps the `context_tokens` figure it reads as the « first turn » figure" "1" \
+  "$(printf '%s' "$SUCC1" | grep -oF 'and keeps its `context_tokens` figure as your « first turn » figure' | wc -l | tr -d ' ')"
 check "step 5 reports both figures, « first turn » and « at takeover confirmed », on one line" "1|1" \
   "$(printf '%s' "$SUCC5" | grep -oF 'both on one line: « first turn » and « at takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the figure kept in step 1' | wc -l | tr -d ' ')"
 check "the design names both figures and why: their gap is the takeover's verification cost" "yes|yes" \

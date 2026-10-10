@@ -40,7 +40,7 @@ and its context fill, answered on the spot. Your only file is
 requests each orchestrator holds — what `owners` attributed to it at your start, overridden
 by its confirmation or correction — the flags you sent, and the sessions you have announced
 to; it holds only what no command answers. After a compaction, read the live state with
-`/orchestrator:status`, then re-read it.
+`/orchestrator:status`, then re-read the notes.
 
 ## At your start
 
