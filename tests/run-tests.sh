@@ -6414,6 +6414,58 @@ printf '{"slug":"bare","repo":"%s","profile":"x/y","tasks":[]}' "$BR" > "$WORK/b
 check "a manifest with no test command is refused" "ERROR: bench: project bare has no test_command or test_globs in its manifest" \
   "$(ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" bench bare --grid b-model/medium --max-usd 1 2>&1)"
 
+echo "== routing: generalize =="
+
+GS="$WORK/gstate"
+mkproj() { # slug profile
+  mkdir -p "$GS/routing/projects/$1"
+  printf '{"slug":"%s","repo":"/x/%s","profile":"%s","tasks":[]}' "$1" "$1" "$2" > "$GS/routing/projects/$1/manifest.json"; }
+gtrial() { # slug class pair status cost
+  printf '{"task":"t","class":"%s","pair":"%s","models":{"%s-1":%s},"cost_usd":%s,"status":"%s"}\n' "$2" "$3" "${3%%/*}" "$5" "$5" "$4" >> "$GS/routing/projects/$1/trials.jsonl"; }
+mkproj p1 php/laravel-app; mkproj p2 php/laravel-app; mkproj p3 shell/plugin
+# c-model/medium: perfect on p1 (6/6), poor on p2 (3/6) -> pooled 0.75: not eligible anyway.
+# b-model/medium: 6/6 on p1 and p2 -> chosen for the profile.
+for i in 1 2 3 4 5 6; do gtrial p1 behaviour-phase c-model/medium pass 0.1; gtrial p1 behaviour-phase b-model/medium pass 0.3; gtrial p2 behaviour-phase b-model/medium pass 0.3; done
+for i in 1 2 3; do gtrial p2 behaviour-phase c-model/medium pass 0.1; gtrial p2 behaviour-phase c-model/medium fail 0.1; done
+# On the global fold, add p3 where c-model/medium is perfect too: pooled 15/18 = 0.83, still not eligible.
+for i in 1 2 3 4 5 6; do gtrial p3 behaviour-phase c-model/medium pass 0.1; done
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$GS/models.json"
+rg() { ORCHESTRATOR_STATE_DIR="$GS" python3 "$ROUTING" "$@"; }
+out=$(rg generalize)
+check "a profile needs two projects" "profile=php/laravel-app projects=2 classes=1" "$(printf '%s\n' "$out" | grep '^profile=')"
+check "no table for a profile of one project" "no" "$([ -f "$GS/routing/tables/profile-shell-plugin.json" ] && echo yes || echo no)"
+check "the profile's pair must hold in each project" "b-model/medium" \
+  "$(jq -r '.entries["behaviour-phase"].pair' "$GS/routing/tables/profile-php-laravel-app.json")"
+check "the global fold covers every project" "global projects=3 classes=1" "$(printf '%s\n' "$out" | grep '^global')"
+# The per-project condition, isolated: c-model/medium at 6/6 on p1 and p3 and 5/6 on p2 is
+# pooled 17/18 = 0.94 >= 0.9, yet fails the floor on p2 alone.
+: > "$GS/routing/projects/p2/trials.jsonl"
+for i in 1 2 3 4 5; do gtrial p2 behaviour-phase c-model/medium pass 0.1; done; gtrial p2 behaviour-phase c-model/medium fail 0.1
+for i in 1 2 3 4 5 6; do gtrial p2 behaviour-phase b-model/medium pass 0.3; done
+rg generalize >/dev/null
+check "one weak project keeps a cheaper pair out of the global table" "b-model/medium" \
+  "$(jq -r '.entries["behaviour-phase"].pair' "$GS/routing/tables/global.json")"
+check "a pair held back by one project keeps its pooled measure on the ladder" "18|0.9444|false" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="c-model/medium")|"\(.n)|\(.pass_rate)|\(.eligible)"' "$GS/routing/tables/global.json")"
+ED="$WORK/exported"; mkdir -p "$ED"
+out=$(rg export --to "$ED")
+check "export says what it wrote" "exported $ED/global.json (1 classes)" "$(printf '%s\n' "$out" | grep global.json)"
+check "export writes the tier, never the family" "standard/medium" "$(jq -r '.entries["behaviour-phase"].pair' "$ED/global.json")"
+check "export drops identifiers and costs" "null|null" "$(jq -r '.entries["behaviour-phase"]|"\(.models)|\(.cost_usd)"' "$ED/global.json")"
+check "export keeps the ladder in tier form, without costs" "light/medium,standard/medium|null" \
+  "$(jq -r '.entries["behaviour-phase"]|"\([.ladder[].pair]|join(","))|\(.ladder[0].cost_usd)"' "$ED/global.json")"
+check "no family name in an export" "" "$(grep -rl -e a-model -e b-model -e c-model "$ED" || true)"
+printf '{"deep":"a-model","light":"c-model"}' > "$GS/models.json"
+check "a family bound to no tier is skipped, with a warning per table" "2" \
+  "$(rg export --to "$ED" 2>&1 >/dev/null | grep -c 'export: b-model is bound to no tier, behaviour-phase skipped')"
+check "show lists each class with its tables" "1" "$(rg show p1 | grep -c '^class=behaviour-phase project=- profile=b-model/medium global=b-model/medium')"
+printf '{"b-model":"b-model-2"}' > "$GS/routing/aliases.json"
+check "show flags an entry measured on another identifier" "1" "$(rg show p1 | grep -c '^class=behaviour-phase .* stale$')"
+rm "$GS/routing/aliases.json"
+check_status "show of an unknown project is a refusal" 1 rg show nope
+check "generalize with no trial anywhere is a refusal" "ERROR: generalize: no project has trials" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/empty-state" python3 "$ROUTING" generalize 2>&1)"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"

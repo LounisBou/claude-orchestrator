@@ -521,7 +521,8 @@ def select_entry(cls, stats, floor):
         mean = sum(s["costs"]) / len(s["costs"]) if s["costs"] else 0.0
         rate = s["passes"] / s["n"] if s["n"] else 0.0
         ladder.append({"pair": pair, "n": s["n"], "pass_rate": round(rate, 4), "cost_usd": round(mean, 6),
-                       "eligible": s["n"] >= MIN_TRIALS and rate >= floor, "models": sorted(s["models"])})
+                       "eligible": s["n"] >= MIN_TRIALS and rate >= floor and not s.get("held_back"),
+                       "models": sorted(s["models"])})
     ladder.sort(key=lambda r: (r["cost_usd"], r["pair"]))
     for i, r in enumerate(ladder):
         # A failure in production is paid by an escalation: the next pair up, or a retry.
@@ -937,9 +938,113 @@ def cmd_bench(argv):
     print("bench: spent=%.2f trials=%d unmeasured=%d" % (state["spent"], state["trials"], unmeasured))
 
 
+# --- generalisation and export --------------------------------------------------------
+
+def all_projects():
+    out = {}
+    for path in sorted(glob.glob(os.path.join(ROUTING_DIR, "projects", "*", "manifest.json"))):
+        m = read_json(path, {})
+        trials = read_trials(os.path.join(os.path.dirname(path), "trials.jsonl"))
+        if trials and m.get("slug"):
+            out[m["slug"]] = (m.get("profile") or "unknown/unknown", trials)
+    return out
+
+
+def fold(scope, projects):
+    """Pool the projects' trials; a pair qualifies only when it also meets the floor in
+    every project where it was measured, so one easy project cannot carry a profile. A pair
+    held back that way keeps its pooled figures on the ladder: it was measured, not unmeasured.
+    """
+    default, strict = floors()
+    entries = {}
+    classes = sorted({t["class"] for _, trials in projects.values() for t in trials})
+    for cls in classes:
+        floor = strict if cls in STRICT_CLASSES else default
+        pooled = stats_of([t for _, ts in projects.values() for t in ts if t["class"] == cls])
+        for _, ts in projects.values():
+            for pair, s in stats_of([t for t in ts if t["class"] == cls]).items():
+                if s["n"] and s["passes"] / s["n"] < floor:
+                    pooled[pair]["held_back"] = True
+        entry = select_entry(cls, pooled, floor)
+        if entry:
+            entries[cls] = entry
+    return {"scope": scope, "generated": datetime.date.today().isoformat(), "entries": entries}
+
+
+def cmd_generalize(argv):
+    if argv:
+        die("generalize: takes no argument")
+    projects = all_projects()
+    if not projects:
+        die("generalize: no project has trials")
+    profiles = {}
+    for slug, (profile, _) in projects.items():
+        profiles.setdefault(profile, []).append(slug)
+    for profile, slugs in sorted(profiles.items()):
+        if len(slugs) < 2:
+            continue
+        table = fold("profile:" + profile, {s: projects[s] for s in slugs})
+        write_json(table_path("profile:" + profile), table)
+        print("profile=%s projects=%d classes=%d" % (profile, len(slugs), len(table["entries"])))
+    table = fold("global", projects)
+    write_json(table_path("global"), table)
+    print("global projects=%d classes=%d" % (len(projects), len(table["entries"])))
+
+
+def cmd_export(argv):
+    p = argparse.ArgumentParser(prog="export")
+    p.add_argument("--to", default=DEFAULTS_DIR)
+    a = p.parse_args(argv)
+    tier_of = {}
+    for tier, (model, _) in read_map().items():
+        tier_of.setdefault(model, tier)
+
+    def tiered(pair):
+        model, effort = parse_pair(pair)
+        return "%s/%s" % (tier_of[model], effort) if model in tier_of else None
+
+    for path in sorted(glob.glob(os.path.join(ROUTING_DIR, "tables", "profile-*.json"))
+                       + glob.glob(os.path.join(ROUTING_DIR, "tables", "global.json"))):
+        table = read_json(path, {})
+        entries = {}
+        for cls, e in sorted(table.get("entries", {}).items()):
+            pair = tiered(e["pair"])
+            if not pair:
+                warn("export: %s is bound to no tier, %s skipped" % (e["pair"].split("/")[0], cls))
+                continue
+            # The ladder keeps its order and its measured reliability; a rung on an unbound
+            # family has no tier to be written in, and costs and identifiers never ship.
+            ladder = [{"pair": tiered(r["pair"]), "n": r.get("n"), "pass_rate": r.get("pass_rate"),
+                       "eligible": r.get("eligible")}
+                      for r in e.get("ladder") or [] if is_pair(r.get("pair")) and tiered(r["pair"])]
+            entries[cls] = {"pair": pair, "pass_rate": e["pass_rate"], "n": e["n"], "floor": e["floor"],
+                            "ladder": ladder}
+        out = os.path.join(a.to, os.path.basename(path))
+        write_json(out, {"scope": table.get("scope"), "generated": table.get("generated"), "entries": entries})
+        print("exported %s (%d classes)" % (out, len(entries)))
+
+
+def cmd_show(argv):
+    projects = os.path.join(ROUTING_DIR, "projects")
+    slugs = argv or (sorted(os.listdir(projects)) if os.path.isdir(projects) else [])
+    if not slugs:
+        die("show: no project under %s" % projects)
+    for slug in slugs:
+        m = load_manifest(slug)
+        tables = [read_json(table_path(s), {}).get("entries", {})
+                  for s in ("project:" + slug, "profile:" + (m.get("profile") or ""), "global")]
+        print("project=%s profile=%s" % (slug, m.get("profile")))
+        for cls in sorted(set().union(*tables)):
+            cells = [t[cls]["pair"] if cls in t else "-" for t in tables]
+            stale = any(cls in t and is_stale(t[cls]["pair"], t[cls]) for t in tables)
+            print("class=%s project=%s profile=%s global=%s%s" % (cls, cells[0], cells[1], cells[2],
+                                                                   " stale" if stale else ""))
+
+
 COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate,
             "harvest": cmd_harvest, "ready": cmd_ready, "trial": cmd_trial,
-            "bench": cmd_bench}
+            "bench": cmd_bench, "generalize": cmd_generalize, "show": cmd_show,
+            "export": cmd_export}
 
 
 def main():
