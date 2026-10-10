@@ -1,6 +1,6 @@
 ---
 description: Where the build stands — done, in flight, remaining, decisions pending — and the orchestrator's own context
-allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh:*), Bash(${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/dispatch-record.sh:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(jq:*), Bash(date:*), ListAgents, Read, Edit
+allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/dispatch-record.sh:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Bash(jq:*), Bash(cat:*), Bash(date:*), ListAgents, Read, Edit
 ---
 
 Report the state of the whole build to the user, from the artifacts — never
@@ -22,10 +22,10 @@ from the state file alone, never from memory of what was said.
    — the path the project's state file names. Keep every `signal=` line: they are
    the routing corrections this build has earned, and a signal nobody reads is a
    measurement nobody took.
-4. Measure your own context: run
-   `${CLAUDE_PLUGIN_ROOT}/skills/context-gauge/scripts/context-gauge.sh` and keep
-   its `context_percent=`, `context_tokens=`, `context_window=` and `source=`
-   lines.
+4. Measure your own context: read
+   `${CLAUDE_CONFIG_DIR:-~/.claude}/claude-orchestrator/measure/$CLAUDE_CODE_SESSION_ID.json`
+   — one JSON line the module writes on every gauge pass — and keep its
+   `context_percent`, `context_tokens` and `context_window`.
 5. Present, in this order and nothing else:
    - **Done** — phases merged, with PR numbers and what each delivered in one line.
    - **In flight** — phases with a PR open or an agent writing: agent name,
@@ -37,8 +37,8 @@ from the state file alone, never from memory of what was said.
    - **Routing** — one line per `signal=` from the summary, each said as what it
      obliges: a tier reverted for a class, a cascade stopped, a class owed a second
      reader. No signal is left as a number the reader must interpret.
-   - **Your context** — the gauge's figure and source; if past the gate —
-     80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more — say that
+   - **Your context** — the measure file's figures; if past the gate —
+     300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window — say that
      succession is next and when (the quiet boundary you will use).
 6. Every figure carries the command that produced it; a figure you cannot
    re-derive from an artifact is not written.

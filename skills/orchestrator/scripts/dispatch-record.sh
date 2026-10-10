@@ -50,9 +50,9 @@
 # Every subcommand also registers the record's absolute path under the host session that ran
 # it, in `<state dir>/records/<CLAUDE_CODE_SESSION_ID>` (one path per line, no duplicate). An
 # order noted « to plan after the round » in prose alone was lost once: nothing read it back.
-# A row opened for it is read back by the stop gate (hooks/stop_gate.py), which refuses
-# `waiting: done` while a registered row is open, and by `summary`, which lists the open
-# rows. Registering never fails a command.
+# A row opened for it is read back by the stop gate (the module's own gate, over the Stop
+# event), which refuses `waiting: done` while a registered row is open, and by `summary`,
+# which lists the open rows. Registering never fails a command.
 
 set -uo pipefail
 
@@ -64,7 +64,9 @@ cmd="${1:-}"; record="${2:-}"
 [ -n "$cmd" ] || die "usage: dispatch-record.sh {open|round|review|fixed|ready|close|escaped|cost|summary} <record> [...] (see header)"
 [ -n "$record" ] || die "$cmd: a record path is required"
 
-# The hook resolves the same directory (hooks/stop_gate.py, STATE_DIR).
+# The stop gate's state root — the one the module's gate (hooks/guards.ts over
+# hooks/stop-gate.ts) resolves too — is shared here: the override first, else the config
+# dir's claude-orchestrator, so the registry the gate reads and this script writes agree.
 STATE_DIR="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
 # What a session cost is measured by the routing skill's script, which reads the same state
 # directory from the same environment.
