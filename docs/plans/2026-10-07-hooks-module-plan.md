@@ -1062,8 +1062,8 @@ git commit -m "feat(commands): answer status, progress and agents without a mode
 **Files:**
 - Delete: `hooks/context-gate.sh`, `hooks/push-guard.sh`, `hooks/stop-gate.sh`, `hooks/stop_gate.py`, `hooks/session_name.py`, `skills/context-gauge/` (both scripts and the SKILL.md)
 - Keep: `commands/status.md`, `commands/progress.md`, `commands/agents.md` — Task 11's ratified shape serves the three commands through `command.run` hooks on these spellings; the files are the typeahead entries and the degraded fallback, and deleting them would leave the invocations unhooked (the engine refuses the registered spellings — charset and built-ins).
-- Modify: `hooks/hooks.json` (drop the three settings-hook blocks), `install.sh`, `uninstall.sh`
-- Test: `./tests/run-tests.sh` (the shell suite, updated)
+- Modify: `hooks/hooks.json` (drop the three settings-hook blocks), `hooks/commands.ts`, `hooks/guards.ts` (Step 4's override alignment), `install.sh`, `uninstall.sh`, `docs/design.md` (section 4.4)
+- Test: `./tests/run-tests.sh` (the shell suite, updated), `hooks/tests/commands.test.ts` and `hooks/tests/stop-gate.test.ts` (the override wiring)
 
 - [ ] **Step 1: Remove the settings hooks from hooks.json** — only `modules` remains.
 
@@ -1074,14 +1074,18 @@ git commit -m "feat(commands): answer status, progress and agents without a mode
 
 - [ ] **Step 3: uninstall.sh** — drop the measure directory and the hooks-module log alongside the existing cleanup.
 
-- [ ] **Step 4: Update the shell suite** — delete the push-guard Bash-level cases (they live now in `tokenizer.test.ts`), the tap cases, the context-gauge.sh cases, and the stop-gate hook section (its cases live now in `hooks/tests/stop-gate.test.ts`, the sweep included); add: `install.sh` on a settings.json with a tap wiring unwraps it (fixture file), and the version-floor refusal.
+- [ ] **Step 4: Align the module's shared-artifact roots on ORCHESTRATOR_STATE_DIR**
 
-- [ ] **Step 5: Full run + live smoke**
+The surviving writers of the dispatch-records registry and the ci-watch logs (`dispatch-record.sh:59`, `ci-watch.sh`) honor `ORCHESTRATOR_STATE_DIR` before the config dir, while the module's readers — `commands.ts:134`'s registry and the stop gate's state root at `guards.ts:290` — resolve the config dir alone: under the documented override (design.md, section 4.4) `/orchestrator:progress` answers "no dispatch record registered" forever and the stop gate's check 2 reads no watch (the Task 11 review's Important 1; the Task 8 parked boundary ends here, not at the shell gate's retirement — the writers survive it). The stop gate's whole state root and the registry root gain the resolution the shell gate had: `ORCHESTRATOR_STATE_DIR` (through `$.env.get`, literal, at each call site — the `$` fence) else `<config>/claude-orchestrator`. The module's own artifacts — the measure file, the store, `hooks-module.log`, the module's stamp — stay under the config dir: the spec places them there and no surviving script shares them. One wiring test per site pins both branches (override set / absent), and design.md section 4.4 is rewritten in the same commit to name the new sharing.
+
+- [ ] **Step 5: Update the shell suite** — delete the push-guard Bash-level cases (they live now in `tokenizer.test.ts`), the tap cases, the context-gauge.sh cases, and the stop-gate hook section (its cases live now in `hooks/tests/stop-gate.test.ts`, the sweep included); add: `install.sh` on a settings.json with a tap wiring unwraps it (fixture file), and the version-floor refusal.
+
+- [ ] **Step 6: Full run + live smoke**
 
 Run: `./tests/run-tests.sh && cd hooks && claude plugin test .. && claude plugin validate ..`
 Live: fresh session through the launcher — band shows, gate speaks past 80 %, forced push refused, stop held with a busy agent, `/orchestrator:status` instant.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add -A
