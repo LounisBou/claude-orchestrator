@@ -37,6 +37,14 @@ export type SessionRow = {
 // past the figures it would show.
 const STALE_AFTER_MS = 60 * 60 * 1000
 
+// The rule above as a function, pure and exported: the commands read the same
+// store through their own $ (the fence forbids sharing the reader) and judge
+// every row by this same rule, so the hour stays written once.
+export function isStale(row: SessionRow, now: number): boolean {
+  const at = Date.parse(row.updated_at)
+  return !Number.isFinite(at) || now - at > STALE_AFTER_MS
+}
+
 // The coordinator pane this file draws beside the store it reads: the id names
 // it at the engine (the open, the render's requestId, a later close), the
 // title its tab while more than one pane is open. The id's spelling is the
@@ -115,9 +123,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   for (const entry of entries) {
     if (!entry || entry.kind !== 'file') continue
     const row = parseSessionRow(String(await $.fs.read(`${dir}/${entry.name}`).catch(() => '')))
-    if (!row) continue
-    const at = Date.parse(row.updated_at)
-    if (!Number.isFinite(at) || Date.now() - at > STALE_AFTER_MS) continue
+    if (!row || isStale(row, Date.now())) continue
     rows[`sessions/${entry.name}`] = row
   }
   return rows
