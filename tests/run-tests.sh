@@ -6230,6 +6230,9 @@ trial contract-phase b-model/high fail 0.40
 for i in 1 2 3 4 5 6; do trial contract-phase a-model/high pass 0.90; done
 printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"cost_' >> "$TR"; echo >> "$TR"
 printf '{"task":"t","class":"behaviour-phase","pair":"b-model/default","rep":1,"cost_usd":9,"status":"pass"}\n' >> "$TR"
+# A trial with no cost is not free: it is unreadable, and left out of n and of the mean cost.
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"status":"pass"}\n' >> "$TR"
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"cost_usd":null,"status":"pass"}\n' >> "$TR"
 printf '{"slug":"demo","repo":"/nonexistent","profile":"x/y","tasks":[]}' > "$CS/routing/projects/demo/manifest.json"
 rcal() { ORCHESTRATOR_STATE_DIR="$CS" python3 "$ROUTING" calibrate "$@"; }
 out=$(rcal demo 2>"$WORK/cal.err")
@@ -6245,7 +6248,7 @@ check "the entry keeps the identifiers it was measured on" "b-model-1" \
   "$(jq -r '.entries["behaviour-phase"].models|join(",")' "$CS/routing/tables/project-demo.json")"
 check "the entry keeps its floor, its scope and the ladder's eligibility" "9|10|project:demo|false,true,true" \
   "$(jq -r '"\(.entries["behaviour-phase"].floor*10|round)|\(.entries["contract-phase"].floor*10|round)|\(.scope)|\([.entries["behaviour-phase"].ladder[].eligible]|map(tostring)|join(","))"' "$CS/routing/tables/project-demo.json")"
-check "a torn trial line and a line with no pair are skipped with a warning each, never fatal" "2" \
+check "a torn trial line, a line with no pair and a trial with no cost are skipped with a warning each, never fatal" "4" \
   "$(grep -c 'does not read as a trial, skipped' "$WORK/cal.err")"
 printf '{"floor":{"default":0.6}}' > "$CS/routing/config.json"
 check "the operator's config sets the floor" "class=behaviour-phase pair=c-model/medium" \

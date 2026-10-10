@@ -453,8 +453,8 @@ def is_pair(text):
 
 
 def read_trials(path):
-    """A trial line that is torn, or names no class, no pair or no status, is skipped with a
-    warning: a run interrupted mid-write must never cost the trials before it.
+    """A trial line that is torn, or names no class, no pair, no status or no numeric cost, is
+    skipped with a warning: a run interrupted mid-write must never cost the trials before it.
     """
     out = []
     if not os.path.isfile(path):
@@ -467,7 +467,8 @@ def read_trials(path):
                 t = json.loads(line)
                 ok = (isinstance(t, dict) and isinstance(t.get("class"), str) and is_pair(t.get("pair"))
                       and t.get("status") in STATUSES)
-                float(t.get("cost_usd") or 0)
+                # A trial with no cost is not a free one: it would rank its pair cheaper than it is.
+                ok = ok and isinstance(t.get("cost_usd"), (int, float)) and not isinstance(t["cost_usd"], bool)
             except (ValueError, TypeError, AttributeError):
                 ok = False
             if ok:
