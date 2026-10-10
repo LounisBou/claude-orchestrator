@@ -113,10 +113,29 @@ check "nothing project- or machine-specific in the plugin" "" "$hits"
 hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude-dir=.superpowers --exclude=run-tests.sh || true)
 check "the old command namespace is gone" "" "$hits"
 
-# The operator manages the usage budget; the plugin does not read it, report it or route on
-# it (phase 3 ruling 4, reasserted 2026-09-30). No replacement sentence either.
-hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day' -- skills/ commands/ templates/ hooks/ README.md docs/design.md || true)
-check "no budget reference in the plugin" "" "$hits"
+# The operator manages the usage budget (ruling of 2026-10-10): no orchestrator or agent
+# stops, throttles or drops a tier because of what it has consumed, nor proposes to. The
+# words themselves are not banned: a bench trial records the gauge as a control
+# (`quota_before`, `quota_after`), a manifest gives each trial a spending cap (`budget_usd`,
+# `--budget-usd`, the host's `--max-budget-usd`), and the routing skill says the gauge stays
+# out of the choice. What the guard catches is a line naming the usage budget or its 5-hour
+# and 7-day windows together with stopping, throttling, dropping a tier or proposing one.
+BUDGET_TERMS='five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day|usage limit'
+BUDGET_ACTIONS='stop|throttl|drop|downgrad|lower|pause|slow|propos|fall back|cheaper tier|lighter tier|switch|reduc|cheapest|ration|defer|cut back'
+budget_hits() { # <root>
+  ( cd "$1" && grep -rnIiE "$BUDGET_TERMS" skills commands templates hooks README.md docs/design.md 2>/dev/null \
+    | sed -E 's/--max-budget-usd|--budget-usd|budget_usd|quota_before|quota_after|ORCHESTRATOR_QUOTA_FILE//g' \
+    | grep -iE "$BUDGET_TERMS" | grep -iE "$BUDGET_ACTIONS" || true )
+}
+check "no stop, throttle or tier drop on the usage budget in the plugin" "" "$(budget_hits "$ROOT")"
+# The guard proves it can still see one, and that the bench's fields and flags pass it.
+BP="$WORK/budget-probe"; mkdir -p "$BP/skills"
+printf 'When the 5-hour quota passes 80 %%, stop dispatching and drop to the light tier.\n' > "$BP/skills/forbidden.md"
+printf 'When the 7-day usage passes 90 %%, switch every dispatch to the cheapest tier.\n' > "$BP/skills/forbidden2.md"
+printf 'A trial records `quota_before` and `quota_after`; `--max-budget-usd` stops that trial alone.\n' > "$BP/skills/allowed.md"
+check "the budget guard sees a stop on the usage budget, a switch to the cheapest tier, and lets the bench's fields pass" "skills/forbidden.md
+skills/forbidden2.md" \
+  "$(budget_hits "$BP" | cut -d: -f1 | sort)"
 
 # A rotation closes the old tab by its tty, the stood-down acknowledgment being the guard:
 # a title read before the ten-second spawn is stale after it, and the tab skill forbids
@@ -585,7 +604,64 @@ check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --hea
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
 check "and names the subcommands it expects" "1" \
-  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped or summary)')"
+  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped, cost or summary)')"
+
+# A pair row names the alias and the effort it ran on, and carries what its sessions cost:
+# rounds alone cannot say whether a lighter pair paid. The tier rows above print unchanged.
+CSTATE="$WORK/cstate"; mkdir -p "$CSTATE/routing"
+cp "$ROOT/tests/fixtures/routing/prices.json" "$CSTATE/routing/prices.json"
+crec() { ORCHESTRATOR_STATE_DIR="$CSTATE" ORCHESTRATOR_PROJECTS_DIR="$ROOT/tests/fixtures/routing/projects" bash "$REC" "$@"; }
+PR="$WORK/pairs.jsonl"
+p1=$(crec open "$PR" --class behaviour-phase --model a-model --effort medium --label "p1")
+check "a pair row carries model and effort" "a-model|medium|false|0" \
+  "$(jq -r 'select(.id==1)|[.model,.effort,.explore,.cost_usd]|map(tostring)|join("|")' "$PR")"
+crec cost "$PR" "$p1" --session s-1 >/dev/null
+check "cost adds the session's measured cost to the row" "0.1701|s-1" \
+  "$(jq -r 'select(.id==1)|[(.cost_usd*10000|round/10000|tostring), (.sessions|join(","))]|join("|")' "$PR")"
+check "the same session twice is not counted twice" "0.1701" \
+  "$(crec cost "$PR" "$p1" --session s-1 2>/dev/null; jq -r 'select(.id==1)|.cost_usd*10000|round/10000' "$PR")"
+check "cost records the identifier the row's alias resolved to" "a-model-1" "$(jq -r '.["a-model"]' "$CSTATE/routing/aliases.json")"
+crec close "$PR" "$p1" --verdict approved >/dev/null
+check "summary prints the pair and its average cost" "1" \
+  "$(crec summary "$PR" | grep -c '^class=behaviour-phase pair=a-model/medium dispatches=1 closed=1 rounds_avg=0 cost_avg=0.1701$')"
+# A pair row with no effort ran on the host's default: it says so rather than print a pair cut short.
+crec open "$WORK/pair-noeffort.jsonl" --class n-bis --model b-model >/dev/null
+check "a pair row without an effort groups as the host's default" "1" \
+  "$(crec summary "$WORK/pair-noeffort.jsonl" | grep -c '^class=n-bis pair=b-model/default dispatches=1 closed=0 rounds_avg=0$')"
+check_status "open refuses an unknown effort" 1 crec open "$PR" --class x --model a-model --effort huge
+check_status "open wants a tier or a model" 1 crec open "$PR" --class x
+check_status "an effort without a model is refused" 1 crec open "$PR" --class x --tier light --effort low
+check_status "an exploration without a model is refused" 1 crec open "$PR" --class x --tier light --explore
+check_status "cost wants a session" 1 crec cost "$PR" "$p1"
+check_status "cost of a session with no transcript is an error" 1 crec cost "$PR" "$p1" --session s-404
+# A transcript with no assistant usage is a refusal, and the row is left as it was.
+sessions_before=$(jq -c --argjson i "$p1" 'select(.id==$i)|.sessions' "$PR")
+check_status "cost of a session with no usage is an error" 1 crec cost "$PR" "$p1" --session s-4
+check "and the row's sessions are unchanged" "$sessions_before" \
+  "$(jq -c --argjson i "$p1" 'select(.id==$i)|.sessions' "$PR")"
+# An unpriced model leaves the row's cost incomplete, and the summary averages only rows
+# whose cost is whole: a partial figure would rank a pair cheaper than it is.
+# The incomplete row carries a positive partial cost (s-2 priced, s-3 not): the average
+# must drop it on cost_incomplete, not because its cost happens to be zero.
+p2=$(crec open "$PR" --class behaviour-phase --model a-model --effort medium)
+crec cost "$PR" "$p2" --session s-2 >/dev/null
+crec cost "$PR" "$p2" --session s-3 >/dev/null 2>&1
+check "an unpriced session marks the row cost_incomplete, its priced one still counted" "true|s-2,s-3|0.028" \
+  "$(jq -r --argjson i "$p2" 'select(.id==$i)|[(.cost_incomplete|tostring), (.sessions|join(",")), (.cost_usd*10000|round/10000|tostring)]|join("|")' "$PR")"
+crec close "$PR" "$p2" --verdict approved >/dev/null
+check "an incomplete cost stays out of the average" "1" \
+  "$(crec summary "$PR" | grep -c '^class=behaviour-phase pair=a-model/medium dispatches=2 closed=2 rounds_avg=0 cost_avg=0.1701$')"
+# Exploration: a failed one freezes the class; three that close in one round promote the pair.
+e1=$(crec open "$PR" --class conversion-phase --model a-model --effort low --explore)
+crec round "$PR" "$e1" >/dev/null; crec round "$PR" "$e1" >/dev/null; crec close "$PR" "$e1" --verdict approved >/dev/null
+check "an exploration that cost a corrective round freezes its class" "1" "$(crec summary "$PR" | grep -c '^frozen=conversion-phase$')"
+for i in 1 2 3; do e=$(crec open "$PR" --class n-bis --model a-model --effort low --explore); crec round "$PR" "$e" >/dev/null; crec close "$PR" "$e" --verdict approved >/dev/null; done
+check "three explorations closed in one round promote the pair" "1" "$(crec summary "$PR" | grep -c '^promote=n-bis a-model/low$')"
+for i in 1 2 3; do e=$(crec open "$WORK/pair-noeffort.jsonl" --class n-bis --model b-model --explore); crec round "$WORK/pair-noeffort.jsonl" "$e" >/dev/null; crec close "$WORK/pair-noeffort.jsonl" "$e" --verdict approved >/dev/null; done
+check "three explorations of a pair with no effort promote it as the host's default" "1" \
+  "$(crec summary "$WORK/pair-noeffort.jsonl" | grep -c '^promote=n-bis b-model/default$')"
+check "an escaped defect on an exploration freezes its class too" "1|0" \
+  "$(crec escaped "$PR" "$e" >/dev/null; crec summary "$PR" | grep -c '^frozen=n-bis$')|$(crec summary "$PR" | grep -c '^promote=n-bis')"
 
 echo "== workspace =="
 
@@ -2935,6 +3011,38 @@ check_status "a missing map is not an error" 0 \
 check "resolve-tier wants exactly one tier" "ERROR: resolve-tier: exactly one tier is required (deep, standard or light)" \
   "$(bash "$AGENT" resolve-tier 2>&1)"
 
+# A tier may bind an effort with its model: effort moves token spend as much as the family.
+PMAP="$WORK/pair-map.json"
+printf '{"deep":{"model":"a-model","effort":"high"},"standard":"b-model","light":{"model":"c-model"}}' > "$PMAP"
+check "a pair binding resolves to model/effort" "a-model/high" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier deep)"
+check "a string binding still resolves to the model alone" "b-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier standard)"
+check "an object without effort resolves to the model alone" "c-model" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" resolve-tier light)"
+check "the environment may bind a pair too" "c-model/low" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$PMAP" ORCHESTRATOR_TIER_DEEP=c-model/low bash "$AGENT" resolve-tier deep)"
+printf '{"deep":{"model":"a-model","effort":"huge"}}' > "$WORK/bad-effort.json"
+check "an unknown effort in the map is a refusal" \
+  "ERROR: resolve-tier: tier deep has an unknown effort: huge (expected low, medium, high, xhigh or max)" \
+  "$(env ORCHESTRATOR_MODELS_MAP="$WORK/bad-effort.json" bash "$AGENT" resolve-tier deep 2>&1)"
+printf '{"deep":{"effort":"high"}}' > "$WORK/no-model.json"
+check_status "an object without a model is a refusal" 1 \
+  env ORCHESTRATOR_MODELS_MAP="$WORK/no-model.json" bash "$AGENT" resolve-tier deep
+pcmd() { env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$PMAP" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p "$@" 2>/dev/null; }
+check "a pair tier types the model then the effort" "1" "$(pcmd --tier deep | grep -c -- '--model a-model --effort high')"
+check "an explicit effort wins over the map's" "1" "$(pcmd --tier deep --effort low | grep -c -- '--effort low')"
+check "an explicit effort with an explicit model" "1" "$(pcmd --model z-model --effort medium | grep -c -- '--model z-model --effort medium')"
+check "no effort anywhere: no effort argument" "0" "$(pcmd --tier standard | grep -c -- '--effort')"
+check "an unknown effort on spawn is a refusal" \
+  "ERROR: spawn: unknown effort: huge (expected low, medium, high, xhigh or max)" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p --effort huge 2>&1 | tail -1)"
+check "an auditor refuses an effort: it runs as its caller runs" "1" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' --prompt p --effort low 2>&1 | grep -c -- 'refused: --effort is not an auditor')"
+check "rotate forwards the effort to the spawn" "1" \
+  "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$PMAP" \
+      bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep --effort max --prompt p 2>&1 | grep -c -- '--model a-model --effort max')"
+
 tcmd() {
   local out
   out=$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
@@ -4895,6 +5003,506 @@ check "without ORCHESTRATOR_HOST_CLI the host's name is the launcher's default" 
   "$(env -u ORCHESTRATOR_HOST_CLI ORCHESTRATOR_WORKSPACES="$CWS" COORDINATOR_PS_TABLE="$CF/ps" COORDINATOR_CWDS="$CF/cwds" COORDINATOR_FORGE="$CF/forge" bash "$CT/coordinator/scripts/coordinator.sh" facts 2>/dev/null | grep -c '^session ')"
 check "the script never spells the host's name" "0" "$(grep -v 'CLAUDE_CONFIG_DIR' "$COORD" | grep -ci 'claude')"
 check "an unknown subcommand is refused" "exit 1" "$(coord_status bogus)"
+
+echo "== routing: cost =="
+
+ROUTING="$ROOT/skills/model-routing/scripts/routing.py"
+RFIX="$ROOT/tests/fixtures/routing"
+RSTATE="$WORK/rstate"; mkdir -p "$RSTATE/routing"
+cp "$RFIX/prices.json" "$RSTATE/routing/prices.json"
+rcost() { ORCHESTRATOR_STATE_DIR="$RSTATE" ORCHESTRATOR_PROJECTS_DIR="$RFIX/projects" python3 "$ROUTING" cost "$@"; }
+
+check "cost of a session: one usage per message id, subagents included, tiered price applied" \
+  "cost_usd=0.170100 models=a-model-1,c-model-1 tokens_in=202000 tokens_out=4000 cache_read=10000 cache_write=3000" \
+  "$(rcost --session s-1)"
+check "cost of one transcript file, by path" "0.1695" \
+  "$(rcost "$RFIX/projects/-repo/s-1.jsonl" --json | jq -r '.cost_usd|.*10000|round/10000')"
+check "a placeholder message with an all-zero usage is neither priced nor named" "0" \
+  "$(rcost --session s-1 2>&1 | grep -c 'synthetic')"
+# The upper rates apply when fresh input plus cache reads pass the threshold: 50000 + 60000
+# is 110000 > 100000 though input alone is below it. 50000 * 0.5 + 60000 * 0.05 = 28000
+# micro-dollars; at the lower rates it would be 5600.
+check "the tiered price is judged on the whole prompt, not on fresh input alone" \
+  "cost_usd=0.028000 models=c-model-1 tokens_in=50000 tokens_out=0 cache_read=60000 cache_write=0" \
+  "$(rcost --session s-2)"
+check_status "a transcript with no assistant usage is a refusal, never a cost of zero" 1 rcost --session s-4
+check "and the refusal names the session" "1" "$(rcost --session s-4 2>&1 | grep -c 's-4')"
+rm "$RSTATE/routing/prices.json"
+check "no price file: the cost is unknown, never guessed" "cost_usd=unknown" \
+  "$(rcost --session s-1 2>/dev/null | cut -d' ' -f1)"
+check "no price file: stderr names the model" "1" \
+  "$(rcost --session s-1 2>&1 >/dev/null | grep -c 'no price for a-model-1')"
+cp "$RFIX/prices.json" "$RSTATE/routing/prices.json"
+check_status "an unknown session is a refusal" 1 rcost --session s-404
+check "a transcript path that does not exist is a refusal, never a cost of zero" "ERROR: cost: no transcript at $WORK/none.jsonl" \
+  "$(rcost "$WORK/none.jsonl" 2>&1)"
+rcost --session s-1 --alias a-model >/dev/null
+check "the alias records the identifier it resolved to" "a-model-1" \
+  "$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
+
+echo "== routing: pick =="
+
+T="$ROOT/tests/fixtures/routing/trees"
+check "profile: a composer project with artisan" "php/laravel-app" "$(python3 "$ROUTING" profile "$T/laravel")"
+check "profile: a plugin by its manifest, language by dominant extension" "shell/plugin" "$(python3 "$ROUTING" profile "$T/plugin")"
+check "profile: a python project with a bin entry point" "python/cli" "$(python3 "$ROUTING" profile "$T/pycli")"
+check "profile: a node package with no entry point" "javascript/library" "$(python3 "$ROUTING" profile "$T/jslib")"
+check_status "profile: no path is a refusal" 1 python3 "$ROUTING" profile
+
+PS="$WORK/pstate"; mkdir -p "$PS/routing/tables" "$PS/routing/projects/laravel"
+printf '{"deep":"a-model","standard":{"model":"b-model","effort":"medium"},"light":"c-model"}' > "$PS/models.json"
+printf '{"slug":"laravel","repo":"%s","profile":"php/laravel-app","tasks":[]}' "$T/laravel" > "$PS/routing/projects/laravel/manifest.json"
+DEF="$WORK/defaults"; mkdir -p "$DEF"
+rpick() { ORCHESTRATOR_STATE_DIR="$PS" ORCHESTRATOR_ROUTING_DEFAULTS="$DEF" python3 "$ROUTING" pick --repo "$T/laravel" "$@"; }
+check "nothing measured: the tier table through the map" "pair=b-model/medium source=tier-table" "$(rpick --class behaviour-phase)"
+check "nothing measured, a tier bound to a model alone" "pair=c-model source=tier-table" "$(rpick --class search)"
+mv "$PS/models.json" "$PS/models.json.off"
+check "nothing measured and nothing bound: the host's default" "pair=host-default source=tier-table" "$(rpick --class search)"
+mv "$PS/models.json.off" "$PS/models.json"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"light/high"}}}' > "$DEF/global.json"
+check "a shipped default resolves its tier through the map" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"deep/low"}}}' > "$DEF/profile-php-laravel-app.json"
+check "a shipped profile default beats the shipped global one" "pair=a-model/low source=shipped:profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"nonsense/low"}}}' > "$DEF/profile-php-laravel-app.json"
+check "a shipped default on a tier the map does not bind falls through" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"c-model/medium","models":["c-model-1"]}}}' > "$PS/routing/tables/global.json"
+check "the local global table beats the shipped defaults" "pair=c-model/medium source=global" "$(rpick --class behaviour-phase)"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"b-model/low","models":["b-model-1"]}}}' > "$PS/routing/tables/profile-php-laravel-app.json"
+check "the profile table beats the global one" "pair=b-model/low source=profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true}]},"conversion-phase":{"pair":"a-model/medium","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/medium","n":8,"pass_rate":1.0,"eligible":true}]},"comments":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-collector":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-lens":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":2,"pass_rate":1.0,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"contract-phase":{"pair":"a-model/high","models":["a-model-1"]}}}' > "$PS/routing/tables/project-laravel.json"
+check "the project table beats them all" "pair=a-model/low source=project:laravel" "$(rpick --class behaviour-phase)"
+printf '{"a-model":"a-model-2"}' > "$PS/routing/aliases.json"
+check "an entry measured on another identifier is flagged stale" "pair=a-model/low source=project:laravel stale" "$(rpick --class behaviour-phase)"
+check_status "an unknown class is a refusal" 1 rpick --class nonsense
+# Exploration: three one-round closes at the class's pair, none escaped, and a class that may be explored.
+ER="$WORK/explore.jsonl"; : > "$ER"
+for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed"}\n' "$i" >> "$ER"; done
+check "three clean closes offer one notch down: the lowest rung, no lower effort, so the next lighter family" \
+  "explore=b-model/low" "$(rpick --class behaviour-phase --record "$ER" | sed -n 2p)"
+check "two clean closes are not enough" "1" \
+  "$(sed -n 1,2p "$ER" > "$WORK/two.jsonl"; rpick --class behaviour-phase --record "$WORK/two.jsonl" | wc -l | tr -d ' ')"
+check "a line of the record that does not read is skipped, not fatal" "explore=b-model/low" \
+  "$({ cat "$ER"; echo '{"id":'; } > "$WORK/torn.jsonl"; rpick --class behaviour-phase --record "$WORK/torn.jsonl" 2>/dev/null | sed -n 2p)"
+check "an escaped defect at the class's pair closes the exploration" "1" \
+  "$({ cat "$ER"; printf '{"id":4,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed","escaped":true}\n'; } > "$WORK/esc.jsonl"; rpick --class behaviour-phase --record "$WORK/esc.jsonl" | wc -l | tr -d ' ')"
+check "a failed exploration freezes the class for the build" "1" \
+  "$({ cat "$ER"; printf '{"id":5,"class":"behaviour-phase","model":"b-model","effort":"low","rounds":2,"state":"closed","explore":true}\n'; } > "$WORK/frozen.jsonl"; rpick --class behaviour-phase --record "$WORK/frozen.jsonl" | wc -l | tr -d ' ')"
+check "a notch the ladder measured below the floor is never offered" "1" \
+  "$(for i in 1 2 3; do printf '{"id":%d,"class":"conversion-phase","model":"a-model","effort":"medium","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/conv.jsonl"; rpick --class conversion-phase --record "$WORK/conv.jsonl" | wc -l | tr -d ' ')"
+hi3() { for i in 1 2 3; do printf '{"id":%d,"class":"%s","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n' "$i" "$1"; done; }
+# The notch is the IMMEDIATE cheaper rung. Comments: medium was measured at 0.5 over 8, below
+# the 0.9 floor, so no notch - the eligible low rung beneath it is two notches, not one.
+hi3 comments > "$WORK/n-a.jsonl"
+check "an immediate rung measured below the floor is no notch, the eligible one beneath it is not offered" "1" \
+  "$(rpick --class comments --record "$WORK/n-a.jsonl" | wc -l | tr -d ' ')"
+hi3 review-collector > "$WORK/n-b.jsonl"
+check "an eligible immediate rung is the notch" "explore=a-model/medium" \
+  "$(rpick --class review-collector --record "$WORK/n-b.jsonl" | sed -n 2p)"
+# Review-lens: medium has only 2 trials at 1.0 - not yet eligible, which is why it is worth testing.
+hi3 review-lens > "$WORK/n-c.jsonl"
+check "an immediate rung with too few trials is offered, not skipped for the eligible one below" "explore=a-model/medium" \
+  "$(rpick --class review-lens --record "$WORK/n-c.jsonl" | sed -n 2p)"
+check "a contract phase is never explored, measured or not" "1" \
+  "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
+
+echo "== routing: calibrate =="
+
+CS="$WORK/calstate"; mkdir -p "$CS/routing/projects/demo"
+TR="$CS/routing/projects/demo/trials.jsonl"; : > "$TR"
+trial() { # class pair status cost
+  printf '{"task":"t","class":"%s","pair":"%s","rep":1,"models":{"%s-1":%s},"cost_usd":%s,"status":"%s"}\n' \
+    "$1" "$2" "${2%%/*}" "$4" "$4" "$3" >> "$TR"; }
+for i in 1 2 3 4; do trial behaviour-phase c-model/medium pass 0.10; done
+for i in 1 2; do trial behaviour-phase c-model/medium fail 0.10; done
+for i in 1 2 3 4 5 6; do trial behaviour-phase b-model/medium pass 0.30; trial behaviour-phase a-model/low pass 0.50; done
+trial behaviour-phase b-model/medium error 0.05
+for i in 1 2 3 4 5; do trial contract-phase b-model/high pass 0.40; done
+trial contract-phase b-model/high fail 0.40
+for i in 1 2 3 4 5 6; do trial contract-phase a-model/high pass 0.90; done
+# Escalation term. search: c-model/low costs 0.10 and passes 19 of 20 (0.95, eligible at 0.9);
+# b-model/medium costs 0.105 and passes 6 of 6. expected_usd(c) = 0.10 + (1 - 0.95) * 0.105 = 0.10525
+# against 0.105 for b, so the dearer pair wins; with the term at 0 the cheaper one would (0.10 < 0.105).
+for i in $(seq 19); do trial search c-model/low pass 0.10; done; trial search c-model/low fail 0.10
+for i in 1 2 3 4 5 6; do trial search b-model/medium pass 0.105; done
+# A pair between the default floor and 1.0: 19 of 20 at 0.20 is eligible at 0.9 and expected_usd
+# 0.20 + 0.05 * 0.40 = 0.22, which would beat a-model/high's 0.9 were the floor 0.9 rather than 1.0.
+for i in $(seq 19); do trial contract-phase c-model/high pass 0.20; done; trial contract-phase c-model/high fail 0.20
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"cost_' >> "$TR"; echo >> "$TR"
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/default","rep":1,"cost_usd":9,"status":"pass"}\n' >> "$TR"
+# A trial with no cost is not free: it is unreadable, and left out of n and of the mean cost.
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"status":"pass"}\n' >> "$TR"
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"cost_usd":null,"status":"pass"}\n' >> "$TR"
+printf '{"slug":"demo","repo":"/nonexistent","profile":"x/y","tasks":[]}' > "$CS/routing/projects/demo/manifest.json"
+rcal() { ORCHESTRATOR_STATE_DIR="$CS" python3 "$ROUTING" calibrate "$@"; }
+out=$(rcal demo 2>"$WORK/cal.err")
+check "below the floor is never chosen, however cheap" "class=behaviour-phase pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.2643" \
+  "$(printf '%s\n' "$out" | grep '^class=behaviour-phase')"
+check "work nothing re-checks takes a floor of 1.0" "class=contract-phase pair=a-model/high pass_rate=1.0 n=6 expected_usd=0.9" \
+  "$(printf '%s\n' "$out" | grep '^class=contract-phase')"
+check "a cheaper pair that fails now and then loses to a dearer sure one on the escalation it costs" "class=search pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.105" \
+  "$(printf '%s\n' "$out" | grep '^class=search')"
+check "and its expected cost is the cheaper pair's cost plus the escalation" "0.10525" \
+  "$(jq -r '.entries.search.ladder[]|select(.pair=="c-model/low")|.expected_usd' "$CS/routing/tables/project-demo.json")"
+check "an error trial costs but does not count" "6|0.2643" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model/medium")|"\(.n)|\(.cost_usd*10000|round/10000)"' "$CS/routing/tables/project-demo.json")"
+check "the ladder is ordered by cost, cheapest first" "c-model/medium,b-model/medium,a-model/low" \
+  "$(jq -r '[.entries["behaviour-phase"].ladder[].pair]|join(",")' "$CS/routing/tables/project-demo.json")"
+check "the entry keeps the identifiers it was measured on" "b-model-1" \
+  "$(jq -r '.entries["behaviour-phase"].models|join(",")' "$CS/routing/tables/project-demo.json")"
+check "the entry keeps its floor, its scope and the ladder's eligibility" "9|10|project:demo|false,true,true" \
+  "$(jq -r '"\(.entries["behaviour-phase"].floor*10|round)|\(.entries["contract-phase"].floor*10|round)|\(.scope)|\([.entries["behaviour-phase"].ladder[].eligible]|map(tostring)|join(","))"' "$CS/routing/tables/project-demo.json")"
+check "a torn trial line, a line with no pair and a trial with no cost are skipped with a warning each, never fatal" "4" \
+  "$(grep -c 'does not read as a trial, skipped' "$WORK/cal.err")"
+# A trial whose cost could not be read holds the ceiling it was launched with: it stays out of the pair's mean.
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"cost_usd":2.0,"cost_incomplete":true,"status":"error"}\n' >> "$TR"
+printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{},"cost_usd":2.0,"cost_incomplete":true,"status":"pass"}\n' >> "$TR"
+rcal demo >/dev/null 2>&1
+check "an unread cost leaves the pair's cost unchanged" "0.2643" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model/medium")|.cost_usd*10000|round/10000' "$CS/routing/tables/project-demo.json")"
+printf '{"floor":{"default":0.6}}' > "$CS/routing/config.json"
+check "the operator's config sets the floor" "class=behaviour-phase pair=c-model/medium" \
+  "$(rcal demo 2>/dev/null | grep '^class=behaviour-phase' | cut -d' ' -f1-2)"
+rm "$CS/routing/config.json"
+# Fewer than six trials: no eligible pair.
+: > "$TR"; for i in 1 2 3; do trial n-bis c-model/low pass 0.01; done
+check "fewer than six trials is never eligible" "class=n-bis no eligible pair" "$(rcal demo)"
+check "and the class gets no entry" "0" "$(jq '.entries|length' "$CS/routing/tables/project-demo.json")"
+# Record rows count as trials: closed in one round and not escaped is a pass.
+RR="$WORK/calrec.jsonl"; : > "$RR"
+for i in 1 2 3 4 5 6; do printf '{"id":%d,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false}\n' "$i" >> "$RR"; done
+# Left out: an open row, a row with no measured cost, an incomplete cost, a tier row, a row with no effort.
+printf '{"id":7,"class":"n-bis","model":"c-model","effort":"low","rounds":0,"state":"open","cost_usd":0,"sessions":[],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":8,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0,"sessions":[],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":9,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":5,"sessions":["s"],"cost_incomplete":true}\n' >> "$RR"
+printf '{"id":10,"class":"n-bis","tier":"light","rounds":1,"state":"closed"}\n' >> "$RR"
+printf '{"id":11,"class":"n-bis","model":"c-model","effort":"","rounds":1,"state":"closed","cost_usd":5,"sessions":["s"],"cost_incomplete":false}\n' >> "$RR"
+check "record rows complete the measurement" "class=n-bis pair=c-model/low pass_rate=1.0 n=9 expected_usd=0.0167" \
+  "$(rcal demo --from-record "$RR")"
+printf '{"id":12,"class":"n-bis","model":"c-model","effort":"low","rounds":2,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false}\n' >> "$RR"
+printf '{"id":13,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false,"escaped":true}\n' >> "$RR"
+# Nine passes in eleven is 0.818, below the floor: both rows read as failures.
+check "a corrective round or an escaped defect grades a row as a failure" "class=n-bis no eligible pair" \
+  "$(rcal demo --from-record "$RR")"
+: > "$TR"
+check_status "no trial and no record row is a refusal" 1 rcal demo
+check_status "a record that does not exist is a refusal" 1 rcal demo --from-record "$WORK/no-such-record.jsonl"
+
+echo "== routing: bench =="
+
+# A project whose merged change makes hello.sh greet, with a test the merge added.
+make_bench_repo() {
+  local d="$1"; mkdir -p "$d/tests"
+  git -C "$d" init -q
+  printf '#!/bin/bash\necho hi\n' > "$d/hello.sh"
+  printf '#!/bin/bash\n[ "$(bash hello.sh)" = "hi" ]\n' > "$d/tests/old.sh"
+  # Two tracked files an ignore rule matches: one by the repository's own rule, one by a
+  # global excludes file the trial test names. Both were added with --force.
+  printf '*.keepme\n' > "$d/.gitignore"
+  echo repo > "$d/by-repo.keepme"; echo glob > "$d/by-global.globalignored"
+  git -C "$d" add -A; git -C "$d" add -f by-repo.keepme by-global.globalignored
+  git -C "$d" -c user.name=t -c user.email=t@t commit -qm base
+  printf '#!/bin/bash\necho hello world\n' > "$d/hello.sh"
+  printf '#!/bin/bash\n[ "$(bash hello.sh)" = "hello world" ] || { echo "FAIL greet: expected hello world"; exit 1; }\n' > "$d/tests/greet.sh"
+  rm "$d/tests/old.sh"
+  git -C "$d" add -A; git -C "$d" -c user.name=t -c user.email=t@t commit -qm merged
+}
+BR="$WORK/benchrepo"; make_bench_repo "$BR"
+BASE=$(git -C "$BR" rev-parse HEAD~1); MERGED=$(git -C "$BR" rev-parse HEAD)
+BS="$WORK/bstate"; mkdir -p "$BS"
+rbench() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_GH="$ROOT/tests/fixtures/routing/gh-stub.sh" STUB_MERGE="$MERGED" python3 "$ROUTING" "$@"; }
+check "harvest drafts a task from a merged pull request" "harvested pr-7 (draft)" \
+  "$(rbench harvest "$BR" --class behaviour-phase --pr 7 --test-command 'for t in tests/*.sh; do bash "$t" || exit 1; done' --test-glob 'tests/*')"
+BM="$BS/routing/projects/benchrepo/manifest.json"
+check "the task carries base and merge" "$BASE|$MERGED|draft|behaviour-phase" \
+  "$(jq -r '.tasks[0]|[.base,.merged,.status,.class]|join("|")' "$BM")"
+check "the brief keeps the description and drops fenced code" "0|1" \
+  "$(grep -c secret "$BS/routing/projects/benchrepo/briefs/pr-7.md")|$(grep -c 'Make hello print a greeting.' "$BS/routing/projects/benchrepo/briefs/pr-7.md")"
+check "harvesting the same pull request twice keeps one task" "1" \
+  "$(rbench harvest "$BR" --class behaviour-phase --pr 7 >/dev/null; jq '.tasks|length' "$BM")"
+rbench ready benchrepo pr-7 >/dev/null
+check "ready marks the task" "ready" "$(jq -r '.tasks[0].status' "$BM")"
+check_status "ready refuses an unknown task" 1 rbench ready benchrepo pr-99
+check "a forge that does not answer stops harvest, naming the pull request" "1" \
+  "$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_GH=false python3 "$ROUTING" harvest "$BR" --class behaviour-phase --pr 12 2>&1 | grep -c 'pull request 12')"
+
+chmod +x "$ROOT/tests/fixtures/routing/host-stub.sh"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$BS/models.json"
+rtrial() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" STUB_MERGED="$MERGED" TMPDIR="$WORK" python3 "$ROUTING" trial benchrepo pr-7 "$@"; }
+BT="$BS/routing/projects/benchrepo/trials.jsonl"
+jq '.budget_usd=1.25' "$BM" > "$WORK/bm.tmp" && mv "$WORK/bm.tmp" "$BM"
+rtrial b-model/medium --keep >/dev/null
+last() { tail -1 "$BT" | jq -r "$1"; }
+check "a right change passes the hidden tests and the judge" "pass|pass|pass|0.1|0.02" \
+  "$(last '[.mech,.judge,.status,.cost_usd,.judge_cost_usd]|map(tostring)|join("|")')"
+KEPT=$(last '.dir')
+check "a passing trial has no tests_tail and no judge_raw" "false|false" "$(last '[has("tests_tail"),has("judge_raw")]|map(tostring)|join("|")')"
+check "the judge's scores and reasons are on the trial line" "5|0" "$(last '"\(.judge_scores.scope)|\(.judge_reasons|length)"')"
+check "the trial tree starts at the base" "echo hi" "$(sed -n 2p "$KEPT/.start-hello")"
+check "the per-trial ceiling reaches the host" "1.25" "$(cat "$KEPT/.budget-ceiling")"
+check "the agent saw one commit and no history" "1|no" "$(cat "$KEPT/.reachable-commits")|$(cat "$KEPT/.merged-reachable")"
+check "the hidden test is in place, the deleted one is gone" "yes|no" \
+  "$([ -f "$KEPT/tests/greet.sh" ] && echo yes || echo no)|$([ -f "$KEPT/tests/old.sh" ] && echo yes || echo no)"
+check "an alias with no mode configured runs in auto" "auto" "$(cat "$KEPT/.permission-mode")"
+rtrial b-model/low >/dev/null
+check "a wrong change fails mechanically and is never judged" "fail|null|fail|0" \
+  "$(last '[.mech,.judge,.status,.judge_cost_usd]|map(tostring)|join("|")')"
+check "a failed mechanical check records the tail of the test output" "FAIL greet: expected hello world" "$(last '.tests_tail' | tr -d '\n')"
+TC=$(jq -r '.test_command' "$BM")
+set_tests() { jq --arg c "$1" '.test_command=$c' "$BM" > "$WORK/bm.tmp" && mv "$WORK/bm.tmp" "$BM"; }
+set_tests "($TC); for i in \$(seq 1 120); do echo \"ok padding line \$i of passing output\"; done; exit 1"
+rtrial b-model/low >/dev/null
+check "the failing line survives output long enough to push it out of the tail" "FAIL greet: expected hello world|false" \
+  "$(last '"\(.tests_failed|join("|"))|\(.tests_tail|contains("FAIL"))"')"
+set_tests "for i in \$(seq 1 50); do echo \"FAIL case \$i\"; done; echo 'a FAILURE of nothing'; echo 'ERROR late'; exit 1"
+rtrial b-model/low >/dev/null
+check "tests_failed keeps at most 40 lines, in order" "40|FAIL case 1|FAIL case 40" "$(last '"\(.tests_failed|length)|\(.tests_failed[0])|\(.tests_failed[-1])"')"
+set_tests "echo 'no failure here'; echo 'a FAILURE of nothing'; printf 'FAILED %0400d\\n' 0; echo 'ERROR late' >&2; exit 1"
+rtrial b-model/low >/dev/null
+check "tests_failed matches whole words only, cuts at 300 characters, reads stderr after stdout" "2|300|ERROR late" \
+  "$(last '"\(.tests_failed|length)|\(.tests_failed[0]|length)|\(.tests_failed[1])"')"
+set_tests "echo all good; exit 1"
+rtrial b-model/low >/dev/null
+check "a failure with no matching line records an empty list" "[]" "$(last '.tests_failed|tostring')"
+set_tests "$TC"
+check "a passing trial has no tests_failed" "false" "$(jq -s '[.[]|select(.mech=="pass")][0]|has("tests_failed")' "$BT")"
+STUB_JUDGE=fail rtrial b-model/high >/dev/null
+check "a judge's fail is the trial's fail" "pass|fail|fail" "$(last '[.mech,.judge,.status]|join("|")')"
+STUB_JUDGE=garbage rtrial b-model/high >/dev/null
+check "a judge that does not answer JSON makes an error, cost kept" "error|0.1" "$(last '[.status,.cost_usd]|map(tostring)|join("|")')"
+check "and records no scores and no reasons" "null|null" "$(last '[.judge_scores,.judge_reasons]|map(tostring)|join("|")')"
+check "an unreadable answer is kept in judge_raw, with the host's success" "not json at all|true" "$(last '"\(.judge_raw)|\(.judge_ok)"')"
+STUB_JUDGE=prose rtrial b-model/high >/dev/null
+check "a judge answering prose with no object is an error holding that prose" "error|null|The change looks fine to me, no object here." \
+  "$(last '[.status,.judge,.judge_raw]|map(tostring)|join("|")')"
+STUB_JUDGE=fenced rtrial b-model/high >/dev/null
+check "a judge answering inside a code fence yields its verdict and scores" "pass|4|null" "$(last '"\(.judge)|\(.judge_scores.scope)|\(.judge_raw)"')"
+STUB_JUDGE=lead rtrial b-model/high >/dev/null
+check "a judge with a line of prose before its object yields its verdict and scores" "pass|3|pass" "$(last '"\(.judge)|\(.judge_scores.scope)|\(.status)"')"
+rtrial b-model/max >/dev/null
+check "an agent stopped by its cap is an error with its cost" "error|0.4" "$(last '[.status,.cost_usd]|map(tostring)|join("|")')"
+check "the trial records the identifiers used and the alias they resolve" "b-model-1|b-model-1" \
+  "$(last '.models|keys|join(",")')|$(jq -r '.["b-model"]' "$BS/routing/aliases.json")"
+check "trial directories are removed unless kept" "1" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$KEPT"
+ORCHESTRATOR_HOST_CLI="$WORK/no-such-host" ORCHESTRATOR_STATE_DIR="$BS" TMPDIR="$WORK" python3 "$ROUTING" trial benchrepo pr-7 b-model/medium >/dev/null 2>&1
+check "a host that cannot start is an error, never a crash, never free, and leaves no directory" "error|1.25|true|0" \
+  "$(last '[.status,.cost_usd,.cost_incomplete]|map(tostring)|join("|")')|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+printf '{"modes":{"b-model":"acceptEdits"}}' > "$BS/routing/config.json"
+rtrial b-model/medium --keep >/dev/null
+check "config.json gives an alias its permission mode" "acceptEdits" "$(cat "$(last '.dir')/.permission-mode")"
+rm -rf "$(last '.dir')" "$BS/routing/config.json"
+# The base commit holds every archived file, whatever ignore rules apply.
+printf '*.globalignored\n' > "$WORK/global-excludes"
+printf '[core]\n\texcludesFile = %s\n' "$WORK/global-excludes" > "$WORK/global-gitconfig"
+GIT_CONFIG_GLOBAL="$WORK/global-gitconfig" rtrial b-model/medium --keep >/dev/null
+check "a file an ignore rule matches is still in the trial's base commit" "by-global.globalignored|by-repo.keepme" \
+  "$(git -C "$(last '.dir')" ls-files | grep -E 'by-(repo|global)' | sort | paste -sd'|' -)"
+rm -rf "$(last '.dir')"
+printf '{"standard":"b-model","light":"c-model"}' > "$BS/models.json"
+check "no judge without a deep tier, refused before any trial runs" "ERROR: trial: the deep tier is unbound: the judge has no model|0" \
+  "$(rtrial b-model/medium 2>&1)|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$BS/models.json"
+# A torn last line never swallows the next trial.
+: > "$BT"
+printf '{"task":"a","class":"behaviour-phase","pair":"b-model/medium","cost_usd":0.1,"status":"pass"}\n{"task":"b","class":"behaviour-phase","pair":"b-model/medium","cost_usd":0.1,"status":"pass"}\n{"task":"c","class":"beha' > "$BT"
+rtrial b-model/medium >/dev/null
+check "a torn last line is closed before the next trial: the two before it and the new one read" "3" \
+  "$(ORCHESTRATOR_STATE_DIR="$BS" python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(len(m.read_trials(sys.argv[2])))' "$ROUTING" "$BT" 2>/dev/null)"
+# An agent that commits its work still leaves the judge a diff to read.
+STUB_COMMIT=1 rtrial b-model/medium >/dev/null
+check "the agent's diff is taken against its base, so a committing agent is not judged on nothing" "pass|0" \
+  "$(last '"\(.judge)|\(.judge_reasons|length)"')"
+# The overlay never writes through a link the agent planted.
+OUT="$WORK/outside"; mkdir -p "$OUT"; echo keep > "$OUT/old.sh"; echo keep > "$OUT/other.txt"
+before=$(cd "$OUT" && ls -R && cat old.sh other.txt)
+STUB_SYMLINK_OUT="$OUT" rtrial b-model/medium >/dev/null 2>"$WORK/link.err"
+check "the overlay writes and deletes nothing outside the trial" "$before" "$(cd "$OUT" && ls -R && cat old.sh other.txt)"
+check "and says it skipped" "1" "$(grep -c 'overlay skipped tests/' "$WORK/link.err" | tr -d ' ' | sed 's/^[2-9]/1/')"
+# A timeout kills the group, not only the child.
+ORCHESTRATOR_TRIAL_TIMEOUT=1 STUB_GRANDCHILD=1 rtrial b-model/medium >/dev/null 2>&1
+# The kill is a signal: give the group a moment to be reaped before counting survivors.
+for _ in 1 2 3 4 5 6 7 8 9 10; do ps -axo command | grep -q '[s]leep 31337' || break; sleep 0.3; done
+check "a timeout is an error, leaves no process of the agent and no directory" "error|0|0" \
+  "$(last .status)|$(ps -axo command | grep -c '[s]leep 31337')|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+pkill -f 'sleep 31337' 2>/dev/null || true
+rbench harvest "$BR" --class behaviour-phase --pr 8 >/dev/null
+check "a draft task is refused" "ERROR: trial: task pr-8 is still a draft" \
+  "$(env ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" trial benchrepo pr-8 b-model/medium 2>&1)"
+check_status "an unknown task is refused" 1 env ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" trial benchrepo pr-404 b-model/medium
+check "the rubric opens on the marker the judge's prompt is known by" "JUDGE-RUBRIC" \
+  "$(head -1 "$ROOT/skills/model-routing/references/judge-rubric.md")"
+
+rbench harvest "$BR" --class behaviour-phase --pr 9 >/dev/null; rbench ready benchrepo pr-7 pr-8 pr-9 >/dev/null
+: > "$BT"
+rb() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench benchrepo "$@"; }
+check_status "bench wants a cap" 2 rb --grid b-model/medium
+out=$(rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1)
+check "screening runs every pair on two tasks" "6" "$(jq -s '[.[]|select(.rep==1)]|map(.task+.pair)|unique|map(select(startswith("pr-7") or startswith("pr-8")))|length' "$BT")"
+check "a pair that failed screening is not confirmed" "0" "$(jq -s '[.[]|select(.pair=="b-model/low" and .task=="pr-9")]|length' "$BT")"
+check "confirmation runs every task at every rep" "6|3" \
+  "$(jq -s '[.[]|select(.pair=="b-model/medium")]|length' "$BT")|$(jq -s '[.[]|select(.pair=="b-model/medium")]|map(.task)|unique|length' "$BT")"
+check "a run leaves no trial directory behind" "0" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+before=$(wc -l < "$BT" | tr -d ' ')
+rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1 >/dev/null
+check "a restart re-pays nothing already measured" "$before" "$(wc -l < "$BT" | tr -d ' ')"
+: > "$BT"
+out=$(rb --grid b-model/medium,c-model/medium --max-usd 0.15 --concurrency 1)
+check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=6$')"
+: > "$BT"
+out=$(rb --grid b-model/medium,c-model/medium --max-usd 100 --reps 1 --concurrency 2)
+check "two trials at once measure the same grid" "6|0" \
+  "$(wc -l < "$BT" | tr -d ' ')|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+# A worker that raises is recorded, never lost: a base that is no commit is an error trial.
+mkdir -p "$BS/routing/projects/badbase"; cp -R "$BS/routing/projects/benchrepo/briefs" "$BS/routing/projects/badbase/"
+jq '.slug="badbase" | .tasks=[{id:"bad-1",pr:1,class:"behaviour-phase",base:"0000000000000000000000000000000000000000",merged:.tasks[0].merged,brief:"briefs/pr-7.md",status:"ready"}]' "$BM" \
+  > "$BS/routing/projects/badbase/manifest.json"
+out=$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench badbase --grid b-model/medium --max-usd 100 2>/dev/null)
+check "a trial that raises is recorded as an error and the bench goes on to its last line" "error|bench: spent=0.00 trials=1 unmeasured=0" \
+  "$(jq -r .status "$BS/routing/projects/badbase/trials.jsonl")|$(printf '%s\n' "$out" | tail -1)"
+check "and leaves no trial directory" "0" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+# Costs that cannot be read are never free; a draft is named; errors count within one run.
+cp "$BM" "$WORK/bm.bak"
+jq '.tasks += [{id:"draft-1",pr:1,class:"behaviour-phase",base:.tasks[0].base,merged:.tasks[0].merged,brief:.tasks[0].brief,status:"draft"},
+               {id:"s-1",pr:2,class:"search",base:.tasks[0].base,merged:.tasks[0].merged,brief:.tasks[0].brief,status:"ready"}]' "$WORK/bm.bak" > "$BM"
+: > "$BT"
+out=$(STUB_SILENT=1 rb --grid b-model/medium --max-usd 100 --class behaviour-phase --reps 1 --concurrency 1 2>"$WORK/silent.err")
+check "a host that answers nothing costs the ceiling it was launched with, flagged" "1.25|true|error" "$(last '[.cost_usd,.cost_incomplete,.status]|map(tostring)|join("|")')"
+check "the cap counts the ceiling" "bench: spent=2.50 trials=2 unmeasured=0" "$(printf '%s\n' "$out" | tail -1)"
+check "a draft task is named when the bench skips it" "1" "$(grep -c 'bench: task draft-1 is still a draft, skipped' "$WORK/silent.err")"
+: > "$BT"
+rb --grid b-model/max --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
+check "three errors in one run drop a pair, and the bench says so" "1" "$(grep -c 'dropping b-model/max after 3 errors' "$WORK/bench.err")"
+# Three errors recorded by an earlier run drop nothing in a new one.
+: > "$BT"
+for i in 1 2 3; do printf '{"task":"old-%d","class":"behaviour-phase","pair":"b-model/max","rep":1,"cost_usd":0.4,"status":"error"}\n' "$i" >> "$BT"; done
+rb --grid b-model/max --max-usd 100 --class behaviour-phase --concurrency 1 2>"$WORK/bench.err" >/dev/null
+check "errors of an earlier run do not drop the pair" "0|5" "$(grep -c 'dropping' "$WORK/bench.err")|$(wc -l < "$BT" | tr -d ' ')"
+# Three judge failures in one run drop nothing: the host's outage is not the pair's fault.
+: > "$BT"
+STUB_JUDGE=garbage rb --grid b-model/medium --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
+check "a judge that answers nothing drops no pair" "0|3" "$(grep -c 'dropping' "$WORK/bench.err")|$(wc -l < "$BT" | tr -d ' ')"
+cp "$WORK/bm.bak" "$BM"
+check "no grid and no family bound is a refusal" "ERROR: bench: no family bound in the tier map; name them with --families" \
+  "$(mv "$BS/models.json" "$WORK/models.off"; rb --max-usd 1 2>&1; mv "$WORK/models.off" "$BS/models.json")"
+printf '{"slug":"bare","repo":"%s","profile":"x/y","tasks":[]}' "$BR" > "$WORK/bare.json"; mkdir -p "$BS/routing/projects/bare"; cp "$WORK/bare.json" "$BS/routing/projects/bare/manifest.json"
+check "a manifest with no test command is refused" "ERROR: bench: project bare has no test_command or test_globs in its manifest" \
+  "$(ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" bench bare --grid b-model/medium --max-usd 1 2>&1)"
+
+echo "== routing: generalize =="
+
+GS="$WORK/gstate"
+mkproj() { # slug profile
+  mkdir -p "$GS/routing/projects/$1"
+  printf '{"slug":"%s","repo":"/x/%s","profile":"%s","tasks":[]}' "$1" "$1" "$2" > "$GS/routing/projects/$1/manifest.json"; }
+gtrial() { # slug class pair status cost
+  printf '{"task":"t","class":"%s","pair":"%s","models":{"%s-1":%s},"cost_usd":%s,"status":"%s"}\n' "$2" "$3" "${3%%/*}" "$5" "$5" "$4" >> "$GS/routing/projects/$1/trials.jsonl"; }
+mkproj p1 php/laravel-app; mkproj p2 php/laravel-app; mkproj p3 shell/plugin
+# c-model/medium: perfect on p1 (6/6), poor on p2 (3/6) -> pooled 0.75: not eligible anyway.
+# b-model/medium: 6/6 on p1 and p2 -> chosen for the profile.
+for i in 1 2 3 4 5 6; do gtrial p1 behaviour-phase c-model/medium pass 0.1; gtrial p1 behaviour-phase b-model/medium pass 0.3; gtrial p2 behaviour-phase b-model/medium pass 0.3; done
+for i in 1 2 3; do gtrial p2 behaviour-phase c-model/medium pass 0.1; gtrial p2 behaviour-phase c-model/medium fail 0.1; done
+# On the global fold, add p3 where c-model/medium is perfect too: pooled 15/18 = 0.83, still not eligible.
+for i in 1 2 3 4 5 6; do gtrial p3 behaviour-phase c-model/medium pass 0.1; done
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$GS/models.json"
+rg() { ORCHESTRATOR_STATE_DIR="$GS" python3 "$ROUTING" "$@"; }
+out=$(rg generalize)
+check "a profile needs two projects" "profile=php/laravel-app projects=2 classes=1" "$(printf '%s\n' "$out" | grep '^profile=')"
+check "no table for a profile of one project" "no" "$([ -f "$GS/routing/tables/profile-shell-plugin.json" ] && echo yes || echo no)"
+check "the profile's pair must hold in each project" "b-model/medium" \
+  "$(jq -r '.entries["behaviour-phase"].pair' "$GS/routing/tables/profile-php-laravel-app.json")"
+check "the global fold covers every project" "global projects=3 classes=1" "$(printf '%s\n' "$out" | grep '^global')"
+# The per-project condition, isolated: c-model/medium at 6/6 on p1 and p3 and 5/6 on p2 is
+# pooled 17/18 = 0.94 >= 0.9, yet fails the floor on p2 alone.
+: > "$GS/routing/projects/p2/trials.jsonl"
+for i in 1 2 3 4 5; do gtrial p2 behaviour-phase c-model/medium pass 0.1; done; gtrial p2 behaviour-phase c-model/medium fail 0.1
+for i in 1 2 3 4 5 6; do gtrial p2 behaviour-phase b-model/medium pass 0.3; done
+rg generalize >/dev/null
+check "one weak project keeps a cheaper pair out of the global table" "b-model/medium" \
+  "$(jq -r '.entries["behaviour-phase"].pair' "$GS/routing/tables/global.json")"
+check "a pair held back by one project keeps its pooled measure on the ladder" "18|0.9444|false" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="c-model/medium")|"\(.n)|\(.pass_rate)|\(.eligible)"' "$GS/routing/tables/global.json")"
+ED="$WORK/exported"; mkdir -p "$ED"
+out=$(rg export --to "$ED")
+check "export says what it wrote" "exported $ED/global.json (1 classes)" "$(printf '%s\n' "$out" | grep global.json)"
+check "export writes the tier, never the family" "standard/medium" "$(jq -r '.entries["behaviour-phase"].pair' "$ED/global.json")"
+check "export drops identifiers and costs" "null|null" "$(jq -r '.entries["behaviour-phase"]|"\(.models)|\(.cost_usd)"' "$ED/global.json")"
+check "export keeps the ladder in tier form, without costs" "light/medium,standard/medium|null" \
+  "$(jq -r '.entries["behaviour-phase"]|"\([.ladder[].pair]|join(","))|\(.ladder[0].cost_usd)"' "$ED/global.json")"
+check "no family name in an export" "" "$(grep -rl -e a-model -e b-model -e c-model "$ED" || true)"
+printf '{"deep":"a-model","light":"c-model"}' > "$GS/models.json"
+check "a family bound to no tier is skipped, with a warning per table" "2" \
+  "$(rg export --to "$ED" 2>&1 >/dev/null | grep -c 'export: b-model is bound to no tier, behaviour-phase skipped')"
+cp "$ED/global.json" "$WORK/global.before"
+printf '{}' > "$GS/models.json"
+rg export --to "$ED" >/dev/null 2>"$WORK/export.err"
+check "an export with nothing in tier form leaves the shipped table untouched, and says so" "same|1" \
+  "$(cmp -s "$ED/global.json" "$WORK/global.before" && echo same || echo changed)|$(grep -c 'export: global.json has no class in tier form, not written' "$WORK/export.err")"
+printf '{"deep":"a-model","light":"c-model"}' > "$GS/models.json"
+check "show lists each class with its tables" "1" "$(rg show p1 | grep -c '^class=behaviour-phase project=- profile=b-model/medium global=b-model/medium')"
+printf '{"b-model":"b-model-2"}' > "$GS/routing/aliases.json"
+check "show flags an entry measured on another identifier" "1" "$(rg show p1 | grep -c '^class=behaviour-phase .* stale$')"
+rm "$GS/routing/aliases.json"
+check_status "show of an unknown project is a refusal" 1 rg show nope
+check "generalize with no trial anywhere is a refusal" "ERROR: generalize: no project has trials" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/empty-state" python3 "$ROUTING" generalize 2>&1)"
+
+# A project of unknown language shares nothing with another one: pooling them would serve
+# unrelated repositories one table. They count toward the global table only.
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$GS/models.json"
+mkproj u1 unknown/library; mkproj u2 unknown/library
+for i in 1 2 3 4 5 6; do gtrial u1 search c-model/low pass 0.01; gtrial u2 search c-model/low pass 0.01; done
+out=$(rg generalize)
+check "projects of unknown language get no profile table, and still count globally" "no|global projects=5 classes=2" \
+  "$([ -f "$GS/routing/tables/profile-unknown-library.json" ] && echo yes || echo no)|$(printf '%s\n' "$out" | grep '^global')"
+UT="$WORK/unknown-tree"; mkdir -p "$UT"
+check "a third project of unknown language is served by the global table" "pair=c-model/low source=global" \
+  "$(ORCHESTRATOR_STATE_DIR="$GS" ORCHESTRATOR_ROUTING_DEFAULTS="$WORK/no-defaults" python3 "$ROUTING" pick --repo "$UT" --class search)"
+
+# One weak trial does not hold a pair back: r3 has a single failed trial of c-model/medium.
+RS="$WORK/rstate"; mkdir -p "$RS"
+rmk() { mkdir -p "$RS/routing/projects/$1"; printf '{"slug":"%s","repo":"/x/%s","profile":"ruby/gem","tasks":[]}' "$1" "$1" > "$RS/routing/projects/$1/manifest.json"; }
+rtr() { printf '{"task":"t","class":"behaviour-phase","pair":"c-model/medium","models":{"c-model-1":0.1},"cost_usd":0.1,"status":"%s"}\n' "$2" >> "$RS/routing/projects/$1/trials.jsonl"; }
+rmk r1; rmk r2; rmk r3
+for i in 1 2 3 4 5 6; do rtr r1 pass; rtr r2 pass; done; rtr r3 fail
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$RS/models.json"
+ORCHESTRATOR_STATE_DIR="$RS" python3 "$ROUTING" generalize >/dev/null
+check "a project with one failed trial does not hold a pair back from the profile table" "c-model/medium|true" \
+  "$(jq -r '.entries["behaviour-phase"]|"\(.pair)|\(.ladder[0].eligible)"' "$RS/routing/tables/profile-ruby-gem.json")"
+
+# A shipped ladder is in tier form; the dispatched pair is an alias. The rungs are read
+# through the map, or a shipped ladder's measured floor is never honoured.
+XS="$WORK/xstate"; XD="$WORK/xdefaults"; mkdir -p "$XS" "$XD"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$XS/models.json"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"standard/high","floor":0.9,"n":6,"pass_rate":1.0,"ladder":[{"pair":"light/high","n":6,"pass_rate":0.5,"eligible":false},{"pair":"standard/high","n":6,"pass_rate":1.0,"eligible":true}]}}}' > "$XD/global.json"
+for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"b-model","effort":"high","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/x.jsonl"
+xpick() { ORCHESTRATOR_STATE_DIR="$XS" ORCHESTRATOR_ROUTING_DEFAULTS="$XD" python3 "$ROUTING" pick --repo "$UT" --class behaviour-phase --record "$WORK/x.jsonl"; }
+check "a shipped rung measured below the floor, read through the map, is no notch" "pair=b-model/high source=shipped:global" "$(xpick)"
+printf '{"deep":"a-model","standard":"b-model"}' > "$XS/models.json"
+check "a shipped rung on an unbound tier is skipped: the effort notch stands" "explore=b-model/medium" "$(xpick | sed -n 2p)"
+
+echo "== routing: the skill =="
+
+MR="$ROOT/skills/model-routing/SKILL.md"
+check "the skill picks a pair through routing.py pick" "yes" "$(spells "$MR" 'routing.py pick --repo')"
+check "the skill records each session's cost" "yes" "$(spells "$MR" 'dispatch-record.sh cost')"
+check "the skill bounds exploration to one notch" "yes" "$(spells "$MR" 'one notch')"
+check "the skill names what is never explored" "yes" "$(carries "$MR" 'never explored')"
+check "the skill points at the calibration reference" "yes" "$(spells "$MR" 'references/calibration.md')"
+check "the skill keeps the budget out of the choice" "yes" "$(carries "$MR" 'never read the subscription gauge to choose')"
+check "the skill folds a promotion into the table from the record" "yes" "$(spells "$MR" 'routing.py calibrate <slug> --from-record <record>')"
+CLASSES="$(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(" ".join(sorted(m.CLASS_TIERS)))' "$ROUTING")"
+check "pick knows classes to name" "yes" "$([ -n "$CLASSES" ] && echo yes || echo no)"
+check "the skill's table names every class pick knows, in backticks" "" \
+  "$(for c in $CLASSES; do grep -qF "\`$c\`" "$MR" || echo "$c"; done)"
+MRC="$ROOT/skills/model-routing/references/calibration.md"
+check "the calibration reference walks the bench in the operator's order" "yes|yes|yes" \
+  "$(spells "$MRC" 'max-usd')|$(spells "$MRC" 'generalize')|$(spells "$MRC" 'export')"
+check "the calibration reference states that a trial's session can reach the real repository" "yes" \
+  "$(spells "$MRC" 'with its own permissions on the machine and could reach the real repository')"
+check "the calibration reference states that a run can pass its cap by the trials in flight" "yes" \
+  "$(spells "$MRC" "a run can pass \`--max-usd\` by at most N per-trial ceilings")"
+check "the routing skill and the brief say a pair, not a tier" "yes|yes" \
+  "$(spells "$MR" 'must choose the model/effort pair')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'then choose the model/effort pair the work needs')"
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
