@@ -30,7 +30,7 @@ tier table below. Write the pair, its source and your reason in the brief. You m
 say why. An entry marked `stale` was measured on a model the alias no longer resolves to; use
 it, and tell the operator in one line that a bench run would refresh it.
 
-`routing.py profile <checkout>` prints the `<language>/<kind>` the profile table is chosen by. A line `pair=host-default` means the class's tier is unbound: the paragraph on unbound tiers above applies.
+`routing.py profile <checkout>` prints the inferred `<language>/<kind>`; a `profile` in the project's manifest overrides it, and `pick` takes the override first. A line `pair=host-default` means the class's tier is unbound: the paragraph on unbound tiers above applies.
 
 ## The table
 
@@ -60,11 +60,11 @@ For a phase that does not sit plainly on a row, take these before dispatching, f
 4. **Residual ambiguity** — questions still open on this phase in the decision log.
 5. **Repair history** — findings that survived a round on this phase or its class.
 
-Two readings high or more raises the pair by **one** notch up the class's ladder, never more, never as a running total: the readings are retaken at each dispatch.
+Two readings high or more raises the pair by **one** notch up the class's ladder (the pairs of its table entry, ordered by measured cost per closed dispatch), never more, never as a running total: the readings are retaken at each dispatch.
 
 ## Explore one notch, never more
 
-`pick` prints a second line, `explore=<pair>`, when the record shows three one-round closes at the class's pair, no escaped defect there, and no failed exploration of the class. The pair is **one notch** below: the next cheaper eligible pair of the class's ladder; without one, the effort one level down on the same family; at the lowest effort, the next lighter family in the map at the same effort. Take it only when the five readings show at most one high, and open the row `--explore`.
+`pick` prints a second line, `explore=<pair>`, when the record shows three one-round closes at the class's pair, no escaped defect there, and no failed exploration of the class. The pair is **one notch** below: the immediate cheaper pair of the class's ladder, unless it was measured below the floor (a pair short of trials is offered); without a ladder to read it from, the effort one level down on the same family; at the lowest effort, the next lighter family in the map at the same effort. Take it only when the five readings show at most one high, and open the row `--explore`.
 
 The orchestrator, a successor, a decision round, a contract-defining phase and the final verification are never explored: nothing re-checks that work, so a failure there is paid N times.
 

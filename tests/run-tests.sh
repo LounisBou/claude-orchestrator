@@ -6300,8 +6300,10 @@ check "the skill names what is never explored" "yes" "$(carries "$MR" 'never exp
 check "the skill points at the calibration reference" "yes" "$(spells "$MR" 'references/calibration.md')"
 check "the skill keeps the budget out of the choice" "yes" "$(carries "$MR" 'never read the subscription gauge to choose')"
 check "the skill folds a promotion into the table from the record" "yes" "$(spells "$MR" 'routing.py calibrate <slug> --from-record <record>')"
+CLASSES="$(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(" ".join(sorted(m.CLASS_TIERS)))' "$ROUTING")"
+check "pick knows classes to name" "yes" "$([ -n "$CLASSES" ] && echo yes || echo no)"
 check "the skill's table names every class pick knows, in backticks" "" \
-  "$(for c in $(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(" ".join(sorted(m.CLASS_TIERS)))' "$ROUTING"); do grep -qF "\`$c\`" "$MR" || echo "$c"; done)"
+  "$(for c in $CLASSES; do grep -qF "\`$c\`" "$MR" || echo "$c"; done)"
 MRC="$ROOT/skills/model-routing/references/calibration.md"
 check "the calibration reference walks the bench in the operator's order" "yes|yes|yes" \
   "$(spells "$MRC" 'max-usd')|$(spells "$MRC" 'generalize')|$(spells "$MRC" 'export')"
