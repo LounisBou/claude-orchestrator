@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -514,12 +515,15 @@ def record_trials(record):
 
 def stats_of(trials):
     """Per pair: the graded trials (`n`, `passes`) and the cost of every trial, errors
-    included - an error is paid for, it just says nothing about the pair's reliability.
+    included - an error is paid for, it just says nothing about the pair's reliability. A
+    trial whose cost could not be read holds the ceiling it was launched with, not what it
+    cost: it stays out of the pair's costs.
     """
     stats = {}
     for t in trials:
         s = stats.setdefault(t["pair"], {"n": 0, "passes": 0, "costs": [], "models": set()})
-        s["costs"].append(float(t.get("cost_usd") or 0))
+        if not t.get("cost_incomplete"):
+            s["costs"].append(float(t.get("cost_usd") or 0))
         s["models"].update((t.get("models") or {}).keys())
         if t.get("status") in ("pass", "fail"):
             s["n"] += 1
@@ -533,7 +537,8 @@ def select_entry(cls, stats, floor):
         mean = sum(s["costs"]) / len(s["costs"]) if s["costs"] else 0.0
         rate = s["passes"] / s["n"] if s["n"] else 0.0
         ladder.append({"pair": pair, "n": s["n"], "pass_rate": round(rate, 4), "cost_usd": round(mean, 6),
-                       "eligible": s["n"] >= MIN_TRIALS and rate >= floor and not s.get("held_back"),
+                       "eligible": (s["n"] >= MIN_TRIALS and rate >= floor and not s.get("held_back")
+                     and bool(s["costs"])),
                        "models": sorted(s["models"])})
     ladder.sort(key=lambda r: (r["cost_usd"], r["pair"]))
     for i, r in enumerate(ladder):
@@ -671,6 +676,7 @@ def cmd_ready(argv):
 RUBRIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                       "references", "judge-rubric.md")
 TRIAL_TIMEOUT = int(os.environ.get("ORCHESTRATOR_TRIAL_TIMEOUT", "1800"))
+JUDGE_CEILING = 2.0
 
 
 def isolate(repo, base, root):
@@ -702,107 +708,170 @@ def judge_pair(prog):
     return "%s/%s" % (deep[0], deep[1] or "high")
 
 
+def run_group(cmd, timeout, cwd=None, text_in=None):
+    """Run `cmd` in a session of its own and, on a timeout, kill the whole group: the
+    direct child alone would leave whatever it started running, and paying.
+    """
+    proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE if text_in is not None else subprocess.DEVNULL,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            start_new_session=True)
+    try:
+        out, err = proc.communicate(text_in, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()
+        raise
+    return proc.returncode, out, err
+
+
+def number(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
 def host(pair, prompt, cwd, budget, mode):
     """One headless run. A timeout, a host that cannot start or an answer that does not
-    read is not ok; the cost is the host's own per-model figure.
+    read is not ok; the cost is the host's own per-model figure. A cost that cannot be read
+    is never zero: the trial is charged the ceiling it was launched with and marked
+    `incomplete`, or the cap would undercount what was spent.
     """
     model, effort = parse_pair(pair)
     cmd = [HOST_CLI, "-p", "--model", model, "--effort", effort, "--permission-mode", mode,
            "--output-format", "json", "--no-session-persistence", "--max-budget-usd", "%.2f" % budget]
     started = time.time()
-    failed = {"ok": False, "models": {}, "cost": 0.0, "text": "", "tokens": None}
+    failed = {"ok": False, "models": {}, "cost": budget, "incomplete": True, "text": "", "tokens": None}
     try:
-        r = subprocess.run(cmd, input=prompt, cwd=cwd, capture_output=True, text=True, timeout=TRIAL_TIMEOUT)
-        res = json.loads(r.stdout.strip().splitlines()[-1])
+        _, stdout, _ = run_group(cmd, TRIAL_TIMEOUT, cwd, prompt)
+        res = json.loads(stdout.strip().splitlines()[-1])
         if not isinstance(res, dict):
             raise ValueError
     except (subprocess.TimeoutExpired, OSError, ValueError, IndexError):
         return dict(failed, duration=round(time.time() - started, 1))
-    models = {k: float(v.get("costUSD") or 0) for k, v in (res.get("modelUsage") or {}).items()
-              if isinstance(v, dict)}
-    cost = sum(models.values()) if models else float(res.get("total_cost_usd") or 0)
+    usage_by_model = {k: v for k, v in (res.get("modelUsage") or {}).items() if isinstance(v, dict)}
+    models = {k: float(v["costUSD"]) if number(v.get("costUSD")) else 0.0 for k, v in usage_by_model.items()}
+    total = res.get("total_cost_usd")
+    if usage_by_model and all(number(v.get("costUSD")) for v in usage_by_model.values()):
+        cost, incomplete = sum(models.values()), False
+    elif number(total):
+        cost, incomplete = float(total), False
+    else:
+        cost, incomplete = budget, True
     usage = res.get("usage") if isinstance(res.get("usage"), dict) else {}
     tokens = {k: usage.get(k, 0) or 0 for k in TOKEN_KEYS} if usage else None
     ok = not res.get("is_error") and res.get("subtype") == "success"
-    return {"ok": ok, "models": models, "cost": cost, "text": res.get("result") or "",
-            "tokens": tokens, "duration": round(time.time() - started, 1)}
+    return {"ok": ok, "models": models, "cost": cost, "incomplete": incomplete,
+            "text": res.get("result") or "", "tokens": tokens, "duration": round(time.time() - started, 1)}
 
 
 def overlay_hidden_tests(repo, base, merged, d, globs):
+    """Copy the merged diff's test files over the agent's tree. The agent owns that tree: a
+    link it planted must never carry a write, or a delete, outside it.
+    """
+    root = os.path.realpath(d)
     for line in git(repo, "diff", "--name-status", base, merged).splitlines():
         status, path = line.split("\t", 1)
         path = path.split("\t")[-1]
         if not any(fnmatch.fnmatch(path, g) for g in globs):
             continue
         target = os.path.join(d, path)
+        parent = os.path.realpath(os.path.dirname(target))
+        if os.path.commonpath([root, parent]) != root:
+            warn("bench: overlay skipped %s, it resolves outside the trial" % path)
+            continue
         if status.startswith("D"):
-            if os.path.exists(target):
-                os.remove(target)
+            if os.path.lexists(target):
+                os.unlink(target)
             continue
         os.makedirs(os.path.dirname(target), exist_ok=True)
         blob = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (merged, path)], capture_output=True, check=True)
+        if os.path.islink(target):
+            os.unlink(target)
         with open(target, "wb") as fh:
             fh.write(blob.stdout)
 
 
 def judge(brief, agent_diff, ref_diff, tests_out, d):
+    """The verdict with the scores and reasons the rubric's JSON gives, and the judge's cost
+    (the ceiling it ran under when its cost could not be read).
+    """
     pair = judge_pair("bench")
     with open(RUBRIC) as fh:
         rubric = fh.read()
     prompt = "%s\n\n## Brief\n%s\n\n## Agent diff\n%s\n\n## Reference diff\n%s\n\n## Test output\n%s\n" % (
         rubric, brief, agent_diff, ref_diff, tests_out[-4000:])
-    out = host(pair, prompt, d, 2.0, mode_for(pair.split("/")[0]))
+    out = host(pair, prompt, d, JUDGE_CEILING, mode_for(pair.split("/")[0]))
     try:
-        verdict = json.loads(out["text"])["verdict"]
+        answer = json.loads(out["text"])
+        verdict = answer["verdict"]
         if verdict not in ("pass", "fail"):
             raise ValueError
-        return verdict, out["cost"]
+        return {"verdict": verdict, "scores": answer.get("scores"), "reasons": answer.get("reasons"),
+                "cost": out["cost"]}
     except (ValueError, KeyError, TypeError):
-        return None, out["cost"]
+        return {"verdict": None, "scores": None, "reasons": None, "cost": out["cost"]}
 
 
 def run_trial(m, task, pair, rep, root, keep=False):
+    """One trial, recorded whatever happens: an exception becomes an `error` trial keeping
+    the cost measured before it, so a worker that raises never loses what was paid.
+    """
     repo = m["repo"]
-    with open(os.path.join(ROUTING_DIR, "projects", m["slug"], task["brief"])) as fh:
-        brief = fh.read()
-    d = isolate(repo, task["base"], root)
+    ceiling = float(m.get("budget_usd") or 2.0)
+    d = None
     trial = {"task": task["id"], "class": task["class"], "pair": pair, "rep": rep,
              "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              "quota_before": quota_reading(), "judge": None, "judge_cost_usd": 0,
-             "models": {}, "cost_usd": 0.0}
+             "judge_scores": None, "judge_reasons": None, "models": {}, "cost_usd": 0.0}
     try:
-        agent = host(pair, brief, d, float(m.get("budget_usd") or 2.0), mode_for(pair.split("/")[0]))
+        with open(os.path.join(ROUTING_DIR, "projects", m["slug"], task["brief"])) as fh:
+            brief = fh.read()
+        d = isolate(repo, task["base"], root)
+        base_hash = subprocess.run(["git", "-C", d, "rev-parse", "HEAD"], capture_output=True, text=True,
+                                   check=True).stdout.strip()
+        # Until the host has answered, what it cost is unknown: an exception here leaves the ceiling.
+        trial.update(cost_usd=ceiling, cost_incomplete=True)
+        agent = host(pair, brief, d, ceiling, mode_for(pair.split("/")[0]))
         trial.update(models=agent["models"], cost_usd=round(agent["cost"], 6), tokens=agent["tokens"],
                      duration_s=agent["duration"])
-        note_alias(pair.split("/")[0], agent["models"])
+        if not agent["incomplete"]:
+            del trial["cost_incomplete"]
         if not agent["ok"]:
             trial.update(mech="error", status="error")
             return trial
         subprocess.run(["git", "-C", d, "add", "-A"], check=True)
-        agent_diff = subprocess.run(["git", "-C", d, "diff", "--cached", "HEAD"], capture_output=True, text=True).stdout
+        # Against the base it started from: an agent that commits leaves HEAD at its own work.
+        agent_diff = subprocess.run(["git", "-C", d, "diff", "--cached", base_hash], capture_output=True,
+                                    text=True).stdout
         overlay_hidden_tests(repo, task["base"], task["merged"], d, m["test_globs"])
         try:
-            t = subprocess.run(["bash", "-c", m["test_command"]], cwd=d, capture_output=True, text=True,
-                               timeout=TRIAL_TIMEOUT)
+            t_code, t_out, t_err = run_group(["bash", "-c", m["test_command"]], TRIAL_TIMEOUT, d)
         except subprocess.TimeoutExpired:
             # Tests that never finish say nothing about the change: an error, not a fail.
             trial.update(mech="error", status="error")
             return trial
-        trial["mech"] = "pass" if t.returncode == 0 else "fail"
+        trial["mech"] = "pass" if t_code == 0 else "fail"
         if trial["mech"] == "fail":
             trial["status"] = "fail"
             return trial
-        verdict, jcost = judge(brief, agent_diff, git(repo, "diff", task["base"], task["merged"]),
-                               t.stdout + t.stderr, d)
-        trial.update(judge=verdict, judge_cost_usd=round(jcost, 6),
-                     status="error" if verdict is None else verdict)
+        # Past this point the host ran for the judge: a failure of the judge's own cost is its ceiling.
+        trial["judge_cost_usd"] = JUDGE_CEILING
+        j = judge(brief, agent_diff, git(repo, "diff", task["base"], task["merged"]), t_out + t_err, d)
+        trial.update(judge=j["verdict"], judge_cost_usd=round(j["cost"], 6), judge_scores=j["scores"],
+                     judge_reasons=j["reasons"], status="error" if j["verdict"] is None else j["verdict"])
+        return trial
+    except Exception as exc:
+        warn("bench: trial %s %s rep %d failed: %s" % (task["id"], pair, rep, exc))
+        trial.update(mech="error", status="error")
         return trial
     finally:
         trial["quota_after"] = quota_reading()
-        if keep:
-            trial["dir"] = d
-        else:
-            shutil.rmtree(d, ignore_errors=True)
+        if d:
+            if keep:
+                trial["dir"] = d
+            else:
+                shutil.rmtree(d, ignore_errors=True)
 
 
 def quota_reading():
@@ -815,8 +884,14 @@ def quota_reading():
 
 def append_trial(slug, trial):
     path = os.path.join(ROUTING_DIR, "projects", slug, "trials.jsonl")
+    # A run killed mid-write leaves a torn last line: the next trial starts on a line of its own.
+    torn = False
+    if os.path.isfile(path) and os.path.getsize(path):
+        with open(path, "rb") as fh:
+            fh.seek(-1, os.SEEK_END)
+            torn = fh.read(1) != b"\n"
     with open(path, "a") as fh:
-        fh.write(json.dumps(trial, sort_keys=True) + "\n")
+        fh.write(("\n" if torn else "") + json.dumps(trial, sort_keys=True) + "\n")
 
 
 def runnable(m, tid):
@@ -844,6 +919,7 @@ def cmd_trial(argv):
     judge_pair("trial")
     trial = run_trial(m, task, a.pair, a.rep, tempfile.gettempdir(), a.keep)
     append_trial(a.slug, trial)
+    note_alias(a.pair.split("/")[0], trial["models"])
     print("trial %s %s rep %d: %s cost_usd=%s" % (a.task, a.pair, a.rep, trial["status"], trial["cost_usd"]))
 
 
@@ -879,14 +955,7 @@ def cmd_bench(argv):
     done = {(t["task"], t["pair"], t.get("rep", 1)): t
             for t in read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))}
     state = {"spent": 0.0, "trials": 0, "errors": {}, "dropped": set()}
-    for t in done.values():
-        # Errors survive a restart: a pair that keeps failing to run is not retried forever.
-        if t.get("status") == "error":
-            state["errors"][t["pair"]] = state["errors"].get(t["pair"], 0) + 1
-    for pair, n in sorted(state["errors"].items()):
-        if n >= 3:
-            state["dropped"].add(pair)
-            warn("bench: dropping %s after %d errors" % (pair, n))
+    # Errors drop a pair for this run only: one host outage must not strike a pair for good.
 
     def run(jobs):
         """Jobs in order; a job already in trials.jsonl is reused, never re-paid. The cap
@@ -915,12 +984,15 @@ def cmd_bench(argv):
                 job = running.pop(fut)
                 t = fut.result()
                 append_trial(a.slug, t)
+                note_alias(job[1].split("/")[0], t["models"])
                 done[job] = results[job] = t
                 state["spent"] += t["cost_usd"] + t.get("judge_cost_usd", 0)
                 state["trials"] += 1
                 print("trial %s %s rep %d: %s cost_usd=%s" % (job[0], job[1], job[2], t["status"], t["cost_usd"]),
                       flush=True)
-                if t["status"] == "error":
+                # A judge that answered nothing says nothing about the pair: the agent ran and passed.
+                judge_silent = t.get("mech") == "pass" and t.get("judge") is None
+                if t["status"] == "error" and not judge_silent:
                     state["errors"][job[1]] = state["errors"].get(job[1], 0) + 1
                     if state["errors"][job[1]] >= 3 and job[1] not in state["dropped"]:
                         state["dropped"].add(job[1])
@@ -931,8 +1003,12 @@ def cmd_bench(argv):
     unmeasured = 0
     by_class = {}
     for t in m["tasks"]:
-        if t["status"] == "ready" and (not a.cls or t["class"] == a.cls):
+        if a.cls and t["class"] != a.cls:
+            continue
+        if t["status"] == "ready":
             by_class.setdefault(t["class"], []).append(t["id"])
+        else:
+            warn("bench: task %s is still a draft, skipped" % t["id"])
     for cls, tasks in sorted(by_class.items()):
         screen = [(tid, pr, 1) for pr in pairs for tid in tasks[:2]]
         res, left = run(screen)
@@ -975,7 +1051,8 @@ def fold(scope, projects):
         pooled = stats_of([t for _, ts in projects.values() for t in ts if t["class"] == cls])
         for _, ts in projects.values():
             for pair, s in stats_of([t for t in ts if t["class"] == cls]).items():
-                if s["n"] and s["passes"] / s["n"] < floor:
+                # One weak trial is no verdict on a project: it needs a sample before it holds a pair back.
+                if s["n"] >= MIN_TRIALS and s["passes"] / s["n"] < floor:
                     pooled[pair]["held_back"] = True
         entry = select_entry(cls, pooled, floor)
         if entry:
@@ -1034,6 +1111,9 @@ def cmd_export(argv):
             entries[cls] = {"pair": pair, "pass_rate": e["pass_rate"], "n": e["n"], "floor": e["floor"],
                             "ladder": ladder}
         out = os.path.join(a.to, os.path.basename(path))
+        if not entries:
+            warn("export: %s has no class in tier form, not written" % os.path.basename(path))
+            continue
         write_json(out, {"scope": table.get("scope"), "generated": table.get("generated"), "entries": entries})
         print("exported %s (%d classes)" % (out, len(entries)))
 
