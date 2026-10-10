@@ -78,7 +78,7 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # to a second file, asks the app to run it in a new tab AT AN INDEX, WAITS until the
     # host CLI is running on the new tty (30 s, ORCHESTRATOR_SPAWN_TIMEOUT), and prints
     # the tty on its last line. `--prompt-file <path>` uses a file you already wrote.
-    # --inherit-model types the calling session's current model (from the context tap); for a successor.
+    # --inherit-model types the calling session's current model (from the hooks module's measure file); for a successor.
     # --model <name> types that model for this one spawn, exclusive with --tier: the model the
     # orchestrator chose where the tier the work needs is unbound.
     # --tier resolves through the operator's map (<state dir>/models.json, or

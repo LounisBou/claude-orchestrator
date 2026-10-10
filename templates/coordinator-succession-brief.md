@@ -55,6 +55,7 @@ once your predecessor is gone.
   chain. `Coord :` is refused on any other spawn, and `rotate` and `move` refuse a `Coord :`
   tab unless `--force`; your own successor is spawned the same way, in the rulebook's order.
 - State directory: `{{STATE_DIR}}` — the record and the notes.
-- Your context: `{{GAUGE}}`; at the gate —
+- Your context: the module measures it every turn — read the live state with
+  /orchestrator:status, your own session's row included; at the gate —
   80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more —
   you succeed yourself, in the rulebook's order.

@@ -1332,9 +1332,9 @@ check_status "a review brief quoting the implementer line gets no implementer fi
 printf '# memo\nThe brief said "You are the implementer for this phase." inline, and You are the REVIEW agent too.\n' > "$B/memo.md"
 check_status "a memo quoting role lines inline is no agent brief" 0 bash "$LINT" "$B/memo.md"
 
-# The templates still carry their {{GAUGE}} placeholder (the skills-and-templates task
-# owns its rewrite); what the lint must say of them meanwhile is that every path they DO
-# name exists — none may cite a file the cutover deleted.
+# The templates name no gauge script any more — the module's measure file replaced it,
+# named in prose as a path under the configuration directory. What the lint must still say
+# of them is that every path they DO name exists.
 check "the shipped templates raise no missing-path finding" "0" \
   "$(for t in "$ROOT"/templates/*.md; do bash "$LINT" "$t" 2>&1; done | grep -c 'path does not exist')"
 
@@ -2557,12 +2557,12 @@ check "the end checks this session is the recorded coordinator before it clears"
 check "the successor closes its predecessor's tab by title before it registers" "yes|1|yes" \
   "$(spells "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}} --expect-title "Coord :"')|$([ "$(COORDLINE "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}}')" -lt "$(COORDLINE "$COORDTPL" 'register --name')" ] 2>/dev/null && echo 1 || echo 0)|$(spells "$COORDTPL" '`ps -t <that tty without /dev/>`')"
 COORDFILLED="$WORK/coordinator-brief-filled.md"
-mkdir -p "$WORK/coord-fill/coordinator"; : > "$WORK/coord-fill/coordinator/notes.md"; : > "$WORK/coord-fill/gauge.sh"
+mkdir -p "$WORK/coord-fill/coordinator"; : > "$WORK/coord-fill/coordinator/notes.md"
 if [ -f "$COORDTPL" ]; then
   sed -E -e 's#\{\{PREDECESSOR\}\}#Coord : ops [a1b2c3]#g' -e 's#\{\{PREDECESSOR_TTY\}\}#/dev/ttys950#g' -e 's#\{\{SUBJECT\}\}#ops#g' \
     -e "s#\{\{STATE_DIR\}\}#$WORK/coord-fill#g" -e "s#\{\{NOTES_FILE\}\}#$WORK/coord-fill/coordinator/notes.md#g" \
     -e "s#\{\{COORDINATOR_SH\}\}#$ROOT/skills/coordinator/scripts/coordinator.sh#g" -e "s#\{\{ITERM_AGENT_SH\}\}#$AGENT#g" \
-    -e "s#\{\{GAUGE\}\}#$WORK/coord-fill/gauge.sh#g" -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$COORDTPL" > "$COORDFILLED"
+    -e 's#\{\{[A-Z_]+\}\}#$WORK#g' "$COORDTPL" > "$COORDFILLED"
 fi
 check "the coordinator's succession brief, filled with a real predecessor's values, lints clean" "yes|0" \
   "$([ -s "$COORDFILLED" ] && echo yes || echo no)|$(bash "$ROOT/skills/orchestrator/scripts/brief-lint.sh" "$COORDFILLED" >/dev/null 2>&1; echo $?)"
@@ -3682,21 +3682,21 @@ check "the Live state section carries its five placeholders" "1|1|1|1|1" \
 check "the Live state section replaces reading the journal, which is read by section for a question it leaves open" "yes|yes" \
   "$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -qF 'replaces reading the journal' && echo yes || echo no)|$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -qF 'by its section' && echo yes || echo no)"
 SUCC5=$(awk '/^5\. /{f=1} /^## /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
-check "step 5 announces the successor's own measured context from the gauge" "1|1" \
-  "$(printf '%s' "$SUCC5" | grep -oF 'context_tokens=' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF '{{GAUGE}}' | wc -l | tr -d ' ')"
+check "step 5 announces the successor's own measured context from its measure file" "1|1" \
+  "$(printf '%s' "$SUCC5" | grep -oF 'context_tokens' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'measure file' | wc -l | tr -d ' ')"
 # Every successor measures its takeover at the same point, the turn that sends « takeover
 # confirmed », so one orchestration's takeover figures compare from one succession to the next:
-# step 4 runs the gauge in that turn, before the message, and step 5 reports that reading only.
-check "step 4 runs the gauge in the « takeover confirmed » turn, immediately before the message" "1|1" \
-  "$(succ4_has 'In the turn that sends « takeover confirmed », run `{{GAUGE}}` immediately before the message and keep its `context_tokens=` line')|$(printf '%s' "$SUCC4" | awk '{ a = index($0, "run `{{GAUGE}}` immediately before the message"); b = index($0, "Then message the predecessor \"takeover confirmed\""); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
+# step 4 reads its measure file in that turn, before the message, and step 5 reports that reading only.
+check "step 4 reads its measure file in the « takeover confirmed » turn, immediately before the message" "1|1" \
+  "$(succ4_has 'In the turn that sends « takeover confirmed », read your own measure file immediately before the message and keep its `context_tokens` figure')|$(printf '%s' "$SUCC4" | awk '{ a = index($0, "read your own measure file immediately before the message"); b = index($0, "Then message the predecessor \"takeover confirmed\""); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
 check "step 5 reports the context kept at « takeover confirmed », never a later reading" "1|1" \
   "$(printf '%s' "$SUCC5" | grep -oF 'your own measured context at « takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the one you kept in that turn, never a later reading' | wc -l | tr -d ' ')"
 # The successor also keeps its first turn's reading: the gap between it and the « takeover
 # confirmed » reading is what the takeover's verification costs.
-check "step 1 runs the gauge in the successor's first tool call and keeps its reading as « first turn »" "1|1|1" \
-  "$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, runs `{{GAUGE}}`: keep its `context_tokens=` line as your « first turn » figure' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF '{{GAUGE}}' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | awk '{ a = index($0, "{{GAUGE}}"); b = index($0, "Read the rulebook"); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
+check "step 1 reads its measure file in the successor's first tool call and keeps its reading as « first turn »" "1|1|1" \
+  "$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, reads your own measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | awk '{ a = index($0, "reads your own measure file"); b = index($0, "Read the rulebook"); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
 check "step 5 reports both figures, « first turn » and « at takeover confirmed », on one line" "1|1" \
-  "$(printf '%s' "$SUCC5" | grep -oF 'both on one line: « first turn » and « at takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the line kept in step 1' | wc -l | tr -d ' ')"
+  "$(printf '%s' "$SUCC5" | grep -oF 'both on one line: « first turn » and « at takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the figure kept in step 1' | wc -l | tr -d ' ')"
 check "the design names both figures and why: their gap is the takeover's verification cost" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'its first turn and the turn that sends « takeover confirmed »')|$(spells "$ROOT/docs/design.md" "the gap between them is what the takeover's verification costs")"
 check "the design says why the takeover is measured in the « takeover confirmed » turn" "yes" \
@@ -3713,10 +3713,9 @@ check "the design says what a successor reads at takeover, and why" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'the successor reads the rulebook and its brief'"'"'s live state, the rest by section on demand')|$(spells "$ROOT/docs/design.md" 'input and cache tokens of each assistant turn')"
 # The lint: a succession brief past 10,000 characters is a finding naming the count and the limit.
 SUCCFILL="$WORK/succession-filled.md"
-# {{GAUGE}} is filled with any existing file: the lint's gauge-path check is retired with
-# the script it pointed at, and what this fill proves is the size limit over a full brief.
+# {{GAUGE}} is gone from the template with the gauge script it named — the module's measure
+# file replaced both — and what this fill proves is the size limit over a full brief.
 sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#Orch : scratch#g' \
-  -e "s#\{\{GAUGE\}\}#$ROOT/hooks/gauge.ts#g" \
   -e 's#\{\{LIVE_[A-Z_]+\}\}#none open#g' -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$SUCC" > "$SUCCFILL"
 check "a succession brief, every placeholder filled, lints clean and stays under 10,000 characters" "0|yes" \
   "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(LC_ALL=C tr -d '\200-\277' < "$SUCCFILL" | wc -c | tr -d ' ')" -le 10000 ] && echo yes || echo no)"
