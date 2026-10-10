@@ -352,6 +352,18 @@ def resolve_shipped(pair):
     return "%s/%s" % (bound[0], effort) if bound else None
 
 
+def resolve_ladder(entry):
+    """A shipped entry with its tier-form rungs read through the map, so the ladder compares
+    with the dispatched pair; a rung on an unbound tier is dropped.
+    """
+    ladder = []
+    for r in entry.get("ladder") or []:
+        pair = resolve_shipped(r["pair"]) if isinstance(r, dict) and isinstance(r.get("pair"), str) else None
+        if pair:
+            ladder.append(dict(r, pair=pair))
+    return dict(entry, ladder=ladder)
+
+
 def lookup(repo, cls):
     slug = project_slug(repo)
     profile = project_profile(repo)
@@ -363,7 +375,7 @@ def lookup(repo, cls):
         if shipped:
             pair = resolve_shipped(entry["pair"])
             if pair:
-                return pair, "shipped:" + scope, entry
+                return pair, "shipped:" + scope, resolve_ladder(entry)
             continue
         return entry["pair"], scope, entry
     bound = read_map().get(CLASS_TIERS[cls])

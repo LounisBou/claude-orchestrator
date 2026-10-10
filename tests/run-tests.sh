@@ -6478,6 +6478,17 @@ UT="$WORK/unknown-tree"; mkdir -p "$UT"
 check "a third project of unknown language is served by the global table" "pair=c-model/low source=global" \
   "$(ORCHESTRATOR_STATE_DIR="$GS" ORCHESTRATOR_ROUTING_DEFAULTS="$WORK/no-defaults" python3 "$ROUTING" pick --repo "$UT" --class search)"
 
+# A shipped ladder is in tier form; the dispatched pair is an alias. The rungs are read
+# through the map, or a shipped ladder's measured floor is never honoured.
+XS="$WORK/xstate"; XD="$WORK/xdefaults"; mkdir -p "$XS" "$XD"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$XS/models.json"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"standard/high","floor":0.9,"n":6,"pass_rate":1.0,"ladder":[{"pair":"light/high","n":6,"pass_rate":0.5,"eligible":false},{"pair":"standard/high","n":6,"pass_rate":1.0,"eligible":true}]}}}' > "$XD/global.json"
+for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"b-model","effort":"high","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/x.jsonl"
+xpick() { ORCHESTRATOR_STATE_DIR="$XS" ORCHESTRATOR_ROUTING_DEFAULTS="$XD" python3 "$ROUTING" pick --repo "$UT" --class behaviour-phase --record "$WORK/x.jsonl"; }
+check "a shipped rung measured below the floor, read through the map, is no notch" "pair=b-model/high source=shipped:global" "$(xpick)"
+printf '{"deep":"a-model","standard":"b-model"}' > "$XS/models.json"
+check "a shipped rung on an unbound tier is skipped: the effort notch stands" "explore=b-model/medium" "$(xpick | sed -n 2p)"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"
