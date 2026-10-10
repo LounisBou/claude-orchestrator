@@ -18,6 +18,9 @@ test('a session nothing has measured yet draws no band', () => {
   // The other half of the nothing-drawn case: the usage fields are optional before the
   // first answered turn, so the reading stays null and the band is absent, not empty.
   expect(bandTree(null)).toBeNull()
+  // A threshold the environment lowered is the band's too: it agrees with the gate line.
+  const lowered = bandTree({ context_percent: 5, context_tokens: 53000, context_window: 1000000, model: 'a-model', updated_at: 't' }, { gateTokens: 1000 })
+  expect(lowered?.past).toBe(true)
 })
 
 test('the band skips when nothing draws, and draws the fill when something does', async () => {

@@ -45,9 +45,10 @@ export type BandDescription = {
   note: string | null
 }
 
-export function bandTree(reading: MeasureReading | null): BandDescription | null {
+export function bandTree(reading: MeasureReading | null,
+  env: { gate?: number; gateTokens?: number; largeWindow?: number } = {}): BandDescription | null {
   if (!reading) return null
-  const past = tripGate(reading.context_percent, reading.context_tokens, reading.context_window).tripped
+  const past = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, env).tripped
   const label = `context ${reading.context_percent}% · ${reading.context_tokens.toLocaleString('en-US')}/${reading.context_window.toLocaleString('en-US')}`
   return { label, past, note: past ? 'rotation gate — succeed at the next quiet boundary' : null }
 }
@@ -112,7 +113,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (!surfaces || surfaces.length === 0) return next(e)
       // The component's own contract: a survey holding the band wins, the hook yields.
       if (e.props.hasSurvey) return next(e)
-      const tree = bandTree(currentReading())
+      // The thresholds the session's environment set, the gate line's own: the band
+      // and the gate never disagree on whether this session is past it.
+      const tree = bandTree(currentReading(), await gateEnv($))
       if (!tree) return next(e)
       // A read, not a dispatch: the table is the surface's own, and the tree is
       // returned as the band's drawing — the component's props are read-only, so
@@ -137,6 +140,21 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
+}
+
+// The gate's thresholds from the environment, guards.ts's own reading spelled again
+// here (the $ fence): a value that is no positive number stays undefined, and
+// tripGate applies the default itself.
+async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number; largeWindow?: number }> {
+  const threshold = (raw: string | undefined) => {
+    const n = raw === undefined ? NaN : Number(raw)
+    return Number.isFinite(n) && n > 0 ? n : undefined
+  }
+  return {
+    gate: threshold(await $.env.get('ORCHESTRATOR_CONTEXT_GATE')),
+    gateTokens: threshold(await $.env.get('ORCHESTRATOR_CONTEXT_GATE_TOKENS')),
+    largeWindow: threshold(await $.env.get('ORCHESTRATOR_LARGE_WINDOW')),
+  }
 }
 
 async function logLine($: any, message: string): Promise<void> {
