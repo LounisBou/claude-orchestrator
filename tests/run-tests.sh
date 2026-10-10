@@ -109,10 +109,27 @@ check "nothing project- or machine-specific in the plugin" "" "$hits"
 hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run-tests.sh || true)
 check "the old command namespace is gone" "" "$hits"
 
-# The operator manages the usage budget; the plugin does not read it, report it or route on
-# it (phase 3 ruling 4, reasserted 2026-09-30). No replacement sentence either.
-hits=$(cd "$ROOT" && git grep -iE 'five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day' -- skills/ commands/ templates/ hooks/ README.md docs/design.md || true)
-check "no budget reference in the plugin" "" "$hits"
+# The operator manages the usage budget (ruling of 2026-10-10): no orchestrator or agent
+# stops, throttles or drops a tier because of what it has consumed, nor proposes to. The
+# words themselves are not banned: a bench trial records the gauge as a control
+# (`quota_before`, `quota_after`), a manifest gives each trial a spending cap (`budget_usd`,
+# `--budget-usd`, the host's `--max-budget-usd`), and the routing skill says the gauge stays
+# out of the choice. What the guard catches is a line naming the usage budget or its 5-hour
+# and 7-day windows together with stopping, throttling, dropping a tier or proposing one.
+BUDGET_TERMS='five_hour|seven_day|budget|rate_limits|quota|5-hour|7-day|five-hour|seven-day|usage limit'
+BUDGET_ACTIONS='stop|throttl|drop|downgrad|lower|pause|slow|propos|fall back|cheaper tier|lighter tier'
+budget_hits() { # <root>
+  ( cd "$1" && grep -rnIiE "$BUDGET_TERMS" skills commands templates hooks README.md docs/design.md 2>/dev/null \
+    | sed -E 's/--max-budget-usd|--budget-usd|budget_usd|quota_before|quota_after|ORCHESTRATOR_QUOTA_FILE//g' \
+    | grep -iE "$BUDGET_TERMS" | grep -iE "$BUDGET_ACTIONS" || true )
+}
+check "no stop, throttle or tier drop on the usage budget in the plugin" "" "$(budget_hits "$ROOT")"
+# The guard proves it can still see one, and that the bench's fields and flags pass it.
+BP="$WORK/budget-probe"; mkdir -p "$BP/skills"
+printf 'When the 5-hour quota passes 80 %%, stop dispatching and drop to the light tier.\n' > "$BP/skills/forbidden.md"
+printf 'A trial records `quota_before` and `quota_after`; `--max-budget-usd` stops that trial alone.\n' > "$BP/skills/allowed.md"
+check "the budget guard sees a stop on the usage budget, and lets the bench's fields pass" "skills/forbidden.md" \
+  "$(budget_hits "$BP" | cut -d: -f1)"
 
 # A rotation closes the old tab by its tty, the stood-down acknowledgment being the guard:
 # a title read before the ten-second spawn is stale after it, and the tab skill forbids
