@@ -308,19 +308,26 @@ def tier_order():
     return seen
 
 
-def ladder_down(pair, entry=None):
-    """One notch below a pair: the next cheaper ELIGIBLE pair of the entry's ladder; without
-    one, effort down a level on the same family; at the lowest effort, the next lighter
-    family at the same effort. A notch the ladder measured below the floor is no notch: the
-    measurement already answered what an exploration would ask. None when there is nothing
-    below.
+def failed_rung(rung, entry):
+    """A rung measured and found wanting: enough trials, and a pass rate below the entry's floor.
+    A rung with too few trials is not failed, only unmeasured - the pair an exploration tests.
     """
-    ladder = (entry or {}).get("ladder") or []
+    return (rung.get("n") or 0) >= MIN_TRIALS and (rung.get("pass_rate") or 0) < entry.get("floor", 0)
+
+
+def ladder_down(pair, entry=None):
+    """One notch below a pair: the IMMEDIATE cheaper rung of the entry's ladder; without a
+    ladder to read it from, effort down a level on the same family; at the lowest effort, the
+    next lighter family at the same effort. A notch the ladder measured below the floor is no
+    notch: the measurement already answered what an exploration would ask. None when there is
+    nothing below.
+    """
+    entry = entry or {}
+    ladder = entry.get("ladder") or []
     pairs = [r.get("pair") for r in ladder]
-    if pair in pairs:
-        below = [r for r in ladder[:pairs.index(pair)] if r.get("eligible")]
-        if below:
-            return below[-1]["pair"]
+    if pair in pairs and pairs.index(pair) > 0:
+        rung = ladder[pairs.index(pair) - 1]
+        return None if failed_rung(rung, entry) else rung["pair"]
     model, effort = parse_pair(pair)
     i = EFFORTS.index(effort)
     order = tier_order()
@@ -330,7 +337,7 @@ def ladder_down(pair, entry=None):
         notch = "%s/%s" % (order[order.index(model) + 1], effort)
     else:
         return None
-    if any(r.get("pair") == notch and not r.get("eligible") for r in ladder):
+    if any(r.get("pair") == notch and failed_rung(r, entry) for r in ladder):
         return None
     return notch
 

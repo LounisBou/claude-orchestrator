@@ -6178,7 +6178,7 @@ printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"c-model/medium",
 check "the local global table beats the shipped defaults" "pair=c-model/medium source=global" "$(rpick --class behaviour-phase)"
 printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"b-model/low","models":["b-model-1"]}}}' > "$PS/routing/tables/profile-php-laravel-app.json"
 check "the profile table beats the global one" "pair=b-model/low source=profile:php/laravel-app" "$(rpick --class behaviour-phase)"
-printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","models":["a-model-1"],"ladder":[{"pair":"c-model/high","eligible":false},{"pair":"a-model/low","eligible":true}]},"conversion-phase":{"pair":"a-model/medium","models":["a-model-1"],"ladder":[{"pair":"a-model/low","eligible":false},{"pair":"a-model/medium","eligible":true}]},"contract-phase":{"pair":"a-model/high","models":["a-model-1"]}}}' > "$PS/routing/tables/project-laravel.json"
+printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true}]},"conversion-phase":{"pair":"a-model/medium","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/medium","n":8,"pass_rate":1.0,"eligible":true}]},"comments":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-collector":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-lens":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":2,"pass_rate":1.0,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"contract-phase":{"pair":"a-model/high","models":["a-model-1"]}}}' > "$PS/routing/tables/project-laravel.json"
 check "the project table beats them all" "pair=a-model/low source=project:laravel" "$(rpick --class behaviour-phase)"
 printf '{"a-model":"a-model-2"}' > "$PS/routing/aliases.json"
 check "an entry measured on another identifier is flagged stale" "pair=a-model/low source=project:laravel stale" "$(rpick --class behaviour-phase)"
@@ -6186,7 +6186,7 @@ check_status "an unknown class is a refusal" 1 rpick --class nonsense
 # Exploration: three one-round closes at the class's pair, none escaped, and a class that may be explored.
 ER="$WORK/explore.jsonl"; : > "$ER"
 for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed"}\n' "$i" >> "$ER"; done
-check "three clean closes offer one notch down: no eligible cheaper rung, no lower effort, so the next lighter family" \
+check "three clean closes offer one notch down: the lowest rung, no lower effort, so the next lighter family" \
   "explore=b-model/low" "$(rpick --class behaviour-phase --record "$ER" | sed -n 2p)"
 check "two clean closes are not enough" "1" \
   "$(sed -n 1,2p "$ER" > "$WORK/two.jsonl"; rpick --class behaviour-phase --record "$WORK/two.jsonl" | wc -l | tr -d ' ')"
@@ -6198,6 +6198,19 @@ check "a failed exploration freezes the class for the build" "1" \
   "$({ cat "$ER"; printf '{"id":5,"class":"behaviour-phase","model":"b-model","effort":"low","rounds":2,"state":"closed","explore":true}\n'; } > "$WORK/frozen.jsonl"; rpick --class behaviour-phase --record "$WORK/frozen.jsonl" | wc -l | tr -d ' ')"
 check "a notch the ladder measured below the floor is never offered" "1" \
   "$(for i in 1 2 3; do printf '{"id":%d,"class":"conversion-phase","model":"a-model","effort":"medium","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/conv.jsonl"; rpick --class conversion-phase --record "$WORK/conv.jsonl" | wc -l | tr -d ' ')"
+hi3() { for i in 1 2 3; do printf '{"id":%d,"class":"%s","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n' "$i" "$1"; done; }
+# The notch is the IMMEDIATE cheaper rung. Comments: medium was measured at 0.5 over 8, below
+# the 0.9 floor, so no notch - the eligible low rung beneath it is two notches, not one.
+hi3 comments > "$WORK/n-a.jsonl"
+check "an immediate rung measured below the floor is no notch, the eligible one beneath it is not offered" "1" \
+  "$(rpick --class comments --record "$WORK/n-a.jsonl" | wc -l | tr -d ' ')"
+hi3 review-collector > "$WORK/n-b.jsonl"
+check "an eligible immediate rung is the notch" "explore=a-model/medium" \
+  "$(rpick --class review-collector --record "$WORK/n-b.jsonl" | sed -n 2p)"
+# Review-lens: medium has only 2 trials at 1.0 - not yet eligible, which is why it is worth testing.
+hi3 review-lens > "$WORK/n-c.jsonl"
+check "an immediate rung with too few trials is offered, not skipped for the eligible one below" "explore=a-model/medium" \
+  "$(rpick --class review-lens --record "$WORK/n-c.jsonl" | sed -n 2p)"
 check "a contract phase is never explored, measured or not" "1" \
   "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
 
