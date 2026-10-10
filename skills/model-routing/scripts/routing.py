@@ -11,6 +11,7 @@ the plugin. Only `export` writes into the plugin, in tier/effort form.
 """
 
 import argparse
+import concurrent.futures as cf
 import datetime
 import fnmatch
 import glob
@@ -833,8 +834,112 @@ def cmd_trial(argv):
     print("trial %s %s rep %d: %s cost_usd=%s" % (a.task, a.pair, a.rep, trial["status"], trial["cost_usd"]))
 
 
+# --- bench: the grid ------------------------------------------------------------------
+
+def grid_of(a):
+    if a.grid:
+        pairs = a.grid.split(",")
+        for pr in pairs:
+            parse_pair(pr)
+        return pairs
+    families = a.families.split(",") if a.families else tier_order()
+    if not families:
+        die("bench: no family bound in the tier map; name them with --families")
+    return ["%s/%s" % (f, e) for f in families for e in EFFORTS]
+
+
+def cmd_bench(argv):
+    p = argparse.ArgumentParser(prog="bench")
+    p.add_argument("slug")
+    p.add_argument("--max-usd", type=float, required=True)
+    p.add_argument("--grid")
+    p.add_argument("--families")
+    p.add_argument("--reps", type=int, default=2)
+    p.add_argument("--concurrency", type=int, default=2)
+    p.add_argument("--class", dest="cls")
+    a = p.parse_args(argv)
+    m = load_manifest(a.slug)
+    if not m.get("test_command") or not m.get("test_globs"):
+        die("bench: project %s has no test_command or test_globs in its manifest" % m["slug"])
+    pairs = grid_of(a)
+    judge_pair("bench")
+    done = {(t["task"], t["pair"], t.get("rep", 1)): t
+            for t in read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))}
+    state = {"spent": 0.0, "trials": 0, "errors": {}, "dropped": set()}
+    for t in done.values():
+        # Errors survive a restart: a pair that keeps failing to run is not retried forever.
+        if t.get("status") == "error":
+            state["errors"][t["pair"]] = state["errors"].get(t["pair"], 0) + 1
+    for pair, n in sorted(state["errors"].items()):
+        if n >= 3:
+            state["dropped"].add(pair)
+            warn("bench: dropping %s after %d errors" % (pair, n))
+
+    def run(jobs):
+        """Jobs in order; a job already in trials.jsonl is reused, never re-paid. The cap
+        stops new trials only: those in flight finish and are recorded.
+        """
+        results = {}
+        queue = []
+        for job in jobs:
+            if job in done:
+                results[job] = done[job]
+            else:
+                queue.append(job)
+        workers = max(1, a.concurrency)
+        with cf.ThreadPoolExecutor(max_workers=workers) as pool:
+            running = {}
+            while queue or running:
+                while queue and len(running) < workers and state["spent"] < a.max_usd:
+                    task_id, pair, rep = queue.pop(0)
+                    if pair in state["dropped"]:
+                        continue
+                    task = runnable(m, task_id)
+                    running[pool.submit(run_trial, m, task, pair, rep, tempfile.gettempdir())] = (task_id, pair, rep)
+                if not running:
+                    break
+                fut = next(cf.as_completed(running))
+                job = running.pop(fut)
+                t = fut.result()
+                append_trial(a.slug, t)
+                done[job] = results[job] = t
+                state["spent"] += t["cost_usd"] + t.get("judge_cost_usd", 0)
+                state["trials"] += 1
+                print("trial %s %s rep %d: %s cost_usd=%s" % (job[0], job[1], job[2], t["status"], t["cost_usd"]),
+                      flush=True)
+                if t["status"] == "error":
+                    state["errors"][job[1]] = state["errors"].get(job[1], 0) + 1
+                    if state["errors"][job[1]] >= 3 and job[1] not in state["dropped"]:
+                        state["dropped"].add(job[1])
+                        warn("bench: dropping %s after 3 errors" % job[1])
+        # Unmeasured: every job with no trial, whether the cap or a dropped pair left it.
+        return results, len(set(jobs) - set(results))
+
+    unmeasured = 0
+    by_class = {}
+    for t in m["tasks"]:
+        if t["status"] == "ready" and (not a.cls or t["class"] == a.cls):
+            by_class.setdefault(t["class"], []).append(t["id"])
+    for cls, tasks in sorted(by_class.items()):
+        screen = [(tid, pr, 1) for pr in pairs for tid in tasks[:2]]
+        res, left = run(screen)
+        unmeasured += left
+        passing = [pr for pr in pairs
+                   if all(res.get((tid, pr, 1), {}).get("status") == "pass" for tid in tasks[:2])]
+        if not passing:
+            continue
+        cost = lambda pr: sum(res[(tid, pr, 1)]["cost_usd"] for tid in tasks[:2])
+        cheapest = min(cost(pr) for pr in passing)
+        confirmed = [pr for pr in passing if cost(pr) <= 1.5 * cheapest]
+        jobs = [(tid, pr, rep) for pr in confirmed for tid in tasks for rep in range(1, a.reps + 1)]
+        _, left = run(jobs)
+        unmeasured += left
+    print("bench: spent=%.2f trials=%d unmeasured=%d" % (state["spent"], state["trials"], unmeasured))
+
+
 COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate,
-            "harvest": cmd_harvest, "ready": cmd_ready, "trial": cmd_trial}
+            "harvest": cmd_harvest, "ready": cmd_ready, "trial": cmd_trial,
+            "bench": cmd_bench}
 
 
 def main():

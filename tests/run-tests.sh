@@ -6384,6 +6384,36 @@ check_status "an unknown task is refused" 1 env ORCHESTRATOR_STATE_DIR="$BS" pyt
 check "the rubric opens on the marker the judge's prompt is known by" "JUDGE-RUBRIC" \
   "$(head -1 "$ROOT/skills/model-routing/references/judge-rubric.md")"
 
+rbench harvest "$BR" --class behaviour-phase --pr 9 >/dev/null; rbench ready benchrepo pr-7 pr-8 pr-9 >/dev/null
+: > "$BT"
+rb() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench benchrepo "$@"; }
+check_status "bench wants a cap" 2 rb --grid b-model/medium
+out=$(rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1)
+check "screening runs every pair on two tasks" "6" "$(jq -s '[.[]|select(.rep==1)]|map(.task+.pair)|unique|map(select(startswith("pr-7") or startswith("pr-8")))|length' "$BT")"
+check "a pair that failed screening is not confirmed" "0" "$(jq -s '[.[]|select(.pair=="b-model/low" and .task=="pr-9")]|length' "$BT")"
+check "confirmation runs every task at every rep" "6|3" \
+  "$(jq -s '[.[]|select(.pair=="b-model/medium")]|length' "$BT")|$(jq -s '[.[]|select(.pair=="b-model/medium")]|map(.task)|unique|length' "$BT")"
+check "a run leaves no trial directory behind" "0" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+before=$(wc -l < "$BT" | tr -d ' ')
+rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1 >/dev/null
+check "a restart re-pays nothing already measured" "$before" "$(wc -l < "$BT" | tr -d ' ')"
+: > "$BT"
+out=$(rb --grid b-model/medium,c-model/medium --max-usd 0.15 --concurrency 1)
+check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=6$')"
+: > "$BT"
+out=$(rb --grid b-model/medium,c-model/medium --max-usd 100 --reps 1 --concurrency 2)
+check "two trials at once measure the same grid" "6|0" \
+  "$(wc -l < "$BT" | tr -d ' ')|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+# An error recorded by an earlier run counts: two more in screening make three.
+printf '{"task":"pr-9","class":"behaviour-phase","pair":"b-model/max","rep":1,"cost_usd":0.4,"status":"error"}\n' > "$BT"
+rb --grid b-model/max,b-model/medium --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
+check "three errors drop a pair, and the bench says so" "1" "$(grep -c 'dropping b-model/max after 3 errors' "$WORK/bench.err")"
+check "no grid and no family bound is a refusal" "ERROR: bench: no family bound in the tier map; name them with --families" \
+  "$(mv "$BS/models.json" "$WORK/models.off"; rb --max-usd 1 2>&1; mv "$WORK/models.off" "$BS/models.json")"
+printf '{"slug":"bare","repo":"%s","profile":"x/y","tasks":[]}' "$BR" > "$WORK/bare.json"; mkdir -p "$BS/routing/projects/bare"; cp "$WORK/bare.json" "$BS/routing/projects/bare/manifest.json"
+check "a manifest with no test command is refused" "ERROR: bench: project bare has no test_command or test_globs in its manifest" \
+  "$(ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" bench bare --grid b-model/medium --max-usd 1 2>&1)"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"
