@@ -564,7 +564,93 @@ def cmd_calibrate(argv):
     print("\n".join(lines))
 
 
-COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate}
+# --- bench: manifest ----------------------------------------------------------------
+
+FENCE = re.compile(r"```.*?```", re.S)
+
+
+def load_manifest(slug):
+    m = read_json(manifest_path(slug), None)
+    if m is None:
+        die("no manifest for project %s (harvest one first)" % slug)
+    return m
+
+
+def git(repo, *args):
+    r = subprocess.run(["git", "-C", repo] + list(args), capture_output=True, text=True)
+    if r.returncode != 0:
+        die("git %s failed in %s: %s" % (" ".join(args), repo, r.stderr.strip()))
+    return r.stdout.strip()
+
+
+def cmd_harvest(argv):
+    p = argparse.ArgumentParser(prog="harvest")
+    p.add_argument("repo")
+    p.add_argument("--class", dest="cls", required=True)
+    p.add_argument("--pr", action="append", type=int, required=True)
+    p.add_argument("--test-command")
+    p.add_argument("--test-glob", action="append", default=[])
+    p.add_argument("--budget-usd", type=float)
+    a = p.parse_args(argv)
+    if a.cls not in CLASS_TIERS:
+        die("harvest: unknown class: %s" % a.cls)
+    repo = git_top(a.repo)
+    slug = project_slug(repo)
+    m = read_json(manifest_path(slug), None) or {
+        "slug": slug, "repo": repo, "profile": infer_profile(repo), "test_command": "",
+        "test_globs": [], "budget_usd": 2.0, "tasks": []}
+    if a.test_command:
+        m["test_command"] = a.test_command
+    if a.test_glob:
+        m["test_globs"] = a.test_glob
+    if a.budget_usd:
+        m["budget_usd"] = a.budget_usd
+    for pr in a.pr:
+        try:
+            r = subprocess.run([GH_CLI, "pr", "view", str(pr), "--json", "title,body,mergeCommit"],
+                               cwd=repo, capture_output=True, text=True)
+            info = json.loads(r.stdout) if r.returncode == 0 else None
+        except (OSError, ValueError):
+            r, info = None, None
+        if not isinstance(info, dict):
+            die("harvest: the forge did not answer for pull request %d: %s"
+                % (pr, r.stderr.strip() if r else "no readable answer"))
+        merged = (info.get("mergeCommit") or {}).get("oid")
+        if not merged:
+            die("harvest: pull request %d is not merged" % pr)
+        base = git(repo, "rev-parse", merged + "^1")
+        tid = "pr-%d" % pr
+        brief = "briefs/%s.md" % tid
+        body = FENCE.sub("", info.get("body") or "").strip()
+        path = os.path.join(ROUTING_DIR, "projects", slug, brief)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write("# %s\n\n%s\n\nWork in the current directory. Run the project's tests "
+                     "before you finish.\n" % (info.get("title", ""), body))
+        m["tasks"] = [t for t in m["tasks"] if t["id"] != tid] + [{
+            "id": tid, "pr": pr, "class": a.cls, "base": base, "merged": merged,
+            "brief": brief, "status": "draft"}]
+        print("harvested %s (draft)" % tid)
+    write_json(manifest_path(slug), m)
+
+
+def cmd_ready(argv):
+    if len(argv) < 2:
+        die("ready: a project and at least one task id are required")
+    m = load_manifest(argv[0])
+    ids = {t["id"] for t in m["tasks"]}
+    for tid in argv[1:]:
+        if tid not in ids:
+            die("ready: no task %s in %s" % (tid, argv[0]))
+    for t in m["tasks"]:
+        if t["id"] in argv[1:]:
+            t["status"] = "ready"
+    write_json(manifest_path(argv[0]), m)
+    print("ready: %s" % " ".join(argv[1:]))
+
+
+COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate,
+            "harvest": cmd_harvest, "ready": cmd_ready}
 
 
 def main():

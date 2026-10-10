@@ -6307,6 +6307,39 @@ check "a corrective round or an escaped defect grades a row as a failure" "class
 check_status "no trial and no record row is a refusal" 1 rcal demo
 check_status "a record that does not exist is a refusal" 1 rcal demo --from-record "$WORK/no-such-record.jsonl"
 
+echo "== routing: bench =="
+
+# A project whose merged change makes hello.sh greet, with a test the merge added.
+make_bench_repo() {
+  local d="$1"; mkdir -p "$d/tests"
+  git -C "$d" init -q
+  printf '#!/bin/bash\necho hi\n' > "$d/hello.sh"
+  printf '#!/bin/bash\n[ "$(bash hello.sh)" = "hi" ]\n' > "$d/tests/old.sh"
+  git -C "$d" add -A; git -C "$d" -c user.name=t -c user.email=t@t commit -qm base
+  printf '#!/bin/bash\necho hello world\n' > "$d/hello.sh"
+  printf '#!/bin/bash\n[ "$(bash hello.sh)" = "hello world" ]\n' > "$d/tests/greet.sh"
+  rm "$d/tests/old.sh"
+  git -C "$d" add -A; git -C "$d" -c user.name=t -c user.email=t@t commit -qm merged
+}
+BR="$WORK/benchrepo"; make_bench_repo "$BR"
+BASE=$(git -C "$BR" rev-parse HEAD~1); MERGED=$(git -C "$BR" rev-parse HEAD)
+BS="$WORK/bstate"; mkdir -p "$BS"
+rbench() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_GH="$ROOT/tests/fixtures/routing/gh-stub.sh" STUB_MERGE="$MERGED" python3 "$ROUTING" "$@"; }
+check "harvest drafts a task from a merged pull request" "harvested pr-7 (draft)" \
+  "$(rbench harvest "$BR" --class behaviour-phase --pr 7 --test-command 'for t in tests/*.sh; do bash "$t" || exit 1; done' --test-glob 'tests/*')"
+BM="$BS/routing/projects/benchrepo/manifest.json"
+check "the task carries base and merge" "$BASE|$MERGED|draft|behaviour-phase" \
+  "$(jq -r '.tasks[0]|[.base,.merged,.status,.class]|join("|")' "$BM")"
+check "the brief keeps the description and drops fenced code" "0|1" \
+  "$(grep -c secret "$BS/routing/projects/benchrepo/briefs/pr-7.md")|$(grep -c 'Make hello print a greeting.' "$BS/routing/projects/benchrepo/briefs/pr-7.md")"
+check "harvesting the same pull request twice keeps one task" "1" \
+  "$(rbench harvest "$BR" --class behaviour-phase --pr 7 >/dev/null; jq '.tasks|length' "$BM")"
+rbench ready benchrepo pr-7 >/dev/null
+check "ready marks the task" "ready" "$(jq -r '.tasks[0].status' "$BM")"
+check_status "ready refuses an unknown task" 1 rbench ready benchrepo pr-99
+check "a forge that does not answer stops harvest, naming the pull request" "1" \
+  "$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_GH=false python3 "$ROUTING" harvest "$BR" --class behaviour-phase --pr 12 2>&1 | grep -c 'pull request 12')"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"
