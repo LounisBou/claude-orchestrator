@@ -75,6 +75,7 @@ templates/auditor-succession-brief.md  the auditor's successor, for an auditor k
 commands/install.md                  unwires the tap, creates the state directory
 commands/uninstall.md                restores the previous status line, removes the state directory
 commands/status.md                   live sessions and their measured context fill
+commands/supervision.md              opens or closes the supervision pane, in a coordinator session only, on the person's command
 commands/succeed.md                  runs the orchestrator succession
 commands/agents.md                   each running implementer's progress
 commands/progress.md                 where the build stands
