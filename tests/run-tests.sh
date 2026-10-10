@@ -173,6 +173,11 @@ check "the phase, comments and rotation briefs report context_tokens in the fina
   "$(for t in phase comments rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'your context_tokens in the final report'; done | paste -sd'|' -)"
 check "the phase, comments and rotation gauge lines report the context in the final report" "yes|yes|yes" \
   "$(for t in phase comments rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'when the orchestrator asks, and in the final report'; done | paste -sd'|' -)"
+# The cadence pins hold the when; these hold the what and the guard. The context source an
+# agent reads is its own measure file, named in prose — never a self-estimate, which ran 13
+# points high — and a file that is not there yields no figure at all, not an estimate.
+check "all four agent briefs name the agent's own measure file as its context source, and refuse a figure when it is missing" "yes|yes|yes|yes|yes|yes|yes|yes" \
+  "$(for t in phase comments review rotation; do spells "$ROOT/templates/agent-$t-brief.md" "your own measure file — the one JSON line the hooks module rewrites on every turn, your session id's file under \`claude-orchestrator/measure/\` in the host's configuration directory"; done | paste -sd'|' -)|$(for t in phase comments review rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'If it is not there, say so and give no figure: an estimate presented as a measurement is worse than an admitted gap'; done | paste -sd'|' -)"
 # review.md asks for each finding's proposed fix; the one-line finding keeps it as its last field.
 check "the review brief's finding line ends with the proposed fix" "yes" \
   "$(spells "$ROOT/templates/agent-review-brief.md" '`[severity] file:line — the claim — the evidence in a few words — proposed fix`')"

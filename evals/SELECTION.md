@@ -151,9 +151,10 @@ is dropped. Restoring a case here is a matter of writing it again, staged the sa
   « done » in the same turn, which needs a grant this suite refuses; case 7 covers the
   re-reading that precedes it.
 - A written brief's measure-file naming: the clause ships in the templates and the shell
-  suite pins it there (the shipped templates' report-cadence and succession pins); no eval
-  grader grades a written brief's context line — the gauge-path grader that did went with
-  the gauge script, and nothing replaced it (row 14).
+  suite pins it there (the agent briefs' measure-file naming and missing-file-guard pins
+  beside their report-cadence pins, and the succession brief's step pins); no eval grader
+  grades a written brief's context line — the gauge-path grader that did went with the
+  gauge script, and nothing replaced it (row 14).
 - Critical rows describing what a script does (tab launcher rungs, trust record, most
   design facts): the scripts' own tests hold them, and no rewrite of the
   directives changes them. The would-be replacements were script rows too: each graded
