@@ -8,7 +8,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   refuse, wakeDecision, withDeadline, isDegradedPass,
-  machineLine, readHeads, writeHeads, headsPath, listing, ownAgents, openRows,
+  machineLine, readHeads, writeHeads, headsPath, listing, ownAgents, hostStatusOf, openRows,
   projectCheckouts, watchedNumbers, parseCiWatchLog, watchNumberOf, pullRequestOf,
   checkWake, checkWakeDone, checkCi, chainEntries,
 } from '../stop-gate.ts'
@@ -104,6 +104,18 @@ test('own agents are the owner entries that still run one, residents apart', () 
   expect(resident).toBe(true)
   // With no owner known, no entry is counted: a recycled tty's occupant would be.
   expect(ownAgents(rows, entries, '').agents).toEqual([])
+  // The host's own status outranks the glyph, which lags a turn's start: a tab still
+  // reading ✳ whose session the host records busy is busy.
+  const busy = ownAgents(rows, entries, '17', new Map([['/dev/ttys003', 'busy' as const]]))
+  expect(busy.agents.find(a => a.tty === '/dev/ttys003')?.state).toBe('busy')
+})
+
+test("the host's session record is read for its status alone", () => {
+  expect(hostStatusOf('{"pid":77,"status":"busy","statusUpdatedAt":1}')).toBe('busy')
+  expect(hostStatusOf('{"pid":77,"status":"idle"}')).toBe('idle')
+  expect(hostStatusOf('{"pid":77,"status":"compacting"}')).toBeNull()
+  expect(hostStatusOf('{"pid":77}')).toBeNull()
+  expect(hostStatusOf('torn')).toBeNull()
 })
 
 test('a pull request is read from the branch and the answer, or not at all', () => {
@@ -332,6 +344,7 @@ type Setup = {
   failIgnoredRead?: boolean
   failLogRead?: boolean
   hangHeadsWrite?: boolean
+  hostRecord?: string
 }
 
 function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string } } {
@@ -340,13 +353,16 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
   const wrote: Record<string, string> = {}
   const stamp: { atRun?: string } = {}
   const env = {
-    HOME, CLAUDE_PLUGIN_ROOT: '/plugins/orch-root', ITERM_SESSION_ID: 'w0t0:2:17',
+    HOME, ITERM_SESSION_ID: 'w0t0:2:17',
     ORCHESTRATOR_HOST_CLI: 'hostcli', ...(setup.env ?? {}),
   }
   // The fake serves whatever root the module resolves: the default config-dir root, or the
   // override's when the setup sets one.
   const S = statePaths(env.ORCHESTRATOR_STATE_DIR ?? STATE)
   const dollar = {
+    // The launcher's scripts are found under the engine's $.plugin.root: the
+    // environment above deliberately carries no CLAUDE_PLUGIN_ROOT, as live.
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
     env: { get: async (name: string) => env[name] },
     fs: {
       read: async (p: string) => {
@@ -361,6 +377,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
           // Absent: the same answer a missing file gives.
           throw new Error(`ENOENT: ${p}`)
         }
+        if (p === `${HOME}/.claude/sessions/77.json` && setup.hostRecord !== undefined) return setup.hostRecord
         if (p.startsWith(`${S.ci}/`)) {
           if (setup.failLogRead) throw new Error('EIO: the log cannot be read')
           return setup.ciLogs?.[p.slice(S.ci.length + 1)]?.text ?? ''
@@ -916,4 +933,20 @@ test('the state root follows ORCHESTRATOR_STATE_DIR, the module\'s own log stayi
   expect(passed.answer).toBe(passed.passed)
   expect(swept.wrote[`${OVER}/sweep.stamp`]).toMatch(/^\d{10}\n$/)
   expect(swept.wrote[`${OVER}/stop-gate/a1b2c3.mheads`]).toBe('')
+})
+
+test("an agent whose tab still reads idle but whose session the host records busy releases the stop", async () => {
+  // Live finding: a freshly spawned agent's tab reads ✳ through its first half-minute of
+  // work, and the gate refused its orchestrator's stop on it. The host's own record of
+  // the session (<config dir>/sessions/<pid>.json) says busy for the whole turn.
+  const { handlers } = mounted()
+  const chain = '{"tab_id":"T1","tty":"/dev/ttys003","owner":"17"}\n'
+  const busy = fakeDollar({ listing: IDLE_ROW, chain, hostRecord: '{"pid":77,"status":"busy"}' })
+  const released = await stop(handlers['classic.Stop'], busy.dollar, stopEvent({}))
+  expect(released.answer).toBe(released.passed)
+  // Recorded idle, or with no record at all, the glyph's idle stands and the stop is held.
+  const idle = fakeDollar({ listing: IDLE_ROW, chain, hostRecord: '{"pid":77,"status":"idle"}' })
+  expect(((await stop(handlers['classic.Stop'], idle.dollar, stopEvent({}))).answer as any).block).toContain('is idle')
+  const none = fakeDollar({ listing: IDLE_ROW, chain })
+  expect(((await stop(handlers['classic.Stop'], none.dollar, stopEvent({}))).answer as any).block).toContain('is idle')
 })

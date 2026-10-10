@@ -20,7 +20,7 @@ import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { detectForces } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
-  listing, chainEntries, ownAgents, pullRequestOf, openRows, projectCheckouts,
+  listing, chainEntries, ownAgents, hostStatusOf, pullRequestOf, openRows, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchSlug, watchedNumbers,
   checkWake, checkWakeDone, checkCi,
 } from './stop-gate.ts'
@@ -66,9 +66,26 @@ function auditorBrief(root: string): string {
   return root ? `${root.replace(/\/+$/, '')}/templates/auditor-succession-brief.md` : 'templates/auditor-succession-brief.md'
 }
 
-export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string, root = ''): string {
+export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string, root = '', set: readonly string[] = []): string {
   if (!gate.tripped) return ''
-  return `CONTEXT GATE: this session is at ${gate.words}. ${roleLine(role, root)}`
+  return `CONTEXT GATE: this session is at ${gate.words}.${setLine(set)} ${roleLine(role, root)}`
+}
+
+// A threshold the session's environment set is the gate, however low: a session
+// shown a figure off the default rule, with nothing saying where it came from,
+// reads it as a fault and declines to rotate (seen live at a 1,000-token test
+// gate). The variables that set it are named, and the figure is said binding.
+function setLine(set: readonly string[]): string {
+  return set.length === 0 ? '' : ` This threshold is set by ${set.join(' and ')} in this session's environment: it is binding, not a fault.`
+}
+
+// The thresholds the environment set, by the names it set them under.
+function setNames(env: { gate?: number; gateTokens?: number; largeWindow?: number }): string[] {
+  const names: string[] = []
+  if (env.gate !== undefined) names.push(`ORCHESTRATOR_CONTEXT_GATE=${env.gate}`)
+  if (env.gateTokens !== undefined) names.push(`ORCHESTRATOR_CONTEXT_GATE_TOKENS=${env.gateTokens}`)
+  if (env.largeWindow !== undefined) names.push(`ORCHESTRATOR_LARGE_WINDOW=${env.largeWindow}`)
+  return names
 }
 
 // The push decision, hooks/push-guard.sh's refusal ported: nothing in a session
@@ -114,7 +131,7 @@ function unmeasuredAnnouncement(env: { gate?: number; gateTokens?: number; large
   const gate = env.gate ?? 80
   const gateTokens = env.gateTokens ?? 300000
   const largeWindow = env.largeWindow ?? 1000000
-  return `CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (${gate}%, or ${words(gateTokens)} tokens on a window of ${words(largeWindow)} or more) cannot be read; measure by hand before dispatching or rotating.`
+  return `CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (${words(gateTokens)} tokens on a window of ${words(largeWindow)} or more, ${gate}% of a smaller window) cannot be read; measure by hand before dispatching or rotating.`
 }
 
 // $.fs.read carries no range — the API's own types offer only { as }, and a
@@ -208,12 +225,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const { name } = await readName($, transcript ?? '')
       const role = roleOf(name)
       if (!role) return next(e)                       // a session never spoken to
-      // Only the auditor's line names a file, so only that role pays the read:
-      // the root the host sets for the plugin makes the brief openable from the
-      // audited repo's cwd. If the host hands none, the spelling falls back to
-      // relative — the exposure the cutover leaves standing, no shell gate
-      // absolutizes it beside this one.
-      const root = role === 'auditor' ? ((await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? '') : ''
+      // Only the auditor's line names a file: the plugin's own directory makes
+      // the brief openable from the audited repo's cwd. The module's
+      // environment carries no CLAUDE_PLUGIN_ROOT (the host sets it for hook
+      // processes only), so the root is the engine's own $.plugin.root.
+      const root = role === 'auditor' ? $.plugin.root : ''
       let raw: string | null = null
       try { raw = await $.fs.read(measureFilePath(await configDir($), sessionId)) } catch { /* no file yet: unmeasured */ }
       const reading = parseMeasure(String(raw ?? ''))
@@ -224,8 +240,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         }
         return next(e)
       }
-      const gate = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, await gateEnv($))
-      const announcement = gateAnnouncement(gate, role, root)
+      const env = await gateEnv($)
+      const gate = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, env)
+      const announcement = gateAnnouncement(gate, role, root, setNames(env))
       if (announcement) return next({ ...e, context: joinContext(e.context, announcement) })
     } catch (err) {
       // A gate that cannot measure lets the prompt through and says so once in
@@ -302,7 +319,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       }
       if (!name.startsWith('Orch :')) return next(e)
       const state = await stateDir($)
-      const root = (await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? ''
+      const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
       const until = Date.now() + await stopDeadline($)
       let swept = false
       sweepAtStop = async () => {
@@ -322,7 +339,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         // saw no agent of its own — a recycled tty's occupant would have been counted.
         await logLine($, 'stop gate: ITERM_SESSION_ID is not set: no chain entry is counted')
       }
-      const { agents, resident } = ownAgents(rows, chainEntries(String(chain)), owner)
+      const entries = chainEntries(String(chain))
+      const hostStatus = await hostStatuses($, entries.filter(entry => entry.owner === owner).map(entry => entry.tty), until)
+      const { agents, resident } = ownAgents(rows, entries, owner, hostStatus)
       const delivered: string[] = []
       for (const agent of agents) {
         if (agent.state !== 'idle') continue
@@ -533,6 +552,26 @@ async function inTime<T>($: any, work: () => Promise<T>, until: number): Promise
   } catch {
     return null
   }
+}
+
+// The host's status of each tty's session: the processes on the tty, each one's host
+// record read under the config dir. A tty no record answers for is left out, and its
+// agent falls back to the listing's glyph — never a stop held on this read.
+async function hostStatuses($: any, ttys: readonly string[], until: number): Promise<Map<string, 'idle' | 'busy'>> {
+  const statuses = new Map<string, 'idle' | 'busy'>()
+  const config = await configDir($)
+  for (const tty of ttys) {
+    const ps = await quietly($, () => $.process.run(['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid=']), until, null)
+    if (!ps || ps.exitCode !== 0) continue
+    for (const pid of String(ps.stdout ?? '').split('\n').map(line => line.trim().split(/\s+/)[0] ?? '').filter(pid => /^\d+$/.test(pid))) {
+      const status = hostStatusOf(String(await quietly($, () => $.fs.read(`${config}/sessions/${pid}.json`), until, '')))
+      if (status) {
+        statuses.set(tty, status)
+        break
+      }
+    }
+  }
+  return statuses
 }
 
 // A quiet read's fallback shape.

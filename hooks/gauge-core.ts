@@ -34,9 +34,18 @@ export function measureFilePath(config: string, sessionId: string): string {
 export function parseMeasure(line: string): MeasureReading | null {
   // $.fs.write is not atomic: a line caught mid-write is data, and every reader
   // treats it as unmeasured rather than crashing (gate.py reuses the same rule).
+  // A line that parses but lacks a figure is unmeasured too.
   try {
-    return JSON.parse(line) as MeasureReading
+    const reading = JSON.parse(line) as MeasureReading
+    return reading && hasFigures(reading) ? reading : null
   } catch {
     return null
   }
+}
+
+// The host leaves the token count and the percentage out until the session's
+// first answer (SessionContextUsage marks both optional): a reading without
+// all three figures is no reading, never a figure of undefined.
+export function hasFigures(r: { context_tokens?: unknown; context_window?: unknown; context_percent?: unknown }): boolean {
+  return [r.context_tokens, r.context_window, r.context_percent].every(n => typeof n === 'number' && Number.isFinite(n))
 }

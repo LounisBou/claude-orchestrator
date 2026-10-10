@@ -1,5 +1,5 @@
 // hooks/gauge.ts
-import { measureFilePath, tripGate, type MeasureReading } from './gauge-core.ts'
+import { measureFilePath, tripGate, hasFigures, type MeasureReading } from './gauge-core.ts'
 
 // Module memory only — a reload resets both, by design (Review Focus 3): drift is
 // announced between two measures of the same load, never re-announced from a stale
@@ -64,6 +64,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         model: String(model ?? 'unavailable'),
         updated_at: new Date().toISOString(),
       }
+      // Before the first answer the host has no token count yet: nothing is
+      // written, and the next measure fills the file.
+      if (!hasFigures(reading)) return next(e)
       await writeMeasure($, e.sessionId ?? await $.session.id(), reading)
       if (lastModel !== null && lastModel !== reading.model) {
         await $.ui.toast(driftAnnouncement(reading.model, lastModel))

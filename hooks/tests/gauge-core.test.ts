@@ -23,7 +23,7 @@ test('an unreadable reading never trips', () => {
 })
 
 test('the tripped words name what was read', () => {
-  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
   expect(tripGate(30, 300000, 1000000).words).toBe('300,000 tokens (gate 300,000 on a 1M window)')
 })
 
@@ -89,4 +89,35 @@ test('a fresh module load announces no drift, and a later change is announced on
   expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
   await handlers['session.measure']($, {}, through)
   expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
+})
+
+test('a measure before the first answer writes nothing and logs nothing', async () => {
+  // Live finding: the host leaves the token count and the percentage out until the
+  // session's first answer, and a reading carrying them as undefined crashed every
+  // reader on toLocaleString. Such a measure is no measure: no file, no log line.
+  const handlers: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  const writes: string[] = []
+  const $ = {
+    session: {
+      usage: async () => ({ context: { window: 1000000 } }),
+      model: async () => 'a-model',
+      id: async () => 's-early',
+    },
+    fs: { write: async (p: string) => { writes.push(p) }, read: async () => '' },
+    env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
+    ui: { toast: () => undefined, invalidate: () => undefined },
+  }
+  const e = {}
+  expect(await handlers['session.measure']($, e, (x: unknown) => x)).toBe(e)
+  expect(writes).toEqual([])
+})
+
+test('a measure line without its figures reads as unmeasured', () => {
+  expect(parseMeasure('{"context_window":1000000,"model":"a-model","updated_at":"t"}')).toBeNull()
+  expect(parseMeasure('{"context_tokens":null,"context_window":1000,"context_percent":1}')).toBeNull()
+  expect(parseMeasure('null')).toBeNull()
 })

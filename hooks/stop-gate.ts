@@ -153,6 +153,18 @@ function labelOf(row: Row): string {
 
 // --- the orchestrator's own agents (stop_gate.py:224-247) --------------------------------
 
+// The host's status of the session a tty runs, from the host's own per-process record
+// (`<config dir>/sessions/<pid>.json`, the file the peer listing reads): `busy` for the
+// whole of a turn, `idle` between turns. Null when the text is no such record.
+export function hostStatusOf(text: string): 'idle' | 'busy' | null {
+  try {
+    const status = (JSON.parse(text) as { status?: unknown })?.status
+    return status === 'idle' || status === 'busy' ? status : null
+  } catch {
+    return null
+  }
+}
+
 export type ChainEntry = { tab_id: unknown; tty: string; owner?: unknown; resident?: unknown }
 export type OwnAgent = { label: string; state: 'idle' | 'busy'; tty: string }
 
@@ -160,7 +172,8 @@ export type OwnAgent = { label: string; state: 'idle' | 'busy'; tty: string }
 // an idle resident agent left out, and whether one such resident was seen. With no
 // owner known no entry is counted — a recycled tty's occupant would be (the chain file
 // outlives the session that wrote it).
-export function ownAgents(rows: readonly Row[], entries: readonly ChainEntry[], owner: string):
+export function ownAgents(rows: readonly Row[], entries: readonly ChainEntry[], owner: string,
+  hostStatus: ReadonlyMap<string, 'idle' | 'busy'> = new Map()):
 { agents: OwnAgent[]; resident: boolean } {
   if (!owner) return { agents: [], resident: false }
   const byTty = new Map(rows.map(r => [r.tty, r]))
@@ -169,7 +182,10 @@ export function ownAgents(rows: readonly Row[], entries: readonly ChainEntry[], 
   for (const entry of entries) {
     if (entry.owner !== owner) continue
     const row = byTty.get(entry.tty)
-    const state = row ? activity(row.title) : null
+    // The host's own session status first, the title's glyph only without one: the
+    // glyph lags the turn — a freshly spawned agent's tab reads ✳, idle, through its
+    // first half-minute of work (measured live), and the gate refused a stop on it.
+    const state = row ? (hostStatus.get(entry.tty) ?? activity(row.title)) : null
     if (state === 'idle' && entry.resident === true) {
       // Spawned with --resident: idle by design, never one to read or relaunch. Not
       // busy either: it lifts no check but the last fallback.

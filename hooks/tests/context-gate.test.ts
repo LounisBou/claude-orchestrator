@@ -11,8 +11,8 @@ test('each role gets its own line, verbatim from the shell gate', () => {
 })
 
 test('the announcement names what was read', () => {
-  const a = gateAnnouncement({ tripped: true, words: '80% (gate 80%)' }, 'agent') // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
-  expect(a).toBe('CONTEXT GATE: this session is at 80% (gate 80%). ' + roleLine('agent')) // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+  const a = gateAnnouncement({ tripped: true, words: '80% (gate 80%)' }, 'agent') // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
+  expect(a).toBe('CONTEXT GATE: this session is at 80% (gate 80%). ' + roleLine('agent')) // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
 })
 
 test('below the gate nothing is said', () => {
@@ -71,6 +71,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
         return 's-gate'
       },
     },
+    // The plugin's directory comes from the engine, never from the
+    // environment: the module's environment carries no CLAUDE_PLUGIN_ROOT.
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
     env: { get: async (name: string) => env[name] },
     fs: {
       read: async (p: string) => {
@@ -141,7 +144,7 @@ test('past the gate the role line rides the prompt as one context block', async 
   const seen = await submit(mounted(), dollar)
   expect(seen).toMatchObject({
     text: 'go',
-    context: [`CONTEXT GATE: this session is at 84% (gate 80%). ${roleLine('agent')}`], // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+    context: [`CONTEXT GATE: this session is at 84% (gate 80%). ${roleLine('agent')}`], // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
   })
 })
 
@@ -153,6 +156,9 @@ test('the gate an env var lowered trips on a fill the default lets by', async ()
   })
   const seen = await submit(mounted(), dollar)
   expect((seen as any).context[0]).toContain('42% (gate 1%)')
+  // Live finding: a session shown a test threshold with no source declined to
+  // rotate, reading it as a fault. The line names the variable and says it binds.
+  expect((seen as any).context[0]).toContain('This threshold is set by ORCHESTRATOR_CONTEXT_GATE=1 in this session\'s environment: it is binding, not a fault.')
 })
 
 test('below the gate the prompt passes on untouched, context included', async () => {
@@ -172,7 +178,7 @@ test('an unmeasured session is told so once, after a turn has answered', async (
   const handlers = mounted()
   const first = await submit(handlers, dollar)
   expect(first).toMatchObject({
-    context: ['CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (80%, or 300,000 tokens on a window of 1,000,000 or more) cannot be read; measure by hand before dispatching or rotating.'], // the gate: 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more
+    context: ['CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (300,000 tokens on a window of 1,000,000 or more, 80% of a smaller window) cannot be read; measure by hand before dispatching or rotating.'], // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
   })
   // Once per session: the next prompt meets the same silence as a low fill.
   const second = await submit(handlers, dollar)
@@ -214,7 +220,6 @@ test("an auditor past the gate is shown the brief's absolute place", async () =>
     transcript: ANSWERED_RENAMED,
     measure: MEASURED_84,
     launchName: 'Audit : 1712',
-    env: { CLAUDE_PLUGIN_ROOT: '/plugins/orch-root' },
   })
   const seen = await submit(mounted(), dollar)
   expect((seen as any).context[0]).toContain('/plugins/orch-root/templates/auditor-succession-brief.md')
