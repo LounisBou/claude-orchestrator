@@ -173,10 +173,13 @@ step "settings.json"
 if [ ! -f "$SETTINGS" ]; then
   if [ "$DRY" = "1" ]; then say "[dry-run] no $SETTINGS to unwire"
   else say "no $SETTINGS: nothing to unwire"; fi
+elif ! jq empty "$SETTINGS" 2>/dev/null; then
+  # Named on stderr and skipped, not silently read as empty: a file that does not parse
+  # may still hold the tap's wiring, and the operator must know the unwrap never ran.
+  echo "  $SETTINGS does not parse as JSON: the status line was not unwired — the tap's wiring, if it is in there, is left as it is; fix the file and run this again." >&2
 elif ! jq -e 'has("statusLine")' "$SETTINGS" >/dev/null 2>&1; then
   say "no statusLine to unwire"
 else
-  jq empty "$SETTINGS" 2>/dev/null || { echo "  $SETTINGS is not valid JSON, aborting." >&2; exit 1; }
   stored=$(jq -r '.statusLine.command // ""' "$SETTINGS")
   current=$(normalise_home "$stored")
   case "$current" in

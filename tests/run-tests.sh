@@ -2151,10 +2151,15 @@ check "--force moves it leftmost too, and says what it moved" "0|1" \
 # own title; but it takes no chain and joins none: the orchestrator it audits keeps its
 # agents, and the auditor is nobody's agent. Its title is REQUIRED and reads
 # `Audit : <subject>`, a shape refused everywhere but under --auditor.
-AUDSTATE="$WORK/audstate"; mkdir -p "$AUDSTATE/measure" "$AUDSTATE/chains"
-printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"aud-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$AUDSTATE/measure/s-aud.json"
+AUDSTATE="$WORK/audstate"; AUDCFG="$WORK/audcfg"
+# The auditor inherits the caller's model from the measure file, and that file is the
+# module's own artifact: it is read under the config dir (CLAUDE_CONFIG_DIR, else the
+# home's .claude), never under the state override, while the chains and prompts the same
+# spawn touches still sit under the override.
+mkdir -p "$AUDSTATE/chains" "$AUDCFG/claude-orchestrator/measure"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"aud-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$AUDCFG/claude-orchestrator/measure/s-aud.json"
 printf '{"tab_id":"7","tty":"/dev/ttys901","owner":"S-ME"}\n' > "$AUDSTATE/chains/ttys900.jsonl"
-aud() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+aud() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" CLAUDE_CONFIG_DIR="$AUDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-aud bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
 audl() { aud "$@" | sed -n 's/^launch=//p'; }
 AUDOUT=$(aud --auditor --title 'Audit : tm')
@@ -2199,7 +2204,7 @@ check "--inherit-model beside --auditor asks for what is already implied" "1" \
 # orchestrator's next agent.
 PSAUDTAB="$WORK/ps-audit-succ.txt"
 printf '/dev/ttys900 /opt/x/host --name Audit : tm --permission-mode auto\n' > "$PSAUDTAB"
-audsucc() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+audsucc() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" CLAUDE_CONFIG_DIR="$AUDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-aud ORCHESTRATOR_PS_TABLE="${AUDPS:-$PSAUDTAB}" \
   bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
 AUDSUCCOUT=$(audsucc --successor --inherit-model --permission-mode auto)
@@ -2329,7 +2334,7 @@ check "a caller in another window moves nothing: a move does not cross windows" 
 # and `settle_auditor` — and reads what a caller reads: stdout, stderr and the exit code.
 AUDTRUST="$WORK/aud-trust.json"; printf '{"projects":{}}\n' > "$AUDTRUST"
 spawn_aud() { # <scenario> [backend]: prints the exit code; stdout and stderr land in files
-  ORCHESTRATOR_STATE_DIR="$AUDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME \
+  ORCHESTRATOR_STATE_DIR="$AUDSTATE" CLAUDE_CONFIG_DIR="$AUDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME \
   CLAUDE_CODE_SESSION_ID=s-aud ORCHESTRATOR_BACKEND="${2:-api}" ORCHESTRATOR_TRUST_FILE="$AUDTRUST" \
   AUD_OUT="$WORK/aud-spawn.out" AUD_ERR="$WORK/aud-spawn.err" "$py" -c "
 import contextlib, sys
@@ -2412,10 +2417,11 @@ check "an auditor places its own tab" "1" \
 # merely beside it), the chain ignored — on the caller's model and under remote control
 # under its own title; it takes no chain and joins none. Its title is REQUIRED and reads
 # `Coord : <subject>`, a shape refused everywhere but under --coordinator-successor.
-CRDSTATE="$WORK/crdstate"; mkdir -p "$CRDSTATE/measure" "$CRDSTATE/chains"
-printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"crd-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$CRDSTATE/measure/s-crd.json"
+CRDSTATE="$WORK/crdstate"; CRDCFG="$WORK/crdcfg"
+mkdir -p "$CRDSTATE/chains" "$CRDCFG/claude-orchestrator/measure"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"crd-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$CRDCFG/claude-orchestrator/measure/s-crd.json"
 printf '{"tab_id":"7","tty":"/dev/ttys901","owner":"S-ME"}\n' > "$CRDSTATE/chains/ttys900.jsonl"
-crd() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+crd() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-crd bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
 crdl() { crd "$@" | sed -n 's/^launch=//p'; }
 CRDOUT=$(crd --coordinator-successor --title 'Coord : ops')
@@ -2527,7 +2533,7 @@ check "a merge is the operator's, relayed and never decided by the coordinator" 
 check "the coordinator never closes its own tab" "yes" "$(spells "$COORDSKILL" 'never close your own tab')"
 COORDSPAWN=$(grep -m1 -o 'iterm-agent.sh spawn --coordinator-successor.*' "$COORDSKILL" 2>/dev/null | sed -e 's/^iterm-agent.sh spawn //' \
   -e 's#<subject>#ops#' -e "s#<your working directory>#$WORK#" -e 's#<brief path>#/tmp/coord-brief.md#')
-coordspawn() { eval "set -- $COORDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+coordspawn() { eval "set -- $COORDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-crd bash "$AGENT" spawn "$@" 2>&1; }
 COORDSPAWNOUT=$(if [ -n "$COORDSPAWN" ]; then coordspawn; else echo "no spawn line"; fi)
 check "the skill's succession spawn line is one the launcher runs as the coordinator's successor" "1|1|1|1" \
@@ -2572,7 +2578,7 @@ check "it instantiates the audit brief template and lints it with the report pat
   "$(spells "$AUDCMD" 'templates/agent-audit-brief.md')|$(spells "$AUDCMD" 'brief-lint.sh <brief path> --expect-created <report path>')"
 AUDSPAWN=$(grep -m1 -o 'iterm-agent.sh spawn .*' "$AUDCMD" 2>/dev/null | sed -e 's/^iterm-agent.sh spawn //' -e 's/`.*$//' \
   -e "s#<repository>#$WORK#" -e 's#<subject>#tm#' -e 's#<brief path>#/tmp/audit-brief.md#')
-audspawn() { eval "set -- $AUDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+audspawn() { eval "set -- $AUDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" CLAUDE_CONFIG_DIR="$AUDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-aud bash "$AGENT" spawn "$@" 2>&1; }
 AUDSPAWNOUT=$(if [ -n "$AUDSPAWN" ]; then audspawn; else echo "no spawn line"; fi)
 check "the command's spawn line is one the launcher runs as an auditor" "1|1|1|1" \
@@ -2936,14 +2942,24 @@ check "an explicit model is typed as given" "1" "$(tcmd --model b-model | grep -
 check_status "--tier and --model together are refused" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
   bash "$AGENT" spawn --dir "$WORK" --tier deep --model b-model --prompt p
-mkdir -p "$ISTATE/measure"
-printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ISTATE/measure/s-inh.json"
+# The measure file the succession reads is the module's own artifact: it lives under the
+# config dir, never under the state override (gauge.ts resolves CLAUDE_CONFIG_DIR alone).
+# A decoy planted under the override root proves the reading; so does a session whose file
+# exists ONLY there, which must refuse naming the config-dir path.
+ICFG="$WORK/icfg"; mkdir -p "$ICFG/claude-orchestrator/measure" "$ISTATE/measure"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-inh.json"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"override-root-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ISTATE/measure/s-inh.json"
+inh() { local sid=$1; shift; CLAUDE_CODE_SESSION_ID="$sid" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" CLAUDE_CONFIG_DIR="$ICFG" \
+  bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1; }
 check "inherit-model types the calling session's model" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Orch : heir" --inherit-model --prompt p 2>&1 | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
+  "$(inh s-inh --title "Orch : heir" --inherit-model --prompt p | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"override-root-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ISTATE/measure/s-ovr.json"
+check "the measure file is read under the config dir, not the state override" "1" \
+  "$(inh s-ovr --inherit-model --prompt p | grep -cF "$ICFG/claude-orchestrator/measure/s-ovr.json")"
 check "inherit-model with no measure file refuses and names the module" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model --prompt p 2>&1 | grep -c 'hooks module')"
+  "$(inh s-none --inherit-model --prompt p | grep -c 'hooks module')"
 check "inherit-model is exclusive with a tier" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-inh ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --inherit-model --tier deep --prompt p 2>&1 | grep -c 'exclusive')"
+  "$(inh s-inh --inherit-model --tier deep --prompt p | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
   env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
   bash "$AGENT" spawn --dir "$WORK" --tier deepest --prompt p
@@ -4385,6 +4401,15 @@ jq --arg cmd "/x/other.sh" '.statusLine.command = $cmd' \
 inst "$H4" >/dev/null 2>&1
 check "a statusLine carrying no tap is left untouched" "/x/other.sh" \
   "$(jq -r '.statusLine.command' "$H4/.claude/settings.json")"
+
+# An unparseable settings.json is named on stderr and skipped, never silently read as
+# empty: the operator must know the unwrap never ran, for the tap's wiring may still be
+# in the broken file, and the rest of the install is no hostage to it.
+H4B="$WORK/home4b"; mkdir -p "$H4B/.claude"; stub_venv "$H4B"
+printf '{"statusLine": {"command": "not json' > "$H4B/.claude/settings.json"
+before=$(cat "$H4B/.claude/settings.json")
+check "an unparseable settings.json still installs, says what was skipped, touches nothing" "0|1|1" \
+  "$(inst "$H4B" >/dev/null 2>&1; echo $?)|$(inst "$H4B" 2>&1 >/dev/null | grep -c 'does not parse as JSON')|$([ "$(cat "$H4B/.claude/settings.json")" = "$before" ] && echo 1 || echo 0)"
 
 # What the tap left behind: its own ctx/ directory, and measure files from sessions
 # long ended. A file a day stale or more is noise to whatever reads the directory;
