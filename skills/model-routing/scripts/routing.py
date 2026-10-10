@@ -981,7 +981,9 @@ def cmd_generalize(argv):
     for slug, (profile, _) in projects.items():
         profiles.setdefault(profile, []).append(slug)
     for profile, slugs in sorted(profiles.items()):
-        if len(slugs) < 2:
+        # An unknown language is no profile: pooling such projects would serve one table to
+        # repositories that share nothing. They count toward the global table only.
+        if len(slugs) < 2 or profile.startswith("unknown/"):
             continue
         table = fold("profile:" + profile, {s: projects[s] for s in slugs})
         write_json(table_path("profile:" + profile), table)

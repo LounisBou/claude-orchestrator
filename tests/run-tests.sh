@@ -6466,6 +6466,18 @@ check_status "show of an unknown project is a refusal" 1 rg show nope
 check "generalize with no trial anywhere is a refusal" "ERROR: generalize: no project has trials" \
   "$(ORCHESTRATOR_STATE_DIR="$WORK/empty-state" python3 "$ROUTING" generalize 2>&1)"
 
+# A project of unknown language shares nothing with another one: pooling them would serve
+# unrelated repositories one table. They count toward the global table only.
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$GS/models.json"
+mkproj u1 unknown/library; mkproj u2 unknown/library
+for i in 1 2 3 4 5 6; do gtrial u1 search c-model/low pass 0.01; gtrial u2 search c-model/low pass 0.01; done
+out=$(rg generalize)
+check "projects of unknown language get no profile table, and still count globally" "no|global projects=5 classes=2" \
+  "$([ -f "$GS/routing/tables/profile-unknown-library.json" ] && echo yes || echo no)|$(printf '%s\n' "$out" | grep '^global')"
+UT="$WORK/unknown-tree"; mkdir -p "$UT"
+check "a third project of unknown language is served by the global table" "pair=c-model/low source=global" \
+  "$(ORCHESTRATOR_STATE_DIR="$GS" ORCHESTRATOR_ROUTING_DEFAULTS="$WORK/no-defaults" python3 "$ROUTING" pick --repo "$UT" --class search)"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"
