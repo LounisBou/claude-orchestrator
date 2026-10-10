@@ -173,7 +173,7 @@ Removed in one release:
 | --- | --- |
 | `statusline-tap.sh`, tap wiring in `settings.json` | the `AbovePrompt` band |
 | `ctx/` (all files) | `$.session.usage()` per event |
-| `skills/context-gauge/` | `gauge.ts` and the measure file |
+| skills/context-gauge/ (the whole skill) | `gauge.ts` and the measure file |
 | `context-gate.sh`, `push-guard.sh`, `stop-gate.sh`, `stop_gate.py`, `session_name.py` | `guards.ts` |
 | `commands/status.md`, `progress.md`, `agents.md` | instant commands |
 

@@ -1060,7 +1060,7 @@ git commit -m "feat(commands): answer status, progress and agents without a mode
 ### Task 12: the cutover — remove the shell pipeline
 
 **Files:**
-- Delete: `hooks/context-gate.sh`, `hooks/push-guard.sh`, `hooks/stop-gate.sh`, `hooks/stop_gate.py`, `hooks/session_name.py`, `skills/context-gauge/` (both scripts and the SKILL.md)
+- Delete: hooks/context-gate.sh, hooks/push-guard.sh, hooks/stop-gate.sh, hooks/stop_gate.py, hooks/session_name.py, skills/context-gauge/ (both scripts and the SKILL.md) — deleted by this very task, so named without the backticks the link checker reads as pointers
 - Keep: `commands/status.md`, `commands/progress.md`, `commands/agents.md` — Task 11's ratified shape serves the three commands through `command.run` hooks on these spellings; the files are the typeahead entries and the degraded fallback, and deleting them would leave the invocations unhooked (the engine refuses the registered spellings — charset and built-ins).
 - Modify: `hooks/hooks.json` (drop the three settings-hook blocks), `hooks/commands.ts`, `hooks/guards.ts` (Step 4's override alignment), `install.sh`, `uninstall.sh`, `docs/design.md` (section 4.4)
 - Test: `./tests/run-tests.sh` (the shell suite, updated), `hooks/tests/commands.test.ts` and `hooks/tests/stop-gate.test.ts` (the override wiring)

@@ -229,6 +229,41 @@ test('progress answers the records this session registered, under the side-read 
   expect(await progress.handler(bare.dollar, { command: 'orchestrator:progress', args: '' })).toEqual({ text: 'no dispatch record registered' })
 })
 
+test('the registry is read under the state override, and under the config dir without it', async () => {
+  // The registry's writer — the launcher's dispatch tool — resolves ORCHESTRATOR_STATE_DIR
+  // before the config dir, the resolution the shell pipeline always had; the module's
+  // reader resolves the same root or the override silences /orchestrator:progress forever
+  // (the reviewed boundary this wiring closes). The module's own artifacts — the store,
+  // the log — stay config-dir-bound: no surviving script shares them.
+  const { registrations } = mounted()
+  const progress = registrations.find(r => r.matcher && (r.matcher as any).command === 'orchestrator:progress')!
+  const record = `${HOME}/belt/dispatch.jsonl`
+  const rows = [
+    '{"id":1,"opened":"2026-10-07T10:00:00Z","class":"feature","tier":"deep","label":"Belt the parser","rounds":1,"state":"closed","verdict":"approved","cascade":false}',
+    '{"id":2,"opened":"2026-10-08T10:00:00Z","class":"feature","tier":"light","label":"Add the retry knob","rounds":2,"state":"open","verdict":"","cascade":false}',
+    '',
+  ].join('\n')
+  const expected = { text: ['open=2 label=Add the retry knob', 'dispatches=2 closed=1 rounds_avg=1.5'].join('\n') }
+  // The override set: the registry is found under it...
+  const over = fakeDollar()
+  over.env.ORCHESTRATOR_STATE_DIR = `${HOME}/elsewhere`
+  over.files.set(record, rows)
+  over.files.set(`${HOME}/elsewhere/records/s-one`, `${record}\n`)
+  expect(await progress.handler(over.dollar, { command: 'orchestrator:progress', args: '' })).toEqual(expected)
+  // ...and a registry the config dir still holds answers nothing under it.
+  const orphaned = fakeDollar()
+  orphaned.env.ORCHESTRATOR_STATE_DIR = `${HOME}/elsewhere`
+  orphaned.files.set(record, rows)
+  orphaned.files.set(`${RECORDS}/s-one`, `${record}\n`)
+  expect(await progress.handler(orphaned.dollar, { command: 'orchestrator:progress', args: '' })).toEqual({ text: 'no dispatch record registered' })
+  // The override absent: the config dir's own registry answers, the branch every plain
+  // install walks.
+  const plain = fakeDollar()
+  plain.files.set(record, rows)
+  plain.files.set(`${RECORDS}/s-one`, `${record}\n`)
+  expect(await progress.handler(plain.dollar, { command: 'orchestrator:progress', args: '' })).toEqual(expected)
+})
+
 test('a handler that cannot read falls back to the markdown command and is said', async () => {
   // The net every registration chains inline: a command whose reader fails is
   // skipped, its catch lets the markdown command run as it always did, and the

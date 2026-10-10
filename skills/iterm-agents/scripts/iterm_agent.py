@@ -894,20 +894,21 @@ def warn_versioned(tier, value):
 
 
 def inherited_model():
-    """The model the CALLING session runs on now, from the context tap's record — not the
-    launch line, which the operator may have moved away from. A succession must not guess
-    a model and the operator forbids a default (§27)."""
+    """The model the CALLING session runs on now, from the hooks module's measure file —
+    not the launch line, which the operator may have moved away from. A succession must
+    not guess a model and the operator forbids a default (§27)."""
     sid = os.environ.get("CLAUDE_CODE_SESSION_ID", "")
-    path = os.path.join(STATE_DIR, "ctx", sid + ".json") if sid else "<CLAUDE_CODE_SESSION_ID unset>"
+    path = os.path.join(STATE_DIR, "measure", sid + ".json") if sid else "<CLAUDE_CODE_SESSION_ID unset>"
     model = ""
     try:
         with open(path) as fh:
-            model = json.load(fh).get("model_id") or ""
+            model = json.load(fh).get("model") or ""
     except Exception:
         pass
     if not model:
-        die("spawn: --inherit-model: no model recorded for this session (%s) — the context "
-            "tap must be installed and rendering: /orchestrator:install, then restart" % path)
+        die("spawn: --inherit-model: no model recorded for this session (%s) — the hooks "
+            "module writes the measure file each turn: load the plugin, take one turn, "
+            "then retry" % path)
     return model
 
 

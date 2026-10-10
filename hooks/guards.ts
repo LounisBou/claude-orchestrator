@@ -7,7 +7,8 @@
 // spawned read for a force, every force but the rebase's lease refused. And
 // the stop gate, hooks/stop_gate.py ported: a stop is held until something
 // will wake the orchestrator — a busy agent's idle notice, the answer to a
-// declared block, the end of a watched pull request's checks.
+// declared block, the end of a watched pull request's checks. The shell
+// originals are gone with the cutover — these ports are the pipeline now.
 //
 // The engine fences $ to the file that received it — never passed across an
 // import, a noun of it never read as a value — so the transcript block reader
@@ -30,6 +31,18 @@ async function configDir($: any): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
 }
 
+// The stop gate's state root, the shell gate's own contract (stop-gate.sh:19, and the
+// surviving writers beside it — dispatch-record.sh:59, ci-watch.sh:67): the state override
+// first, else the config dir's claude-orchestrator. Everything the root carries moves as
+// one — the chain files, the records registry, ci-watch's logs, the heads record, the
+// ignored-checks list, the sweep stamp — because those are the files the surviving scripts
+// still share. The module's own artifacts, the measure file and this file's log, stay
+// config-dir-bound: no surviving script shares them. Spelled at the call site, $ never
+// crossing an import.
+async function stateDir($: any): Promise<string> {
+  return (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${await configDir($)}/claude-orchestrator`
+}
+
 export function roleLine(role: string, root = ''): string {
   // Verbatim from hooks/context-gate.sh:57-63 — the four role answers. The
   // auditor's brief is spelled from a root the handler reads: an auditor's cwd
@@ -47,8 +60,8 @@ export function roleLine(role: string, root = ''): string {
 // The auditor's succession brief, openable from any cwd: the shell gate spelled
 // the checkout's absolute root for the same reason. The root the host sets for
 // the plugin is threaded in from the handler that reads it; without one the
-// spelling stays relative — exposed the day Task 12 retires the shell gate that
-// absolutizes it today.
+// spelling stays relative — the one exposure the cutover leaves standing, this
+// module the only gate to carry it.
 function auditorBrief(root: string): string {
   return root ? `${root.replace(/\/+$/, '')}/templates/auditor-succession-brief.md` : 'templates/auditor-succession-brief.md'
 }
@@ -198,7 +211,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // Only the auditor's line names a file, so only that role pays the read:
       // the root the host sets for the plugin makes the brief openable from the
       // audited repo's cwd. If the host hands none, the spelling falls back to
-      // relative — exposed the day Task 12 retires the shell gate below.
+      // relative — the exposure the cutover leaves standing, no shell gate
+      // absolutizes it beside this one.
       const root = role === 'auditor' ? ((await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? '') : ''
       let raw: string | null = null
       try { raw = await $.fs.read(measureFilePath(await configDir($), sessionId)) } catch { /* no file yet: unmeasured */ }
@@ -259,9 +273,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // classic.Stop the transcript path, the cwd and the last assistant message beside the
   // module's — so the scope and the message are read off the event itself. The refusal
   // answers through the module's own field, `block` carrying the reason: the classic
-  // decision's shape as the engine documents it. Until Task 12 retires the settings
-  // hook, the shell gate answers the same stops — both firing is expected, never
-  // deduplicated.
+  // decision's shape as the engine documents it. The shell gate that once answered the
+  // same stops is gone with the cutover — this handler is the only stop gate, its
+  // refusals deduplicated against nothing.
   on('classic.Stop', async ($: any, e: any, next: (e: any) => any) => {
     // The sweep's one shot, armed once the stop is known Orch-scoped: every passing
     // exit below calls it before next(e), a refusal never does, and the catch does too
@@ -287,7 +301,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         return next(e)
       }
       if (!name.startsWith('Orch :')) return next(e)
-      const state = `${await configDir($)}/claude-orchestrator`
+      const state = await stateDir($)
       const root = (await $.env.get('CLAUDE_PLUGIN_ROOT')) ?? ''
       const until = Date.now() + await stopDeadline($)
       let swept = false
@@ -444,22 +458,21 @@ const firstLine = (text: string): string => text.trim().split('\n')[0] ?? ''
 
 // sweep_due()/sweep() ported: `workspace.sh sweep` within what is left of the deadline,
 // at most once per interval, everything it does a log line — never a refusal, never a
-// held stop. The stamp is the shell gate's own `sweep.stamp`, shared on purpose unlike
-// the heads record's `.mheads` split: its token is a time, the same fact for both
-// gates, and one file holds them to one sweep per interval between them until the
-// shell half retires. It is written BEFORE the run, so a sweep that hangs is not
-// retried by every stop that follows it.
-async function runSweep($: any, stateDir: string, root: string, until: number): Promise<void> {
+// held stop. The stamp keeps the shell gate's own name, `sweep.stamp`, so a stamp it
+// wrote still holds the interval across the cutover: its token is a time, the same
+// fact whatever gate reads it. It is written BEFORE the run, so a sweep that hangs is
+// not retried by every stop that follows it.
+async function runSweep($: any, stateRoot: string, root: string, until: number): Promise<void> {
   try {
     // What is left of the whole gate's deadline, minus the margin its own exit needs.
     // Under a second, or not due: nothing runs, nothing is said.
     const left = (until - Date.now()) / 1000 - SWEEP_MARGIN
     if (left < 1) return
     let mtimeMs: number | null = null
-    try { mtimeMs = (await $.fs.stat(`${stateDir}/sweep.stamp`)).mtimeMs } catch { mtimeMs = null }
+    try { mtimeMs = (await $.fs.stat(`${stateRoot}/sweep.stamp`)).mtimeMs } catch { mtimeMs = null }
     const every = (Number(await $.env.get('ORCHESTRATOR_SWEEP_INTERVAL')) || 600) * 1000
     if (mtimeMs !== null && Date.now() - mtimeMs < every) return
-    await $.fs.write(`${stateDir}/sweep.stamp`, `${Math.floor(Date.now() / 1000)}\n`)
+    await $.fs.write(`${stateRoot}/sweep.stamp`, `${Math.floor(Date.now() / 1000)}\n`)
     // The script's own `--deadline` self-limits between items, the real bound; the
     // timeoutMs is the engine's kill of what ignores it (the python killed the process
     // group itself), and the race keeps the stop's answer inside the deadline whatever

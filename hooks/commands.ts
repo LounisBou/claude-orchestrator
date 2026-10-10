@@ -31,6 +31,16 @@ async function configDir($: any): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
 }
 
+// The records registry's root, the shell pipeline's own contract (dispatch-record.sh:59,
+// the writer that survives it): the state override first, else the config dir's
+// claude-orchestrator. The writer resolves the same rule, so the reader resolves what it
+// wrote or the override silences /orchestrator:progress forever. Spelled at the call site
+// beside the config read it extends — $ never crosses an import — while this file's own
+// artifacts, the store and the log, stay config-dir-bound: no surviving script shares them.
+async function stateDir($: any): Promise<string> {
+  return (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${await configDir($)}/claude-orchestrator`
+}
+
 // The bound on this file's reads — the same convention the supervision domain
 // inherited from the guards: well inside the time a command's answer owns, so
 // a read that cannot answer in time is quietly no reading, never a held
@@ -125,13 +135,14 @@ export function progressLines(groups: readonly DispatchRow[][]): string[] {
 
 // The records this session registered — the launcher's dispatch tool writes
 // one absolute path a line under the records directory, keyed by the session
-// id sanitised the way every key in the store is. Each record is read under
+// id sanitised the way every key in the store is, under the root that tool
+// itself resolves (the override or the config dir). Each record is read under
 // the bound; a record that cannot answer in time, or is missing, or torn
 // contributes no rows (the stop gate reads them the same way), and a registry
 // that itself loses the race is said as unreadable rather than as absent.
 async function progressText($: any): Promise<string> {
   const id = await $.session.id()
-  const registry = `${await configDir($)}/claude-orchestrator/records/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
+  const registry = `${await stateDir($)}/records/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
   const bound = await readBoundMs($)
   const listed = await withDeadline($.fs.read(registry).catch(() => ''), bound)
   if (isDegradedPass(listed)) {

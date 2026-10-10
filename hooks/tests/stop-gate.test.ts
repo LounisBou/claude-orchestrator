@@ -291,6 +291,20 @@ const BUSY_ROW = 'w1/t2 | /dev/ttys002 | ⠋ Agent : belt | Agent : belt-p3'
 const IDLE_ROW = 'w1/t3 | /dev/ttys003 | ✳ Agent : idle | Agent : idle-p3'
 const OWNED = '{"tab_id":"T1","tty":"/dev/ttys002","owner":"17"}\n'
 
+// The paths that hang off the state root: the shell gate kept them under one root and the
+// override moves them as one. The module's own log is not among them — it stays in the
+// config dir, which is exactly what the override test below pins.
+function statePaths(root: string) {
+  return {
+    chain: `${root}/chains/ttys001.jsonl`,
+    register: `${root}/records/a1b2c3`,
+    heads: `${root}/stop-gate/a1b2c3.mheads`,
+    stamp: `${root}/sweep.stamp`,
+    ci: `${root}/ci-watch`,
+    ignored: `${root}/ignored-checks`,
+  }
+}
+
 type Setup = {
   transcript?: string
   noLaunchName?: boolean
@@ -329,29 +343,32 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
     HOME, CLAUDE_PLUGIN_ROOT: '/plugins/orch-root', ITERM_SESSION_ID: 'w0t0:2:17',
     ORCHESTRATOR_HOST_CLI: 'hostcli', ...(setup.env ?? {}),
   }
+  // The fake serves whatever root the module resolves: the default config-dir root, or the
+  // override's when the setup sets one.
+  const S = statePaths(env.ORCHESTRATOR_STATE_DIR ?? STATE)
   const dollar = {
     env: { get: async (name: string) => env[name] },
     fs: {
       read: async (p: string) => {
-        if (p === CHAIN) return setup.chain ?? ''
-        if (p === REGISTER) return setup.records ? `${RECORD}\n` : ''
+        if (p === S.chain) return setup.chain ?? ''
+        if (p === S.register) return setup.records ? `${RECORD}\n` : ''
         if (p === RECORD) return (setup.records ?? [])[0] ?? ''
-        if (p === HEADS) return setup.heads ?? ''
+        if (p === S.heads) return setup.heads ?? ''
         if (p === LOG) return ''
-        if (p === `${STATE}/ignored-checks`) {
+        if (p === S.ignored) {
           if (setup.failIgnoredRead) throw new Error('EACCES: permission denied')
           if (setup.ignoredText !== undefined) return setup.ignoredText
           // Absent: the same answer a missing file gives.
           throw new Error(`ENOENT: ${p}`)
         }
-        if (p.startsWith(`${CIDIR}/`)) {
+        if (p.startsWith(`${S.ci}/`)) {
           if (setup.failLogRead) throw new Error('EIO: the log cannot be read')
-          return setup.ciLogs?.[p.slice(CIDIR.length + 1)]?.text ?? ''
+          return setup.ciLogs?.[p.slice(S.ci.length + 1)]?.text ?? ''
         }
         throw new Error(`unread: ${p}`)
       },
       write: async (p: string, text: string) => {
-        if (p === HEADS && setup.hangHeadsWrite) return new Promise(() => undefined)
+        if (p === S.heads && setup.hangHeadsWrite) return new Promise(() => undefined)
         if (p === LOG) written.push(text)
         else wrote[p] = text
       },
@@ -359,13 +376,13 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         if (p === TRANSCRIPT && setup.transcript !== undefined) {
           return { kind: 'file', size: setup.transcript.length, mtimeMs: 0, isLink: false }
         }
-        if (p === STAMP && setup.stampMtimeMs !== undefined) {
+        if (p === S.stamp && setup.stampMtimeMs !== undefined) {
           return { kind: 'file', size: 12, mtimeMs: setup.stampMtimeMs, isLink: false }
         }
         throw new Error('ENOENT')
       },
       list: async (p: string) => {
-        if (p === CIDIR) {
+        if (p === S.ci) {
           if (setup.failCiList) throw new Error('the ci-watch directory cannot be read')
           return Object.entries(setup.ciLogs ?? {}).map(([name, log]) => (
             { name, kind: 'file', size: log.text.length, mtimeMs: log.mtimeMs, isLink: false }
@@ -414,7 +431,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         }
         if (argv[0] === 'bash' && argv[1] === WORKSPACE && argv[2] === 'sweep') {
           // The stamp as it stood when the sweep began: it must already be written.
-          stamp.atRun = wrote[STAMP]
+          stamp.atRun = wrote[S.stamp]
           if (setup.sweepStartFail) return Promise.reject(new Error('spawn bash ENOENT'))
           if (setup.hangSweep) return new Promise(() => undefined)
           return { exitCode: setup.sweep?.exitCode ?? 0, stdout: setup.sweep?.stdout ?? '', stderr: setup.sweep?.stderr ?? '' }
@@ -857,4 +874,46 @@ test('a stop with no session id passes, said once', async () => {
   const { answer, passed } = await stop(handlers['classic.Stop'], dollar, e)
   expect(answer).toBe(passed)
   expect(written.filter(l => l.includes('no session id: the reported heads cannot be kept')).length).toBe(1)
+})
+
+// --- the state root's override ----------------------------------------------------------------
+
+test('the state root follows ORCHESTRATOR_STATE_DIR, the module\'s own log staying in the config dir', async () => {
+  // The writers that survive the shell gate — the launcher's dispatch tool, ci-watch —
+  // honor the override before the config dir, the resolution the shell gate always had;
+  // the module resolves the same root or check 2 reads no watch and the open rows vanish
+  // (the reviewed boundary this wiring closes). Everything the root carries moves as one:
+  // the registry, the ci-watch logs, the heads record, the sweep stamp. The module's own
+  // log is config-dir-bound and moves with nothing. Without the override every test above
+  // pins the config-dir root; this one pins the branch the override selects.
+  const { handlers } = mounted()
+  const OVER = '/tmp/h/over'
+  const message = { last_assistant_message: 'waiting: operator — blocks: the report' }
+  const watched = fakeDollar({
+    env: { ORCHESTRATOR_STATE_DIR: OVER },
+    ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' } },
+  })
+  const held = await stop(handlers['classic.Stop'], watched.dollar, stopEvent(message))
+  expect((held.answer as any).block).toContain('#160')
+  expect(watched.wrote[`${OVER}/stop-gate/a1b2c3.mheads`]).toBe('160 1728000000000 pending\n')
+  expect(Object.keys(watched.wrote).every(p => p.startsWith(OVER))).toBe(true)
+  // The refusal's own two lines land in the module's log — the blocks line, the
+  // ci-not-finished one — which the config dir still holds.
+  expect(watched.written.length).toBe(2)
+  expect(watched.written.every(l => l.includes('| guards |'))).toBe(true)
+  expect(watched.written.some(l => l.includes('check1 blocks the report'))).toBe(true)
+  expect(watched.written.some(l => l.includes('ci-not-finished'))).toBe(true)
+  // The open rows move with the root too: a registry under the override holds the stop.
+  const deferred = fakeDollar({
+    env: { ORCHESTRATOR_STATE_DIR: OVER },
+    records: ['{"id":"r-12","label":"the report row","state":"open"}\n'],
+  })
+  const rows = await stop(handlers['classic.Stop'], deferred.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))
+  expect((rows.answer as any).block).toContain('row r-12 (the report row) is open')
+  // A due sweep's stamp is the shell gate's own file, written under the same root.
+  const swept = fakeDollar({ env: { ORCHESTRATOR_STATE_DIR: OVER }, stampMtimeMs: OLD_STAMP })
+  const passed = await stop(handlers['classic.Stop'], swept.dollar, stopEvent(message))
+  expect(passed.answer).toBe(passed.passed)
+  expect(swept.wrote[`${OVER}/sweep.stamp`]).toMatch(/^\d{10}\n$/)
+  expect(swept.wrote[`${OVER}/stop-gate/a1b2c3.mheads`]).toBe('')
 })
