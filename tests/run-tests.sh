@@ -6340,6 +6340,50 @@ check_status "ready refuses an unknown task" 1 rbench ready benchrepo pr-99
 check "a forge that does not answer stops harvest, naming the pull request" "1" \
   "$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_GH=false python3 "$ROUTING" harvest "$BR" --class behaviour-phase --pr 12 2>&1 | grep -c 'pull request 12')"
 
+chmod +x "$ROOT/tests/fixtures/routing/host-stub.sh"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$BS/models.json"
+rtrial() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" STUB_MERGED="$MERGED" TMPDIR="$WORK" python3 "$ROUTING" trial benchrepo pr-7 "$@"; }
+BT="$BS/routing/projects/benchrepo/trials.jsonl"
+rtrial b-model/medium --keep >/dev/null
+last() { tail -1 "$BT" | jq -r "$1"; }
+check "a right change passes the hidden tests and the judge" "pass|pass|pass|0.1|0.02" \
+  "$(last '[.mech,.judge,.status,.cost_usd,.judge_cost_usd]|map(tostring)|join("|")')"
+KEPT=$(last '.dir')
+check "the agent saw one commit and no history" "1|no" "$(cat "$KEPT/.reachable-commits")|$(cat "$KEPT/.merged-reachable")"
+check "the hidden test is in place, the deleted one is gone" "yes|no" \
+  "$([ -f "$KEPT/tests/greet.sh" ] && echo yes || echo no)|$([ -f "$KEPT/tests/old.sh" ] && echo yes || echo no)"
+check "an alias with no mode configured runs in auto" "auto" "$(cat "$KEPT/.permission-mode")"
+rtrial b-model/low >/dev/null
+check "a wrong change fails mechanically and is never judged" "fail|null|fail|0" \
+  "$(last '[.mech,.judge,.status,.judge_cost_usd]|map(tostring)|join("|")')"
+STUB_JUDGE=fail rtrial b-model/high >/dev/null
+check "a judge's fail is the trial's fail" "pass|fail|fail" "$(last '[.mech,.judge,.status]|join("|")')"
+STUB_JUDGE=garbage rtrial b-model/high >/dev/null
+check "a judge that does not answer JSON makes an error, cost kept" "error|0.1" "$(last '[.status,.cost_usd]|map(tostring)|join("|")')"
+rtrial b-model/max >/dev/null
+check "an agent stopped by its cap is an error with its cost" "error|0.4" "$(last '[.status,.cost_usd]|map(tostring)|join("|")')"
+check "the trial records the identifiers used and the alias they resolve" "b-model-1|b-model-1" \
+  "$(last '.models|keys|join(",")')|$(jq -r '.["b-model"]' "$BS/routing/aliases.json")"
+check "trial directories are removed unless kept" "1" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$KEPT"
+ORCHESTRATOR_HOST_CLI="$WORK/no-such-host" ORCHESTRATOR_STATE_DIR="$BS" TMPDIR="$WORK" python3 "$ROUTING" trial benchrepo pr-7 b-model/medium >/dev/null 2>&1
+check "a host that cannot start is an error, never a crash, and leaves no directory" "error|0|0" \
+  "$(last '[.status,(.cost_usd|floor)]|map(tostring)|join("|")')|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+printf '{"modes":{"b-model":"acceptEdits"}}' > "$BS/routing/config.json"
+rtrial b-model/medium --keep >/dev/null
+check "config.json gives an alias its permission mode" "acceptEdits" "$(cat "$(last '.dir')/.permission-mode")"
+rm -rf "$(last '.dir')" "$BS/routing/config.json"
+printf '{"standard":"b-model","light":"c-model"}' > "$BS/models.json"
+check "no judge without a deep tier, refused before any trial runs" "ERROR: trial: the deep tier is unbound: the judge has no model|0" \
+  "$(rtrial b-model/medium 2>&1)|$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$BS/models.json"
+rbench harvest "$BR" --class behaviour-phase --pr 8 >/dev/null
+check "a draft task is refused" "ERROR: trial: task pr-8 is still a draft" \
+  "$(env ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" trial benchrepo pr-8 b-model/medium 2>&1)"
+check_status "an unknown task is refused" 1 env ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" trial benchrepo pr-404 b-model/medium
+check "the rubric opens on the marker the judge's prompt is known by" "JUDGE-RUBRIC" \
+  "$(head -1 "$ROOT/skills/model-routing/references/judge-rubric.md")"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"

@@ -12,13 +12,16 @@ the plugin. Only `export` writes into the plugin, in tier/effort form.
 
 import argparse
 import datetime
+import fnmatch
 import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 
 STATE_DIR = os.environ.get("ORCHESTRATOR_STATE_DIR") or os.path.join(
     os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"),
@@ -649,8 +652,189 @@ def cmd_ready(argv):
     print("ready: %s" % " ".join(argv[1:]))
 
 
+# --- bench: one trial -----------------------------------------------------------------
+
+RUBRIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      "references", "judge-rubric.md")
+TRIAL_TIMEOUT = int(os.environ.get("ORCHESTRATOR_TRIAL_TIMEOUT", "1800"))
+
+
+def isolate(repo, base, root):
+    """The tree at base and NO history: an agent that can read the merged commit is
+    grading itself against the answer.
+    """
+    d = tempfile.mkdtemp(prefix="trial-", dir=root)
+    try:
+        archive = subprocess.run(["git", "-C", repo, "archive", base], capture_output=True, check=True)
+        subprocess.run(["tar", "-x", "-C", d], input=archive.stdout, check=True)
+        for args in (["init", "-q"], ["add", "-A"],
+                     ["-c", "user.name=bench", "-c", "user.email=bench@localhost", "commit", "-qm", "base"]):
+            subprocess.run(["git", "-C", d] + args, check=True, capture_output=True)
+    except BaseException:
+        shutil.rmtree(d, ignore_errors=True)
+        raise
+    return d
+
+
+def mode_for(alias):
+    return read_json(os.path.join(ROUTING_DIR, "config.json"), {}).get("modes", {}).get(alias, "auto")
+
+
+def judge_pair(prog):
+    """The judge runs at the deep tier's pair; with no effort bound, at `high`."""
+    deep = read_map().get("deep")
+    if not deep:
+        die("%s: the deep tier is unbound: the judge has no model" % prog)
+    return "%s/%s" % (deep[0], deep[1] or "high")
+
+
+def host(pair, prompt, cwd, budget, mode):
+    """One headless run. A timeout, a host that cannot start or an answer that does not
+    read is not ok; the cost is the host's own per-model figure.
+    """
+    model, effort = parse_pair(pair)
+    cmd = [HOST_CLI, "-p", "--model", model, "--effort", effort, "--permission-mode", mode,
+           "--output-format", "json", "--no-session-persistence", "--max-budget-usd", "%.2f" % budget]
+    started = time.time()
+    failed = {"ok": False, "models": {}, "cost": 0.0, "text": "", "tokens": None}
+    try:
+        r = subprocess.run(cmd, input=prompt, cwd=cwd, capture_output=True, text=True, timeout=TRIAL_TIMEOUT)
+        res = json.loads(r.stdout.strip().splitlines()[-1])
+        if not isinstance(res, dict):
+            raise ValueError
+    except (subprocess.TimeoutExpired, OSError, ValueError, IndexError):
+        return dict(failed, duration=round(time.time() - started, 1))
+    models = {k: float(v.get("costUSD") or 0) for k, v in (res.get("modelUsage") or {}).items()
+              if isinstance(v, dict)}
+    cost = sum(models.values()) if models else float(res.get("total_cost_usd") or 0)
+    usage = res.get("usage") if isinstance(res.get("usage"), dict) else {}
+    tokens = {k: usage.get(k, 0) or 0 for k in TOKEN_KEYS} if usage else None
+    ok = not res.get("is_error") and res.get("subtype") == "success"
+    return {"ok": ok, "models": models, "cost": cost, "text": res.get("result") or "",
+            "tokens": tokens, "duration": round(time.time() - started, 1)}
+
+
+def overlay_hidden_tests(repo, base, merged, d, globs):
+    for line in git(repo, "diff", "--name-status", base, merged).splitlines():
+        status, path = line.split("\t", 1)
+        path = path.split("\t")[-1]
+        if not any(fnmatch.fnmatch(path, g) for g in globs):
+            continue
+        target = os.path.join(d, path)
+        if status.startswith("D"):
+            if os.path.exists(target):
+                os.remove(target)
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        blob = subprocess.run(["git", "-C", repo, "show", "%s:%s" % (merged, path)], capture_output=True, check=True)
+        with open(target, "wb") as fh:
+            fh.write(blob.stdout)
+
+
+def judge(brief, agent_diff, ref_diff, tests_out, d):
+    pair = judge_pair("bench")
+    with open(RUBRIC) as fh:
+        rubric = fh.read()
+    prompt = "%s\n\n## Brief\n%s\n\n## Agent diff\n%s\n\n## Reference diff\n%s\n\n## Test output\n%s\n" % (
+        rubric, brief, agent_diff, ref_diff, tests_out[-4000:])
+    out = host(pair, prompt, d, 2.0, mode_for(pair.split("/")[0]))
+    try:
+        verdict = json.loads(out["text"])["verdict"]
+        if verdict not in ("pass", "fail"):
+            raise ValueError
+        return verdict, out["cost"]
+    except (ValueError, KeyError, TypeError):
+        return None, out["cost"]
+
+
+def run_trial(m, task, pair, rep, root, keep=False):
+    repo = m["repo"]
+    with open(os.path.join(ROUTING_DIR, "projects", m["slug"], task["brief"])) as fh:
+        brief = fh.read()
+    d = isolate(repo, task["base"], root)
+    trial = {"task": task["id"], "class": task["class"], "pair": pair, "rep": rep,
+             "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "quota_before": quota_reading(), "judge": None, "judge_cost_usd": 0,
+             "models": {}, "cost_usd": 0.0}
+    try:
+        agent = host(pair, brief, d, float(m.get("budget_usd") or 2.0), mode_for(pair.split("/")[0]))
+        trial.update(models=agent["models"], cost_usd=round(agent["cost"], 6), tokens=agent["tokens"],
+                     duration_s=agent["duration"])
+        note_alias(pair.split("/")[0], agent["models"])
+        if not agent["ok"]:
+            trial.update(mech="error", status="error")
+            return trial
+        subprocess.run(["git", "-C", d, "add", "-A"], check=True)
+        agent_diff = subprocess.run(["git", "-C", d, "diff", "--cached", "HEAD"], capture_output=True, text=True).stdout
+        overlay_hidden_tests(repo, task["base"], task["merged"], d, m["test_globs"])
+        try:
+            t = subprocess.run(["bash", "-c", m["test_command"]], cwd=d, capture_output=True, text=True,
+                               timeout=TRIAL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            # Tests that never finish say nothing about the change: an error, not a fail.
+            trial.update(mech="error", status="error")
+            return trial
+        trial["mech"] = "pass" if t.returncode == 0 else "fail"
+        if trial["mech"] == "fail":
+            trial["status"] = "fail"
+            return trial
+        verdict, jcost = judge(brief, agent_diff, git(repo, "diff", task["base"], task["merged"]),
+                               t.stdout + t.stderr, d)
+        trial.update(judge=verdict, judge_cost_usd=round(jcost, 6),
+                     status="error" if verdict is None else verdict)
+        return trial
+    finally:
+        trial["quota_after"] = quota_reading()
+        if keep:
+            trial["dir"] = d
+        else:
+            shutil.rmtree(d, ignore_errors=True)
+
+
+def quota_reading():
+    """The subscription gauge, as a control only: recorded, never acted on. Null unless a
+    source file is named and readable.
+    """
+    path = os.environ.get("ORCHESTRATOR_QUOTA_FILE")
+    return read_json(path, None) if path else None
+
+
+def append_trial(slug, trial):
+    path = os.path.join(ROUTING_DIR, "projects", slug, "trials.jsonl")
+    with open(path, "a") as fh:
+        fh.write(json.dumps(trial, sort_keys=True) + "\n")
+
+
+def runnable(m, tid):
+    if not m.get("test_command") or not m.get("test_globs"):
+        die("bench: project %s has no test_command or test_globs in its manifest" % m["slug"])
+    task = next((t for t in m["tasks"] if t["id"] == tid), None)
+    if task is None:
+        die("trial: no task %s in %s" % (tid, m["slug"]))
+    if task["status"] != "ready":
+        die("trial: task %s is still a draft" % tid)
+    return task
+
+
+def cmd_trial(argv):
+    p = argparse.ArgumentParser(prog="trial")
+    p.add_argument("slug")
+    p.add_argument("task")
+    p.add_argument("pair")
+    p.add_argument("--rep", type=int, default=1)
+    p.add_argument("--keep", action="store_true")
+    a = p.parse_args(argv)
+    parse_pair(a.pair)
+    m = load_manifest(a.slug)
+    task = runnable(m, a.task)
+    judge_pair("trial")
+    trial = run_trial(m, task, a.pair, a.rep, tempfile.gettempdir(), a.keep)
+    append_trial(a.slug, trial)
+    print("trial %s %s rep %d: %s cost_usd=%s" % (a.task, a.pair, a.rep, trial["status"], trial["cost_usd"]))
+
+
 COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate,
-            "harvest": cmd_harvest, "ready": cmd_ready}
+            "harvest": cmd_harvest, "ready": cmd_ready, "trial": cmd_trial}
 
 
 def main():
