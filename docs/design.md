@@ -63,8 +63,8 @@ skills/orchestrator/scripts/workspace.sh    a clone per phase with the project's
 skills/orchestrator/scripts/rhythm.sh       an audit's net balance, from git alone
 skills/coordination/SKILL.md         the coordinator: answers from the facts, flags collisions, relays what is the operator's, its succession
 skills/coordinator/scripts/coordinator.sh  the coordinator's record, and the facts: register, clear, lookup, facts, owners
-skills/model-routing/SKILL.md        which capability tier a dispatch gets
-skills/model-routing/scripts/routing.py  what a session cost, a repository's profile, the pair a class is picked on, and the tables calibrated from trials and record rows
+skills/model-routing/SKILL.md        which model/effort pair a dispatch gets
+skills/model-routing/scripts/routing.py  what a session cost, a repository's profile, the pair a class is picked on, the bench of merged pull requests, and the tables calibrated from trials and record rows, generalised and exported
 skills/model-routing/defaults/README.md  what the shipped tier/effort tables are and how they are made
 skills/model-routing/references/calibration.md  how the routing tables are measured, generalised and exported, in the operator's order
 skills/model-routing/references/judge-rubric.md  the fixed rubric a bench judge grades a mechanically passing trial by
