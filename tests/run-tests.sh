@@ -6228,6 +6228,14 @@ trial behaviour-phase b-model/medium error 0.05
 for i in 1 2 3 4 5; do trial contract-phase b-model/high pass 0.40; done
 trial contract-phase b-model/high fail 0.40
 for i in 1 2 3 4 5 6; do trial contract-phase a-model/high pass 0.90; done
+# Escalation term. search: c-model/low costs 0.10 and passes 19 of 20 (0.95, eligible at 0.9);
+# b-model/medium costs 0.105 and passes 6 of 6. expected_usd(c) = 0.10 + (1 - 0.95) * 0.105 = 0.10525
+# against 0.105 for b, so the dearer pair wins; with the term at 0 the cheaper one would (0.10 < 0.105).
+for i in $(seq 19); do trial search c-model/low pass 0.10; done; trial search c-model/low fail 0.10
+for i in 1 2 3 4 5 6; do trial search b-model/medium pass 0.105; done
+# A pair between the default floor and 1.0: 19 of 20 at 0.20 is eligible at 0.9 and expected_usd
+# 0.20 + 0.05 * 0.40 = 0.22, which would beat a-model/high's 0.9 were the floor 0.9 rather than 1.0.
+for i in $(seq 19); do trial contract-phase c-model/high pass 0.20; done; trial contract-phase c-model/high fail 0.20
 printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"cost_' >> "$TR"; echo >> "$TR"
 printf '{"task":"t","class":"behaviour-phase","pair":"b-model/default","rep":1,"cost_usd":9,"status":"pass"}\n' >> "$TR"
 # A trial with no cost is not free: it is unreadable, and left out of n and of the mean cost.
@@ -6240,6 +6248,10 @@ check "below the floor is never chosen, however cheap" "class=behaviour-phase pa
   "$(printf '%s\n' "$out" | grep '^class=behaviour-phase')"
 check "work nothing re-checks takes a floor of 1.0" "class=contract-phase pair=a-model/high pass_rate=1.0 n=6 expected_usd=0.9" \
   "$(printf '%s\n' "$out" | grep '^class=contract-phase')"
+check "a cheaper pair that fails now and then loses to a dearer sure one on the escalation it costs" "class=search pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.105" \
+  "$(printf '%s\n' "$out" | grep '^class=search')"
+check "and its expected cost is the cheaper pair's cost plus the escalation" "0.10525" \
+  "$(jq -r '.entries.search.ladder[]|select(.pair=="c-model/low")|.expected_usd' "$CS/routing/tables/project-demo.json")"
 check "an error trial costs but does not count" "6|0.2643" \
   "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model/medium")|"\(.n)|\(.cost_usd*10000|round/10000)"' "$CS/routing/tables/project-demo.json")"
 check "the ladder is ordered by cost, cheapest first" "c-model/medium,b-model/medium,a-model/low" \
