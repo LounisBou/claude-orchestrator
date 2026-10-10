@@ -51,6 +51,8 @@ left in front of your status line, and needs the host at 2.1.287 or later (the
 hooks module's events). The gauge itself needs no wiring: the module measures
 every session in-process, and a session restart makes it take effect.
 
+This release was tested against the host at 2.1.295.
+
 ## Requirements
 
 - `bash` 3.2 (the version macOS ships), `jq`
