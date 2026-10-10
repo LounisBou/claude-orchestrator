@@ -991,7 +991,7 @@ git commit -m "feat(supervision): show the supervised sessions in a dock pane"
 - Test: hooks/tests/commands.test.ts
 
 **Interfaces:**
-- Consumes: `readSessions` (Task 9), `parseMeasure`.
+- Consumes: supervision.ts's pure exports — `parseSessionRow`, `paneRows`, and the one-hour staleness rule (exported pure — `isStale(row, nowMs)` or equivalent — if Task 9 left it inside the `$`-holding reader); `parseMeasure`. The store read inside commands.ts is its own `$.fs.list`/`$.fs.read` calls over the same root — `readSessions($)` cannot cross an import — composing parser, staleness and `paneRows`; the progress command's dispatch-record tail read is its own bounded `$.fs` read (`withDeadline`, plain import), its path and format verified against the launcher's own record.
 - Produces: three registered commands answering `{ text }` without a model turn.
 
 - [ ] **Step 1: Failing test**
@@ -1034,7 +1034,7 @@ async function registerCommands($: any): Promise<void> {
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
   for (const event of ['session.start', 'session.measure']) {
-    on(event, async ($: any, e: any, next: (e: any) => any) => {
+    on(event, {}, async ($: any, e: any, next: (e: any) => any) => {
       await registerCommands($).catch(() => undefined)
       return next(e)
     })
@@ -1048,7 +1048,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 }
 ```
 
-Command names are verified against the generated types — if a plugin's module commands are not prefixed, the names become `status`/`progress`/`agents` and the markdown commands are deleted in Task 12 either way. The store read inside commands.ts is its own `$.fs` call plus supervision.ts's pure row parser — `readSessions($)` cannot cross an import (the `$` fence, Task 5's law); the sketch's line adjusts accordingly, and every `on(...)` chains `.catch(handler)` inline.
+Command names are verified against the generated types — if a plugin's module commands are not prefixed, the names become `status`/`progress`/`agents` and the markdown commands are deleted in Task 12 either way. The store read inside commands.ts is its own `$.fs` call plus supervision.ts's pure row parser — `readSessions($)` cannot cross an import (the `$` fence, Task 5's law); the sketch's line adjusts accordingly, and every `on(...)` chains `.catch(handler)` inline. The sketch's registration loop carries `{}` on both events (third registrations — the scaffold or gauge took the bare slot, supervision the second) and chains its `.catch` at the registration site, not around the awaited body. The `command.run` matcher's field names are spelled from the shipped types — matcher keys are validated nowhere — and the exact matcher objects are pinned by wiring tests. What coexistence with the markdown commands of the same names does mid-migration is declared from the engine's own answer, not guessed.
 
 - [ ] **Step 3: Run tests, live smoke (`/orchestrator:status` answers while a turn runs), commit**
 
