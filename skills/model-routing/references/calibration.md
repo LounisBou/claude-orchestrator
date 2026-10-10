@@ -58,13 +58,25 @@ map binds none) with the fixed rubric `references/judge-rubric.md`; a run with t
 unbound is refused before anything is spent. Satisfaction is a mechanical pass and a judge
 pass. A timeout, a host that crashes or cannot start, a cap reached, tests that never finish or
 a judge answer that does not read is an `error`: its cost counts, it says nothing about the
-pair's reliability, and three errors drop the pair from the run, errors of an earlier run
-included.
+pair's reliability, and three errors drop the pair from the run — errors of this run only, so
+one host outage never strikes a pair for good. A judge that answers nothing after a mechanical
+pass is an `error` too (`judge` null) but is never counted toward a drop: the agent did its
+part. A worker that raises is recorded as an `error` trial, never lost.
+
+A cost that cannot be read — no answer, or a model with no figure and no total to fall back
+on — is never free: the trial is charged the per-trial ceiling it was launched with, carries
+`"cost_incomplete": true`, counts toward the cap, and stays out of the pair's mean cost.
+A timeout kills the whole process group of the host and of the test command.
+
+Two limits, plainly. A trial's isolation removes the history, but the headless session runs
+with its own permissions on the machine and could reach the real repository. And with
+`--concurrency N` a run can pass `--max-usd` by at most N per-trial ceilings, since the trials
+in flight finish.
 
 Each trial is one line of `projects/<slug>/trials.jsonl`: task, class, pair, repetition, the
 model identifiers the host reports with their cost, `cost_usd` (the host's own per-model
 figure, so no price file is needed), tokens, duration, the mechanical result, the judge's
-verdict and its cost kept apart, and the subscription gauge before and after, read from the
+verdict, scores (`judge_scores`) and reasons (`judge_reasons`), and its cost kept apart, and the subscription gauge before and after, read from the
 file `ORCHESTRATOR_QUOTA_FILE` names, or `null`. Every trial also records which identifier its
 alias resolved to.
 
@@ -102,7 +114,7 @@ where it was measured, so one easy project cannot drag a profile down. A profile
 at least two projects; until then the global table, the same fold over every project,
 serves it. Projects of unknown language never form a profile: they share nothing but the
 absence of a marker, so they count toward the global table only. A pair held back by one
-project keeps its pooled figures on the ladder, marked not eligible. `generalize` prints
+project (with at least 6 graded trials of it below the floor) keeps its pooled figures on the ladder, marked not eligible. `generalize` prints
 `profile=<p> projects=<n> classes=<n>` per profile table and `global projects=<n>
 classes=<n>`.
 
@@ -119,7 +131,7 @@ worth refreshing it.
 
 `export [--to <dir>]` rewrites the local profile and global tables into the plugin's
 `defaults/`, each pair's family replaced by the tier the map binds it to (`standard/medium`),
-its ladder written the same way, model identifiers, costs and project names dropped. A family
+its ladder written the same way, model identifiers, costs and project names dropped. A table with no class in tier form is not written (`export: <file> has no class in tier form, not written`), and an existing file stays as it was. A family
 bound to no tier is skipped with a warning, `export: <alias> is bound to no tier, <class>
 skipped`; `pick` reads a shipped ladder's rungs back through the map. The exported files name no model, so they resolve through any operator's own map.
 The operator decides when an export is committed.
