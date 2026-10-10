@@ -52,7 +52,7 @@ export function bandTree(reading: MeasureReading | null): BandDescription | null
   return { label, past, note: past ? 'rotation gate — succeed at the next quiet boundary' : null }
 }
 
-export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => unknown) {
+export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
   on('session.measure', async ($: any, e: any, next: (e: any) => any) => {
     try {
       const usage = await $.session.usage()
@@ -76,6 +76,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await logLine($, (err as Error).message)
     }
     return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    // The registered net the plan's every-handler rule asks validate to see:
+    // the measure is let through, the state dir says why, and next is
+    // replay-safe in a catch, called or not.
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
   })
   on('session.end', async ($: any, e: any, next: (e: any) => any) => {
     try {
@@ -87,6 +93,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // every-handler-logs rule.
       await logLine($, (err as Error).message)
     }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    // The registered net the plan's every-handler rule asks validate to see:
+    // the end is let through, the state dir says why, and next is replay-safe
+    // in a catch, called or not.
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
   on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any, next: (e: any) => any) => {
@@ -115,6 +127,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await logLine($, (err as Error).message)
       return next(e)
     }
+  }).catch(async ($: any, e: any, next: any) => {
+    // The registered net the plan's every-handler rule asks validate to see:
+    // the render is let through (the engine draws its own band), the state dir
+    // says why, and next is replay-safe in a catch, called or not.
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
   })
 }
 

@@ -110,7 +110,7 @@ check "nothing project- or machine-specific in the plugin" "" "$hits"
 
 # The namespace is the plugin's name, `orchestrator`: commands and skills are reached as
 # /orchestrator:* and orchestrator:*. The former prefix must not come back in prose.
-hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude=run-tests.sh || true)
+hits=$(grep -rnI 'claude-orchestrator:' "$ROOT" --exclude-dir=.git --exclude-dir=.superpowers --exclude=run-tests.sh || true)
 check "the old command namespace is gone" "" "$hits"
 
 # The operator manages the usage budget; the plugin does not read it, report it or route on
@@ -3702,6 +3702,12 @@ check "step 1 reads its measure file in the successor's first tool call and keep
   "$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, reads your own measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | awk '{ a = index($0, "reads your own measure file"); b = index($0, "Read the rulebook"); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
 check "step 1 keeps the `context_tokens` figure it reads as the « first turn » figure" "1" \
   "$(printf '%s' "$SUCC1" | grep -oF 'and keeps its `context_tokens` figure as your « first turn » figure' | wc -l | tr -d ' ')"
+# The module writes the measure file after each turn, so the successor's FIRST tool call
+# — no completed turn of its own session yet — reads a file that cannot be there; step 1
+# carries the four agent briefs' guard, and the first-turn reading moves to the end of
+# the first turn, when the measure event has fired, rather than to an estimate.
+check "step 1 guards the measure file missing at the first tool call" "1" \
+  "$(printf '%s' "$SUCC1" | grep -oF 'If it is not there, say so and give no figure: an estimate presented as a measurement is worse than an admitted gap' | wc -l | tr -d ' ')"
 check "step 5 reports both figures, « first turn » and « at takeover confirmed », on one line" "1|1" \
   "$(printf '%s' "$SUCC5" | grep -oF 'both on one line: « first turn » and « at takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the figure kept in step 1' | wc -l | tr -d ' ')"
 check "the design names both figures and why: their gap is the takeover's verification cost" "yes|yes" \

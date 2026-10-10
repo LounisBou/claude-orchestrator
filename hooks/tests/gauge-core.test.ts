@@ -65,7 +65,12 @@ test('a fresh module load announces no drift, and a later change is announced on
   const toasts: string[] = []
   let answersAs = 'a-model'
   const handlers: Record<string, Function> = {}
-  registerGauge((event: string, handler: Function) => { handlers[event] = handler })
+  // The engine's on returns a registration taking one .catch; the fake
+  // accepts it and drops it — the body's own catch is what this test drives.
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
   const $ = {
     session: {
       usage: async () => ({ context: { tokens: 1, window: 2, percent: 3 } }),
