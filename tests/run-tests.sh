@@ -3039,10 +3039,11 @@ THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|(gate|threshold|co
 check "no context threshold other than the gate's rule remains in the tracked tree" "" \
   "$(cd "$ROOT" && git grep -n -E -i "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
 
-# The gate is 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or
-# more. A line that states 80 % without the token half is a gate a large-window session
-# would read as its own: every such line carries the rule whole, in the same words.
-GATE_RULE='80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more'
+# The gate is 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common
+# case, and 80 % of a smaller window. A line that states 80 % without the token half is a
+# gate a large-window session would read as its own: every such line carries the rule
+# whole, in the same words.
+GATE_RULE='300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window'
 BARE_RE='([^0-9,.]|^)80 ?%|~ ?80([^0-9]|$)'
 check "every line stating the 80 % gate states the token gate with it" "" \
   "$(cd "$ROOT" && git grep -n -E "$BARE_RE" -- skills hooks templates commands README.md docs/design.md | grep -v -F "$GATE_RULE")"

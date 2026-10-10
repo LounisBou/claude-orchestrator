@@ -30,7 +30,7 @@ asked of the agent, then VERIFIED on the artifact before it is written down.
    (from its brief or the dispatch record — not from the agent, which cannot see
    its own), branch and head, commits ahead of main, PR and CI state, blocker,
    context % and tokens. Mark any agent past the gate —
-   80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more — with ⚠ — the rotation gate of the `orchestrator:orchestrator` skill,
+   300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window — with ⚠ — the rotation gate of the `orchestrator:orchestrator` skill,
    « Thresholds » — and
    say for each what YOU owe it (a verdict, an answer).
 5. An agent that has not answered within fifteen minutes is reported as such —

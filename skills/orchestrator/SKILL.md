@@ -136,7 +136,7 @@ When you hand over to a successor: Until the takeover confirmation arrives, the 
 
 They hold at every step of the loop, whatever a reference adds.
 
-**The gate is 80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more.** It holds every session alike — an agent's rotation and your succession — and the module already enforces it, a fact not an instruction (« Where the rest lives »); every other statement points here. A session launched with `--gate-tokens` has its own.
+**The gate is 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window.** It holds every session alike, rotation and succession, and the module enforces it, a fact not an instruction (« Where the rest lives »); every other statement points here. A session launched with `--gate-tokens` has its own.
 
 The fill is the module's measurement, never an estimate — `/orchestrator:status` answers it. Two gates on it:
 

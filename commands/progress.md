@@ -38,7 +38,7 @@ from the state file alone, never from memory of what was said.
      obliges: a tier reverted for a class, a cascade stopped, a class owed a second
      reader. No signal is left as a number the reader must interpret.
    - **Your context** — the measure file's figures; if past the gate —
-     80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more — say that
+     300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window — say that
      succession is next and when (the quiet boundary you will use).
 6. Every figure carries the command that produced it; a figure you cannot
    re-derive from an artifact is not written.

@@ -110,7 +110,7 @@ asks for one; then tell him to whom it went.
 
 The module measures it every turn; read the live state with `/orchestrator:status`, your
 own session's row included. At the gate —
-80 % of the window, or 300,000 tokens on a window of 1,000,000 tokens or more —
+300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window —
 with no relay in flight, succeed yourself without asking and tell the operator after:
 
 1. Copy `${CLAUDE_PLUGIN_ROOT}/templates/coordinator-succession-brief.md` to
