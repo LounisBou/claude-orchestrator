@@ -30,7 +30,7 @@ if [ -d "$STATE_DIR" ]; then
       say "emptied $STATE_DIR but for the tap's copy and saved object: the status line may still run it"
     fi
   elif [ "$DRY" = "1" ]; then say "[dry-run] rm -rf $STATE_DIR"
-  else rm -rf "$STATE_DIR"; say "removed $STATE_DIR (measure files, the module's log, prompts, tier map)"; fi
+  else rm -rf "$STATE_DIR"; say "removed $STATE_DIR (measure files, the module's log with its rotation and lock, prompts, tier map)"; fi
 fi
 
 say "Done. Restart your session."

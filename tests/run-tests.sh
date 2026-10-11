@@ -4496,9 +4496,13 @@ check "the installer says which of the two it found" "1|1" \
 before=$(cat "$H/.claude/settings.json")
 inst "$H" >/dev/null 2>&1
 check "second run leaves settings untouched" "$before" "$(cat "$H/.claude/settings.json")"
+# The module's log rotates to one `.1` file beside a lock; the uninstall takes all three.
+for f in hooks-module.log hooks-module.log.1 hooks-module.log.lock; do
+  printf 'line\n' > "$H/.claude/claude-orchestrator/$f"
+done
 uninst "$H" >/dev/null 2>&1
-check "uninstall removes the state directory" "gone" \
-  "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)"
+check "uninstall removes the state directory, the module's rotated log and lock with it" "gone|absent|absent" \
+  "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)|$([ -e "$H/.claude/claude-orchestrator/hooks-module.log.1" ] && echo present || echo absent)|$([ -e "$H/.claude/claude-orchestrator/hooks-module.log.lock" ] && echo present || echo absent)"
 
 H2="$WORK/home2"; mkdir -p "$H2/.claude"; stub_venv "$H2"
 sed "s#@TAP@#$H2/.claude/claude-orchestrator/statusline-tap.sh#" \
@@ -4576,9 +4580,10 @@ printf '#!/bin/sh\n' > "$H4B/.claude/claude-orchestrator/statusline-tap.sh"
 inst "$H4B" >/dev/null 2>&1
 check "an install that could not unwire keeps the tap's copy" "kept" \
   "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)"
+for f in hooks-module.log.1 hooks-module.log.lock; do printf 'line\n' > "$H4B/.claude/claude-orchestrator/$f"; done
 uninst "$H4B" >/dev/null 2>&1
-check "an uninstall that could not unwire keeps the tap's copy, removes the rest" "kept|gone" \
-  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/models.json" ] && echo kept || echo gone)"
+check "an uninstall that could not unwire keeps the tap's copy, removes the rest, the log's rotation and lock among it" "kept|gone|gone|gone" \
+  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/models.json" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/hooks-module.log.1" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/hooks-module.log.lock" ] && echo kept || echo gone)"
 
 # What the old pipeline left behind: the tap's ctx/ directory, its copy and saved object,
 # the shell gates' logs and heads, and measure files from sessions long ended. A session
