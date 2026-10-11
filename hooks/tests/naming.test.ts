@@ -3,7 +3,7 @@
 // the call that records the name and the turn's completion that runs the host's
 // /rename with it — never from the call itself, which the host refuses.
 import { expect, test } from 'claude-code/testing'
-import { checkName, END_TOOL, register as registerNaming, RENAME_TOOL } from '../naming.ts'
+import { checkName, END_TOOL, register as registerNaming, RENAME_TOOL, MAIN_THREAD_ONLY, isEnding } from '../naming.ts'
 
 // A registration is keyed by its event, and a tool call by its tool too: the
 // file serves two tools.
@@ -102,4 +102,38 @@ test('a refused name is said to the model and renames nothing', async () => {
   expect(answer.result).toContain('"Orch : <subject>" or "Coord : <subject>"')
   await handlers['turn.complete'](fx.dollar, {}, (x: unknown) => x)
   expect(fx.runs).toEqual([])
+})
+
+test("a subagent neither names nor ends the session, and its turn's end runs nothing the main loop asked", async () => {
+  // A review subagent once renamed its session; one could end the operator's. And a
+  // subagent's turn.complete fired inside the main turn took the main loop's rename.
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  expect(await handlers['tool.call'](fx.dollar, { name: 'Coord : norms check', agentId: 'a-1' })).toEqual({ result: MAIN_THREAD_ONLY, isError: true })
+  expect(await handlers['tool.call:end'](fx.dollar, { agentId: 'a-1' })).toEqual({ result: MAIN_THREAD_ONLY, isError: true })
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : phase-3' })
+  await handlers['turn.complete'](fx.dollar, { agentId: 'a-2', isAborted: false }, (x: unknown) => x)
+  expect(fx.runs).toEqual([])
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(fx.runs).toEqual([{ command: 'rename', args: 'Orch : phase-3' }])
+})
+
+test('an interrupted turn runs neither the rename nor the end it asked', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : phase-3' })
+  await handlers['tool.call:end'](fx.dollar, {})
+  expect(isEnding()).toBe(true)
+  await handlers['turn.complete'](fx.dollar, { isAborted: true, reason: 'aborted' }, (x: unknown) => x)
+  expect(isEnding()).toBe(false)
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(fx.runs).toEqual([])
+})
+
+test('the end tool is offered to an orchestrator or a coordinator that has handed over', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  await handlers['session.start'](fx.dollar, {}, (x: unknown) => x)
+  expect(fx.registered.find((spec: any) => spec.name === END_TOOL).description)
+    .toContain('Only for an orchestrator or a coordinator that has handed over and whose successor asks it to end its session.')
 })

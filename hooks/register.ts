@@ -10,6 +10,7 @@ import { register as registerGuards } from './guards.ts'
 import { register as registerSupervision } from './supervision.ts'
 import { register as registerCommands } from './commands.ts'
 import { register as registerNaming } from './naming.ts'
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
   // The scaffold's own passthrough, now under the every-handler law the four
@@ -27,13 +28,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   registerNaming(on)
 }
 
-// One line in the module's log, the domains' own shape — each file spells its
+// One line appended to the module's log (module-log.ts) — each file spells its
 // env resolution, $ never crossing an import, and the stamp names the half that
 // failed. Never throws, never blocks the mount it serves.
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | register | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'register', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }

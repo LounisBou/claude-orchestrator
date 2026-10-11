@@ -98,6 +98,8 @@ hooks/commands.ts                    the three commands the markdown files decla
 hooks/naming.ts                      the session's own rename: a rename_session tool the model calls with « Orch : <subject> » or « Coord : <subject> », the host's /rename run with it when the turn ends; an end_session tool a predecessor calls when the host refuses its successor the close; neither tool in a session the launcher opened
 hooks/tokenizer.ts                   the push tokeniser, pure: the command line read the way the shell reads it (quotes, separators, heredocs, wrappers), every force a git push carries named
 hooks/stop-gate.ts                   the stop gate's checks, pure: the wake decision over the launcher's listing and the chain, the once-per-tell CI decision over ci-watch's precomputed logs, the deadline race
+hooks/module-log.ts                  the module's log line, pure: the argv each domain hands its own process run, the log path and its cap
+hooks/log-append.sh                  appends one line to the module's log, shared by every session, and rotates it to one .1 generation past the cap
 hooks/tests/scaffold.test.ts         proves the module chain loads, run by the host's plugin test
 hooks/tests/gauge-core.test.ts       the double gate's boundaries, the measure line, the drift announcement and its once rule
 hooks/tests/gauge-band.test.ts       the fill band: the quiet label, the rotation line past the gate, the nothing-drawn skip
@@ -110,6 +112,8 @@ hooks/tests/supervision.test.ts      the store's per-session keys and merges, th
 hooks/tests/pane.test.ts             the supervision rows: sorted by rotation urgency, past the gate first, the label's name, role, fill and age, and the wiring over a faked $: no pane opened on any start, whatever the role, the orchestrators in a coordinator's pane, the agents its own chain names in an orchestrator's, the bounded side reads losing only the name
 hooks/tests/naming.test.ts           the self-name's shape, the tool declared at every start, the rename and the end run at the turn's completion and never from the call, both refused in a session the launcher opened
 hooks/tests/commands.test.ts         the three answers' texts (the urgent first, the agents alone, the open rows and the tally), the dispatch row parser, and the wiring over a faked $: the three markdown spellings pinned as matchers, the store and record reads, the registry read under the state override and without it, the failed handler falling back to the markdown command and said; the engine entry answering through the kit's mocked env without a bottom
+hooks/tests/module-log.test.ts       the log line's argv and its cap; the append script itself is run by tests/run-tests.sh
+hooks/tests/fakes.ts                 what every faked $ answers the same way: the log line captured, a transcript window cut as bytes
 install.sh, uninstall.sh
 tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close

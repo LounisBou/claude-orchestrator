@@ -1,11 +1,14 @@
 // hooks/tests/context-gate.test.ts
 import { expect, test } from 'claude-code/testing'
 import { roleLine, gateAnnouncement, register as registerGuards } from '../guards.ts'
+import { register as registerGauge, driftAnnouncement } from '../gauge.ts'
+import { logLineOf, blockOf } from './fakes.ts'
 
 test('each role gets its own line, verbatim from the shell gate', () => {
   expect(roleLine('orchestrator')).toBe('Succeed at the next quiet boundary — run /orchestrator:succeed: spawn the successor in the operator\'s decision mode, then tell the user; do not ask.')
   expect(roleLine('agent')).toBe('Finish the unit in progress, report to your orchestrator with your measured context, and stop; no new phase is dispatched to you.')
   expect(roleLine('coordinator')).toContain('skills/coordination/SKILL.md')
+  expect(roleLine('coordinator', '/plugins/orch-root')).toContain('/plugins/orch-root/skills/coordination/SKILL.md')
   expect(roleLine('auditor')).toContain('auditor-succession-brief.md')
   expect(roleLine('none' as any)).toBe('')
 })
@@ -38,7 +41,6 @@ test("the auditor's brief is named openably, from any cwd", () => {
 const HOME = '/tmp/h'
 const TRANSCRIPT = `${HOME}/.claude/projects/-a-project/s-gate.jsonl`
 const MEASURE = `${HOME}/.claude/claude-orchestrator/measure/s-gate.json`
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 
 // The transcript of a session a turn has answered; the rename on the last line
 // is padded — the unmeasured test below reads the session's name from it alone.
@@ -63,7 +65,7 @@ type Setup = {
 
 function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
   const written: string[] = []
-  const env = { HOME, ...(setup.env ?? {}) }
+  const env = { HOME, ORCHESTRATOR_HOST_CLI: '/usr/local/bin/host', ...(setup.env ?? {}) }
   const dollar = {
     session: {
       id: async () => {
@@ -81,10 +83,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
           if (setup.measure === undefined) throw new Error('ENOENT')
           return setup.measure
         }
-        if (p === LOG) return ''
         throw new Error(`unread: ${p}`)
       },
-      write: async (p: string, text: string) => { if (p === LOG) written.push(text) },
+      write: async () => undefined,
       stat: async (p: string) => {
         if (p === TRANSCRIPT && setup.transcript !== undefined) {
           return { kind: 'file', size: setup.transcript.length }
@@ -100,6 +101,13 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
+        const block = blockOf(argv, (p: string) => setup.transcript ?? '')
+        if (block !== null) return { exitCode: 0, stdout: block, stderr: '' }
         if (argv[0] === 'sh') {
           // selfTty's seed: a controlling tty, or none for a headless run.
           return { exitCode: 0, stdout: setup.noTty ? '123 ??\n' : '123 ttys001\n', stderr: '' }
@@ -109,12 +117,6 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
           return { exitCode: 0, stdout: setup.noLaunchName ? '  501 host\n' : `  501 host --name ${setup.launchName ?? 'Agent : belt'}\n`, stderr: '' }
         }
         if (argv[0] === 'ps') return { exitCode: 0, stdout: '1 ??\n', stderr: '' }
-        if (argv[0] === 'dd') {
-          const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
-          const bs = Number(flag('bs')), skip = Number(flag('skip')), count = Number(flag('count'))
-          const text = setup.transcript ?? ''
-          return { exitCode: 0, stdout: text.slice(skip * bs, (skip + count) * bs), stderr: '' }
-        }
         return { exitCode: 0, stdout: '', stderr: '' }
       },
     },
@@ -232,4 +234,48 @@ test('a handler that fails lets the prompt through and logs one line', async () 
   expect(await submit(mounted(), dollar, e)).toBe(e)
   expect(written.length).toBe(1)
   expect(written[0]).toContain('| guards |')
+})
+
+test("a coordinator past the gate is shown its skill's absolute place", async () => {
+  const { dollar } = fakeDollar({ transcript: ANSWERED_RENAMED, measure: MEASURED_84, launchName: 'Coord : main' })
+  const seen = await submit(mounted(), dollar)
+  expect((seen as any).context[0]).toContain('/plugins/orch-root/skills/coordination/SKILL.md')
+})
+
+test('a /clear starts the memo over: the new session is told it is unmeasured too', async () => {
+  // After a /clear the session id changes and no start fires: a memo held across it
+  // named the old transcript and kept the line already said.
+  const { dollar } = fakeDollar({ transcript: ANSWERED_RENAMED, noLaunchName: true })
+  const handlers = mounted()
+  expect((await submit(handlers, dollar) as any).context[0]).toContain('unmeasured')
+  const next = `${HOME}/.claude/projects/-a-project/s-two.jsonl`
+  const stat = dollar.fs.stat
+  dollar.session.id = async () => 's-two'
+  dollar.fs.exists = async (p: string) => p === next
+  dollar.fs.stat = async (p: string) => (p === next ? { kind: 'file', size: ANSWERED_RENAMED.length } : stat(p))
+  expect((await submit(handlers, dollar) as any).context[0]).toContain('unmeasured')
+})
+
+test('a model drift the gauge measured rides the next prompt to the model, once, whatever the role', async () => {
+  const gauge: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    gauge[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  let model = 'a-model'
+  const g = {
+    session: { usage: async () => ({ context: { tokens: 1, window: 2, percent: 3 } }), model: async () => model, id: async () => 's-gate' },
+    fs: { write: async () => undefined },
+    env: { get: async (name: string) => (name === 'HOME' ? HOME : undefined) },
+    ui: { toast: () => undefined, invalidate: () => undefined },
+  }
+  await gauge['session.measure'](g, {}, (x: unknown) => x)
+  model = 'another-model'
+  await gauge['session.measure'](g, {}, (x: unknown) => x)
+  // A session with no role at all is still told.
+  const { dollar } = fakeDollar({ noLaunchName: true })
+  const handlers = mounted()
+  const seen = await submit(handlers, dollar)
+  expect((seen as any).context).toEqual([driftAnnouncement('another-model', 'a-model')])
+  expect((await submit(handlers, dollar) as any).context).toBeUndefined()
 })

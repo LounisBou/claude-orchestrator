@@ -93,6 +93,8 @@ function notDoneReasons(left: readonly string[], deferred: readonly string[]): s
 // be any a model reaches for, and the spacing around it is free. A hyphen inside the
 // reason is the reason's own and is kept.
 const MACHINE_LINE = /^waiting:\s*(?:operator\s*(?:—|–|--|-)\s*blocks:\s*(.+)|(done))$/i
+// The predecessor's last word in a succession (succeed.md): the line itself, nothing else.
+const HANDED_OVER = /^handed over$/i
 const LOOKS_DECLARED = /\bblocks\b\W*\w/i
 const MARKUP = /^[`*_ \t]+/g
 const MARKUP_END = /[`*_ \t]+$/g
@@ -280,20 +282,33 @@ export type Held = { case: string; reason: string }
 // `{ blocks }` answer is the release the machine line grants, kept for the log the
 // shell gate writes (its cost figures are read there); 'read-what-is-left' hands the
 // decision to the done branch, which needs the checkouts and the records.
+//
+// Three releases the shell gate did not know, each a state the orchestrator's own
+// skill puts it in: the predecessor of a succession — its last line `handed over`, or
+// a session that has handed over (`handedOver`: it spawned its successor, or asked to
+// end) ending on `waiting: done`, its agents and rows now the successor's; a declared
+// block, honoured before the « stand it down » refusal — an idle agent may be waiting
+// on the very answer the block names; and a ci-watch this session started, still
+// running (`watching`), whose exit wakes it as an agent's idle notice would.
 export function checkWake(facts: {
   agents: readonly OwnAgent[]
   resident: boolean
   delivered: readonly string[]
   message: string
+  handedOver?: boolean
+  watching?: boolean
 }): Held | { blocks: string } | 'read-what-is-left' | null {
-  // Before everything else: neither a busy agent beside it nor a declared block lifts it.
+  const last = machineLine(facts.message)
+  const matched = MACHINE_LINE.exec(last)
+  if (HANDED_OVER.test(last)) return null
+  if (facts.handedOver && matched && matched[2]) return null
+  if (matched && matched[1]) return { blocks: matched[1] }
+  // Before every other release: neither a busy agent beside it nor a running watch lifts it.
   if (facts.delivered.length > 0) {
     return { case: 'idle-delivered', reason: idleDelivered(facts.delivered.join(', ')) }
   }
   if (facts.agents.some(a => a.state === 'busy')) return null
-  const last = machineLine(facts.message)
-  const matched = MACHINE_LINE.exec(last)
-  if (matched && matched[1]) return { blocks: matched[1] }
+  if (facts.watching) return null
   if (matched) return 'read-what-is-left'
   if (facts.agents.length > 0) {
     const names = facts.agents.map(a => a.label).join(', ')
@@ -311,6 +326,13 @@ export function checkWake(facts: {
     return null
   }
   return { case: 'nothing-will-wake', reason: NOTHING }
+}
+
+// The successor's spawn, as the session ran it through Bash: the launcher's spawn
+// with --successor (its script or the python beneath it). Run without error, it is
+// the hand-over the gate releases on.
+export function isSuccessorSpawn(command: string): boolean {
+  return /\biterm[-_]agent\.(?:sh|py)\b[^\n]*\bspawn\b[^\n]*(?:^|\s)--successor(?:\s|=|$)/m.test(command)
 }
 
 // check_wake()'s done branch, over the facts the handler read: what is left of the
@@ -400,10 +422,25 @@ const decodeName = (text: string): string => {
 // them: it appends `name\tbucket\telapsed\tlink` snapshots to
 // `<state>/ci-watch/<slug>-pr<n>.log`, truncated at each watch's start, and that file
 // is the state the check reads. Two consequences it lives with, said here: the log
-// names no head sha, so the tell a head is told once for is the log's modification
-// time — a new watch truncates the log, a new mtime, and the telling starts over —
-// and the refusal names the pull request without the sha it sat at.
+// names no head sha, so the tell a head is told once for is the log's first line
+// (logTell) — a new watch truncates the log, a new first line, and the telling starts
+// over — and the refusal names the pull request without the sha it sat at.
 export type CiWatchLog = { number: string; tell: string; checks: readonly { name: string; bucket: string }[] }
+
+// The tell a watch is told once for: the log's first line, hashed. A watch truncates
+// its log when it starts and its first snapshot carries the checks' own links — a new
+// head's runs are new runs — so the first line names the watch, and stays put while the
+// watch appends: the log's mtime, the tell before this one, moved every interval and
+// the same failing set was refused again at every stop.
+export function logTell(text: string): string {
+  const first = text.split('\n').find(l => l.trim() !== '') ?? ''
+  let hash = 0x811c9dc5
+  for (const b of new TextEncoder().encode(first)) {
+    hash ^= b
+    hash = Math.imul(hash, 0x01000193) >>> 0
+  }
+  return first ? `h${hash.toString(16).padStart(8, '0')}` : 'empty'
+}
 
 // The last bucket each check carries: a snapshot appends, so the final line of a
 // check's history is its state.
@@ -439,6 +476,40 @@ export function watchSlug(name: string): string | null {
 // own path, then the number. An editor open on the script, or a `grep ci-watch.sh 12`,
 // is no watch.
 const WATCH_PROCESS = /^\s*(?:\S*\/)?(?:(?:bash|sh|zsh)\s+(?:-\S+\s+)*)?\S*ci-watch\.sh\s+(\d+)(?:\s|$)/
+
+// The rows of `ps -axo pid=,ppid=,command=`: the process table with each one's parent.
+export type ProcessRow = { pid: string; ppid: string; command: string }
+
+export function processTable(out: string): ProcessRow[] {
+  const rows: ProcessRow[] = []
+  for (const line of out.split('\n')) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*\S)/.exec(line)
+    if (m) rows.push({ pid: m[1], ppid: m[2], command: m[3] })
+  }
+  return rows
+}
+
+// The pull request numbers a ci-watch is alive for under `hostPid`: a watch whose
+// chain of parents reaches the session's own host process is one this session started
+// (a background Bash command is the host's descendant), and its exit will wake it.
+export function ownWatches(rows: readonly ProcessRow[], hostPid: string | null): Set<string> {
+  const own = new Set<string>()
+  if (!hostPid) return own
+  const parent = new Map(rows.map(r => [r.pid, r.ppid]))
+  for (const row of rows) {
+    const number = [...watchedNumbers(row.command)][0]
+    if (!number) continue
+    let at: string | undefined = row.ppid
+    for (let hops = 0; at && at !== '0' && at !== '1' && hops < 64; hops++) {
+      if (at === hostPid) {
+        own.add(number)
+        break
+      }
+      at = parent.get(at)
+    }
+  }
+  return own
+}
 
 export function watchedNumbers(psOut: string): Set<string> {
   const watched = new Set<string>()

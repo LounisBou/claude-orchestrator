@@ -8,12 +8,13 @@
 // bounded so a walk that cannot answer in time costs the row its name, never
 // the measure.
 import { expect, test } from 'claude-code/testing'
-import { agentPaneRows, hostRecordOf, paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
+import { logLineOf, blockOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const SESSIONS = `${HOME}/.claude/claude-orchestrator/store/sessions`
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 const PROJECTS = `${HOME}/.claude/projects`
 
 // --- the rows -------------------------------------------------------------------------------
@@ -125,6 +126,8 @@ type Fx = {
   opened: object[]
   closed: object[]
   env: Record<string, string>
+  timers: { ms: number; fn: () => void; cancelled: boolean }[]
+  invalidated: string[]
 }
 
 function fakeDollar(over: {
@@ -138,7 +141,9 @@ function fakeDollar(over: {
   const opened: object[] = []
   const closed: object[] = []
   const open = new Set<string>()
-  const env: Record<string, string> = { HOME }
+  const env: Record<string, string> = { HOME, ORCHESTRATOR_HOST_CLI: 'hostcli' }
+  const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
+  const invalidated: string[] = []
   const dollar = {
     session: {
       id: async () => 's-one',
@@ -147,14 +152,14 @@ function fakeDollar(over: {
       surfaces: async () => ['terminal'],
     },
     env: { get: async (name: string) => env[name] },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
     fs: {
       read: async (p: string) => {
         if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
         return files.get(p)
       },
       write: async (p: string, text: string) => {
-        if (p === LOG) written.push(text)
-        else files.set(p, text)
+        files.set(p, text)
       },
       stat: async (p: string) => {
         const text = files.get(p)
@@ -179,10 +184,21 @@ function fakeDollar(over: {
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
+        const block = blockOf(argv, (p: string) => files.get(p) ?? '')
+        if (block !== null) return { exitCode: 0, stdout: block, stderr: '' }
         ran.push(argv.join(' '))
         if (argv[0] === 'sh') {
           if (over.hangWalk) return new Promise(() => undefined)
           return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
+        }
+        if (argv[0] === 'ps' && argv[1] === '-t' && argv[2] !== 'ttys001') {
+          // Another tab's host process: an agent's, pid 777.
+          return { exitCode: 0, stdout: '  777 hostcli\n', stderr: '' }
         }
         if (argv[0] === 'ps' && argv[1] === '-t') {
           const name = over.launchName === null ? null : (over.launchName ?? 'Agent : belt-p3')
@@ -191,13 +207,14 @@ function fakeDollar(over: {
         if (argv[0] === 'git' && argv[1] === 'remote') {
           return over.origin ? { exitCode: 0, stdout: `${over.origin}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'no origin' }
         }
-        if (argv[0] === 'dd') {
-          const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
-          const bs = Number(flag('bs')), skip = Number(flag('skip')), count = Number(flag('count'))
-          const text = files.get(argv[1]?.slice('if='.length) ?? '') ?? ''
-          return { exitCode: 0, stdout: text.slice(skip * bs, (skip + count) * bs), stderr: '' }
-        }
         return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    },
+    clock: {
+      every: (ms: number, fn: () => void) => {
+        const timer = { ms, fn, cancelled: false, cancel: () => { timer.cancelled = true } }
+        timers.push(timer)
+        return timer
       },
     },
     ui: {
@@ -212,14 +229,14 @@ function fakeDollar(over: {
       },
       panes: async () => [...open].map(id => ({ id, title: '' })),
       toast: () => undefined,
-      invalidate: () => undefined,
+      invalidate: (what: string) => { invalidated.push(what) },
       resolve: (_e: unknown) => ({
         Box: (props: { flexDirection?: string; children?: unknown[] }) => ({ type: 'Box', props }),
         Text: (props: { color?: string; children?: string }) => ({ type: 'Text', props }),
       }),
     },
   }
-  return { dollar, files, ran, written, opened, closed, env }
+  return { dollar, files, ran, written, opened, closed, env, timers, invalidated }
 }
 
 function mounted(register: (on: any) => void): {
@@ -326,8 +343,8 @@ test('an orchestrator\'s pane lists the agents its own tab spawned, read from th
     JSON.stringify({ tab_id: 't-9', tty: '/dev/ttys009', owner: 'OWNER-1' }),
     JSON.stringify({ tab_id: 't-8', tty: '/dev/ttys008', owner: 'SOMEONE-ELSE' }),
   ].join('\n') + '\n')
-  // The fake's ps answers pid 501 on any tty: its host record and store row.
-  fx.files.set(`${HOME}/.claude/sessions/501.json`, JSON.stringify({ sessionId: 's-agent', name: 'Agent : belt-p3', status: 'busy' }))
+  // The fake's ps answers pid 777 on an agent's tty: its host record and store row.
+  fx.files.set(`${HOME}/.claude/sessions/777.json`, JSON.stringify({ sessionId: 's-agent', name: 'Agent : belt-p3', status: 'busy' }))
   fx.files.set(`${SESSIONS}/s-agent`, JSON.stringify(row({ role: 'agent', name: 'Agent : belt-p3', context_percent: 40 })) + '\n')
   await handlers['command.run'](fx.dollar, supervisionRun)
   const text = JSON.stringify(await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x })))
@@ -366,4 +383,25 @@ test('a name walk that cannot answer in time costs the row its name, never the m
   expect(stored.repo).toBe('me/belt')
   expect(stored.context_percent).toBe(30)
   expect(stored.model).toBe('a-model')
+})
+
+test('an open pane redraws on its own clock while its session waits, and the clock stops with any close', async () => {
+  // A render was raised only by this session's own measure: a coordinator waiting on
+  // the others saw their rows frozen at its last turn. The open starts a clock that
+  // re-raises the render; the command's close and the pane's own close both stop it.
+  const { handlers, matchers } = mounted(registerSupervision)
+  expect(matchers['ui.close']).toEqual({ id: 'supervision' })
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.timers.length).toBe(1)
+  expect(fx.timers[0].ms).toBe(20000)
+  fx.timers[0].fn()
+  expect(fx.invalidated).toEqual(['ui.render'])
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.timers[0].cancelled).toBe(true)
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.timers.length).toBe(2)
+  const e = { id: 'supervision', origin: { kind: 'person' } }
+  expect(await handlers['ui.close'](fx.dollar, e, (x: unknown) => x)).toBe(e)
+  expect(fx.timers[1].cancelled).toBe(true)
 })

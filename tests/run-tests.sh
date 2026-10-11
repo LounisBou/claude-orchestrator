@@ -3919,6 +3919,17 @@ check "the eval selection says its two stop-gate cases grade the staged spawn li
   "$(grep -E '^\| 5[12] \|' "$ROOT/evals/SELECTION.md" | grep -c 'under staging; it does not run the hook')"
 check "hooks.json declares the module and nothing else" "1|0|0" \
   "$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); print(str(sum(m=="./register.ts" for m in d.get("modules",[])))+"|"+str(len(d.get("hooks",{})))+"|"+str(sum(k!="description" and k!="modules" for k in d)))' "$ROOT/hooks/hooks.json" 2>/dev/null)"
+# The module's log is appended, never read and rewritten: every session shares it, and a
+# read-then-write lost the lines written in between and wiped the history past the host's
+# 4 MiB read limit. Forty writers at once keep all forty lines; past the cap the log moves
+# to its one `.1` generation and the next line starts a fresh file.
+LOGD="$WORK/module-log"
+for i in $(seq 1 40); do sh "$ROOT/hooks/log-append.sh" "$LOGD/hooks-module.log" "line $i" 1000000 & done; wait
+check "the module's log keeps every line forty sessions append at once" "40|40" \
+  "$(wc -l < "$LOGD/hooks-module.log" | tr -d ' ')|$(sort -u "$LOGD/hooks-module.log" | grep -c '^line [0-9]*$')"
+sh "$ROOT/hooks/log-append.sh" "$LOGD/hooks-module.log" "past the cap" 100
+check "a log past its cap is rotated to one .1 generation, the new line alone in the fresh file" "40|past the cap|no" \
+  "$(grep -c '^line' "$LOGD/hooks-module.log.1")|$(cat "$LOGD/hooks-module.log")|$([ -e "$LOGD/hooks-module.log.lock" ] && echo yes || echo no)"
 
 echo "== the app, stubbed =="
 # A pane behind a maximized sibling is in the tab's all_sessions and not in its sessions.

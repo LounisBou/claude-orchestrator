@@ -15,15 +15,21 @@
 // lives here, next to the handlers that hold $, while the name walk's logic
 // stays pure in session-name.ts (readName below delegates to it over this
 // file's own readers) and the stop gate's decisions in stop-gate.ts.
-import { roleOf, walkName, BLOCK } from './session-name.ts'
+import {
+  roleOf, walkName, hostOn, scanTail, hostBasenames, blockArgv, bytesOfBase64,
+  type ReadRecord, type HostNames,
+} from './session-name.ts'
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
+import { takeDrift } from './gauge.ts'
+import { isEnding } from './naming.ts'
 import { detectForces } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
   listing, chainEntries, ownAgents, hostStatusOf, pullRequestOf, openRows, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchSlug, watchedNumbers,
-  checkWake, checkWakeDone, checkCi,
+  checkWake, checkWakeDone, checkCi, isSuccessorSpawn, processTable, ownWatches, logTell,
 } from './stop-gate.ts'
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 // The config dir, gauge.ts's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -45,14 +51,14 @@ async function stateDir($: any): Promise<string> {
 
 export function roleLine(role: string, root = ''): string {
   // Verbatim from hooks/context-gate.sh:57-63 — the four role answers. The
-  // auditor's brief is spelled from a root the handler reads: an auditor's cwd
-  // is the audited repo, so a path relative to the checkout names a file the
-  // model cannot open.
+  // auditor's brief and the coordinator's skill are spelled from a root the
+  // handler reads: a session's cwd is its own project, so a path relative to the
+  // plugin's checkout names a file the model cannot open.
   switch (role) {
     case 'orchestrator': return 'Succeed at the next quiet boundary — run /orchestrator:succeed: spawn the successor in the operator\'s decision mode, then tell the user; do not ask.'
     case 'agent': return 'Finish the unit in progress, report to your orchestrator with your measured context, and stop; no new phase is dispatched to you.'
     case 'auditor': return `Report not written, or nothing the operator gave you after it: write the one report with what you have read, and stop. Work he gave you after the report still in hand: succeed — ${auditorBrief(root)}; tell him before you hand over.`
-    case 'coordinator': return 'With no relay in flight, succeed as skills/coordination/SKILL.md « Your context » says, then tell the operator.'
+    case 'coordinator': return `With no relay in flight, succeed as ${pluginFile(root, 'skills/coordination/SKILL.md')} « Your context » says, then tell the operator.`
     default: return ''
   }
 }
@@ -63,7 +69,12 @@ export function roleLine(role: string, root = ''): string {
 // spelling stays relative — the one exposure the cutover leaves standing, this
 // module the only gate to carry it.
 function auditorBrief(root: string): string {
-  return root ? `${root.replace(/\/+$/, '')}/templates/auditor-succession-brief.md` : 'templates/auditor-succession-brief.md'
+  return pluginFile(root, 'templates/auditor-succession-brief.md')
+}
+
+// A file of the plugin as a role line names it: under the root when one is known.
+function pluginFile(root: string, path: string): string {
+  return root ? `${root.replace(/\/+$/, '')}/${path}` : path
 }
 
 export function gateAnnouncement(gate: { tripped: boolean; words: string }, role: string, root = '', set: readonly string[] = []): string {
@@ -98,6 +109,18 @@ export function pushDecision(spawned: string | null | undefined, command: string
   const forces = detectForces(command)
   if (forces.length === 0) return null
   return { deny: `git push refused: this session was spawned by the launcher, and the only forced push allowed here is --force-with-lease=<branch>:<sha> with the sha you read. Seen: ${forces.join(', ')}. If the command only mentions a push, put text that mentions a push in a file (\`git commit -F\`, \`gh … --body-file\`).` }
+}
+
+// The push guard's answer when it could not run whole: the mark as last read decides.
+// A session the launcher marked refuses its forced pushes as the guard would; a mark
+// never read refuses a forced push with the reason the guard did not finish — the
+// safe side when nothing says which session this is; an operator's own session is
+// left alone.
+export function guardFallback(mark: string | null | undefined, command: string, why: string): { deny: string } | null {
+  if (mark !== undefined) return pushDecision(mark, command)
+  const forces = detectForces(command)
+  if (forces.length === 0) return null
+  return { deny: `git push refused: the push guard could not read whether the launcher spawned this session (${why}), and a forced push waits until it can. Seen: ${forces.join(', ')}.` }
 }
 
 // prompt.submit's `context` is a list of blocks: what the model reads beside the
@@ -136,30 +159,68 @@ function unmeasuredAnnouncement(env: { gate?: number; gateTokens?: number; large
 
 // $.fs.read carries no range — the API's own types offer only { as }, and a
 // whole read is refused past 4 MiB while transcripts grow past any cap — so a
-// block comes from dd through $.process.run: one bounded window per step,
-// never the whole file, and every line before the one that matched stays
-// unread. dd counts its windows from the file's start, so the blocks are
-// aligned there; that changes only which bytes share a read, never what is
-// scanned, and the short window is the one holding the file's end.
-
-async function readRange($: any, path: string, index: number): Promise<string> {
-  const { exitCode, stdout } = await $.process.run(['dd', `if=${path}`, `bs=${BLOCK}`, `skip=${index}`, 'count=1'])
+// block comes from dd through $.process.run (blockArgv): one bounded window per
+// step, never the whole file, carried as bytes so a character the window cuts
+// is joined whole. dd counts its windows from the file's start, so the blocks
+// are aligned there; that changes only which bytes share a read, never what is
+// scanned, and the short window is the one holding the file's end. Every read
+// carries its own timeout: a read the caller stopped waiting for never outlives
+// the bound it was given.
+async function readBlock($: any, path: string, index: number, timeoutMs: number): Promise<Uint8Array> {
+  const { exitCode, stdout } = await $.process.run(blockArgv(path, index), { timeoutMs })
   if (exitCode !== 0) throw new Error(`dd exited ${exitCode} on ${path}`)
-  return stdout
+  return bytesOfBase64(String(stdout ?? ''))
 }
 
-// read_name() ported (session_name.py:81-92): the tty first — a session with
-// none (a headless run) is named by nobody — then the launch name, else the
+// How long a name walk may take when its caller sets no deadline of its own.
+const NAME_WALK_MS = 5000
+
+// The host's record of a pid, the identity rule's first half: the text, or null
+// when the pid has none.
+function recordReader($: any, config: string, timeoutMs: () => number): ReadRecord {
+  return async (pid: string) => {
+    try {
+      const text = await withDeadline($.fs.read(`${config}/sessions/${pid}.json`), timeoutMs())
+      return isDegradedPass(text) ? null : String(text)
+    } catch {
+      return null
+    }
+  }
+}
+
+// The identity rule's second half: the basenames the host's binary goes by — the
+// name ORCHESTRATOR_HOST_CLI spells (the launcher's default beside it) and the
+// binary it resolves to through the PATH and its links.
+function hostNamesReader($: any, timeoutMs: () => number): HostNames {
+  return async () => {
+    const host = (await $.env.get('ORCHESTRATOR_HOST_CLI')) ?? 'claude'
+    let resolved: string | null = null
+    try {
+      const found = await $.process.run(['sh', '-c', 'command -v -- "$1"', 'sh', host], { timeoutMs: timeoutMs() })
+      const path = found.exitCode === 0 ? String(found.stdout ?? '').trim() : ''
+      if (path.startsWith('/')) resolved = (await $.fs.stat(path, { resolve: true })).realPath ?? path
+    } catch { /* unresolved: the spelled name alone */ }
+    return hostBasenames(host, resolved)
+  }
+}
+
+// read_name() ported (session_name.py:81-92) on the identity rule: the tty
+// first — a session with none (a headless run) is named by nobody — then the
+// host process on it, named by its record, else its launch name, else the
 // transcript's last rename. The walk itself is session-name.ts's pure core;
-// this file's $ builds the readers it runs over (the fence law: $ never
-// crosses an import). Exported: the stop gate (Task 8) reads the same name in
-// this same file.
-export async function readName($: any, transcriptPath: string): Promise<{ tty: string | null; name: string | null }> {
+// this file's $ builds the readers it runs over (the fence law: $ never crosses
+// an import), each bounded by what is left of `until`.
+export async function readName($: any, transcriptPath: string, sessionId = '', until = Date.now() + NAME_WALK_MS):
+Promise<{ tty: string | null; name: string | null; pid: string | null; known: boolean }> {
+  const left = () => Math.max(1, until - Date.now())
   return walkName(
-    (argv: readonly string[]) => $.process.run(argv),
+    (argv: readonly string[]) => $.process.run(argv, { timeoutMs: left() }),
     async (path: string) => (await $.fs.stat(path)).size,
-    (path: string, index: number) => readRange($, path, index),
+    (path: string, index: number) => readBlock($, path, index, left()),
     transcriptPath,
+    recordReader($, await configDir($), left),
+    hostNamesReader($, left),
+    sessionId,
   )
 }
 
@@ -184,72 +245,79 @@ async function transcriptPathOf($: any, sessionId: string): Promise<string> {
 // The first-prompt rule (context-gate.sh:113-119): « unmeasured » is said only
 // once a turn has answered — a session with no assistant entry yet is not a
 // gauge that failed, it is one the gauge has not rendered for at all. The walk
-// is the session-name block reader's: from the end, one dd window at a time,
-// the cut first line carried, and it stops at the first assistant entry —
-// they are dense, so the walk is short and never a whole-file read.
+// is the session-name tail scan: from the end, one dd window at a time, the cut
+// first line carried, and it stops at the first assistant entry — they are
+// dense, so the walk is short and never a whole-file read.
 async function transcriptHasAnswer($: any, path: string): Promise<boolean> {
-  const isAnswer = (line: string) => /"type"\s*:\s*"assistant"/.test(line)
-  if (!path) return false
-  try {
-    const size = (await $.fs.stat(path)).size
-    let carry = ''
-    for (let index = Math.max(0, Math.ceil(size / BLOCK) - 1); index >= 0; index--) {
-      const lines = ((await readRange($, path, index)) + carry).split('\n')
-      // Unless this block starts the file, its first line is cut and carries.
-      carry = index > 0 ? (lines.shift() ?? '') : ''
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (isAnswer(lines[i])) return true
-      }
-    }
-    return false
-  } catch {
-    // A transcript that cannot be read has answered nothing the gate can know.
-    return false
-  }
+  // A transcript that cannot be read has answered nothing the gate can know.
+  const until = Date.now() + NAME_WALK_MS
+  const { line } = await scanTail(
+    async (p: string) => (await $.fs.stat(p)).size,
+    (p: string, index: number) => readBlock($, p, index, Math.max(1, until - Date.now())),
+    path,
+    (l: string) => /"type"\s*:\s*"assistant"/.test(l),
+  )
+  return line !== null
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
-  // Module memory, the gauge's own law: a reload resets both, so neither the
-  // unmeasured line nor the transcript's place survives a re-registration.
-  let saidUnmeasured = false
-  let transcript: string | null = null
+  // Module memory, the gauge's own law: a reload resets it all. The transcript's
+  // place and the unmeasured line are the session's own, keyed by its id: after a
+  // /clear the id changes and no session.start fires, so a memo held across it
+  // would name the old session's transcript and keep the line already said.
+  let memo: { sessionId: string; transcript: string | null; saidUnmeasured: boolean } | null = null
+  // The session id that handed over (it spawned its successor), the stop gate's
+  // release: keyed by id like the memo above, a /clear's new session has not.
+  let handedOverIn: string | null = null
+  // The launcher's mark, read once and kept: a re-entered call, or one past its
+  // budget, can no longer read the environment, and the push guard's net decides
+  // on this instead. Undefined until the first read answers.
+  let spawnedMark: string | null | undefined = undefined
   on('prompt.submit', async ($: any, e: any, next: (e: any) => any) => {
+    // The model drift the gauge measured is said on this channel — the context the
+    // model reads beside the prompt, never only a toast nobody sees — whatever the
+    // session's role, once.
+    const blocks: string[] = []
+    const drift = takeDrift()
+    if (drift) blocks.push(drift)
+    const answer = () => next(blocks.length === 0 ? e : { ...e, context: blocks.reduce<readonly string[]>(joinContext, e.context ?? []) })
     try {
       const sessionId = await $.session.id()
-      if (transcript === null) {
+      if (memo === null || memo.sessionId !== sessionId) memo = { sessionId, transcript: null, saidUnmeasured: false }
+      if (memo.transcript === null) {
         // A miss is looked up again: a young session's transcript appears with
         // its first turn, and a memo of the miss would pin it forever.
         const found = await transcriptPathOf($, sessionId)
-        if (found) transcript = found
+        if (found) memo.transcript = found
       }
-      const { name } = await readName($, transcript ?? '')
+      const { name } = await readName($, memo.transcript ?? '', sessionId)
       const role = roleOf(name)
-      if (!role) return next(e)                       // a session never spoken to
-      // Only the auditor's line names a file: the plugin's own directory makes
-      // the brief openable from the audited repo's cwd. The module's
-      // environment carries no CLAUDE_PLUGIN_ROOT (the host sets it for hook
-      // processes only), so the root is the engine's own $.plugin.root.
-      const root = role === 'auditor' ? $.plugin.root : ''
+      if (!role) return answer()                       // a session never spoken to
+      // The auditor's and the coordinator's lines name a file: the plugin's own
+      // directory makes it openable from any cwd. The module's environment
+      // carries no CLAUDE_PLUGIN_ROOT (the host sets it for hook processes
+      // only), so the root is the engine's own $.plugin.root.
+      const root = role === 'auditor' || role === 'coordinator' ? $.plugin.root : ''
       let raw: string | null = null
       try { raw = await $.fs.read(measureFilePath(await configDir($), sessionId)) } catch { /* no file yet: unmeasured */ }
       const reading = parseMeasure(String(raw ?? ''))
       if (!reading) {
-        if (!saidUnmeasured && await transcriptHasAnswer($, transcript ?? '')) {
-          saidUnmeasured = true
-          return next({ ...e, context: joinContext(e.context, unmeasuredAnnouncement(await gateEnv($))) })
+        if (!memo.saidUnmeasured && await transcriptHasAnswer($, memo.transcript ?? '')) {
+          memo.saidUnmeasured = true
+          blocks.push(unmeasuredAnnouncement(await gateEnv($)))
         }
-        return next(e)
+        return answer()
       }
       const env = await gateEnv($)
       const gate = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, env)
       const announcement = gateAnnouncement(gate, role, root, setNames(env))
-      if (announcement) return next({ ...e, context: joinContext(e.context, announcement) })
+      if (announcement) blocks.push(announcement)
     } catch (err) {
       // A gate that cannot measure lets the prompt through and says so once in
       // the log; the log's own failure stays quiet (the every-handler-logs rule).
       await logLine($, (err as Error).message)
     }
-    return next(e)
+    return answer()
   }).catch(async ($: any, e: any, next: any) => {
     // The registered net the plan's every-handler rule asks validate to see:
     // the body's own catch handles what throws inside it, this one what it
@@ -264,25 +332,41 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // The push guard (push-guard.sh ported). tool.call's input carries the tool's
   // arguments beside the tool's name — `e.command`, never a nested `input` —
   // and the deny the engine documents for the event is `{ deny: reason }`, the
-  // decision's own shape already; the matcher keeps it to Bash calls.
+  // decision's own shape already; the matcher keeps it to Bash calls. The same
+  // hook watches for the successor's spawn: run without error, it is the
+  // hand-over the stop gate releases on.
   on('tool.call', { tool: 'Bash' }, async ($: any, e: any, next: (e: any) => any) => {
+    const command = String(e.command ?? '')
     try {
-      const spawned = await $.env.get('ORCHESTRATOR_SPAWNED')
-      const decision = pushDecision(spawned, String(e.command ?? ''))
-      if (decision) return decision
-      return next(e)
+      spawnedMark = (await $.env.get('ORCHESTRATOR_SPAWNED')) ?? null
     } catch (err) {
-      // A guard that cannot read its input lets the call through and says so —
-      // one line in the log, the shell guard's own failure posture.
+      // The mark cannot be read: the decision falls to what is known of it.
       await logLine($, (err as Error).message)
+      const fallback = guardFallback(spawnedMark, command, (err as Error).message)
+      if (fallback) return fallback
       return next(e)
     }
+    const decision = pushDecision(spawnedMark, command)
+    if (decision) return decision
+    const out = await next(e)
+    if (!e.agentId && isSuccessorSpawn(command) && out && !out.isError && !out.deny) {
+      try {
+        handedOverIn = await $.session.id()
+      } catch (err) {
+        await logLine($, `the hand-over could not be kept: ${(err as Error).message}`)
+      }
+    }
+    return out
   }).catch(async ($: any, e: any, next: any) => {
-    // The registered net the plan's every-handler rule asks validate to see,
-    // the prompt's own law one handler up: the call is let through, the state
-    // dir says why, and next is replay-safe in a catch, called or not.
+    // The registered net the plan's every-handler rule asks validate to see. A
+    // call already run beneath is let through (next is replay-safe in a catch).
+    // One not run yet — a re-entry, a guard past its budget — is decided on the
+    // launcher's mark as last read: closed in a spawned session, open in one the
+    // operator started, and a forced push refused while the mark is unknown.
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
-    return next(e)
+    if (next.called) return next(e)
+    const fallback = guardFallback(spawnedMark, String(e.command ?? ''), next.error?.message ?? 'the guard did not finish')
+    return fallback ?? next(e)
   })
 
   // The stop gate (hooks/stop_gate.py ported; the decisions in stop-gate.ts). The
@@ -308,7 +392,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // The scope first, from the session itself: the launcher's listing is a call to
       // the terminal, and every agent's, auditor's and hand-started session would pay it.
       const transcript = String(e.transcript_path ?? '') || await transcriptPathOf($, sessionId)
-      const { tty, name } = await readName($, transcript)
+      // One deadline over the whole gate, the name walk included: its reads are bounded.
+      const until = Date.now() + await stopDeadline($)
+      const { tty, name, pid } = await readName($, transcript, sessionId, until)
       if (!tty) {
         await logLine($, "stop gate: the session's own tty cannot be read")
         return next(e)
@@ -320,7 +406,6 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (!name.startsWith('Orch :')) return next(e)
       const state = await stateDir($)
       const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
-      const until = Date.now() + await stopDeadline($)
       let swept = false
       sweepAtStop = async () => {
         if (swept) return
@@ -350,7 +435,23 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           delivered.push(`${agent.label} (pull request #${pr.number}, ${pr.state})`)
         }
       }
-      const wake = checkWake({ agents, resident, delivered, message: String(e.last_assistant_message ?? '') })
+      // The process table, read once for both checks: the ci-watches this session
+      // started (check 1: one still running will wake it) and the ones alive at all
+      // (check 2: a head waited on in the background is not told).
+      let table: ReturnType<typeof processTable> | null = null
+      const processes = async () => {
+        if (table === null) {
+          const ps = await inTime($, () => runUntil($, ['ps', '-axo', 'pid=,ppid=,command='], until), until)
+          table = ps && ps.exitCode === 0 ? processTable(String(ps.stdout ?? '')) : []
+        }
+        return table
+      }
+      const watching = !agents.some(a => a.state === 'busy') && ownWatches(await processes(), pid).size > 0
+      const wake = checkWake({
+        agents, resident, delivered, watching,
+        message: String(e.last_assistant_message ?? ''),
+        handedOver: (sessionId !== '' && handedOverIn === sessionId) || isEnding(),
+      })
       if (wake !== null && typeof wake === 'object' && 'blocks' in wake) {
         // The release the machine line grants, logged as the shell gate logged it — the
         // figures that say whether the gate earns its cost are read there.
@@ -404,13 +505,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           const repo = await repository()
           if (watched !== (repo.name ? slugOf(repo.name) : null)) continue
         }
-        const buckets = parseCiWatchLog(await mustReadText($, `${state}/ci-watch/${entry.name}`, `the ci-watch log ${entry.name}`, until))
-        logs.push({ number, tell: String(entry.mtimeMs), checks: Object.entries(buckets).map(([name, bucket]) => ({ name, bucket })) })
+        const text = await mustReadText($, `${state}/ci-watch/${entry.name}`, `the ci-watch log ${entry.name}`, until)
+        const buckets = parseCiWatchLog(text)
+        logs.push({ number, tell: logTell(text), checks: Object.entries(buckets).map(([name, bucket]) => ({ name, bucket })) })
       }
       let watched: ReadonlySet<string> = new Set()
       if (logs.length > 0) {
-        const ps = await inTime($, () => $.process.run(['ps', '-axo', 'command']), until)
-        watched = ps && ps.exitCode === 0 ? watchedNumbers(String(ps.stdout ?? '')) : watched
+        watched = watchedNumbers((await processes()).map(row => row.command).join('\n'))
       }
       const headsFile = headsPath(state, sessionId)
       const reported = readHeads(String(await quietly($, () => $.fs.read(headsFile), until, '')))
@@ -457,13 +558,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 }
 
-// One line in the module's log, the gauge's own shape: the stamp names the half
-// that failed. Never throws, never blocks the handler it serves.
+// One line appended to the module's log (module-log.ts): the stamp names the
+// half that failed. Never throws, never blocks the handler it serves.
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = await configDir($)
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | guards | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'guards', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }
 
@@ -561,7 +661,7 @@ async function hostStatuses($: any, ttys: readonly string[], until: number): Pro
   const statuses = new Map<string, 'idle' | 'busy'>()
   const config = await configDir($)
   for (const tty of ttys) {
-    const ps = await quietly($, () => $.process.run(['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid=']), until, null)
+    const ps = await quietly($, () => runUntil($, ['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid='], until), until, null)
     if (!ps || ps.exitCode !== 0) continue
     for (const pid of String(ps.stdout ?? '').split('\n').map(line => line.trim().split(/\s+/)[0] ?? '').filter(pid => /^\d+$/.test(pid))) {
       const status = hostStatusOf(String(await quietly($, () => $.fs.read(`${config}/sessions/${pid}.json`), until, '')))
@@ -574,6 +674,14 @@ async function hostStatuses($: any, ttys: readonly string[], until: number): Pro
   return statuses
 }
 
+// A process the gate runs under its deadline: the race above stops the gate's wait, and
+// the timeout given here stops the process itself — a hung read never outlives the stop
+// it was made for.
+function runUntil($: any, argv: readonly string[], until: number, cwd?: string): Promise<any> {
+  const timeoutMs = Math.max(1, until - Date.now())
+  return $.process.run(argv, cwd ? { timeoutMs, cwd } : { timeoutMs })
+}
+
 // A quiet read's fallback shape.
 async function quietly<T>($: any, work: () => Promise<T>, until: number, fallback: T): Promise<T> {
   const done = await inTime($, work, until)
@@ -583,7 +691,7 @@ async function quietly<T>($: any, work: () => Promise<T>, until: number, fallbac
 // A read the gate stands down on: it could not be made, so the stop passes and the log
 // says so — never a stop held on the gate's own wait.
 async function mustRun($: any, argv: readonly string[], what: string, until: number): Promise<string> {
-  const done = await inTime($, () => $.process.run(argv), until)
+  const done = await inTime($, () => runUntil($, argv, until), until)
   if (!done || done.exitCode !== 0) {
     await logLine($, `stop gate: ${what} unread: ${!done ? 'it did not answer in time' : `it exited ${done.exitCode}`}`)
     throw new GateUnread(what)
@@ -608,33 +716,32 @@ async function mustReadText($: any, path: string, what: string, until: number): 
 }
 
 // pull_request_of()'s reads (stop_gate.py:250-275; the launcher's host_cli_cwd): the
-// working directory of the host process on the agent's tty, that checkout's branch,
-// then one gh read — the only network the gate pays, for an idle agent alone. Any read
-// that fails, or cannot answer in time, is no pull request: the refusal simply does not
-// name the agent, never a stop held on it.
+// host process on the agent's tty by the identity rule (hostOn: its record, else its
+// basename), that process's working directory, that checkout's branch, then one gh read
+// run in that checkout — the only network the gate pays, for an idle agent alone. Any
+// read that fails, or cannot answer in time, is no pull request: the refusal simply does
+// not name the agent, never a stop held on it.
 async function pullRequestRead($: any, tty: string, until: number): Promise<{ number: string; state: string } | null> {
-  // The host's own name, the launcher's default beside it (ORCHESTRATOR_HOST_CLI).
-  const host = (await $.env.get('ORCHESTRATOR_HOST_CLI')) ?? 'claude'
-  const pattern = new RegExp(`^(\\S*/)?${host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`)
-  const ps = await inTime($, () => $.process.run(['ps', '-t', tty.replace(/^\/dev\//, ''), '-o', 'pid=,command=']), until)
-  if (!ps || ps.exitCode !== 0) return null
-  let pid = ''
-  for (const line of String(ps.stdout ?? '').split('\n')) {
-    const row = /^\s*(\d+)\s+(.*\S)/.exec(line)
-    if (pattern.test(row ? row[2] : line.trim())) {
-      pid = row ? row[1] : ''
-      break
-    }
-  }
-  if (!/^\d+$/.test(pid)) return null
-  const lsof = await inTime($, () => $.process.run(['lsof', '-a', '-p', pid, '-d', 'cwd', '-Fn']), until)
+  const left = () => Math.max(1, until - Date.now())
+  const config = await configDir($)
+  const host = await inTime($, () => hostOn(
+    (argv: readonly string[]) => $.process.run(argv, { timeoutMs: left() }),
+    recordReader($, config, left),
+    hostNamesReader($, left),
+    tty,
+  ), until)
+  if (!host) return null
+  const lsof = await inTime($, () => runUntil($, ['lsof', '-a', '-p', host.pid, '-d', 'cwd', '-Fn'], until), until)
   if (!lsof || lsof.exitCode !== 0) return null
   const cwd = String(lsof.stdout ?? '').split('\n').find(l => l.startsWith('n'))?.slice(1) ?? ''
   if (!cwd) return null
-  const git = await inTime($, () => $.process.run(['git', '-C', cwd, 'symbolic-ref', '--short', '-q', 'HEAD']), until)
+  const git = await inTime($, () => runUntil($, ['git', '-C', cwd, 'symbolic-ref', '--short', '-q', 'HEAD'], until), until)
   const branch = git && git.exitCode === 0 ? String(git.stdout ?? '').trim() : ''
   if (!branch) return null
-  const gh = await inTime($, () => $.process.run(['gh', 'pr', 'view', branch, '--json', 'number', 'state']), until)
+  // One --json argument, the fields comma-joined: gh reads a second word as a second
+  // positional and refuses the call. Run in the agent's checkout, the repository its
+  // branch is pushed to.
+  const gh = await inTime($, () => runUntil($, ['gh', 'pr', 'view', branch, '--json', 'number,state'], until, cwd), until)
   if (!gh || gh.exitCode !== 0) return null
   return pullRequestOf(branch, String(gh.stdout ?? ''))
 }
@@ -643,7 +750,7 @@ async function pullRequestRead($: any, tty: string, until: number): Promise<{ nu
 // when git gives none. The shell gate resolved the path; the sandbox exposes no
 // resolver, and the cwd names the same project to workspace.sh's own listing.
 async function projectTop($: any, cwd: string, until: number): Promise<string> {
-  const done = await inTime($, () => $.process.run(['git', '-C', cwd, 'rev-parse', '--show-toplevel']), until)
+  const done = await inTime($, () => runUntil($, ['git', '-C', cwd, 'rev-parse', '--show-toplevel'], until), until)
   const top = done && done.exitCode === 0 ? String(done.stdout ?? '').trim() : ''
   return top || cwd
 }
@@ -665,7 +772,7 @@ async function readRecords($: any, state: string, sessionId: string, until: numb
 // the same fact the shell gate read from gh, a local read now. Null when it cannot be
 // known; `why` is the half-line ignored-checks says when it had entries to match.
 async function repositoryOf($: any, cwd: string, until: number): Promise<{ name: string | null; why: string }> {
-  const remote = await inTime($, () => $.process.run(['git', '-C', cwd, 'remote', 'get-url', 'origin']), until)
+  const remote = await inTime($, () => runUntil($, ['git', '-C', cwd, 'remote', 'get-url', 'origin'], until), until)
   if (!remote) return { name: null, why: 'the origin remote did not answer in time' }
   if (remote.exitCode !== 0) return { name: null, why: 'git remote get-url origin did not answer' }
   const url = String(remote.stdout ?? '').trim()
