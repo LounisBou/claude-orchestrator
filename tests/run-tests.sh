@@ -2622,6 +2622,9 @@ check "the start renames itself before it registers" "1" \
   "$([ "$(COORDLINE "$COORDCMD" 'Call `mcp__orchestrator__rename_session` with `Coord : <subject>`')" -lt "$(COORDLINE "$COORDCMD" 'coordinator.sh register --name')" ] 2>/dev/null && echo 1 || echo 0)"
 # The orchestrator's rename lands when its turn ends: a spawn in the same turn would carry
 # the directory-stem name into every brief, so the rulebook ends the turn on the call.
+# A session the launcher cannot read a name for still succeeds: the title is passed by hand.
+check "succeed passes the current name as the title when the launcher reads none" "yes" \
+  "$(spells "$ROOT/commands/succeed.md" 'older convention — it says to type one: pass `--title "<this session'"'"'s current name>"`,')"
 check "the orchestrator ends the turn on its rename and dispatches from the next" "yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once, and END THE TURN: the name is taken when it ends, so you dispatch from the next turn')"
 COORDMOVE=$(grep -m1 -o 'iterm-agent.sh move --tty <your tty> --leftmost' "$COORDCMD" 2>/dev/null | sed -e 's/^iterm-agent.sh move //' -e 's#<your tty>#/dev/ttys950#')
