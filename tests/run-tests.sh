@@ -3772,6 +3772,10 @@ check "the audit report keeps a dated name whose date is date +%F run at launch,
   "$(spells "$ROOT/commands/audit.md" '`<briefs dir>/audits/<date>-<subject>.md`, where `<date>` is the output of `date +%F` run now, never typed')|$(spells "$ROOT/commands/audit.md" "the previous report's file name, which a command wrote")"
 check "the coordinator's succession brief is named with no date" "yes|no" \
   "$(spells "$ROOT/skills/coordination/SKILL.md" '<state dir>/coordinator/succession-brief.md')|$(spells "$ROOT/skills/coordination/SKILL.md" 'succession-<date>')"
+# status, progress and agents are answered by the hooks module without a model turn; their
+# bodies run only when that answer fails, and each says so, with what the answer leaves out.
+check "the three hooked commands say the module answers them and their body is the fallback" "yes|yes|yes" \
+  "$(for c in status agents progress; do spells "$ROOT/commands/$c.md" 'The hooks module answers this command on the spot, with no model turn'; done | paste -sd'|' -)"
 # The question of a decision round ends on the machine line: the stop gate refuses a turn
 # whose last line is a bare question.
 check "a decision round's question ends on the operator's machine line" "yes" \

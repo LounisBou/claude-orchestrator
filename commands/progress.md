@@ -6,6 +6,14 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/scripts/dispatch-r
 Report the state of the whole build to the user, from the artifacts — never
 from the state file alone, never from memory of what was said.
 
+The hooks module answers this command on the spot, with no model turn: from the dispatch
+records this session registered, one `open=<id> label=<label>` line per row still open,
+then the tally `dispatches=<n> closed=<n> rounds_avg=<n>`. It reads no pull request and
+corrects no state file. The steps below run only when that answer fails; a report to the
+user still follows them by hand, and correcting the state file from the artifacts is the
+rulebook's « Refresh the state from the artifacts », due at every quiet boundary whatever
+this command printed.
+
 1. Read the project's state file (the one the `orchestrator:orchestrator` skill
    says status lives in), the plan's phase list, and the briefs directory.
 2. Verify on the artifacts: for every phase the plan names, its branch and PR

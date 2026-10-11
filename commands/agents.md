@@ -6,6 +6,13 @@ allowed-tools: Bash(ls:*), Bash(jq:*), Bash(cat:*), Bash(date:*), Bash(git:*), B
 Report where every implementer agent stands, one row each, with its context —
 asked of the agent, then VERIFIED on the artifact before it is written down.
 
+The hooks module answers this command on the spot, with no model turn: the store's rows
+cut to the implementer agents — name, role, context fill and the age of its last measure,
+the most urgent first. It asks no agent and reads no branch. The steps below run only when
+that answer fails; where a phase's state matters, you run them yourself — the ask, the
+reading of each branch and pull request, and the table — since the module's answer covers
+the context alone.
+
 1. Run `ListAgents`. Keep every live implementer (the names the project's
    state file or briefs designate; when in doubt, every session that is not
    yours and not a reader).

@@ -5,6 +5,11 @@ allowed-tools: Bash(ls:*), Bash(jq:*), Bash(date:*), Bash(cat:*), ListAgents
 
 Show the orchestrator who is near the rotation gate.
 
+The hooks module answers this command on the spot, with no model turn: one line per live
+session from its store — name, role, context fill and the age of its last measure — the
+sessions past the gate first. The steps below run only when that answer fails, and the
+host then runs this body as a prompt.
+
 1. Run `ListAgents` and keep the peer list.
 2. For every file in `${CLAUDE_CONFIG_DIR:-~/.claude}/claude-orchestrator/measure/*.json`,
    print one row: session id (the file's name), `context_percent`,
