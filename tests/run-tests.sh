@@ -2633,6 +2633,12 @@ check "the end checks this session is the recorded coordinator before it clears"
 # close by title, prove on ps, THEN register. Filled, it lints clean like every template.
 check "the successor closes its predecessor's tab by title before it registers" "yes|1|yes" \
   "$(spells "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}} --expect-title "Coord :"')|$([ "$(COORDLINE "$COORDTPL" 'close --tty {{PREDECESSOR_TTY}}')" -lt "$(COORDLINE "$COORDTPL" 'register --name')" ] 2>/dev/null && echo 1 || echo 0)|$(spells "$COORDTPL" '`ps -t <that tty without /dev/>`')"
+# A coordinator started by hand is closed too, nothing asked: its title is the host's, the
+# host may refuse the close, and the end it then asks for is proved on the tty, not on list.
+check "the coordinator's successor closes a hand-started predecessor, with the end_session fallback" "yes|yes|yes|yes" \
+  "$(spells "$COORDTPL" "The operator's standing order: you ALWAYS close your")|$(spells "$COORDTPL" '`list` printed for it as `--expect-title` instead')|$(spells "$COORDTPL" 'mcp__orchestrator__end_session »: the module ends its session')|$(spells "$COORDTPL" 'verify --tty {{PREDECESSOR_TTY}}` fails')"
+check "the coordinator calls end_session when its successor asks" "yes" \
+  "$(spells "$COORDSKILL" 'mcp__orchestrator__end_session » (the host refused it the close), you call it and end the')"
 COORDFILLED="$WORK/coordinator-brief-filled.md"
 mkdir -p "$WORK/coord-fill/coordinator"; : > "$WORK/coord-fill/coordinator/notes.md"
 if [ -f "$COORDTPL" ]; then

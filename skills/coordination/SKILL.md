@@ -125,4 +125,6 @@ with no relay in flight, succeed yourself without asking and tell the operator a
    and verify it: `iterm-agent.sh list`, `verify --tty`, `ListAgents`.
 3. From then on you only forward, verbatim, what still reaches you — « forwarded from
    <sender>: <message> » — and on its « takeover confirmed » you answer « handed over ». You
-   never close your own tab: the successor does, then registers.
+   never close your own tab: the successor does, then registers. Asked « call
+   mcp__orchestrator__end_session » (the host refused it the close), you call it and end the
+   turn.
