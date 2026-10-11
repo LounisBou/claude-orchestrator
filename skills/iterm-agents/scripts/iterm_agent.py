@@ -1658,14 +1658,14 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
     import shutil
     cli_path = shutil.which(HOST_CLI) or HOST_CLI
     parts = ["cd %s" % shq(dir_),
-             # Marks this session as launcher-spawned: the push-guard hook (hooks/push-guard.sh)
+             # Marks this session as launcher-spawned: the module's push guard (hooks/guards.ts)
              # is active only where this is set, and the operator's own sessions never carry it.
              "export ORCHESTRATOR_SPAWNED=1",
              "printf '\\033]0;%%s\\007' %s" % shq(title),
              None]
     if gate_tokens:
-        # The session's own context gate, read from the environment by the context-gate hook
-        # and by the status line. Exported only when asked for: absent, the default holds.
+        # The session's own context gate, read from the environment by the module's context
+        # gate and its band. Exported only when asked for: absent, the default holds.
         parts.insert(2, "export ORCHESTRATOR_CONTEXT_GATE_TOKENS=%d" % gate_tokens)
     cli = [shq(cli_path)]
     if model:
