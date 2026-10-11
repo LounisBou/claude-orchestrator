@@ -2154,6 +2154,23 @@ print(m.session_name_on(sys.argv[1]))" "$2"; }
 check "the table gives the name the host process was launched with" "Orch : f" "$(name_on "$PSTAB" /dev/ttys900)"
 check "a process launched without a name reads as none" "None" "$(name_on "$PSNONAME" /dev/ttys900)"
 check "a tty the table does not name reads as none" "None" "$(name_on "$PSTAB" /dev/ttys555)"
+# The host keeps a session's current name in its registry, and a rename changes the
+# registry, never argv: read from argv alone, a renamed orchestrator listed as « (host
+# default) » and its successor was refused for having no name.
+NCFG="$WORK/namecfg"; mkdir -p "$NCFG/sessions"
+printf '/dev/ttys900 5151 claude --resume x\n' > "$WORK/ps-reg.txt"
+printf '/dev/ttys900 5252 claude --name Agent : old\n' > "$WORK/ps-reg-argv.txt"
+printf '{"pid":5151,"name":"\xe2\x80\x9cOrch : g\xe2\x80\x9d"}\n' > "$NCFG/sessions/5151.json"
+printf '{"pid":5252,"name":""}\n' > "$NCFG/sessions/5252.json"
+check "a registry file names the session, its quotes stripped" "Orch : g" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg.txt" /dev/ttys900)"
+check "an empty registry name falls back to the launch name" "Agent : old" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg-argv.txt" /dev/ttys900)"
+printf '{"pid":5252,"name":"Agent : renamed"}\n' > "$NCFG/sessions/5252.json"
+check "and a registry name wins over the launch name" "Agent : renamed" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg-argv.txt" /dev/ttys900)"
+check "a successor of a session named only in the registry takes that name" "1" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" succ "$WORK/ps-reg.txt" --successor | sed -n 's/^launch=//p' | grep -c -- "--name 'Orch : g'")"
 
 # What the dry run could not see and the live round did: `ps` shows a command line with
 # the shell's quoting gone, so whatever FOLLOWS --name runs into the name. The prompt sat
@@ -2548,6 +2565,24 @@ check "rotate refuses the coordinator's tab before it spawns anything" "0|1|1" \
 check "--force rotates it, and says so" "1|1" \
   "$(crdrot --old-tty /dev/ttys950 --force | tail -1 | grep -c '^close=/dev/ttys950')|$(crdrot --old-tty /dev/ttys950 --force | grep -c "^rotate: forced: /dev/ttys950 is the coordinator's tab")"
 check "an agent's tab still rotates without --force" "1" "$(crdrot --old-tty /dev/ttys901 | tail -1 | grep -c '^close=/dev/ttys901')"
+# The first coordinator is opened by hand and names itself through a rename, which never
+# reaches argv: named only in the host registry, or only in the coordinator's own record,
+# its tab is still not an agent to rotate or to move.
+CRDREGCFG="$WORK/crdregcfg"; mkdir -p "$CRDREGCFG/sessions"
+printf '{"pid":6161,"name":"Coord : hand"}\n' > "$CRDREGCFG/sessions/6161.json"
+printf '/dev/ttys951 6161 claude --resume x\n/dev/ttys952 6262 claude --resume y\n' > "$WORK/ps-coord-reg.txt"
+crdregrot() { CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$1" ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" \
+  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" --prompt p --old-tty "$2" 2>&1; }
+CRDREGROT=$(crdregrot "$CRDSTATE" /dev/ttys951)
+check "rotate refuses a coordinator named only in the host registry" "0|1" \
+  "$(printf '%s' "$CRDREGROT" | grep -c '^launch=')|$(printf '%s' "$CRDREGROT" | grep -c "rotate: refused: /dev/ttys951 is the coordinator's tab ('Coord : hand')")"
+CRDRECSTATE="$WORK/crdrecstate"; mkdir -p "$CRDRECSTATE"
+printf '{"name":"Coord : rec [abc123]","tty":"/dev/ttys952"}\n' > "$CRDRECSTATE/coordinator.json"
+CRDRECROT=$(crdregrot "$CRDRECSTATE" /dev/ttys952)
+check "rotate refuses the tty the coordinator's record registers" "0|1" \
+  "$(printf '%s' "$CRDRECROT" | grep -c '^launch=')|$(printf '%s' "$CRDRECROT" | grep -c "rotate: refused: /dev/ttys952 is the coordinator's tab ('Coord : rec \[abc123\]')")"
+check "and move names it, forced or not" "1|1" \
+  "$(CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDRECSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" bash "$AGENT" move --tty /dev/ttys952 --right-of self 2>&1 | grep -c "move: refused: /dev/ttys952 is the coordinator's tab")|$(CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDRECSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" bash "$AGENT" move --tty /dev/ttys952 --right-of self --force 2>&1 | grep -c "^move: forced: /dev/ttys952 is the coordinator's tab")"
 printf '{"tab_id":"9","tty":"/dev/ttys950","owner":"S-ME"}\n' >> "$CRDSTATE/chains/ttys900.jsonl"
 crdmv() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move "$@" 2>&1; }
@@ -3084,6 +3119,11 @@ check "the measure file is read under the config dir, not the state override" "1
   "$(inh s-ovr --inherit-model --prompt p | grep -cF "$ICFG/claude-orchestrator/measure/s-ovr.json")"
 check "inherit-model with no measure file refuses and names the module" "1" \
   "$(inh s-none --inherit-model --prompt p | grep -c 'hooks module')"
+# The module records `unavailable` when the host gave it no model: a sentinel, never a
+# model to type, and a succession must not start on a guess (§27).
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"unavailable","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-unav.json"
+check "inherit-model refuses the unavailable sentinel, as if no model were recorded" "0|1" \
+  "$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c -- '--model unavailable')|$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c 'no model recorded for this session')"
 check "inherit-model is exclusive with a tier" "1" \
   "$(inh s-inh --inherit-model --tier deep --prompt p | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
@@ -3129,6 +3169,10 @@ check "rotate refuses --title-free" "1" \
   "$(rot_refuse --title-free | grep -c -- '--title-free is not a rotation')"
 check "rotate refuses --no-remote-control" "1" \
   "$(rot_refuse --no-remote-control | grep -c -- '--no-remote-control is not a rotation')"
+# A rotation closes the old agent only once its replacement is verified running; without
+# the verification, a replacement that never started leaves no agent at all.
+check "rotate refuses --no-verify, before it spawns anything" "1|0" \
+  "$(rot_refuse --no-verify --prompt p | grep -c -- '--no-verify is not a rotation')|$(rot_refuse --no-verify --prompt p | grep -c '^launch=')"
 # ...and forwarding is not enough: the refusal has to STOP the rotation. A tier that does
 # not resolve once opened a real tab with no model at all, because the failure was swallowed
 # crossing a shell substitution. The guard reads what comes LAST: an exit code alone would
@@ -4136,6 +4180,33 @@ check "a close that watched an agent leave adds nothing" "" \
 check "and what survived is named, so the operator reads which process held on" "claude" \
   "$(ORCHESTRATOR_PS_TABLE="$WORK/ps-alive.txt" ipy \
      "print('claude' if 'claude' in (ia.wait_gone('/dev/ttys901', 1) or '') else 'unnamed')")"
+# Which row IS the host. Matched on the full HOST_CLI path, a host typed as a bare command
+# was « not running » whenever HOST_CLI was absolute, and a wrapper that `exec`s the binary
+# made every spawn die « never started » after its tab existed. A row is the host when the
+# host registered its pid, or when its program's basename is HOST_CLI's or that of what
+# HOST_CLI resolves to.
+printf '/dev/ttys901 claude --resume x\n' > "$WORK/ps-bare.txt"
+printf '/dev/ttys901 /opt/homebrew/bin/claude --name Agent : x\n' > "$WORK/ps-binary.txt"
+printf '/dev/ttys901 4242 node /opt/lib/cli.js --resume x\n' > "$WORK/ps-node.txt"
+printf '/dev/ttys901 -zsh\n' > "$WORK/ps-shell.txt"
+mkdir -p "$WORK/wrapbin" "$WORK/hostcfg/sessions"
+printf '#!/bin/bash\nexec /opt/homebrew/bin/claude "$@"\n' > "$WORK/wrapbin/claude"
+printf '#!/bin/bash\nexec /opt/homebrew/bin/claude "$@"\n' > "$WORK/wrapbin/run-host.sh"
+chmod +x "$WORK/wrapbin/claude" "$WORK/wrapbin/run-host.sh"
+ln -sf "$WORK/wrapbin/claude" "$WORK/wrapbin/host-link"
+hostp() { ORCHESTRATOR_HOST_CLI="$1" ORCHESTRATOR_PS_TABLE="$2" CLAUDE_CONFIG_DIR="$WORK/hostcfg" \
+  ipy "print('host' if ia.host_cli_on('/dev/ttys901') else 'none')"; }
+check "an absolute HOST_CLI matches a bare host row" "host" "$(hostp /opt/homebrew/bin/claude "$WORK/ps-bare.txt")"
+check "a wrapper path matches the binary's row" "host" "$(hostp "$WORK/wrapbin/claude" "$WORK/ps-binary.txt")"
+check "a link to the wrapper matches through what it resolves to" "host" "$(hostp "$WORK/wrapbin/host-link" "$WORK/ps-binary.txt")"
+check "a wrapper named otherwise does not match on argv alone" "none" "$(hostp "$WORK/wrapbin/run-host.sh" "$WORK/ps-node.txt")"
+printf '{"pid":4242,"sessionId":"s-reg","name":"Agent : x"}\n' > "$WORK/hostcfg/sessions/4242.json"
+check "a pid the host registered is the host, whatever its argv" "host" "$(hostp "$WORK/wrapbin/run-host.sh" "$WORK/ps-node.txt")"
+check "a shell on the tty is not the host" "none" "$(hostp /opt/homebrew/bin/claude "$WORK/ps-shell.txt")"
+check "verify reads a bare host row under an absolute HOST_CLI" "0" \
+  "$(ORCHESTRATOR_HOST_CLI=/opt/homebrew/bin/claude ORCHESTRATOR_PS_TABLE="$WORK/ps-bare.txt" bash "$AGENT" verify --tty /dev/ttys901 >/dev/null 2>&1; echo $?)"
+check "the close note claims no more than the table showed" "1|0" \
+  "$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'no process matching claude was found on /dev/ttys901')|$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'was running')"
 
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
@@ -4403,8 +4474,10 @@ unread_msg() { "$py" -c "
 import sys; sys.path.insert(0,'$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as m
 print(m.unread_refusal(sys.argv[1], sys.argv[2]))" "$1" "$2"; }
-check "the unread refusal names the checkout, the timeout, and the remedy" "1|1|1|1" \
-  "$(unread_msg /work/dir 20 | grep -c '^spawn: refused: no transcript for /work/dir')|$(unread_msg /work/dir 20 | grep -c 'parked on a dialog or hung at start')|$(unread_msg /work/dir 20 | grep -c 'the tab was closed')|$(unread_msg /work/dir 20 | grep -c 'ORCHESTRATOR_MODE_TIMEOUT')"
+# Whether the tab was closed is not the refusal's to assert: `refuse_made` says it after the
+# text, from what the close returned.
+check "the unread refusal names the checkout, the timeout, and the remedy, and claims no close" "1|1|0|1" \
+  "$(unread_msg /work/dir 20 | grep -c '^spawn: refused: no transcript for /work/dir')|$(unread_msg /work/dir 20 | grep -c 'parked on a dialog or hung at start')|$(unread_msg /work/dir 20 | grep -c 'closed')|$(unread_msg /work/dir 20 | grep -c 'ORCHESTRATOR_MODE_TIMEOUT')"
 
 # `verify_mode` is the assembled decision the old inline block made: `path` of 'none' fakes
 # a transcript that never appears (or one that never carries a mode, the same branch, per
@@ -4435,6 +4508,118 @@ out_match=$(verify_mode_run /checkout/t.jsonl auto auto 2>/dev/null)
 check "a readable matching mode still passes, and closes nothing" \
   "ok=spawn: mode auto read on the transcript|False" \
   "$(printf '%s' "$out_match" | sed -n '1p')|$(printf '%s' "$out_match" | sed -n '2p' | sed 's/closed=//')"
+
+# The whole spawn after its tab exists, over a fake app: a refusal closes the tab it made,
+# prints its tty on stdout, says whether the close happened, and leaves the chain as it found
+# it — the chain is written only once the session is verified. The « never started » refusal
+# closed nothing and kept the tty to stderr, after a successor had already taken the
+# predecessor's chain.
+cat > "$WORK/spawn_probe.py" <<'PYEOF'
+import asyncio, contextlib, io, json, os, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+scenario, workdir = sys.argv[2], sys.argv[3]
+argv = sys.argv[4:]
+class S:
+    def __init__(s, sid, tty): s.session_id = sid; s.tty = tty
+    async def async_get_variable(s, k): return {"tty": s.tty}.get(k)
+    async def async_close(s, force=False):
+        if scenario.endswith("stuck"):
+            raise RuntimeError("the app refused the close")
+        for w in app.windows:
+            w.tabs = [t for t in w.tabs if s not in t.sessions]
+class T:
+    def __init__(s, tid, sess): s.tab_id = tid; s.sessions = [sess]; s.all_sessions = [sess]
+    @property
+    def current_session(s): return s.sessions[0]
+class W:
+    def __init__(s, tabs): s.window_id = "w"; s.tabs = tabs
+    async def async_create_tab(s, command=None, index=None, select=True):
+        t = T("NEW", S("S-NEW", "/dev/ttys902"))
+        s.tabs.insert(len(s.tabs) if index is None else index, t)
+        return t
+class App:
+    def __init__(s, wins): s.windows = wins; s.current_window = wins[0]
+app = App([W([T("1", S("S-OWN", "/dev/ttys801")), T("2", S("S-AG", "/dev/ttys802"))])])
+class Api:
+    async def async_get_app(self, connection): return app
+ia.run = lambda fn: asyncio.run(fn(Api(), None))
+ia.SPAWN_TIMEOUT = 1
+ia.time.sleep = lambda s: None
+ia.find_transcript = lambda d, since: "/x/t.jsonl" if scenario.startswith("transcript") else None
+ia.verify_mode = lambda *a, **k: "spawn: mode auto read on the transcript"
+closed_by_tty = []
+ia.as_spawn = lambda command: (app.windows[0].tabs.append(T("AS", S("S-AS", "/dev/ttys902")))
+                               or "/dev/ttys902")
+ia.as_close = lambda tty, expect: closed_by_tty.append(tty) or "the made one"
+if scenario.startswith("raise"):
+    async def boom(tab, connection=None, tries=10): raise RuntimeError("the tab vanished")
+    ia.tty_of = boom
+out, err = io.StringIO(), io.StringIO()
+code = 0
+try:
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        ia.cmd_spawn(["--dir", workdir, "--prompt", "p"] + argv)
+except SystemExit as e:
+    code = e.code
+def chain(name):
+    try:
+        return [(e["tab_id"], e["owner"]) for e in map(json.loads, open(os.path.join(ia.CHAINS_DIR, name)))]
+    except OSError:
+        return "absent"
+print("exit=%s" % code)
+print("stdout=%s" % out.getvalue().strip().splitlines()[-1:])
+print("tabs=%s" % [t.tab_id for t in app.windows[0].tabs])
+print("own=%s" % chain("ttys801.jsonl"))
+print("new=%s" % chain("ttys902.jsonl"))
+print("outside=%s" % chain("ttys999.jsonl"))
+print("bytty=%s" % closed_by_tty)
+print("ERR:" + " ".join(err.getvalue().split()))
+PYEOF
+PSPAWN="$WORK/ps-spawn"; mkdir -p "$PSPAWN"
+: > "$PSPAWN/none"
+printf '/dev/ttys902 claude --name Agent : x\n' > "$PSPAWN/running"
+sprobe() { local scenario="$1" state="$WORK/spawnstate-$1" ps="$2" tty="$3"; shift 3
+  rm -rf "$state"; mkdir -p "$state/chains"
+  printf '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}\n' > "$state/chains/ttys801.jsonl"
+  printf '{"tab_id":"7","tty":"/dev/ttys807","owner":"S-STRANGER"}\n' > "$state/chains/ttys999.jsonl"
+  ORCHESTRATOR_BACKEND="${BACKEND:-api}" ORCHESTRATOR_STATE_DIR="$state" ORCHESTRATOR_SELF_TTY="$tty" \
+    ORCHESTRATOR_PS_TABLE="$PSPAWN/$ps" "$py" "$WORK/spawn_probe.py" "$ROOT/skills/iterm-agents/scripts" \
+    "$scenario" "$WORK" "$@" 2>&1; }
+sfield() { printf '%s\n' "$1" | sed -n "s/^$2[=:]//p"; }
+res=$(sprobe never none /dev/ttys801 --title "Agent : x")
+check "a spawn that never started closes its tab, prints its tty, and leaves the chain untouched" \
+  "1|['/dev/ttys902']|['1', '2']|[('2', 'S-OWN')]|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" stdout)|$(sfield "$res" tabs)|$(sfield "$res" own)|$(sfield "$res" ERR | grep -c 'never started on /dev/ttys902 after 1s; the tab was closed')"
+res=$(sprobe succnever none /dev/ttys801 --successor --title "Orch : heir")
+check "a successor that never started takes no chain and re-points no entry" \
+  "1|['1', '2']|[('2', 'S-OWN')]|absent" \
+  "$(sfield "$res" exit)|$(sfield "$res" tabs)|$(sfield "$res" own)|$(sfield "$res" new)"
+res=$(sprobe neverstuck none /dev/ttys801 --title "Agent : x")
+check "a close that fails is said, with the command that closes the tab" "1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -c 'the tab on /dev/ttys902 was NOT closed: close it with close --tty /dev/ttys902')"
+res=$(sprobe agent running /dev/ttys801 --title "Agent : x")
+check "a verified agent is appended to its caller's chain, and its tty printed last" \
+  "0|['/dev/ttys902']|[('2', 'S-OWN'), ('NEW', 'S-OWN')]" \
+  "$(sfield "$res" exit)|$(sfield "$res" stdout)|$(sfield "$res" own)"
+res=$(sprobe succ running /dev/ttys801 --successor --title "Orch : heir")
+check "a verified successor takes the chain" "0|[]|[('2', 'S-NEW')]" \
+  "$(sfield "$res" exit)|$(sfield "$res" own)|$(sfield "$res" new)"
+res=$(sprobe transcript none /dev/ttys801 --title "Agent : x")
+check "a session that wrote its transcript has started, whatever the process table says" \
+  "0|[('2', 'S-OWN'), ('NEW', 'S-OWN')]|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" own)|$(sfield "$res" ERR | grep -c 'but the session wrote /x/t.jsonl since the launch: it started')"
+res=$(sprobe outside running /dev/ttys999 --successor --title "Orch : heir")
+check "a caller the app does not know writes no chain entry, hands none over, and says so" \
+  "0|[('7', 'S-STRANGER')]|absent|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" outside)|$(sfield "$res" new)|$(sfield "$res" ERR | grep -c 'the chain was not updated (the transfer was skipped)')"
+res=$(sprobe raise none /dev/ttys801 --title "Agent : x")
+check "a failure after the tab exists closes it and says what failed" "1|['1', '2']|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" tabs)|$(sfield "$res" ERR | grep -c 'then the terminal failed: the tab vanished; the tab was closed')"
+res=$(BACKEND=applescript sprobe ascript none /dev/ttys801 --title "Agent : x")
+check "the AppleScript rung says it keeps no chain, and a refusal there closes by tty" \
+  "1|['/dev/ttys902']|[('2', 'S-OWN')]|1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" bytty)|$(sfield "$res" own)|$(sfield "$res" ERR | grep -c 'this rung keeps no chain, so the chain was not updated (the append was skipped)')|$(sfield "$res" ERR | grep -c 'the tab was closed')"
 
 # `screen --lines N` returned the FIRST N lines of the tab, which on a tall terminal are
 # blank: the blocked agent's prompt sat at the bottom and three reads out of four came back
