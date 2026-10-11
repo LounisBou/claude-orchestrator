@@ -3826,6 +3826,12 @@ check "a decision round's question ends on the operator's machine line" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'text, as the message'"'"'s last line: `waiting: operator — blocks: <the question>`')"
 check "a relayed ruling is dated by a command, pasted, never from memory" "yes|no" \
   "$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated (`date -u +%FT%TZ`, pasted),')|$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated,')"
+# The operator's time: a round is a wave of questions back to back, nothing relayed or launched
+# inside it; the relays and the work come at its end, and a second wave is chained at once.
+check "a decision round asks its questions back to back and acts only when the wave ends" "yes|yes|yes" \
+  "$(spells "$ROOT/commands/decide.md" 'in this same message, right under the')|$(spells "$ROOT/commands/decide.md" 'nothing relayed, launched or reported inside a wave')|$(spells "$ROOT/commands/decide.md" 'announce « Wave 2: M questions, back to back. »')"
+check "a decision round no longer relays a ruling before the next question" "no" \
+  "$(spells "$ROOT/commands/decide.md" 'Present the next question IN FULL (step 2). Not before.')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
   "$(spells "$ORCH_REFS/review.md" 'when its failure is outside what the pull request touches')|$(spells "$ORCH_REFS/review.md" 'Only a second red, or a red in what the pull request touches')"
 check "the re-run is the failed jobs, once, after the failing job's cause is named in one line" "yes|yes" \
