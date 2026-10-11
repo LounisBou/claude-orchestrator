@@ -972,6 +972,10 @@ def warn_versioned(tier, value):
               % (tier, value, parts[n - 1] + (suffix or "")), file=sys.stderr)
 
 
+# What the hooks module's measure file holds when the host gave it no model.
+UNAVAILABLE_MODEL = "unavailable"
+
+
 def inherited_model():
     """The model the CALLING session runs on now, from the hooks module's measure file —
     not the launch line, which the operator may have moved away from. A succession must
@@ -991,6 +995,10 @@ def inherited_model():
             model = json.load(fh).get("model") or ""
     except Exception:
         pass
+    # The module records `unavailable` when the host gave it no model: a sentinel, not a
+    # model, and typed as `--model` it starts the successor on a guess or not at all.
+    if not isinstance(model, str) or model.strip() in ("", UNAVAILABLE_MODEL):
+        model = ""
     if not model:
         die("spawn: --inherit-model: no model recorded for this session (%s) — the hooks "
             "module writes the measure file each turn: load the plugin, take one turn, "
@@ -1228,6 +1236,25 @@ def coord_name_on(tty):
     if name and name != UNREADABLE_NAME and name.startswith(COORD_ROLE):
         return name
     return None
+
+
+def registered_coord_on(tty):
+    """The coordinator's name when the coordinator's own record places it on this tty, None
+    otherwise.
+
+    The record is the one `coordinator.sh register` writes, under the same state directory.
+    A coordinator opened by hand that named itself through a rename carries no `--name`, and
+    a host registry that cannot be read leaves it nameless here too: the record still says
+    which tty it holds, so a rotation that would close it is refused on that."""
+    try:
+        with open(os.path.join(STATE_DIR, "coordinator.json")) as fh:
+            record = json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(record, dict) or record.get("tty") != tty:
+        return None
+    name = record.get("name")
+    return name if isinstance(name, str) and name else COORD_ROLE
 
 
 def chain_drop_tab(tab_id):
@@ -2430,7 +2457,8 @@ def cmd_move(argv):
         An auditor's tab, and the coordinator's, are read first, by their NAME: each is in
         no chain, so each is nobody's to place but its own session's, whatever a stale chain
         entry on its tty says (§52)."""
-        coord = coord_name_on(args.tty) if args.tty != own else None
+        coord = ((coord_name_on(args.tty) or registered_coord_on(args.tty))
+                 if args.tty != own else None)
         if coord:
             if not args.force:
                 die("move: refused: %s is the coordinator's tab ('%s'), not this session's "
@@ -2512,11 +2540,16 @@ def cmd_rotate(argv):
         if flag in rest:
             die("rotate: refused: %s is not a rotation's (a rotation replaces an agent with "
                 "a titled agent; a successor is spawned with spawn --successor)" % flag)
+    # The verification is the rotation's whole guarantee: without it the old agent is closed
+    # on a replacement nobody saw start, and a replacement that never started leaves none.
+    if "--no-verify" in rest:
+        die("rotate: refused: --no-verify is not a rotation's (the old agent is closed only "
+            "once its replacement is verified running)")
     # Nor is the tab it closes the coordinator's or an auditor's: neither is an agent of the
     # caller's, and a rotation that closed one would end an audit nobody ended, or drop the
     # machine's coordinator, without anyone having asked for either (§52). Read before the
     # spawn, so a refusal leaves no replacement behind.
-    coord = coord_name_on(args.old_tty)
+    coord = coord_name_on(args.old_tty) or registered_coord_on(args.old_tty)
     if coord:
         if not args.force:
             die("rotate: refused: %s is the coordinator's tab ('%s'): the coordinator is "

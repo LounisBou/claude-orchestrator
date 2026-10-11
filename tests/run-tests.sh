@@ -2557,6 +2557,24 @@ check "rotate refuses the coordinator's tab before it spawns anything" "0|1|1" \
 check "--force rotates it, and says so" "1|1" \
   "$(crdrot --old-tty /dev/ttys950 --force | tail -1 | grep -c '^close=/dev/ttys950')|$(crdrot --old-tty /dev/ttys950 --force | grep -c "^rotate: forced: /dev/ttys950 is the coordinator's tab")"
 check "an agent's tab still rotates without --force" "1" "$(crdrot --old-tty /dev/ttys901 | tail -1 | grep -c '^close=/dev/ttys901')"
+# The first coordinator is opened by hand and names itself through a rename, which never
+# reaches argv: named only in the host registry, or only in the coordinator's own record,
+# its tab is still not an agent to rotate or to move.
+CRDREGCFG="$WORK/crdregcfg"; mkdir -p "$CRDREGCFG/sessions"
+printf '{"pid":6161,"name":"Coord : hand"}\n' > "$CRDREGCFG/sessions/6161.json"
+printf '/dev/ttys951 6161 claude --resume x\n/dev/ttys952 6262 claude --resume y\n' > "$WORK/ps-coord-reg.txt"
+crdregrot() { CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$1" ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" \
+  bash "$AGENT" rotate --dir "$WORK" --title "Agent : rotated" --prompt p --old-tty "$2" 2>&1; }
+CRDREGROT=$(crdregrot "$CRDSTATE" /dev/ttys951)
+check "rotate refuses a coordinator named only in the host registry" "0|1" \
+  "$(printf '%s' "$CRDREGROT" | grep -c '^launch=')|$(printf '%s' "$CRDREGROT" | grep -c "rotate: refused: /dev/ttys951 is the coordinator's tab ('Coord : hand')")"
+CRDRECSTATE="$WORK/crdrecstate"; mkdir -p "$CRDRECSTATE"
+printf '{"name":"Coord : rec [abc123]","tty":"/dev/ttys952"}\n' > "$CRDRECSTATE/coordinator.json"
+CRDRECROT=$(crdregrot "$CRDRECSTATE" /dev/ttys952)
+check "rotate refuses the tty the coordinator's record registers" "0|1" \
+  "$(printf '%s' "$CRDRECROT" | grep -c '^launch=')|$(printf '%s' "$CRDRECROT" | grep -c "rotate: refused: /dev/ttys952 is the coordinator's tab ('Coord : rec \[abc123\]')")"
+check "and move names it, forced or not" "1|1" \
+  "$(CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDRECSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" bash "$AGENT" move --tty /dev/ttys952 --right-of self 2>&1 | grep -c "move: refused: /dev/ttys952 is the coordinator's tab")|$(CLAUDE_CONFIG_DIR="$CRDREGCFG" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDRECSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$WORK/ps-coord-reg.txt" bash "$AGENT" move --tty /dev/ttys952 --right-of self --force 2>&1 | grep -c "^move: forced: /dev/ttys952 is the coordinator's tab")"
 printf '{"tab_id":"9","tty":"/dev/ttys950","owner":"S-ME"}\n' >> "$CRDSTATE/chains/ttys900.jsonl"
 crdmv() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
   ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move "$@" 2>&1; }
@@ -3080,6 +3098,11 @@ check "the measure file is read under the config dir, not the state override" "1
   "$(inh s-ovr --inherit-model --prompt p | grep -cF "$ICFG/claude-orchestrator/measure/s-ovr.json")"
 check "inherit-model with no measure file refuses and names the module" "1" \
   "$(inh s-none --inherit-model --prompt p | grep -c 'hooks module')"
+# The module records `unavailable` when the host gave it no model: a sentinel, never a
+# model to type, and a succession must not start on a guess (§27).
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"unavailable","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-unav.json"
+check "inherit-model refuses the unavailable sentinel, as if no model were recorded" "0|1" \
+  "$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c -- '--model unavailable')|$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c 'no model recorded for this session')"
 check "inherit-model is exclusive with a tier" "1" \
   "$(inh s-inh --inherit-model --tier deep --prompt p | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
@@ -3125,6 +3148,10 @@ check "rotate refuses --title-free" "1" \
   "$(rot_refuse --title-free | grep -c -- '--title-free is not a rotation')"
 check "rotate refuses --no-remote-control" "1" \
   "$(rot_refuse --no-remote-control | grep -c -- '--no-remote-control is not a rotation')"
+# A rotation closes the old agent only once its replacement is verified running; without
+# the verification, a replacement that never started leaves no agent at all.
+check "rotate refuses --no-verify, before it spawns anything" "1|0" \
+  "$(rot_refuse --no-verify --prompt p | grep -c -- '--no-verify is not a rotation')|$(rot_refuse --no-verify --prompt p | grep -c '^launch=')"
 # ...and forwarding is not enough: the refusal has to STOP the rotation. A tier that does
 # not resolve once opened a real tab with no model at all, because the failure was swallowed
 # crossing a shell substitution. The guard reads what comes LAST: an exit code alone would
