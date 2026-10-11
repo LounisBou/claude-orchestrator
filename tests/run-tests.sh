@@ -3878,22 +3878,26 @@ check "step 5 announces the successor's own measured context from its measure fi
   "$(printf '%s' "$SUCC5" | grep -oF 'context_tokens' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'measure file' | wc -l | tr -d ' ')"
 # Every successor measures its takeover at the same point, the turn that sends « takeover
 # confirmed », so one orchestration's takeover figures compare from one succession to the next:
-# step 4 reads its measure file in that turn, before the message, and step 5 reports that reading only.
-check "step 4 reads its measure file in the « takeover confirmed » turn, immediately before the message" "1|1" \
-  "$(succ4_has 'In the turn that sends « takeover confirmed », read your own measure file immediately before the message and keep its `context_tokens` figure')|$(printf '%s' "$SUCC4" | awk '{ a = index($0, "read your own measure file immediately before the message"); b = index($0, "Then message the predecessor \"takeover confirmed\""); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
+# step 4 keeps the figure recorded when that turn ends, and step 5 reports that reading only.
+# The module writes the measure file only when a turn ends: a reading inside the turn that
+# sends « takeover confirmed » is the turn before's, or no file at all on a first turn. The
+# figure is the one recorded when that turn ends, read at the next turn's first tool call.
+check "step 4 takes the takeover figure the module records when the « takeover confirmed » turn ends" "1|1|0" \
+  "$(succ4_has 'Your « at takeover confirmed » figure is the `context_tokens` the module records when the turn that sends « takeover confirmed » ends')|$(succ4_has 'read your measure file at the first tool call of your next turn and keep that figure')|$(succ4_has 'immediately before the message')"
 check "step 5 reports the context kept at « takeover confirmed », never a later reading" "1|1" \
-  "$(printf '%s' "$SUCC5" | grep -oF 'your own measured context at « takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the one you kept in that turn, never a later reading' | wc -l | tr -d ' ')"
+  "$(printf '%s' "$SUCC5" | grep -oF 'your own measured context at « takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the one step 4 kept, never a later reading' | wc -l | tr -d ' ')"
 # The successor also keeps its first turn's reading: the gap between it and the « takeover
 # confirmed » reading is what the takeover's verification costs.
-check "step 1 reads its measure file in the successor's first tool call and keeps its reading as « first turn »" "1|1|1" \
-  "$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, reads your own measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | awk '{ a = index($0, "reads your own measure file"); b = index($0, "Read the rulebook"); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
-check "step 1 keeps the `context_tokens` figure it reads as the « first turn » figure" "1" \
-  "$(printf '%s' "$SUCC1" | grep -oF 'and keeps its `context_tokens` figure as your « first turn » figure' | wc -l | tr -d ' ')"
-# The module writes the measure file after each turn, so the successor's FIRST tool call
-# — no completed turn of its own session yet — reads a file that cannot be there; step 1
-# carries the four agent briefs' guard, and the first-turn reading moves to the end of
-# the first turn, when the measure event has fired, rather than to an estimate.
-check "step 1 guards the measure file missing at the first tool call" "1" \
+# Live, a successor asked to read its measure file at its first tool call found none: the
+# module writes it only when a turn ends. The « first turn » figure is the one recorded at
+# the end of the first turn, read at the second turn's first tool call.
+check "step 1 says the measure file is written only when a turn ends, and asks no reading before" "1|0|0" \
+  "$(printf '%s' "$SUCC1" | grep -oF 'the module writes it only when a turn of yours ends, so it is not there during your first turn' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'Your FIRST tool call, ahead of any skill load, reads your own measure file' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC1" | grep -oF 'at this call' | wc -l | tr -d ' ')"
+check "step 1's « first turn » figure is the one recorded at the end of the first turn, read at the next turn's first tool call" "1" \
+  "$(printf '%s' "$SUCC1" | grep -oF 'Your « first turn » figure is the `context_tokens` it records when your first turn ends: read the file at the first tool call of your next turn and keep that figure' | wc -l | tr -d ' ')"
+# A file still missing when it is read — a first turn the host could not measure — gets the
+# four agent briefs' guard: no figure rather than an estimate.
+check "step 1 guards the measure file missing when it is read" "1" \
   "$(printf '%s' "$SUCC1" | grep -oF 'If it is not there, say so and give no figure: an estimate presented as a measurement is worse than an admitted gap' | wc -l | tr -d ' ')"
 check "step 5 reports both figures, « first turn » and « at takeover confirmed », on one line" "1|1" \
   "$(printf '%s' "$SUCC5" | grep -oF 'both on one line: « first turn » and « at takeover confirmed »' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | grep -oF 'the figure kept in step 1' | wc -l | tr -d ' ')"
