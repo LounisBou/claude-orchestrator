@@ -12,7 +12,8 @@ function mounted(): { handlers: Record<string, Function>; matchers: Record<strin
   const matchers: Record<string, object | undefined> = {}
   registerNaming((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
     const tool = args.length === 3 ? (args[1] as any).tool : undefined
-    const key = tool === `mcp__orchestrator__${END_TOOL}` ? 'tool.call:end' : args[0]
+    const key = tool === `mcp__orchestrator__${END_TOOL}` ? 'tool.call:end'
+      : tool === 'Bash' || tool === 'SendMessage' ? `tool.call:${tool}` : args[0]
     handlers[key] = args[args.length - 1] as Function
     matchers[key] = args.length === 3 ? args[1] : undefined
     return { catch: () => undefined }
@@ -20,16 +21,21 @@ function mounted(): { handlers: Record<string, Function>; matchers: Record<strin
   return { handlers, matchers }
 }
 
-function fakeDollar(): { dollar: any; registered: any[]; runs: any[] } {
+function fakeDollar(): { dollar: any; registered: any[]; runs: any[]; submits: any[]; order: string[] } {
   const registered: any[] = []
   const runs: any[] = []
+  const submits: any[] = []
+  // What the turn's completion queued, in the order it queued it: the rename before the
+  // prompt that resumes the session under it.
+  const order: string[] = []
   const dollar = {
     env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
     fs: { read: async () => '', write: async () => undefined },
     tool: { register: async (spec: any) => { registered.push(spec); return {} } },
-    command: { run: (input: any) => { runs.push(input); return Promise.resolve({ text: '' }) } },
+    command: { run: (input: any) => { runs.push(input); order.push(`command:${input.command}`); return Promise.resolve({ text: '' }) } },
+    prompt: { submit: (input: any) => { submits.push(input); order.push('prompt'); return Promise.resolve({ text: input.text }) } },
   }
-  return { dollar, registered, runs }
+  return { dollar, registered, runs, submits, order }
 }
 
 test('a session names itself Orch or Coord, the subject in the launcher\'s shape', () => {
@@ -78,6 +84,86 @@ test('the call records the name and the turn\'s completion runs the rename, once
   expect(fx.runs).toEqual([{ command: 'rename', args: 'Orch : phase-3' }])
   await handlers['turn.complete'](fx.dollar, done, (x: unknown) => x)
   expect(fx.runs.length).toBe(1)
+})
+
+// The rename lands when the turn ends, and a session that kept going in the same turn spawned
+// its agents and messaged them under its directory-stem name: every agent got the wrong
+// orchestrator address. Prose did not hold the turn's end; the module does.
+const SPAWN = { tool: 'Bash', command: 'bash /p/skills/iterm-agents/scripts/iterm-agent.sh spawn --dir /w --title "Agent : belt" --prompt p' }
+const ROTATE = { tool: 'Bash', command: 'bash /p/skills/iterm-agents/scripts/iterm-agent.sh rotate --tty /dev/ttys003 --prompt p' }
+const SEND = { tool: 'SendMessage', to: 'Agent : belt', message: 'your brief' }
+const passOn = async (e: any) => ({ result: { ran: e.tool } })
+
+test('while a rename is pending, a spawn, a rotate and a SendMessage are refused until the turn ends', async () => {
+  const { handlers, matchers } = mounted()
+  expect(matchers['tool.call:Bash']).toEqual({ tool: 'Bash' })
+  expect(matchers['tool.call:SendMessage']).toEqual({ tool: 'SendMessage' })
+  const fx = fakeDollar()
+  // No rename pending: every call runs.
+  expect(await handlers['tool.call:Bash'](fx.dollar, SPAWN, passOn)).toEqual({ result: { ran: 'Bash' } })
+  expect(await handlers['tool.call:SendMessage'](fx.dollar, SEND, passOn)).toEqual({ result: { ran: 'SendMessage' } })
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  const reason = 'your name "Orch : belt" is taken when this turn ends: end the turn now; the module resumes you under it'
+  for (const [key, call] of [['tool.call:Bash', SPAWN], ['tool.call:Bash', ROTATE], ['tool.call:SendMessage', SEND]] as const) {
+    const answer = await handlers[key](fx.dollar, call, passOn)
+    expect(answer.deny).toContain(reason)
+  }
+  // Any other Bash call runs: only what addresses an agent waits for the name.
+  expect(await handlers['tool.call:Bash'](fx.dollar, { tool: 'Bash', command: 'git status' }, passOn)).toEqual({ result: { ran: 'Bash' } })
+  expect(await handlers['tool.call:Bash'](fx.dollar, { tool: 'Bash', command: 'bash /p/iterm-agent.sh list' }, passOn)).toEqual({ result: { ran: 'Bash' } })
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  // The next turn runs under the name: nothing is refused any more.
+  expect(await handlers['tool.call:Bash'](fx.dollar, SPAWN, passOn)).toEqual({ result: { ran: 'Bash' } })
+  expect(await handlers['tool.call:SendMessage'](fx.dollar, SEND, passOn)).toEqual({ result: { ran: 'SendMessage' } })
+})
+
+test("a subagent's spawn or message is not the main thread's to hold", async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  expect(await handlers['tool.call:SendMessage'](fx.dollar, { ...SEND, agentId: 'a-1' }, passOn)).toEqual({ result: { ran: 'SendMessage' } })
+})
+
+test('the turn that renamed resumes the session under its name, the prompt queued after the rename', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(fx.submits).toEqual([{ text: 'Your name "Orch : belt" is taken. Continue where you left off.' }])
+  expect(fx.order).toEqual(['command:rename', 'prompt'])
+  // Once: the next turn's end queues nothing.
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(fx.submits.length).toBe(1)
+})
+
+test('no resume on an interrupted turn, for a subagent, or for a session that ends', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  await handlers['turn.complete'](fx.dollar, { agentId: 'a-1', isAborted: false }, (x: unknown) => x)
+  await handlers['turn.complete'](fx.dollar, { isAborted: true, reason: 'aborted' }, (x: unknown) => x)
+  expect(fx.submits).toEqual([])
+  // The interrupted turn dropped the rename: nothing is held any more.
+  expect(await handlers['tool.call:SendMessage'](fx.dollar, SEND, passOn)).toEqual({ result: { ran: 'SendMessage' } })
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  await handlers['tool.call:end'](fx.dollar, {})
+  await handlers['turn.complete'](fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(fx.order).toEqual(['command:rename', 'command:exit'])
+  expect(fx.submits).toEqual([])
+})
+
+test('a resume that fails is said in the log, never thrown at the turn', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  const logged: string[] = []
+  fx.dollar.plugin = { root: '/plugins/orch-root' }
+  fx.dollar.process = { run: async (argv: readonly string[]) => { logged.push(String(argv[3] ?? '')); return { exitCode: 0, stdout: '', stderr: '' } } }
+  fx.dollar.prompt.submit = () => Promise.reject(new Error('the session is gone'))
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : belt' })
+  const done = {}
+  expect(await handlers['turn.complete'](fx.dollar, done, (x: unknown) => x)).toBe(done)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(logged.some(line => line.includes('the resume under "Orch : belt" failed: the session is gone'))).toBe(true)
 })
 
 test('a session the launcher opened neither sees the tools nor renames or ends itself', async () => {

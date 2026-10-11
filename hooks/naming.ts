@@ -40,6 +40,24 @@ export function isEnding(): boolean {
   return endAsked
 }
 
+// A call that hands an agent this session's address: the launcher's spawn or rotate
+// (its script or the python beneath it) — the brief it writes names the orchestrator —
+// and a SendMessage, which the peer reads its sender's name off. Made in the turn
+// that renamed, it carries the name the session is about to lose.
+export function addressesAnAgent(tool: string, command: string): boolean {
+  if (tool === 'SendMessage') return true
+  return tool === 'Bash' && /\biterm[-_]agent\.(?:sh|py)\b[^\n]*?\s(?:spawn|rotate)(?:\s|$)/m.test(command)
+}
+
+// The refusal while a rename waits for the turn's end: prose told the model to end the
+// turn and it kept going; the module holds the turn's end instead, and resumes it.
+export const heldForName = (name: string) =>
+  `your name "${name}" is taken when this turn ends: end the turn now; the module resumes you under it`
+
+// The prompt that resumes a session once its name is taken, so an unattended start never
+// waits on the operator for its next turn.
+export const resumeText = (name: string) => `Your name "${name}" is taken. Continue where you left off.`
+
 export function checkName(raw: unknown): { name: string } | { refused: string } {
   const name = typeof raw === 'string' ? raw : ''
   if (SELF_NAME.test(name)) return { name }
@@ -103,6 +121,20 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return { result: 'the rename could not be recorded; hand the operator the /rename line instead', isError: true }
   })
 
+  // While a rename waits for the turn's end, a call that would hand an agent the old
+  // name is refused: the main thread's own, the one the rename was asked from.
+  for (const tool of ['Bash', 'SendMessage']) {
+    on('tool.call', { tool }, async ($: any, e: any, next: (e: any) => any) => {
+      if (pending !== null && !e.agentId && addressesAnAgent(tool, String(e.command ?? ''))) {
+        return { deny: heldForName(pending) }
+      }
+      return next(e)
+    }).catch(async ($: any, e: any, next: any) => {
+      await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+      return next(e)
+    })
+  }
+
   on('tool.call', { tool: `mcp__orchestrator__${END_TOOL}` }, async ($: any, e: any) => {
     if (e.agentId) return { result: MAIN_THREAD_ONLY, isError: true }
     if (await $.env.get('ORCHESTRATOR_SPAWNED')) {
@@ -135,6 +167,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // very completion is still holding. Its failure is said in the log.
       $.command.run({ command: 'rename', args: name })
         .catch((err: unknown) => logLine($, `rename to "${name}" failed: ${String((err as Error)?.message ?? err)}`))
+      // Then the turn that resumes it, queued behind the rename: a session started
+      // unattended goes on under its name instead of waiting on the operator. Not for
+      // a session that also asked to end — it leaves.
+      if (!ending) {
+        $.prompt.submit({ text: resumeText(name) })
+          .catch((err: unknown) => logLine($, `the resume under "${name}" failed: ${String((err as Error)?.message ?? err)}`))
+      }
     }
     if (ending) {
       ending = false

@@ -23,10 +23,12 @@ Preconditions, verify each before acting:
 
 Then:
 
-1. **The name first.** Call `mcp__orchestrator__rename_session` with `Coord : <subject>`:
-   the session takes the name when this turn ends, and nothing below waits for it. Read your
-   reference from `ListAgents` (« This session is … »), the bracketed part after the name.
-   A refusal names the shape it wants: correct the subject and call again.
+1. **The name first.** Call `mcp__orchestrator__rename_session` with `Coord : <subject>`, then
+   END THE TURN: the session takes the name when it ends, and the module resumes you under it
+   with « Your name … is taken »; a message sent before then is refused. Steps 2 to 7 run in
+   that next turn. Read your reference from `ListAgents` (« This session is … »), the
+   bracketed part after the name. A refusal names the shape it wants: correct the subject and
+   call again.
 2. **Your tty.** `${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh list` —
    the row marked `self`.
 3. **Register**, under the name and the reference of step 1:

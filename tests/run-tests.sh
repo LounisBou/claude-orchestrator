@@ -2660,12 +2660,15 @@ COORDLINE() { grep -n -m1 -F -- "$2" "$1" | cut -d: -f1; }
 check "the start renames itself before it registers" "1" \
   "$([ "$(COORDLINE "$COORDCMD" 'Call `mcp__orchestrator__rename_session` with `Coord : <subject>`')" -lt "$(COORDLINE "$COORDCMD" 'coordinator.sh register --name')" ] 2>/dev/null && echo 1 || echo 0)"
 # The orchestrator's rename lands when its turn ends: a spawn in the same turn would carry
-# the directory-stem name into every brief, so the rulebook ends the turn on the call.
+# the directory-stem name into every brief, so the rulebook ends the turn on the call, and
+# the module refuses the spawn or the message made before it, then resumes the session.
 # A session the launcher cannot read a name for still succeeds: the title is passed by hand.
 check "succeed passes the current name as the title when the launcher reads none" "yes" \
   "$(spells "$ROOT/commands/succeed.md" 'older convention — it says to type one: pass `--title "<this session'"'"'s current name>"`,')"
-check "the orchestrator ends the turn on its rename and dispatches from the next" "yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once, and END THE TURN: the name is taken when it ends, so you dispatch from the next turn')"
+check "the orchestrator ends the turn on its rename and the module resumes it under the name" "yes|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once, and END THE TURN: the name is taken when it ends, and the module resumes you under it; a spawn or a message before then is refused')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'so you dispatch from the next turn')"
+check "the coordinator ends the turn on its rename and the module resumes it" "yes|no" \
+  "$(spells "$COORDCMD" 'END THE TURN: the session takes the name when it ends, and the module resumes you under it')|$(spells "$COORDCMD" 'nothing below waits for it')"
 COORDMOVE=$(grep -m1 -o 'iterm-agent.sh move --tty <your tty> --leftmost' "$COORDCMD" 2>/dev/null | sed -e 's/^iterm-agent.sh move //' -e 's#<your tty>#/dev/ttys950#')
 check "the command's move line puts the coordinator's own tab leftmost" "1" \
   "$(if [ -n "$COORDMOVE" ]; then eval "set -- $COORDMOVE"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys950 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move "$@" 2>&1 | grep -c '^move=/dev/ttys950 left_of=leftmost$'; else echo 0; fi)"
