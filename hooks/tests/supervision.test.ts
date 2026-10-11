@@ -12,7 +12,7 @@ import {
   writeSession, readSessions, deleteSession, sessionKey, parseSessionRow,
 } from '../supervision.ts'
 import { register } from '../register.ts'
-import { logLineOf } from './fakes.ts'
+import { logLineOf, blockOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const STATE = `${HOME}/.claude/claude-orchestrator`
@@ -35,18 +35,20 @@ type Fx = {
   ran: string[]
   written: string[]
   usage: { context: { tokens: number; window: number; percent: number } }
+  env: Record<string, string>
 }
 
 function fakeDollar(over: {
   launchName?: string | null
   origin?: string
   transcript?: string
+  alive?: string[]
 } = {}): Fx {
   const files = new Map<string, string>()
   const ran: string[] = []
   const written: string[] = []
   const usage = { context: { tokens: 30000, window: 100000, percent: 30 } }
-  const env: Record<string, string> = { HOME }
+  const env: Record<string, string> = { HOME, ORCHESTRATOR_HOST_CLI: 'hostcli' }
   if (over.transcript !== undefined) files.set(`${PROJECTS}/-a-project/s-one.jsonl`, over.transcript)
   const dollar = {
     session: {
@@ -93,7 +95,19 @@ function fakeDollar(over: {
           written.push(line)
           return { exitCode: 0, stdout: '', stderr: '' }
         }
+        const block = blockOf(argv, (p: string) => files.get(p) ?? over.transcript ?? '')
+        if (block !== null) return { exitCode: 0, stdout: block, stderr: '' }
         ran.push(argv.join(' '))
+        if (argv[0] === 'rm') {
+          for (const p of argv.slice(2)) files.delete(p)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
+        if (argv[0] === 'ps' && argv[1] === '-o' && argv[3] === '-p') {
+          // The live pids among those asked: the session's own host, 501, and the
+          // fake's other living ones.
+          const alive = String(argv[4]).split(',').filter(pid => (over.alive ?? ['501']).includes(pid))
+          return { exitCode: alive.length > 0 ? 0 : 1, stdout: alive.map(pid => `  ${pid}\n`).join(''), stderr: '' }
+        }
         if (argv[0] === 'sh') return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
         if (argv[0] === 'ps' && argv[1] === '-t') {
           // The session's own process, as the listing prints it.
@@ -103,18 +117,12 @@ function fakeDollar(over: {
         if (argv[0] === 'git' && argv[1] === 'remote') {
           return over.origin ? { exitCode: 0, stdout: `${over.origin}\n`, stderr: '' } : { exitCode: 128, stdout: '', stderr: 'no origin' }
         }
-        if (argv[0] === 'dd') {
-          const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
-          const bs = Number(flag('bs')), skip = Number(flag('skip')), count = Number(flag('count'))
-          const text = files.get(argv[1]?.slice('if='.length) ?? '') ?? over.transcript ?? ''
-          return { exitCode: 0, stdout: text.slice(skip * bs, (skip + count) * bs), stderr: '' }
-        }
         return { exitCode: 0, stdout: '', stderr: '' }
       },
     },
     ui: { toast: () => undefined, invalidate: () => undefined },
   }
-  return { dollar, files, ran, written, usage }
+  return { dollar, files, ran, written, usage, env }
 }
 
 test('two sessions writing at once keep both rows', async () => {
@@ -130,11 +138,12 @@ test('two sessions writing at once keep both rows', async () => {
   expect(rows['sessions/second'].context_percent).toBe(55)
 })
 
-test('a session end removes its row', async () => {
-  const { dollar } = fakeDollar()
+test('a session end removes its row, the file with it', async () => {
+  const { dollar, files } = fakeDollar()
   await writeSession(dollar, 'gone', { role: 'agent', context_percent: 10 })
   await deleteSession(dollar, 'gone')
   expect((await readSessions(dollar))['sessions/gone']).toBeUndefined()
+  expect(files.has(`${SESSIONS}/gone`)).toBe(false)
 })
 
 test('a patch merges into the row it finds, and the write stamps it', async () => {
@@ -150,7 +159,23 @@ test('a patch merges into the row it finds, and the write stamps it', async () =
   expect(Date.now() - Date.parse(row.updated_at)).toBeLessThan(60000)
 })
 
-test('a row older than one hour is dropped, a fresh one kept', async () => {
+test('a row lives while its host pid does, however long since its last measure', async () => {
+  // An orchestrator waiting hours on a CI watch or a long agent phase measures nothing,
+  // and is alive: its row stays. A row whose pid is gone is dropped, its file removed.
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  const long = new Date(Date.now() - 5 * 3600000).toISOString()
+  await writeSession(dollar, 'waiting', { role: 'orchestrator', pid: '501', updated_at: long })
+  await writeSession(dollar, 'crashed', { role: 'agent', pid: '502', updated_at: new Date().toISOString() })
+  files.set(`${SESSIONS}/ended`, '')
+  const rows = await readSessions(dollar)
+  expect(rows['sessions/waiting']).toBeDefined()
+  expect(rows['sessions/crashed']).toBeUndefined()
+  expect(files.has(`${SESSIONS}/crashed`)).toBe(false)
+  expect(files.has(`${SESSIONS}/ended`)).toBe(false)
+  expect(files.has(`${SESSIONS}/waiting`)).toBe(true)
+})
+
+test('a row written before rows carried a pid: older than one hour is dropped, a fresh one kept', async () => {
   const { dollar } = fakeDollar()
   await writeSession(dollar, 'old', { role: 'agent', updated_at: new Date(Date.now() - 3600000 - 5000).toISOString() })
   await writeSession(dollar, 'new', { role: 'agent' })
@@ -214,6 +239,25 @@ test('the composed register writes the row the gauge just measured', async () =>
   expect(row.role).toBe('agent')
   expect(row.name).toBe('Agent : belt-p3')
   expect(row.repo).toBe('me/belt')
+  expect(row.pid).toBe('501')
+})
+
+test('a walk that does not finish keeps the name and role the row already had', async () => {
+  // The walk loses its bound: the figures land, the name the previous measure read
+  // stays — the coordinator's pane filters on the role, and a null would drop the row.
+  const chains = mounted(register)
+  const fx = fakeDollar({ origin: 'git@github.com:me/belt.git' })
+  await drive(chains, 'session.measure', fx.dollar, {})
+  fx.env.ORCHESTRATOR_SIDE_READ_MS = '30'
+  const hang = fx.dollar.process.run
+  fx.dollar.process.run = async (argv: readonly string[], init?: object) =>
+    argv[0] === 'sh' && argv[2] === 'ps -o ppid=,tty= -p $$' ? new Promise(() => undefined) : hang(argv, init)
+  fx.usage.context.percent = 61
+  await drive(chains, 'session.measure', fx.dollar, {})
+  const row = (await readSessions(fx.dollar))['sessions/s-one']
+  expect(row.context_percent).toBe(61)
+  expect(row.name).toBe('Agent : belt-p3')
+  expect(row.role).toBe('agent')
 })
 
 test('without a launch name the row is named by the transcript\'s last rename', async () => {
@@ -234,7 +278,7 @@ test('the end handler removes the row through the store', async () => {
   const fx = fakeDollar()
   await writeSession(fx.dollar, 's-one', { role: 'agent' })
   await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one' })
-  expect(fx.files.get(`${SESSIONS}/s-one`)).toBe('')
+  expect(fx.files.has(`${SESSIONS}/s-one`)).toBe(false)
   expect((await readSessions(fx.dollar))['sessions/s-one']).toBeUndefined()
 })
 

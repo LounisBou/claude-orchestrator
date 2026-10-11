@@ -18,14 +18,19 @@
 // over the walk's pure core with readers built here.
 import { currentReading } from './gauge.ts'
 import { tripGate } from './gauge-core.ts'
-import { roleOf, walkName, BLOCK } from './session-name.ts'
+import {
+  roleOf, walkName, hostBasenames, hostRecordOf, blockArgv, bytesOfBase64,
+  type ReadRecord, type HostNames,
+} from './session-name.ts'
 import { withDeadline, isDegradedPass, chainEntries } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
-// One row per live session, the store's whole schema.
+// One row per live session, the store's whole schema. `pid` is the session's host
+// process — the row lives while it does.
 export type SessionRow = {
   role: 'orchestrator' | 'agent' | 'auditor' | 'coordinator' | null
   name: string | null
+  pid?: string | null
   repo: string | null
   context_percent: number
   context_tokens: number
@@ -35,17 +40,31 @@ export type SessionRow = {
   updated_at: string
 }
 
-// A row no measure has refreshed in an hour belongs to a session that ended
-// without its end event — a crash, a kill — and the store does not keep it
-// past the figures it would show.
+// A row lives while its session's host process does: a session idle for hours —
+// waiting on a long agent phase, on a CI watch — is still there, and one that
+// ended without its end event (a crash, a kill) is gone the moment its pid is.
+// A row written before rows carried a pid falls back to the old rule: no
+// measure for an hour, no row.
 const STALE_AFTER_MS = 60 * 60 * 1000
 
 // The rule above as a function, pure and exported: the commands read the same
 // store through their own $ (the fence forbids sharing the reader) and judge
-// every row by this same rule, so the hour stays written once.
-export function isStale(row: SessionRow, now: number): boolean {
+// every row by this same rule. `alive` is the set of live pids the caller read
+// (livePidsArgv, livePids).
+export function isStale(row: SessionRow, now: number, alive: ReadonlySet<string> = new Set()): boolean {
+  if (row.pid) return !alive.has(String(row.pid))
   const at = Date.parse(row.updated_at)
   return !Number.isFinite(at) || now - at > STALE_AFTER_MS
+}
+
+// One ps for every pid the store's rows name; it prints the live ones.
+export function livePidsArgv(pids: readonly string[]): string[] | null {
+  const valid = [...new Set(pids.filter(pid => /^\d+$/.test(pid)))]
+  return valid.length === 0 ? null : ['ps', '-o', 'pid=', '-p', valid.join(',')]
+}
+
+export function livePids(out: string): Set<string> {
+  return new Set(out.split('\n').map(line => line.trim()).filter(pid => /^\d+$/.test(pid)))
 }
 
 // The supervision pane: the id names it at the engine (the open, the render's
@@ -60,6 +79,11 @@ const PANE_TITLES = { coordinator: 'Orchestrators', orchestrator: 'Agents' } as 
 // is any number no honest fill reaches, added to the fill so the order stays
 // one comparison.
 const GATE_URGENCY_FLOOR = 1000
+
+// How often an open pane redraws on its own. A render is raised by a measure of
+// this session, and a supervisor mostly waits: without a clock its rows — the
+// others' fills, their ages — froze at its own last turn.
+const PANE_REFRESH_MS = 20000
 
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -112,8 +136,10 @@ export async function writeSession($: any, id: string, patch: Partial<SessionRow
 }
 
 // One row per live session: every file under the store's sessions directory,
-// minus the stale (an hour untouched) and the unreadable (the end handler's
-// truncated files among them).
+// minus the dead (isStale) and the unreadable (a line caught mid-write). The
+// files of the dead and the empty ones are removed as they are met — $.fs has
+// no remove, rm does — so the store does not grow with every session the
+// machine ever ran.
 export async function readSessions($: any): Promise<Record<string, SessionRow>> {
   const dir = `${storeDir(await configDir($))}/sessions`
   let entries: { name: string; kind: string }[]
@@ -122,27 +148,36 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   } catch {
     return {}   // no store yet: nothing was ever written
   }
-  const rows: Record<string, SessionRow> = {}
+  const read: [string, string, SessionRow | null][] = []
   for (const entry of entries) {
     if (!entry || entry.kind !== 'file') continue
-    const row = parseSessionRow(String(await $.fs.read(`${dir}/${entry.name}`).catch(() => '')))
-    if (!row || isStale(row, Date.now())) continue
-    rows[`sessions/${entry.name}`] = row
+    const text = String(await $.fs.read(`${dir}/${entry.name}`).catch(() => ''))
+    read.push([entry.name, text, parseSessionRow(text)])
   }
+  const argv = livePidsArgv(read.map(([, , row]) => String(row?.pid ?? '')))
+  const alive = argv ? livePids(String((await $.process.run(argv, { timeoutMs: 5000 }).catch(() => ({ stdout: '' }))).stdout ?? '')) : new Set<string>()
+  const rows: Record<string, SessionRow> = {}
+  const dead: string[] = []
+  const now = Date.now()
+  for (const [name, text, row] of read) {
+    if (row && !isStale(row, now, alive)) rows[`sessions/${name}`] = row
+    else if (text === '' || row) dead.push(`${dir}/${name}`)
+  }
+  if (dead.length > 0) await $.process.run(['rm', '-f', ...dead], { timeoutMs: 5000 }).catch(() => undefined)
   return rows
 }
 
-// $.fs offers no remove (the gauge's own finding, its session.end pins it):
-// the key's file is truncated to empty, the row parser reads that as no row,
-// and the one-hour staleness collects what a dead session still holds.
+// The session's own row goes with it: removed, or — rm failing — truncated to
+// empty, which the row parser reads as no row and the next read removes.
 export async function deleteSession($: any, id: string): Promise<void> {
-  await $.fs.write(`${storeDir(await configDir($))}/${sessionKey(id)}`, '')
+  const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
+  const done = await $.process.run(['rm', '-f', path], { timeoutMs: 5000 }).catch(() => null)
+  if (!done || done.exitCode !== 0) await $.fs.write(path, '')
 }
 
 // The reading's age, the pane row's last element: how long ago the row's own
-// measure stamped it. A stamp that parses to nothing names no age (an
-// unparseable stamp cannot be judged stale either, and the store has already
-// dropped the rows an hour old), so the buckets stop at hours.
+// measure stamped it. A stamp that parses to nothing names no age; a live
+// session idle for hours reads in hours, the largest bucket.
 function ageLabel(updated_at: string, now: number): string | null {
   const at = Date.parse(updated_at)
   if (!Number.isFinite(at)) return null
@@ -198,25 +233,6 @@ export function agentPaneRows(agents: readonly AgentView[]): { label: string; ur
     .sort((a, b) => b.urgency - a.urgency)
 }
 
-// The host's own record of a live session (<config>/sessions/<pid>.json): its
-// id, its name as the rename stored it — the quotes a quoted rename typed are
-// not part of it — and its status. Null for a text that is no such record.
-export function hostRecordOf(text: string): { sessionId: string | null; name: string | null; status: 'idle' | 'busy' | null } | null {
-  let record: { sessionId?: unknown; name?: unknown; status?: unknown }
-  try {
-    record = JSON.parse(text)
-  } catch {
-    return null
-  }
-  if (!record || typeof record !== 'object') return null
-  const name = typeof record.name === 'string' ? record.name.trim().replace(/^"(.*)"$/s, '$1').trim() : ''
-  return {
-    sessionId: typeof record.sessionId === 'string' ? record.sessionId : null,
-    name: name || null,
-    status: record.status === 'idle' || record.status === 'busy' ? record.status : null,
-  }
-}
-
 // The agents of the orchestrator on `tty`: the launcher's chain entries its own
 // tab wrote (the owner is the terminal session's id, the stop gate's rule — no
 // owner, no entry counted: a recycled tty's occupant would be), each read
@@ -238,7 +254,8 @@ async function agentViews($: any, tty: string): Promise<AgentView[]> {
       const record = hostRecordOf(String(await $.fs.read(`${config}/sessions/${pid}.json`).catch(() => '')))
       if (!record || !record.sessionId) continue
       const row = parseSessionRow(String(await $.fs.read(`${storeDir(config)}/${sessionKey(record.sessionId)}`).catch(() => '')))
-      views.push({ name: record.name, status: record.status, row: row && !isStale(row, Date.now()) ? row : null })
+      // The host's record says the agent lives: its row is shown whatever its age.
+      views.push({ name: record.name, status: record.status, row })
       break
     }
   }
@@ -257,22 +274,44 @@ async function sideReadBoundMs($: any): Promise<number> {
 }
 
 // The session's name under the side-read bound, this file's own walk over its
-// own readers (the per-file convention the fence leaves no way around): null
-// when the walk loses its race — the row keeps its figures and goes unnamed.
-async function nameWithinBound($: any, sessionId: string): Promise<string | null> {
-  return (await walkWithinBound($, sessionId)).name
-}
-
-// The same walk, its tty kept: the pane of an orchestrator reads its agents
-// from the chain its own tty names.
-async function walkWithinBound($: any, sessionId: string): Promise<{ tty: string | null; name: string | null }> {
+// own readers (the per-file convention the fence leaves no way around), its tty
+// kept — the pane of an orchestrator reads its agents from the chain its own tty
+// names — and its host pid, the row's life. Every read carries the bound as its
+// timeout, so a walk that loses the race stops with it instead of running on
+// behind the next one; `known` false then, and the row keeps the name it had.
+async function walkWithinBound($: any, sessionId: string):
+Promise<{ tty: string | null; name: string | null; pid: string | null; known: boolean }> {
+  const bound = await sideReadBoundMs($)
+  const until = Date.now() + bound
+  const left = () => Math.max(1, until - Date.now())
+  const config = await configDir($)
+  const readRecord: ReadRecord = async (pid: string) => {
+    try {
+      return String(await $.fs.read(`${config}/sessions/${pid}.json`))
+    } catch {
+      return null
+    }
+  }
+  const hostNames: HostNames = async () => {
+    const host = (await $.env.get('ORCHESTRATOR_HOST_CLI')) ?? 'claude'
+    let resolved: string | null = null
+    try {
+      const found = await $.process.run(['sh', '-c', 'command -v -- "$1"', 'sh', host], { timeoutMs: left() })
+      const path = found.exitCode === 0 ? String(found.stdout ?? '').trim() : ''
+      if (path.startsWith('/')) resolved = (await $.fs.stat(path, { resolve: true })).realPath ?? path
+    } catch { /* unresolved: the spelled name alone */ }
+    return hostBasenames(host, resolved)
+  }
   const walked = await withDeadline(walkName(
-    (argv: readonly string[]) => $.process.run(argv),
+    (argv: readonly string[]) => $.process.run(argv, { timeoutMs: left() }),
     async (path: string) => (await $.fs.stat(path)).size,
-    (path: string, index: number) => readRange($, path, index),
+    (path: string, index: number) => readBlock($, path, index, left()),
     await transcriptPathOf($, sessionId),
-  ), await sideReadBoundMs($))
-  return isDegradedPass(walked) ? { tty: null, name: null } : walked
+    readRecord,
+    hostNames,
+    sessionId,
+  ), bound)
+  return isDegradedPass(walked) ? { tty: null, name: null, pid: null, known: false } : walked
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
@@ -280,6 +319,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // read from — the render lists what the open asked for. A reload forgets it,
   // and the pane then asks to be opened again.
   let opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null = null
+  // The open pane's clock: started by the open, cancelled by any close.
+  let ticker: { cancel(): void } | null = null
+  const stopTicker = () => {
+    ticker?.cancel()
+    ticker = null
+  }
 
   // The engine allows one no-matcher registration per event, and the gauge
   // owns session.measure's and session.end's: this domain observes the same
@@ -298,13 +343,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (reading) {
         const sessionId = e.sessionId ?? await $.session.id()
         // The side reads run bounded: a walk or an origin read that cannot
-        // answer in time is quietly no name and no repository — the figures
-        // still land, and the next measure names the row.
-        const name = await nameWithinBound($, sessionId)
+        // answer in time is quietly no new name and no repository — the
+        // figures still land, and the next measure names the row.
+        const walked = await walkWithinBound($, sessionId)
         const origin = await withDeadline(repoOf($), await sideReadBoundMs($))
         await writeSession($, sessionId, {
-          role: roleOf(name),
-          name,
+          // A walk that did not finish leaves the row's name, role and pid as they were.
+          ...(walked.known ? { role: roleOf(walked.name), name: walked.name } : {}),
+          ...(walked.pid ? { pid: walked.pid } : {}),
           repo: isDegradedPass(origin) ? null : origin,
           context_percent: reading.context_percent,
           context_tokens: reading.context_tokens,
@@ -355,12 +401,24 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     // the pane holds no focus), beside the pane's own ✕.
     const panes: readonly { id: string }[] = await $.ui.panes()
     if (panes.some(pane => pane.id === PANE_ID)) {
+      stopTicker()
       await $.ui.close({ id: PANE_ID })
       return { text: 'Supervision pane closed.' }
     }
     opened = { role, tty }
     await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role] })
+    stopTicker()
+    ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
     return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // The pane closed by its ✕ or its key: its clock stops with it.
+  on('ui.close', { id: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
+    stopTicker()
+    return next(e)
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
@@ -371,8 +429,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // alone and never in another plugin's.
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
     try {
-      // The store at draw time is the whole refresh story: the gauge's own
-      // invalidate after every measure re-raises this render. Display only.
+      // The store at draw time: the gauge's invalidate after every measure and
+      // the pane's own clock re-raise this render. Display only.
       let rows: { label: string; urgency: number }[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
       if (opened?.role === 'coordinator') {
@@ -415,13 +473,14 @@ async function logLine($: any, message: string): Promise<void> {
 }
 
 // $.fs.read carries no range and refuses past 4 MiB, so the walk's transcript
-// window comes from dd — this file's own reader, the per-file convention: the
-// engine fences $ to the file that received it, so guards.ts's identical
-// reader cannot be imported, and each domain spells its own over its own $.
-async function readRange($: any, path: string, index: number): Promise<string> {
-  const { exitCode, stdout } = await $.process.run(['dd', `if=${path}`, `bs=${BLOCK}`, `skip=${index}`, 'count=1'])
+// window comes from dd (blockArgv), as bytes — this file's own reader, the
+// per-file convention: the engine fences $ to the file that received it, so
+// guards.ts's identical reader cannot be imported, and each domain spells its
+// own over its own $.
+async function readBlock($: any, path: string, index: number, timeoutMs: number): Promise<Uint8Array> {
+  const { exitCode, stdout } = await $.process.run(blockArgv(path, index), { timeoutMs })
   if (exitCode !== 0) throw new Error(`dd exited ${exitCode} on ${path}`)
-  return stdout
+  return bytesOfBase64(String(stdout ?? ''))
 }
 
 // The transcript, found the gauge's own way (the guards' reader, spelled over

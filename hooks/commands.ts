@@ -22,7 +22,7 @@
 // import — so this file spells its own env resolution, its own store read and
 // its own record read, while the row parser, the staleness rule and the pane's
 // row shaper cross as plain imports from the supervision domain.
-import { parseSessionRow, paneRows, isStale, type SessionRow } from './supervision.ts'
+import { parseSessionRow, paneRows, isStale, livePidsArgv, livePids, type SessionRow } from './supervision.ts'
 import { withDeadline, isDegradedPass } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
@@ -54,9 +54,9 @@ async function readBoundMs($: any): Promise<number> {
 
 // The store's live rows, this file's own read of the same files the
 // supervision domain writes: every file under the sessions directory, minus
-// the stale (isStale, the store's own hour) and the unreadable (a line caught
-// mid-write parses to no row). An absent store is no failure — nothing was
-// ever written — and answers as no sessions.
+// the dead (isStale, the store's own rule: the row's host pid is gone) and the
+// unreadable (a line caught mid-write parses to no row). An absent store is no
+// failure — nothing was ever written — and answers as no sessions.
 async function readRows($: any): Promise<Record<string, SessionRow>> {
   const dir = `${await configDir($)}/claude-orchestrator/store/sessions`
   let entries: { name: string; kind: string }[]
@@ -65,13 +65,19 @@ async function readRows($: any): Promise<Record<string, SessionRow>> {
   } catch {
     return {}
   }
-  const rows: Record<string, SessionRow> = {}
-  const now = Date.now()
+  const read: [string, SessionRow][] = []
   for (const entry of entries) {
     if (!entry || entry.kind !== 'file') continue
     const row = parseSessionRow(String(await $.fs.read(`${dir}/${entry.name}`).catch(() => '')))
-    if (!row || isStale(row, now)) continue
-    rows[`sessions/${entry.name}`] = row
+    if (row) read.push([entry.name, row])
+  }
+  const argv = livePidsArgv(read.map(([, row]) => String(row.pid ?? '')))
+  const ps = argv ? await withDeadline($.process.run(argv, { timeoutMs: await readBoundMs($) }), await readBoundMs($)).catch(() => null) : null
+  const alive = ps && !isDegradedPass(ps) ? livePids(String(ps.stdout ?? '')) : new Set<string>()
+  const rows: Record<string, SessionRow> = {}
+  const now = Date.now()
+  for (const [name, row] of read) {
+    if (!isStale(row, now, alive)) rows[`sessions/${name}`] = row
   }
   return rows
 }
