@@ -28,6 +28,18 @@ const SELF_NAME = /^(Orch|Coord) : (\S(?:.{0,23}\S)?)$/
 
 // The name as asked, or why it is refused: the refusal names the shape, so the
 // model's next call can be the right one.
+// The refusal a subagent's call gets: the session's name and its end are the main
+// loop's. A review subagent once renamed its own session; the env marker that keeps
+// the launcher's sessions out is the parent's, shared by every subagent it starts.
+export const MAIN_THREAD_ONLY = "only the session's main thread names or ends it"
+
+// Whether this session has asked to end (end_session accepted): the stop gate lets
+// the turn that asked go — the session is leaving, and its successor holds its work.
+let endAsked = false
+export function isEnding(): boolean {
+  return endAsked
+}
+
 export function checkName(raw: unknown): { name: string } | { refused: string } {
   const name = typeof raw === 'string' ? raw : ''
   if (SELF_NAME.test(name)) return { name }
@@ -64,7 +76,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await $.tool.register({
         name: END_TOOL,
         isDeferred: false,
-        description: 'Ends this session when the current turn ends. Only for an orchestrator that has handed over and whose successor asks it to end its session.',
+        description: 'Ends this session when the current turn ends. Only for an orchestrator or a coordinator that has handed over and whose successor asks it to end its session.',
         inputSchema: { type: 'object', properties: {} },
       })
     } catch (err) {
@@ -78,6 +90,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   on('tool.call', { tool: `mcp__orchestrator__${RENAME_TOOL}` }, async ($: any, e: any) => {
+    if (e.agentId) return { result: MAIN_THREAD_ONLY, isError: true }
     if (await $.env.get('ORCHESTRATOR_SPAWNED')) {
       return { result: 'this session was named by the launcher and keeps that name', isError: true }
     }
@@ -90,11 +103,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return { result: 'the rename could not be recorded; hand the operator the /rename line instead', isError: true }
   })
 
-  on('tool.call', { tool: `mcp__orchestrator__${END_TOOL}` }, async ($: any) => {
+  on('tool.call', { tool: `mcp__orchestrator__${END_TOOL}` }, async ($: any, e: any) => {
+    if (e.agentId) return { result: MAIN_THREAD_ONLY, isError: true }
     if (await $.env.get('ORCHESTRATOR_SPAWNED')) {
       return { result: 'this session was opened by the launcher; its successor closes its tab', isError: true }
     }
     ending = true
+    endAsked = true
     return { result: 'This session ends when this turn ends.' }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -102,6 +117,17 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   on('turn.complete', async ($: any, e: any, next: (e: any) => any) => {
+    // A subagent's turn completes inside the main one: what the main loop asked waits
+    // for the main loop's own completion, never run while the turn still waits on it.
+    if (e.agentId) return next(e)
+    if (e.isAborted) {
+      // The operator stopped the turn that asked: neither the rename nor the end runs.
+      if (pending !== null || ending) await logLine($, 'the turn was interrupted: the rename or end it asked is dropped')
+      pending = null
+      ending = false
+      endAsked = false
+      return next(e)
+    }
     if (pending !== null) {
       const name = pending
       pending = null
