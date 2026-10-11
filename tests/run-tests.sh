@@ -4580,22 +4580,47 @@ uninst "$H4B" >/dev/null 2>&1
 check "an uninstall that could not unwire keeps the tap's copy, removes the rest" "kept|gone" \
   "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/models.json" ] && echo kept || echo gone)"
 
-# What the tap left behind: its own ctx/ directory, and measure files from sessions
-# long ended. A file a day stale or more is noise to whatever reads the directory;
-# a fresh one belongs to a live session and is never touched.
+# What the old pipeline left behind: the tap's ctx/ directory, its copy and saved object,
+# the shell gates' logs and heads, and measure files from sessions long ended. A session
+# writes its measure file only when a turn ends, so age alone proves nothing: an idle one
+# waits for days. A file is pruned only past a week AND when no live session owns it —
+# the host's registry names each session's pid; a dead or absent pid frees the file.
 H5="$WORK/home5"; mkdir -p "$H5/.claude"; stub_venv "$H5"
-mkdir -p "$H5/.claude/claude-orchestrator/ctx" "$H5/.claude/claude-orchestrator/measure"
-printf 'noise\n' > "$H5/.claude/claude-orchestrator/ctx/old.json"
-for sid in s-gone s-kept; do
-  printf '{"context_tokens":1,"context_window":200000,"context_percent":0,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' \
-    > "$H5/.claude/claude-orchestrator/measure/$sid.json"
+S5="$H5/.claude/claude-orchestrator"
+mkdir -p "$S5/ctx" "$S5/measure" "$S5/stop-gate" "$H5/.claude/sessions"
+printf 'noise\n' > "$S5/ctx/old.json"
+for f in statusline-tap.sh context-gate.log stop-gate.log stop-gate/s-a.heads stop-gate/s-a.mheads; do
+  printf 'old\n' > "$S5/$f"
 done
-touch -t 202001010000 "$H5/.claude/claude-orchestrator/measure/s-gone.json"
+printf '{"type":"command","command":"/x/bar.sh"}\n' > "$S5/statusline.previous.json"
+for sid in s-gone s-dead s-live s-idle s-kept; do
+  printf '{"context_tokens":1,"context_window":200000,"context_percent":0,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' \
+    > "$S5/measure/$sid.json"
+done
+sleep 0 & deadpid=$!; wait "$deadpid"
+printf '{"pid":%s,"sessionId":"s-live"}\n' "$$" > "$H5/.claude/sessions/$$.json"
+printf '{"pid":%s,"sessionId":"s-dead"}\n' "$deadpid" > "$H5/.claude/sessions/$deadpid.json"
+touch -t 202001010000 "$S5/measure/s-gone.json" "$S5/measure/s-dead.json" "$S5/measure/s-live.json"
+touch -t "$(date -v-3d +%Y%m%d%H%M 2>/dev/null || date -d '3 days ago' +%Y%m%d%H%M)" "$S5/measure/s-idle.json"
 inst "$H5" >/dev/null 2>&1
 check "the tap's ctx/ is purged" "gone" \
-  "$([ -d "$H5/.claude/claude-orchestrator/ctx" ] && echo kept || echo gone)"
-check "a stale measure file is pruned, a fresh one kept" "absent|present" \
-  "$([ -e "$H5/.claude/claude-orchestrator/measure/s-gone.json" ] && echo present || echo absent)|$([ -e "$H5/.claude/claude-orchestrator/measure/s-kept.json" ] && echo present || echo absent)"
+  "$([ -d "$S5/ctx" ] && echo kept || echo gone)"
+present() { [ -e "$1" ] && echo present || echo absent; }
+check "a measure file is pruned only past a week with no live session: gone, dead pid, live pid, idle, fresh" \
+  "absent|absent|present|present|present" \
+  "$(present "$S5/measure/s-gone.json")|$(present "$S5/measure/s-dead.json")|$(present "$S5/measure/s-live.json")|$(present "$S5/measure/s-idle.json")|$(present "$S5/measure/s-kept.json")"
+check "with no tap wired, the old pipeline's files are removed and the module's heads kept" \
+  "absent|absent|absent|absent|absent|present" \
+  "$(present "$S5/statusline-tap.sh")|$(present "$S5/statusline.previous.json")|$(present "$S5/context-gate.log")|$(present "$S5/stop-gate.log")|$(present "$S5/stop-gate/s-a.heads")|$(present "$S5/stop-gate/s-a.mheads")"
+# After an unwrap the same files go: nothing reads them once the line no longer runs the tap.
+H5B="$WORK/home5b"; mkdir -p "$H5B/.claude/claude-orchestrator"; stub_venv "$H5B"
+sed "s#@TAP@#$H5B/.claude/claude-orchestrator/statusline-tap.sh#" \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H5B/.claude/settings.json"
+printf '#!/bin/sh\n' > "$H5B/.claude/claude-orchestrator/statusline-tap.sh"
+printf '{"type":"command","command":"/x/bar.sh","padding":0}\n' > "$H5B/.claude/claude-orchestrator/statusline.previous.json"
+inst "$H5B" >/dev/null 2>&1
+check "an unwrap that succeeded removes the tap's copy and saved object" "/x/bar.sh|absent|absent" \
+  "$(jq -r '.statusLine.command' "$H5B/.claude/settings.json")|$(present "$H5B/.claude/claude-orchestrator/statusline-tap.sh")|$(present "$H5B/.claude/claude-orchestrator/statusline.previous.json")"
 
 H6="$WORK/home6"; mkdir -p "$H6/.claude"
 sed "s#@TAP@#$H6/.claude/claude-orchestrator/statusline-tap.sh#" \

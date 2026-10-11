@@ -177,17 +177,36 @@ step "State directory"
 run "mkdir -p '$STATE_DIR/measure'"
 say "measure directory ready: $STATE_DIR/measure"
 
-# The tap's own files, and any measure file a day stale or more: a session whose
-# gauge pass is that old has ended, and its file is noise to whatever reads the
-# directory. Fresh measure files are never touched.
+# The tap's ctx/ directory: nothing reads it since the module measures the session itself.
 if [ -d "$STATE_DIR/ctx" ]; then
   run "rm -rf '$STATE_DIR/ctx'"
   say "the tap's ctx/ removed"
 else
   say "no ctx/ to remove"
 fi
-run "find '$STATE_DIR/measure' -type f -mtime +0 -delete"
-say "measure files older than a day purged"
+
+# A session writes its measure file when a turn ends, so an idle one — an agent waiting
+# through a weekend, a quiet coordinator — keeps an old file it will read again in its next
+# turn. Age alone proves nothing: a file is pruned only past a week AND when no live
+# session owns it. The host's registry (sessions/<pid>.json) names each session's id; a
+# registry file whose pid is gone frees that session's measure file.
+live_sessions=""
+for reg in "$CONFIG_DIR"/sessions/*.json; do
+  [ -f "$reg" ] || continue
+  pid=$(basename "$reg" .json)
+  case "$pid" in ''|*[!0-9]*) continue ;; esac
+  ps -p "$pid" >/dev/null 2>&1 || continue
+  sid=$(jq -r '.sessionId // empty' "$reg" 2>/dev/null || true)
+  [ -n "$sid" ] && live_sessions="$live_sessions $sid "
+done
+pruned=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$live_sessions" in *" $(basename "$f" .json) "*) continue ;; esac
+  run "rm -f '$f'"
+  pruned=$((pruned + 1))
+done < <(find "$STATE_DIR/measure" -type f -name '*.json' -mtime +6 2>/dev/null)
+say "measure files pruned (past a week, no live session): $pruned"
 
 # The tier map: three capability tiers, bound by the operator to identifiers this
 # plugin must not name. An empty binding means "let the host choose", so a fresh
@@ -251,6 +270,27 @@ say "iTerm2 must have its API enabled (Preferences > General > Magic > Enable Py
 step "settings.json"
 
 unwrap_statusline
+
+# --- the old pipeline's files -------------------------------------------------
+
+step "Old pipeline files"
+
+# The tap's copy and saved object, the shell gates' logs and the heads they kept: inert
+# once no line runs the tap, and a stale saved object would only mislead a later unwrap.
+# They stay while a status line may still point at the tap (a settings file that did not
+# parse, a spelling not recognised). The module's own heads (.mheads) are never touched.
+if [ "$UNWRAP" = "skipped" ]; then
+  say "the status line may still run the tap: its files are kept"
+else
+  removed=0
+  for f in "$TAP_DEST" "$PREVIOUS" "$STATE_DIR/context-gate.log" "$STATE_DIR/stop-gate.log" \
+           "$STATE_DIR"/stop-gate/*.heads; do
+    [ -f "$f" ] || continue
+    run "rm -f '$f'"
+    removed=$((removed + 1))
+  done
+  say "old pipeline files removed: $removed"
+fi
 
 step "Done."
 say "Restart your session for the module to take effect."
