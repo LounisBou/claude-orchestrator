@@ -44,8 +44,10 @@ a settled item is never asked.
   and each a materially different piece of work — never shades of one option.
 - _Recommendation._ Exactly one, with its reason in one sentence. Put it first among the
   choices only if the tool you present with requires it; otherwise name it here.
-- Close with « You decide: A or B? » (the letters offered), and END THE TURN. Nothing
-  else in that message: no status, no other question, no agent report.
+- Close with « You decide: A or B? » (the letters offered), then the machine line, plain
+  text, as the message's last line: `waiting: operator — blocks: <the question>` — the
+  stop gate refuses a turn that ends on a bare question. END THE TURN. Nothing else in
+  that message: no status, no other question, no agent report.
 
 ## 3. Wait for the answer
 

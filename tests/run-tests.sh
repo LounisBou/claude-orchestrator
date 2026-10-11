@@ -3768,6 +3768,10 @@ check "the audit report keeps a dated name whose date is date +%F run at launch,
   "$(spells "$ROOT/commands/audit.md" '`<briefs dir>/audits/<date>-<subject>.md`, where `<date>` is the output of `date +%F` run now, never typed')|$(spells "$ROOT/commands/audit.md" "the previous report's file name, which a command wrote")"
 check "the coordinator's succession brief is named with no date" "yes|no" \
   "$(spells "$ROOT/skills/coordination/SKILL.md" '<state dir>/coordinator/succession-brief.md')|$(spells "$ROOT/skills/coordination/SKILL.md" 'succession-<date>')"
+# The question of a decision round ends on the machine line: the stop gate refuses a turn
+# whose last line is a bare question.
+check "a decision round's question ends on the operator's machine line" "yes" \
+  "$(spells "$ROOT/commands/decide.md" 'text, as the message'"'"'s last line: `waiting: operator — blocks: <the question>`')"
 check "a relayed ruling is dated by a command, pasted, never from memory" "yes|no" \
   "$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated (`date -u +%FT%TZ`, pasted),')|$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated,')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
