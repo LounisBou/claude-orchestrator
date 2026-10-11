@@ -99,12 +99,55 @@ test("an unmarked session's push reaches the tool untouched", async () => {
   expect(answer).toBe(e)
 })
 
-test('a handler that cannot read its marker lets the call through and logs one line', async () => {
+test('a handler that cannot read its marker refuses a forced push alone, with the reason, and logs one line', async () => {
+  // Fails closed where it cannot tell: a mark never read could be the launcher's, so a
+  // forced push waits — said why — while every other command passes.
   const { handlers } = mounted()
   const { dollar, written } = fakeDollar({ noEnv: true })
-  const e = bashCall('git push --force origin main')
-  const { answer } = await callBash(handlers['tool.call'], dollar, e)
-  expect(answer).toBe(e)
+  const forced = await callBash(handlers['tool.call'], dollar, bashCall('git push --force origin main'))
+  expect((forced.answer as any).deny).toContain('the push guard could not read whether the launcher spawned this session (the marker cannot be read)')
+  expect(forced.passedThrough).toBeNull()
   expect(written.length).toBe(1)
   expect(written[0]).toContain('| guards |')
+  const e = bashCall('git status')
+  const plain = await callBash(handlers['tool.call'], dollar, e)
+  expect(plain.answer).toBe(e)
+})
+
+// The registered net: a re-entered call, or one past its budget, cannot read the
+// environment. It decides on the mark the guard read last — closed in a session the
+// launcher marked, open in the operator's own.
+function mountedNet(): { body: Function; net: Function } {
+  let body: Function = () => undefined
+  let net: Function = () => undefined
+  registerGuards((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    const isBash = args[0] === 'tool.call'
+    if (isBash) body = args[args.length - 1] as Function
+    return { catch: (handler: Function) => { if (isBash) net = handler } }
+  })
+  return { body, net }
+}
+
+test('the net refuses a spawned session\'s forced push when the guard could not finish', async () => {
+  const { body, net } = mountedNet()
+  const marked = fakeDollar({ spawned: '1' })
+  await callBash(body, marked.dollar, bashCall('git status'))   // the mark, read once and kept
+  const failed: any = (x: unknown) => x
+  failed.called = false
+  failed.error = { kind: 'budget', message: 'the hook ran past its budget' }
+  const refused = await net(marked.dollar, bashCall('git push --force origin main'), failed)
+  expect(refused.deny).toContain('git push refused')
+  const e = bashCall('git status')
+  expect(await net(marked.dollar, e, failed)).toBe(e)
+})
+
+test("the net lets an operator's own session through when the guard could not finish", async () => {
+  const { body, net } = mountedNet()
+  const own = fakeDollar({})
+  await callBash(body, own.dollar, bashCall('git status'))
+  const failed: any = (x: unknown) => x
+  failed.called = false
+  failed.error = { kind: 'budget', message: 'the hook ran past its budget' }
+  const e = bashCall('git push --force origin main')
+  expect(await net(own.dollar, e, failed)).toBe(e)
 })

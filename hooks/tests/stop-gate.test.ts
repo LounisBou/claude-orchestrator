@@ -10,10 +10,10 @@ import {
   refuse, wakeDecision, withDeadline, isDegradedPass,
   machineLine, readHeads, writeHeads, headsPath, listing, ownAgents, hostStatusOf, openRows,
   projectCheckouts, watchedNumbers, parseCiWatchLog, watchNumberOf, pullRequestOf,
-  checkWake, checkWakeDone, checkCi, chainEntries,
+  checkWake, checkWakeDone, checkCi, chainEntries, logTell, isSuccessorSpawn, processTable, ownWatches,
 } from '../stop-gate.ts'
 import { register as registerGuards } from '../guards.ts'
-import { logLineOf } from './fakes.ts'
+import { logLineOf, blockOf } from './fakes.ts'
 
 // --- the decision shapes -----------------------------------------------------------------
 
@@ -345,9 +345,12 @@ type Setup = {
   failLogRead?: boolean
   hangHeadsWrite?: boolean
   hostRecord?: string
+  agentRow?: string
+  selfBin?: string
 }
 
-function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string } } {
+function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string }; inits: Record<string, any> } {
+  const inits: Record<string, any> = {}
   const written: string[] = []
   const ran: string[] = []
   const wrote: Record<string, string> = {}
@@ -363,6 +366,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
     // The launcher's scripts are found under the engine's $.plugin.root: the
     // environment above deliberately carries no CLAUDE_PLUGIN_ROOT, as live.
     plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    session: { id: async () => 'a1b2c3' },
     env: { get: async (name: string) => env[name] },
     fs: {
       read: async (p: string) => {
@@ -409,23 +413,27 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
       exists: async () => false,
     },
     process: {
-      run: async (argv: readonly string[]) => {
+      run: async (argv: readonly string[], init?: object) => {
+        inits[argv.join(' ')] = init
         const line = logLineOf(argv)
         if (line !== null) {
           written.push(line)
           return { exitCode: 0, stdout: '', stderr: '' }
         }
+        const block = blockOf(argv, (p: string) => setup.transcript ?? '')
+        if (block !== null) return { exitCode: 0, stdout: block, stderr: '' }
         ran.push(argv.join(' '))
         if (argv[0] === 'sh') {
           return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
         }
         if (argv[0] === 'ps' && argv[1] === '-t' && argv[2] === 'ttys001') {
           // The session's own process, as the listing prints it.
-          return { exitCode: 0, stdout: setup.noLaunchName ? '  501 hostcli\n' : `  501 hostcli --name ${setup.launchName ?? 'Orch : belt'}\n`, stderr: '' }
+          const bin = setup.selfBin ?? 'hostcli'
+          return { exitCode: 0, stdout: setup.noLaunchName ? `  501 ${bin}\n` : `  501 ${bin} --name ${setup.launchName ?? 'Orch : belt'}\n`, stderr: '' }
         }
         if (argv[0] === 'ps' && argv[1] === '-t' && argv[2] === 'ttys003') {
           // The idle agent's host process: its pid, then its working directory.
-          return { exitCode: 0, stdout: '   77 hostcli\n', stderr: '' }
+          return { exitCode: 0, stdout: setup.agentRow ?? '   77 hostcli\n', stderr: '' }
         }
         if (argv[0] === 'ps') return { exitCode: 0, stdout: setup.ps ?? '1 ??\n', stderr: '' }
         if (argv[0] === 'lsof') {
@@ -457,17 +465,11 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
           return { exitCode: setup.sweep?.exitCode ?? 0, stdout: setup.sweep?.stdout ?? '', stderr: setup.sweep?.stderr ?? '' }
         }
         if (argv[0] === 'bash' && argv[1] === WORKSPACE) return { exitCode: 0, stdout: setup.workspace ?? '', stderr: '' }
-        if (argv[0] === 'dd') {
-          const flag = (name: string) => argv.find(a => a.startsWith(`${name}=`))?.split('=')[1]
-          const bs = Number(flag('bs')), skip = Number(flag('skip')), count = Number(flag('count'))
-          const text = setup.transcript ?? ''
-          return { exitCode: 0, stdout: text.slice(skip * bs, (skip + count) * bs), stderr: '' }
-        }
         return { exitCode: 0, stdout: '', stderr: '' }
       },
     },
   }
-  return { dollar, written, ran, wrote, stamp }
+  return { dollar, written, ran, wrote, stamp, inits }
 }
 
 function mounted(): { handlers: Record<string, Function>; matchers: Record<string, object | undefined> } {
@@ -601,13 +603,13 @@ test('a pending ci-watch log holds the stop once and records the telling', async
   const held = await stop(handlers['classic.Stop'], first.dollar, stopEvent(message))
   expect((held.answer as any).block).toContain('#160')
   expect((held.answer as any).block).toContain('run_in_background')
-  expect(first.wrote[HEADS]).toBe('160 1728000000000 pending test\n')
+  expect(first.wrote[HEADS]).toBe(`160 ${logTell('build\tpending\t9\tu\n')} pending test\n`)
   // Check 2 pays no network at the stop: no gh call on its path either.
   expect(first.ran.filter(l => l.startsWith('gh')).length).toBe(0)
   // Told once: the next stop passes and leaves the record as it is.
   const second = fakeDollar({
     ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\ntest\tfail\t30\tu\n' } },
-    heads: '160 1728000000000 pending test\n',
+    heads: first.wrote[HEADS],
   })
   const passed = await stop(handlers['classic.Stop'], second.dollar, stopEvent(message))
   expect(passed.answer).toBe(passed.passed)
@@ -617,7 +619,7 @@ test('a pull request waited on in the background is not told', async () => {
   const { handlers } = mounted()
   const { dollar, wrote } = fakeDollar({
     ciLogs: { 'here-pr160.log': { mtimeMs: 1728000000000, text: 'build\tpending\t9\tu\n' } },
-    ps: `/bin/bash ${CI_WATCH} 160\n`,
+    ps: `  900   1 /bin/bash ${CI_WATCH} 160\n`,
   })
   const outcome = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'waiting: operator — blocks: the report' }))
   expect(outcome.answer).toBe(outcome.passed)
@@ -915,7 +917,7 @@ test('the state root follows ORCHESTRATOR_STATE_DIR, the module\'s own log stayi
   })
   const held = await stop(handlers['classic.Stop'], watched.dollar, stopEvent(message))
   expect((held.answer as any).block).toContain('#160')
-  expect(watched.wrote[`${OVER}/stop-gate/a1b2c3.mheads`]).toBe('160 1728000000000 pending\n')
+  expect(watched.wrote[`${OVER}/stop-gate/a1b2c3.mheads`]).toBe(`160 ${logTell('build\tpending\t9\tu\n')} pending\n`)
   expect(Object.keys(watched.wrote).every(p => p.startsWith(OVER))).toBe(true)
   // The refusal's own two lines land in the module's log — the blocks line, the
   // ci-not-finished one — which the config dir still holds.
@@ -952,4 +954,121 @@ test("an agent whose tab still reads idle but whose session the host records bus
   expect(((await stop(handlers['classic.Stop'], idle.dollar, stopEvent({}))).answer as any).block).toContain('is idle')
   const none = fakeDollar({ listing: IDLE_ROW, chain })
   expect(((await stop(handlers['classic.Stop'], none.dollar, stopEvent({}))).answer as any).block).toContain('is idle')
+})
+
+// --- fix round 3: the gh read, the identity rule, the succession, the block, the watch ----
+
+const IDLE_OWNED = '{"tab_id":"T1","tty":"/dev/ttys003","owner":"17"}\n'
+
+test("the idle agent's pull request is read with one --json argument, in the agent's checkout", async () => {
+  // gh reads a second word after --json as a second positional and exits 1: every idle
+  // agent read as having no pull request, and « Stand it down » never fired.
+  const { handlers } = mounted()
+  const fx = fakeDollar({
+    listing: IDLE_ROW, chain: IDLE_OWNED,
+    agentCwd: '/tmp/h/work/belt', agentBranch: 'feat/belt\n', prAnswer: '{"number":160,"state":"OPEN"}',
+  })
+  await stop(handlers['classic.Stop'], fx.dollar, stopEvent({}))
+  const gh = 'gh pr view feat/belt --json number,state'
+  expect(fx.ran).toContain(gh)
+  expect(fx.inits[gh].cwd).toBe('/tmp/h/work/belt')
+  expect(fx.inits[gh].timeoutMs).toBeGreaterThan(0)
+})
+
+test('the agent on a tty is found by its host record, or by the basename of an absolute host path', async () => {
+  // HOST_CLI an absolute path and the agent typed as a bare name: the old pattern
+  // matched only the exact path and found no agent process on the tty.
+  const { handlers } = mounted()
+  const pr = { agentCwd: '/tmp/h/work/belt', agentBranch: 'feat/belt\n', prAnswer: '{"number":160,"state":"OPEN"}' }
+  const bare = fakeDollar({ ...pr, listing: IDLE_ROW, chain: IDLE_OWNED, agentRow: '   77 hostcli --resume x\n', selfBin: '/opt/homebrew/bin/hostcli', env: { ORCHESTRATOR_HOST_CLI: '/opt/homebrew/bin/hostcli' } })
+  expect(((await stop(handlers['classic.Stop'], bare.dollar, stopEvent({}))).answer as any).block).toContain('pull request #160')
+  const wrapped = fakeDollar({ ...pr, listing: IDLE_ROW, chain: IDLE_OWNED, agentRow: '   77 /usr/bin/node /x/cli.js\n', hostRecord: '{"pid":77,"sessionId":"s-a","status":"idle"}' })
+  expect(((await stop(handlers['classic.Stop'], wrapped.dollar, stopEvent({}))).answer as any).block).toContain('pull request #160')
+})
+
+test("a declared block is honoured before « stand it down »: the idle agent may wait on that answer", async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({
+    listing: IDLE_ROW, chain: IDLE_OWNED,
+    agentCwd: '/tmp/h/work/belt', agentBranch: 'feat/belt\n', prAnswer: '{"number":160,"state":"OPEN"}',
+  })
+  const outcome = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'A or B?\nwaiting: operator — blocks: the choice of A or B' }))
+  expect(outcome.answer).toBe(outcome.passed)
+})
+
+test('the predecessor of a succession may stop: its last line « handed over », or its done line once it handed over', async () => {
+  const { handlers } = mounted()
+  const open = { records: ['{"id":"r-12","label":"the report row","state":"open"}\n'] }
+  // « handed over » as the last line passes whatever is left: the successor holds it.
+  const last = fakeDollar(open)
+  const over = await stop(handlers['classic.Stop'], last.dollar, stopEvent({ last_assistant_message: 'Takeover confirmed.\nhanded over' }))
+  expect(over.answer).toBe(over.passed)
+  // Before the hand-over, a done line is held on the rows still open.
+  const before = fakeDollar(open)
+  expect(((await stop(handlers['classic.Stop'], before.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))).answer as any).block).toContain('row r-12')
+  // The successor's spawn, run through Bash without error, is the hand-over.
+  const spawn = { tool: 'Bash', tool_use_id: 't9', command: 'bash /plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh spawn --successor --title "Orch : belt"' }
+  await handlers['tool.call'](before.dollar, spawn, async () => ({ result: { stdout: 'spawned' } }))
+  const after = fakeDollar(open)
+  const done = await stop(handlers['classic.Stop'], after.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))
+  expect(done.answer).toBe(done.passed)
+})
+
+test('a successor spawn that failed hands nothing over', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({ records: ['{"id":"r-12","label":"the report row","state":"open"}\n'] })
+  const spawn = { tool: 'Bash', tool_use_id: 't9', command: 'bash iterm-agent.sh spawn --successor' }
+  await handlers['tool.call'](fx.dollar, spawn, async () => ({ isError: true, result: 'never started', text: 'Exit code 1' }))
+  expect(((await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))).answer as any).block).toContain('row r-12')
+})
+
+test('a ci-watch this session started, still running, will wake it; a stranger\'s will not', async () => {
+  const { handlers } = mounted()
+  // The session's host is pid 501 on ttys001; its background shell 800 runs the watch.
+  const own = fakeDollar({ ps: `  800   501 /bin/zsh -c bash ${CI_WATCH} 160\n  900   800 /bin/bash ${CI_WATCH} 160\n` })
+  const released = await stop(handlers['classic.Stop'], own.dollar, stopEvent({}))
+  expect(released.answer).toBe(released.passed)
+  const stranger = fakeDollar({ ps: `  900   1 /bin/bash ${CI_WATCH} 160\n` })
+  expect(((await stop(handlers['classic.Stop'], stranger.dollar, stopEvent({}))).answer as any).block).toContain('Nothing will wake you')
+})
+
+test('a failing set is told once per watch, whatever the log\'s mtime does while the watch appends', async () => {
+  const { handlers } = mounted()
+  const message = { last_assistant_message: 'waiting: operator — blocks: the report' }
+  const at = (mtimeMs: number, text: string) => ({ 'here-pr160.log': { mtimeMs, text } })
+  const first = fakeDollar({ ciLogs: at(1, 'build\tpending\t9\tu\ntest\tfail\t30\tu\n') })
+  expect(((await stop(handlers['classic.Stop'], first.dollar, stopEvent(message))).answer as any).block).toContain('1 failing (test)')
+  // Ten seconds on the watch appended a snapshot: a new mtime, the same failing set.
+  const later = fakeDollar({ ciLogs: at(2, 'build\tpending\t9\tu\ntest\tfail\t30\tu\nbuild\tpending\t19\tu\n'), heads: first.wrote[HEADS] })
+  const passed = await stop(handlers['classic.Stop'], later.dollar, stopEvent(message))
+  expect(passed.answer).toBe(passed.passed)
+  // A new watch (a new head) truncates the log: a new first line, told again.
+  const fresh = fakeDollar({ ciLogs: at(3, 'build\tpending\t2\tv\ntest\tfail\t4\tv\n'), heads: later.wrote[HEADS] })
+  expect(((await stop(handlers['classic.Stop'], fresh.dollar, stopEvent(message))).answer as any).block).toContain('#160')
+})
+
+test('the successor spawn is the launcher\'s spawn with --successor alone', () => {
+  expect(isSuccessorSpawn('bash /p/skills/iterm-agents/scripts/iterm-agent.sh spawn --successor --title "Orch : x"')).toBe(true)
+  expect(isSuccessorSpawn('python3 -I /p/iterm_agent.py spawn --successor')).toBe(true)
+  expect(isSuccessorSpawn('bash /p/iterm-agent.sh spawn --title "Agent : x"')).toBe(false)
+  expect(isSuccessorSpawn('bash /p/iterm-agent.sh list # --successor')).toBe(false)
+  expect(isSuccessorSpawn('grep -n successor notes.md')).toBe(false)
+})
+
+test('own watches are the ci-watches whose parents reach the host process', () => {
+  const rows = processTable(`  501     1 hostcli\n  800   501 /bin/zsh -c x\n  900   800 /bin/bash ${CI_WATCH} 160\n  901     1 /bin/bash ${CI_WATCH} 161\n`)
+  expect([...ownWatches(rows, '501')]).toEqual(['160'])
+  expect([...ownWatches(rows, null)]).toEqual([])
+})
+
+test('the wake decision: handed over, a block before a delivered agent, a watch as a waker', () => {
+  const idle = [{ label: 'Agent : a', state: 'idle' as const, tty: '/dev/ttys003' }]
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: '`handed over`.' })).toBeNull()
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting: done', handedOver: true })).toBeNull()
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting: done' })).toBe('read-what-is-left')
+  expect(checkWake({ agents: idle, resident: false, delivered: ['Agent : a (pull request #1, OPEN)'], message: 'waiting: operator — blocks: x' })).toEqual({ blocks: 'x' })
+  expect((checkWake({ agents: idle, resident: false, delivered: ['Agent : a (pull request #1, OPEN)'], message: 'done', watching: true }) as any).case).toBe('idle-delivered')
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting on CI', watching: true })).toBeNull()
+  // A bare question still blocks nothing declared.
+  expect((checkWake({ agents: [], resident: false, delivered: [], message: 'You decide: A or B?' }) as any).case).toBe('question-without-blocks')
 })

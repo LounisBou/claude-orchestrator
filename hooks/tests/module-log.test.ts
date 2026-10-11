@@ -8,8 +8,8 @@ import { logArgv, logPath, LOG_CAP } from '../module-log.ts'
 
 test('a log line is the append script, the shared log, one stamped line and the cap', () => {
   const at = new Date('2026-10-11T12:00:00.000Z')
-  expect(logArgv('/plugins/orch-root', '/tmp/h/.claude', 'guards', 'stop gate: x', at)).toEqual([
-    'sh', '/plugins/orch-root/hooks/log-append.sh', '/tmp/h/.claude/claude-orchestrator/hooks-module.log',
+  expect(logArgv('/plugins/orch-root', '/tmp/cfg', 'guards', 'stop gate: x', at)).toEqual([
+    'sh', '/plugins/orch-root/hooks/log-append.sh', '/tmp/cfg/claude-orchestrator/hooks-module.log',
     '2026-10-11T12:00:00.000Z | guards | stop gate: x', String(LOG_CAP),
   ])
   expect(logPath('/c')).toBe('/c/claude-orchestrator/hooks-module.log')
