@@ -546,18 +546,27 @@ def backend_chain():
 def ps_rows(tty):
     """`(pid, command)` for every process on a tty, from `ps` or from the suite's stand-in.
 
-    ORCHESTRATOR_PS_TABLE names a file that replaces `ps`, one `<tty> <command>` line per
-    process; a table written to check a name carries no pid, so the pid is empty there. Both
-    readers below are built on this, and so is the close's proof, because they were asking
-    the process table the same question in three different ways."""
+    ORCHESTRATOR_PS_TABLE names a file that replaces `ps`, one `<tty> [<pid>] <command>`
+    line per process; a table written to check a name carries no pid, so the pid is empty
+    there, and one written to check the host's registry carries it as an all-digit second
+    field. Both readers below are built on this, and so is the close's proof, because they
+    were asking the process table the same question in three different ways."""
     short = tty.replace("/dev/", "")
     table = os.environ.get("ORCHESTRATOR_PS_TABLE", "")
     try:
         if table:
+            rows = []
             with open(table) as fh:
-                lines = [l.strip().split(None, 1) for l in fh if l.strip()]
-            return [("", r[1]) for r in lines
-                    if len(r) == 2 and r[0].replace("/dev/", "") == short]
+                for l in fh:
+                    r = l.strip().split(None, 1)
+                    if len(r) != 2 or r[0].replace("/dev/", "") != short:
+                        continue
+                    rest = r[1].split(None, 1)
+                    if len(rest) == 2 and rest[0].isdigit():
+                        rows.append((rest[0], rest[1]))
+                    else:
+                        rows.append(("", r[1]))
+            return rows
         out = subprocess.run(["ps", "-t", short, "-o", "pid=,command="],
                              capture_output=True, text=True, timeout=10).stdout
     except Exception:
@@ -570,12 +579,64 @@ def ps_rows(tty):
     return rows
 
 
+def host_config_dir():
+    """The host's configuration directory, where its session registry lives."""
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+
+
+def host_registry(pid):
+    """The host's own record of the session a pid runs, as a dict, or None.
+
+    The host writes `<config dir>/sessions/<pid>.json` for every session it runs and keeps
+    the session's current name there. It is the one reading of « this process is the host »
+    that does not depend on how the process was started: a wrapper that `exec`s the binary,
+    a session typed as a bare command, a launch through a path the operator never set."""
+    if not pid or not str(pid).isdigit():
+        return None
+    try:
+        with open(os.path.join(host_config_dir(), "sessions", "%s.json" % pid)) as fh:
+            entry = json.load(fh)
+    except Exception:
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
+def host_cli_names():
+    """The program names the host CLI answers to in the process table: the basename of
+    HOST_CLI, and the basename of what it resolves to once PATH and every link are
+    followed."""
+    import shutil
+    names = {os.path.basename(HOST_CLI)}
+    try:
+        names.add(os.path.basename(os.path.realpath(shutil.which(HOST_CLI) or HOST_CLI)))
+    except Exception:
+        pass
+    return {n for n in names if n}
+
+
+def is_host_process(pid, command, names=None):
+    """Whether one process-table row is the host session.
+
+    Matched on the full HOST_CLI path, this missed every session the operator typed as a
+    bare command whenever HOST_CLI was set to an absolute path, and every session a wrapper
+    started by `exec`: a live session read « not running », and every spawn through the
+    wrapper died « never started » after its tab existed. A row is the host when the host
+    registered its pid, or when its program's basename is HOST_CLI's or the basename of
+    what HOST_CLI resolves to."""
+    if host_registry(pid) is not None:
+        return True
+    words = command.split()
+    if not words:
+        return False
+    return os.path.basename(words[0]) in (names if names is not None else host_cli_names())
+
+
 def host_cli_on(tty):
     """What the host CLI on a tty is — its pid, or its command line where the suite's table
     carries no pid — or None when it is not there. Truthy means « still running »."""
-    pattern = re.compile(r"^(\S*/)?" + re.escape(HOST_CLI) + r"(\s|$)")
+    names = host_cli_names()
     for pid, command in ps_rows(tty):
-        if pattern.match(command):
+        if is_host_process(pid, command, names):
             return pid or command
     return None
 
@@ -955,11 +1016,36 @@ UNREADABLE_NAME = "\x00unreadable"
 NAME_READABLE_MAX = 40
 
 
-def session_name_on(tty):
-    """The name the host session on a tty was launched with (`--name`).
+# Both kinds a name may arrive wrapped in: the straight ones a shell leaves, the curly ones
+# a typed rename can carry.
+NAME_QUOTES = "\"'\u201c\u201d\u2018\u2019"
 
-    None when none was given, `UNREADABLE_NAME` when one was and the table cannot give it
-    back, the name itself otherwise.
+
+def registry_name_on(tty):
+    """The name the host registry holds for the session on a tty, or None.
+
+    A rename — the host's own command, or the module's tool — changes the registry and never
+    the process line: read from argv alone, an orchestrator renamed by hand listed as
+    « (host default) », its successor was refused for having no name, and a coordinator that
+    named itself was not one to `rotate`."""
+    for pid, _ in ps_rows(tty):
+        entry = host_registry(pid)
+        if entry is None:
+            continue
+        name = entry.get("name")
+        if isinstance(name, str):
+            name = name.strip().strip(NAME_QUOTES).strip()
+            if name:
+                return name
+    return None
+
+
+def session_name_on(tty):
+    """The name of the host session on a tty: the one the host registry holds, else the one
+    it was launched with (`--name`).
+
+    None when neither gives one, `UNREADABLE_NAME` when a launch name was given and the
+    table cannot give it back, the name itself otherwise.
 
     The tab title is the host's summary of the conversation and it is rewritten as the
     session works: a listing showing one of those named nothing an orchestrator could
@@ -967,7 +1053,7 @@ def session_name_on(tty):
     fixed at launch, and the API does not carry it, so it is read from the process table.
 
     ORCHESTRATOR_PS_TABLE names a file that stands in for `ps`, one line per process,
-    `<tty> <command>`. The suite sets it; a live run never does.
+    `<tty> [<pid>] <command>`. The suite sets it; a live run never does.
 
     **`ps` hands back a FLAT command line**: the quoting that made the name one argument is
     gone, and the words after `--name` run on until the next option or the end of the line.
@@ -984,6 +1070,9 @@ def session_name_on(tty):
     whole brief path and the sentence naming another orchestrator (§48). A name invented by
     wherever the words happened to stop would be worse than saying it cannot be read: it is
     a name an orchestrator would then address."""
+    registered = registry_name_on(tty)
+    if registered:
+        return registered
     for _, command in ps_rows(tty):
         words = command.split()
         if "--name" not in words:
@@ -2257,8 +2346,8 @@ def close_note(tty, was_running):
     an agent. Saying which of the two happened costs one line and stops the stronger claim
     being read into the weaker case."""
     if was_running is None:
-        return ("close: no %s was running on %s, so this close is the app's word, not a "
-                "reading of the process table." % (HOST_CLI, tty))
+        return ("close: no process matching %s was found on %s, so this close is the app's "
+                "word, not a reading of the process table." % (HOST_CLI, tty))
     return ""
 
 

@@ -2146,6 +2146,23 @@ print(m.session_name_on(sys.argv[1]))" "$2"; }
 check "the table gives the name the host process was launched with" "Orch : f" "$(name_on "$PSTAB" /dev/ttys900)"
 check "a process launched without a name reads as none" "None" "$(name_on "$PSNONAME" /dev/ttys900)"
 check "a tty the table does not name reads as none" "None" "$(name_on "$PSTAB" /dev/ttys555)"
+# The host keeps a session's current name in its registry, and a rename changes the
+# registry, never argv: read from argv alone, a renamed orchestrator listed as « (host
+# default) » and its successor was refused for having no name.
+NCFG="$WORK/namecfg"; mkdir -p "$NCFG/sessions"
+printf '/dev/ttys900 5151 claude --resume x\n' > "$WORK/ps-reg.txt"
+printf '/dev/ttys900 5252 claude --name Agent : old\n' > "$WORK/ps-reg-argv.txt"
+printf '{"pid":5151,"name":"\xe2\x80\x9cOrch : g\xe2\x80\x9d"}\n' > "$NCFG/sessions/5151.json"
+printf '{"pid":5252,"name":""}\n' > "$NCFG/sessions/5252.json"
+check "a registry file names the session, its quotes stripped" "Orch : g" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg.txt" /dev/ttys900)"
+check "an empty registry name falls back to the launch name" "Agent : old" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg-argv.txt" /dev/ttys900)"
+printf '{"pid":5252,"name":"Agent : renamed"}\n' > "$NCFG/sessions/5252.json"
+check "and a registry name wins over the launch name" "Agent : renamed" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" name_on "$WORK/ps-reg-argv.txt" /dev/ttys900)"
+check "a successor of a session named only in the registry takes that name" "1" \
+  "$(CLAUDE_CONFIG_DIR="$NCFG" succ "$WORK/ps-reg.txt" --successor | sed -n 's/^launch=//p' | grep -c -- "--name 'Orch : g'")"
 
 # What the dry run could not see and the live round did: `ps` shows a command line with
 # the shell's quoting gone, so whatever FOLLOWS --name runs into the name. The prompt sat
@@ -4107,6 +4124,33 @@ check "a close that watched an agent leave adds nothing" "" \
 check "and what survived is named, so the operator reads which process held on" "claude" \
   "$(ORCHESTRATOR_PS_TABLE="$WORK/ps-alive.txt" ipy \
      "print('claude' if 'claude' in (ia.wait_gone('/dev/ttys901', 1) or '') else 'unnamed')")"
+# Which row IS the host. Matched on the full HOST_CLI path, a host typed as a bare command
+# was « not running » whenever HOST_CLI was absolute, and a wrapper that `exec`s the binary
+# made every spawn die « never started » after its tab existed. A row is the host when the
+# host registered its pid, or when its program's basename is HOST_CLI's or that of what
+# HOST_CLI resolves to.
+printf '/dev/ttys901 claude --resume x\n' > "$WORK/ps-bare.txt"
+printf '/dev/ttys901 /opt/homebrew/bin/claude --name Agent : x\n' > "$WORK/ps-binary.txt"
+printf '/dev/ttys901 4242 node /opt/lib/cli.js --resume x\n' > "$WORK/ps-node.txt"
+printf '/dev/ttys901 -zsh\n' > "$WORK/ps-shell.txt"
+mkdir -p "$WORK/wrapbin" "$WORK/hostcfg/sessions"
+printf '#!/bin/bash\nexec /opt/homebrew/bin/claude "$@"\n' > "$WORK/wrapbin/claude"
+printf '#!/bin/bash\nexec /opt/homebrew/bin/claude "$@"\n' > "$WORK/wrapbin/run-host.sh"
+chmod +x "$WORK/wrapbin/claude" "$WORK/wrapbin/run-host.sh"
+ln -sf "$WORK/wrapbin/claude" "$WORK/wrapbin/host-link"
+hostp() { ORCHESTRATOR_HOST_CLI="$1" ORCHESTRATOR_PS_TABLE="$2" CLAUDE_CONFIG_DIR="$WORK/hostcfg" \
+  ipy "print('host' if ia.host_cli_on('/dev/ttys901') else 'none')"; }
+check "an absolute HOST_CLI matches a bare host row" "host" "$(hostp /opt/homebrew/bin/claude "$WORK/ps-bare.txt")"
+check "a wrapper path matches the binary's row" "host" "$(hostp "$WORK/wrapbin/claude" "$WORK/ps-binary.txt")"
+check "a link to the wrapper matches through what it resolves to" "host" "$(hostp "$WORK/wrapbin/host-link" "$WORK/ps-binary.txt")"
+check "a wrapper named otherwise does not match on argv alone" "none" "$(hostp "$WORK/wrapbin/run-host.sh" "$WORK/ps-node.txt")"
+printf '{"pid":4242,"sessionId":"s-reg","name":"Agent : x"}\n' > "$WORK/hostcfg/sessions/4242.json"
+check "a pid the host registered is the host, whatever its argv" "host" "$(hostp "$WORK/wrapbin/run-host.sh" "$WORK/ps-node.txt")"
+check "a shell on the tty is not the host" "none" "$(hostp /opt/homebrew/bin/claude "$WORK/ps-shell.txt")"
+check "verify reads a bare host row under an absolute HOST_CLI" "0" \
+  "$(ORCHESTRATOR_HOST_CLI=/opt/homebrew/bin/claude ORCHESTRATOR_PS_TABLE="$WORK/ps-bare.txt" bash "$AGENT" verify --tty /dev/ttys901 >/dev/null 2>&1; echo $?)"
+check "the close note claims no more than the table showed" "1|0" \
+  "$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'no process matching claude was found on /dev/ttys901')|$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'was running')"
 
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
