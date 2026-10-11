@@ -23,18 +23,13 @@ Preconditions, verify each before acting:
 
 Then:
 
-1. **The name first.** Hand the operator this one line, and end the turn:
-
-   ```
-   /rename "Coord : <subject>"
-   ```
-
-   When he says it is done, read the name back from `ListAgents` (« This session is … »): it
-   must start with `Coord : <subject>`, followed by its reference; otherwise hand the line
-   again.
+1. **The name first.** Call `mcp__orchestrator__rename_session` with `Coord : <subject>`:
+   the session takes the name when this turn ends, and nothing below waits for it. Read your
+   reference from `ListAgents` (« This session is … »), the bracketed part after the name.
+   A refusal names the shape it wants: correct the subject and call again.
 2. **Your tty.** `${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh list` —
    the row marked `self`.
-3. **Register**, under the name exactly as `ListAgents` prints it:
+3. **Register**, under the name and the reference of step 1:
 
    ```
    ${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh register --name "Coord : <subject> [<ref>]" --tty <your tty>

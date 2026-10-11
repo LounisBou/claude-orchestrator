@@ -3,9 +3,11 @@
 // the name the walk read, the repository of the working directory — written by
 // this file's own session.measure handler and removed by its session.end, one
 // file per key under the module's state root. The supervision pane below reads
-// the same rows, opened only when the person types /orchestrator:supervision in
-// a coordinator session — never on a start, never in any other role: the
-// operator wants nothing placed on screen unasked. The commands hold no $ of
+// the same rows, opened only when the person types /orchestrator:supervision —
+// never on a start: the operator wants nothing placed on screen unasked. In a
+// coordinator session it lists the orchestrators; in an orchestrator session,
+// that orchestrator's own agents, read from the launcher's chain and the host's
+// session records; in any other role it opens nothing. The commands hold no $ of
 // the writing side and read the same files through their own $.fs calls plus
 // the pure row parser and the urgency sort below.
 //
@@ -17,7 +19,7 @@
 import { currentReading } from './gauge.ts'
 import { tripGate } from './gauge-core.ts'
 import { roleOf, walkName, BLOCK } from './session-name.ts'
-import { withDeadline, isDegradedPass } from './stop-gate.ts'
+import { withDeadline, isDegradedPass, chainEntries } from './stop-gate.ts'
 
 // One row per live session, the store's whole schema.
 export type SessionRow = {
@@ -46,10 +48,11 @@ export function isStale(row: SessionRow, now: number): boolean {
 }
 
 // The supervision pane: the id names it at the engine (the open, the render's
-// requestId), the title its tab while more than one pane is open. The id's
-// spelling is the shipped type's own contract — letters, digits, `_` and `-`.
+// requestId), the title its tab while more than one pane is open — what it
+// lists, by the role it was opened in. The id's spelling is the shipped type's
+// own contract — letters, digits, `_` and `-`.
 const PANE_ID = 'supervision'
-const PANE_TITLE = 'Supervised sessions'
+const PANE_TITLES = { coordinator: 'Orchestrators', orchestrator: 'Agents' } as const
 
 // The sort's one law: a row past the rotation gate outranks every row below
 // it, however full each side is; within a side, the fill descends. The floor
@@ -171,6 +174,76 @@ export function paneRows(rows: Record<string, SessionRow>): { label: string; urg
     .sort((a, b) => b.urgency - a.urgency)
 }
 
+// One agent of this orchestrator as the pane reads it: the host's own record of
+// the session on the agent's tty — its name, its status — and the store's row
+// of that session for the figures, null while no measure has written one.
+export type AgentView = { name: string | null; status: 'idle' | 'busy' | null; row: SessionRow | null }
+
+// The orchestrator's pane rows: its agents under the store rows' own law — past
+// the gate first, then the fill descending, an unmeasured agent last. The label
+// carries the name, the status, the fill against the gate and the reading's age.
+export function agentPaneRows(agents: readonly AgentView[]): { label: string; urgency: number }[] {
+  const now = Date.now()
+  return agents
+    .map(agent => {
+      const parts = [agent.name ?? agent.row?.name ?? 'unnamed', agent.status ?? 'status unknown']
+      if (!agent.row) return { label: [...parts, 'not measured yet'].join(' · '), urgency: -1 }
+      const past = tripGate(agent.row.context_percent, agent.row.context_tokens, agent.row.window).tripped
+      parts.push(`${agent.row.context_percent}%${past ? ' past the gate' : ''}`)
+      const age = ageLabel(agent.row.updated_at, now)
+      if (age !== null) parts.push(age)
+      return { label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + agent.row.context_percent }
+    })
+    .sort((a, b) => b.urgency - a.urgency)
+}
+
+// The host's own record of a live session (<config>/sessions/<pid>.json): its
+// id, its name as the rename stored it — the quotes a quoted rename typed are
+// not part of it — and its status. Null for a text that is no such record.
+export function hostRecordOf(text: string): { sessionId: string | null; name: string | null; status: 'idle' | 'busy' | null } | null {
+  let record: { sessionId?: unknown; name?: unknown; status?: unknown }
+  try {
+    record = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!record || typeof record !== 'object') return null
+  const name = typeof record.name === 'string' ? record.name.trim().replace(/^"(.*)"$/s, '$1').trim() : ''
+  return {
+    sessionId: typeof record.sessionId === 'string' ? record.sessionId : null,
+    name: name || null,
+    status: record.status === 'idle' || record.status === 'busy' ? record.status : null,
+  }
+}
+
+// The agents of the orchestrator on `tty`: the launcher's chain entries its own
+// tab wrote (the owner is the terminal session's id, the stop gate's rule — no
+// owner, no entry counted: a recycled tty's occupant would be), each read
+// through the process on the agent's tty to the host's record of it, and that
+// session's store row. An entry no live session answers for is an agent gone.
+async function agentViews($: any, tty: string): Promise<AgentView[]> {
+  const config = await configDir($)
+  const state = (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${config}/claude-orchestrator`
+  const terminal = String((await $.env.get('ITERM_SESSION_ID')) ?? '')
+  const owner = terminal.includes(':') ? terminal.slice(terminal.lastIndexOf(':') + 1) : ''
+  if (!owner) return []
+  const chain = String(await $.fs.read(`${state}/chains/${tty.split('/').pop()}.jsonl`).catch(() => ''))
+  const views: AgentView[] = []
+  for (const entry of chainEntries(chain)) {
+    if (entry.owner !== owner) continue
+    const ps = await $.process.run(['ps', '-t', entry.tty.replace(/^\/dev\//, ''), '-o', 'pid='])
+    if (ps.exitCode !== 0) continue
+    for (const pid of String(ps.stdout ?? '').split('\n').map((line: string) => line.trim().split(/\s+/)[0] ?? '').filter((pid: string) => /^\d+$/.test(pid))) {
+      const record = hostRecordOf(String(await $.fs.read(`${config}/sessions/${pid}.json`).catch(() => '')))
+      if (!record || !record.sessionId) continue
+      const row = parseSessionRow(String(await $.fs.read(`${storeDir(config)}/${sessionKey(record.sessionId)}`).catch(() => '')))
+      views.push({ name: record.name, status: record.status, row: row && !isStale(row, Date.now()) ? row : null })
+      break
+    }
+  }
+  return views
+}
+
 // The bound on this file's side reads — the name walk, the origin read — the
 // guards' own deadline convention inherited at the Task 9 review's word: well
 // inside the ten seconds a handler owns, so a read that cannot answer in time
@@ -186,16 +259,27 @@ async function sideReadBoundMs($: any): Promise<number> {
 // own readers (the per-file convention the fence leaves no way around): null
 // when the walk loses its race — the row keeps its figures and goes unnamed.
 async function nameWithinBound($: any, sessionId: string): Promise<string | null> {
+  return (await walkWithinBound($, sessionId)).name
+}
+
+// The same walk, its tty kept: the pane of an orchestrator reads its agents
+// from the chain its own tty names.
+async function walkWithinBound($: any, sessionId: string): Promise<{ tty: string | null; name: string | null }> {
   const walked = await withDeadline(walkName(
     (argv: readonly string[]) => $.process.run(argv),
     async (path: string) => (await $.fs.stat(path)).size,
     (path: string, index: number) => readRange($, path, index),
     await transcriptPathOf($, sessionId),
   ), await sideReadBoundMs($))
-  return isDegradedPass(walked) ? null : walked.name
+  return isDegradedPass(walked) ? { tty: null, name: null } : walked
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
+  // Module memory: the role the pane was opened in, and the tty its agents are
+  // read from — the render lists what the open asked for. A reload forgets it,
+  // and the pane then asks to be opened again.
+  let opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null = null
+
   // The engine allows one no-matcher registration per event, and the gauge
   // owns session.measure's and session.end's: this domain observes the same
   // events beside it, declared by an empty matcher — a partial of e with no
@@ -257,13 +341,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   // The pane opens on the person's own command alone — the shipped types' «
-  // asked » open, placed at any width — and only in a coordinator session: the
-  // pane lists every supervised session, which only the coordinator oversees.
+  // asked » open, placed at any width — in the two supervising roles: a
+  // coordinator's lists the orchestrators, an orchestrator's its own agents.
   // Anywhere else the command says so and opens nothing.
   on('command.run', { command: 'orchestrator:supervision' }, async ($: any) => {
-    const role = roleOf(await nameWithinBound($, await $.session.id()))
-    if (role !== 'coordinator') {
-      return { text: 'The supervision pane opens in a coordinator session only (a session named « Coord : … »); /orchestrator:status lists the sessions here.' }
+    const { tty, name } = await walkWithinBound($, await $.session.id())
+    const role = roleOf(name)
+    if (role !== 'coordinator' && role !== 'orchestrator') {
+      return { text: 'The supervision pane opens in a coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session (« Orch : … »), listing its agents; /orchestrator:status lists the sessions here.' }
     }
     // A toggle: the same command closes the pane it opened (Escape does not —
     // the pane holds no focus), beside the pane's own ✕.
@@ -272,7 +357,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await $.ui.close({ id: PANE_ID })
       return { text: 'Supervision pane closed.' }
     }
-    await $.ui.open({ id: PANE_ID, title: PANE_TITLE })
+    opened = { role, tty }
+    await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role] })
     return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -286,12 +372,23 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     try {
       // The store at draw time is the whole refresh story: the gauge's own
       // invalidate after every measure re-raises this render. Display only.
-      const rows = paneRows(await readSessions($))
+      let rows: { label: string; urgency: number }[] = []
+      let none = 'type /orchestrator:supervision to open the pane again'
+      if (opened?.role === 'coordinator') {
+        rows = paneRows(Object.fromEntries(Object.entries(await readSessions($)).filter(([, row]) => row.role === 'orchestrator')))
+        none = 'no live orchestrator'
+      } else if (opened?.role === 'orchestrator') {
+        // Bounded like every side read: an agent list that cannot be read in
+        // time draws as none, never a held render.
+        const views = opened.tty ? await withDeadline(agentViews($, opened.tty), await sideReadBoundMs($)) : []
+        rows = isDegradedPass(views) ? [] : agentPaneRows(views)
+        none = isDegradedPass(views) ? 'the agents could not be read in time' : 'no agent running'
+      }
       const el = $.ui.resolve(e)
       return el.Box({
         flexDirection: 'column',
         children: rows.length === 0
-          ? [el.Text({ color: 'subtle', children: 'no live sessions' })]
+          ? [el.Text({ color: 'subtle', children: none })]
           : rows.map(row =>
             el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
           ),

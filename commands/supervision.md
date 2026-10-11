@@ -1,5 +1,5 @@
 ---
-description: Open the supervision pane (coordinator sessions only)
+description: Open the supervision pane (the orchestrators for a coordinator, its agents for an orchestrator)
 ---
 
 The supervision pane is opened by the plugin's own hook, without a model turn. If you are

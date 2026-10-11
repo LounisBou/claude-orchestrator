@@ -1,13 +1,14 @@
 // hooks/tests/pane.test.ts
-// The coordinator pane: the store's rows sorted by rotation urgency (past the
+// The supervision pane: the store's rows sorted by rotation urgency (past the
 // gate first, then fill descending), the label the spec names (name, role, the
 // fill against the gate, the reading's age) the commands print, and the wiring
 // over a faked $ — no pane opened on any start, the pane opened by the
-// command in a coordinator session alone, the measure's side reads
+// command in a coordinator session (the orchestrators) or an orchestrator
+// session (its own agents) alone, the measure's side reads
 // bounded so a walk that cannot answer in time costs the row its name, never
 // the measure.
 import { expect, test } from 'claude-code/testing'
-import { paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, hostRecordOf, paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
 import { register as registerAll } from '../register.ts'
 
 const HOME = '/tmp/h'
@@ -91,6 +92,24 @@ test('the label carries the name, the role, the fill against the gate and the re
   expect(quiet.label).toContain('unnamed')
   expect(quiet.label).toContain('no role')
   expect(quiet.label).not.toContain('NaN')
+})
+
+test('an orchestrator\'s agents sort like the store rows, an unmeasured one last', () => {
+  const rows = agentPaneRows([
+    { name: 'Agent : fresh', status: 'busy', row: null },
+    { name: 'Agent : low', status: 'idle', row: row({ context_percent: 20 }) },
+    { name: 'Agent : full', status: 'busy', row: row({ context_percent: 35, context_tokens: 350000, window: 1000000 }) },
+  ])
+  expect(rows.map(r => r.label.split(' · ')[0])).toEqual(['Agent : full', 'Agent : low', 'Agent : fresh'])
+  expect(rows[0].label).toContain('busy · 35% past the gate')
+  expect(rows[2].label).toBe('Agent : fresh · busy · not measured yet')
+})
+
+test('the host record gives the id, the name without a quoted rename\'s quotes, the status', () => {
+  expect(hostRecordOf('{"sessionId":"s-1","name":"\\"Orch : PTI\\"","status":"busy"}'))
+    .toEqual({ sessionId: 's-1', name: 'Orch : PTI', status: 'busy' })
+  expect(hostRecordOf('{"sessionId":"s-2","status":"waiting"}')).toEqual({ sessionId: 's-2', name: null, status: null })
+  expect(hostRecordOf('not json')).toBeNull()
 })
 
 // --- the wiring -----------------------------------------------------------------------------
@@ -250,7 +269,7 @@ test('no start opens the pane, whatever the role', async () => {
   }
 })
 
-test('/orchestrator:supervision opens the pane in a coordinator session alone', async () => {
+test('/orchestrator:supervision opens the pane in a coordinator or an orchestrator session alone', async () => {
   const { handlers, matchers } = mounted(registerSupervision)
   expect(matchers['command.run']).toEqual({ command: 'orchestrator:supervision' })
   expect(matchers['ui.render']).toEqual({ component: 'Pane', requestId: 'supervision' })
@@ -258,31 +277,77 @@ test('/orchestrator:supervision opens the pane in a coordinator session alone', 
 
   const coord = fakeDollar({ launchName: 'Coord : main' })
   expect(await handlers['command.run'](coord.dollar, run)).toEqual({ text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' })
-  expect(coord.opened).toEqual([{ id: 'supervision', title: 'Supervised sessions' }])
+  expect(coord.opened).toEqual([{ id: 'supervision', title: 'Orchestrators' }])
   // Typed again, the command closes the pane it opened.
   expect(await handlers['command.run'](coord.dollar, run)).toEqual({ text: 'Supervision pane closed.' })
   expect(coord.closed).toEqual([{ id: 'supervision' }])
   expect(coord.opened.length).toBe(1)
 
-  for (const launchName of ['Orch : phase-3', 'Agent : belt-p3', null]) {
+  const orch = fakeDollar({ launchName: 'Orch : phase-3' })
+  await handlers['command.run'](orch.dollar, run)
+  expect(orch.opened).toEqual([{ id: 'supervision', title: 'Agents' }])
+
+  for (const launchName of ['Agent : belt-p3', 'Audit : belt', null]) {
     const fx = fakeDollar({ launchName })
     const answer = await handlers['command.run'](fx.dollar, run)
-    expect(answer.text).toContain('coordinator session only')
+    expect(answer.text).toContain('coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session')
     expect(fx.opened).toEqual([])
   }
 })
 
-test('the pane draws one Text row per store entry, the urgent first and warned', async () => {
+const renderEvent = { surface: 'terminal', component: 'Pane', requestId: 'supervision', props: {} }
+const supervisionRun = { command: 'orchestrator:supervision', args: '' }
+
+test('a coordinator\'s pane lists the live orchestrators alone, the urgent first and warned', async () => {
   const { handlers } = mounted(registerSupervision)
-  const fx = fakeDollar()
-  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ name: 'Agent : low', context_percent: 30 })) + '\n')
-  fx.files.set(`${SESSIONS}/hot`, JSON.stringify(row({ name: 'Agent : hot', context_percent: 85 })) + '\n')
-  const e = { surface: 'terminal', component: 'Pane', requestId: 'supervision', props: {} }
-  const text = JSON.stringify(await handlers['ui.render'](fx.dollar, e, (x: unknown) => ({ passed: x })))
-  expect(text.indexOf('Agent : hot')).toBeLessThan(text.indexOf('Agent : low'))
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
+  fx.files.set(`${SESSIONS}/hot`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : hot', context_percent: 85 })) + '\n')
+  fx.files.set(`${SESSIONS}/agent`, JSON.stringify(row({ role: 'agent', name: 'Agent : belt', context_percent: 50 })) + '\n')
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  const text = JSON.stringify(await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x })))
+  expect(text.indexOf('Orch : hot')).toBeLessThan(text.indexOf('Orch : low'))
+  expect(text).not.toContain('Agent : belt')
   expect(text.match(/"color":"warning"/g)?.length).toBe(1)
-  const empty = JSON.stringify(await handlers['ui.render'](fakeDollar().dollar, e, (x: unknown) => ({ passed: x })))
-  expect(empty).toContain('no live sessions')
+
+  const { handlers: fresh } = mounted(registerSupervision)
+  const empty = fakeDollar({ launchName: 'Coord : main' })
+  await fresh['command.run'](empty.dollar, supervisionRun)
+  expect(JSON.stringify(await fresh['ui.render'](empty.dollar, renderEvent, (x: unknown) => ({ passed: x })))).toContain('no live orchestrator')
+})
+
+test('an orchestrator\'s pane lists the agents its own tab spawned, read from the host\'s records', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = fakeDollar({ launchName: 'Orch : phase-3' })
+  fx.env.ITERM_SESSION_ID = 'w0t1p0:OWNER-1'
+  // The walk's seed puts this session on ttys001; its chain holds one agent of
+  // its own and one a recycled tty's previous owner wrote.
+  fx.files.set(`${HOME}/.claude/claude-orchestrator/chains/ttys001.jsonl`, [
+    JSON.stringify({ tab_id: 't-9', tty: '/dev/ttys009', owner: 'OWNER-1' }),
+    JSON.stringify({ tab_id: 't-8', tty: '/dev/ttys008', owner: 'SOMEONE-ELSE' }),
+  ].join('\n') + '\n')
+  // The fake's ps answers pid 501 on any tty: its host record and store row.
+  fx.files.set(`${HOME}/.claude/sessions/501.json`, JSON.stringify({ sessionId: 's-agent', name: 'Agent : belt-p3', status: 'busy' }))
+  fx.files.set(`${SESSIONS}/s-agent`, JSON.stringify(row({ role: 'agent', name: 'Agent : belt-p3', context_percent: 40 })) + '\n')
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  const text = JSON.stringify(await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x })))
+  expect(text).toContain('Agent : belt-p3 · busy · 40%')
+  expect(text.match(/Agent : belt-p3/g)?.length).toBe(1)
+  expect(fx.ran).toContain('ps -t ttys009 -o pid=')
+  expect(fx.ran).not.toContain('ps -t ttys008 -o pid=')
+
+  // Without the terminal's session id no entry is counted: a recycled tty's
+  // occupant would be.
+  const { handlers: fresh } = mounted(registerSupervision)
+  const blind = fakeDollar({ launchName: 'Orch : phase-3' })
+  await fresh['command.run'](blind.dollar, supervisionRun)
+  expect(JSON.stringify(await fresh['ui.render'](blind.dollar, renderEvent, (x: unknown) => ({ passed: x })))).toContain('no agent running')
+})
+
+test('a pane the module no longer remembers opening asks to be opened again', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const text = JSON.stringify(await handlers['ui.render'](fakeDollar().dollar, renderEvent, (x: unknown) => ({ passed: x })))
+  expect(text).toContain('type /orchestrator:supervision to open the pane again')
 })
 
 test('a name walk that cannot answer in time costs the row its name, never the measure', async () => {

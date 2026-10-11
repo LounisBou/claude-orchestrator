@@ -2620,10 +2620,10 @@ COORDSPAWNOUT=$(if [ -n "$COORDSPAWN" ]; then coordspawn; else echo "no spawn li
 check "the skill's succession spawn line is one the launcher runs as the coordinator's successor" "1|1|1|1" \
   "$(printf '%s' "$COORDSPAWNOUT" | grep -c '^coordinator_successor=yes$')|$(printf '%s' "$COORDSPAWNOUT" | grep -c '^anchor=leftmost$')|$(printf '%s' "$COORDSPAWNOUT" | grep -c '^chain=none$')|$(printf '%s' "$COORDSPAWNOUT" | sed -n 's/^launch=//p' | grep -c -- "--name 'Coord : ops'")"
 
-# The start registers under the name the host lists, after the rename, and places its tab.
+# The start renames itself through the plugin's tool before it registers, and places its tab.
 COORDLINE() { grep -n -m1 -F -- "$2" "$1" | cut -d: -f1; }
-check "the start hands the rename line before it registers" "1" \
-  "$([ "$(COORDLINE "$COORDCMD" '/rename "Coord : <subject>"')" -lt "$(COORDLINE "$COORDCMD" 'coordinator.sh register --name')" ] 2>/dev/null && echo 1 || echo 0)"
+check "the start renames itself before it registers" "1" \
+  "$([ "$(COORDLINE "$COORDCMD" 'Call `mcp__orchestrator__rename_session` with `Coord : <subject>`')" -lt "$(COORDLINE "$COORDCMD" 'coordinator.sh register --name')" ] 2>/dev/null && echo 1 || echo 0)"
 COORDMOVE=$(grep -m1 -o 'iterm-agent.sh move --tty <your tty> --leftmost' "$COORDCMD" 2>/dev/null | sed -e 's/^iterm-agent.sh move //' -e 's#<your tty>#/dev/ttys950#')
 check "the command's move line puts the coordinator's own tab leftmost" "1" \
   "$(if [ -n "$COORDMOVE" ]; then eval "set -- $COORDMOVE"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys950 ORCHESTRATOR_SELF_ID=S-ME ORCHESTRATOR_PS_TABLE="$PSCRD" bash "$AGENT" move "$@" 2>&1 | grep -c '^move=/dev/ttys950 left_of=leftmost$'; else echo 0; fi)"
