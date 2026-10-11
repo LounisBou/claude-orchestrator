@@ -5,10 +5,13 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/uninstall.sh:*), Read
 
 Run `${CLAUDE_PLUGIN_ROOT}/uninstall.sh` and report its output to the user.
 
-It restores the status line a previous install's tap preceded (the saved
-object, else the `statusLine` key removed) and removes
-`~/.claude/claude-orchestrator/` whole — the measure files, the module's log,
-the tap's leftovers, state files included. Tell the user to restart their
+It takes a previous install's tap off the status line and keeps the command
+that followed it as written (the saved object only fills keys the line lacks,
+or comes back whole when the tap was all the line held; with neither, the
+`statusLine` key is removed), then removes `~/.claude/claude-orchestrator/`
+whole — the measure files, the module's log with its rotation and lock, the
+tap's leftovers, state files included. While a line it cannot read may still
+run the tap, the tap's copy and saved object stay. Tell the user to restart their
 session.
 
 Say clearly what leaves with it, because three of those files are the operator's
