@@ -4507,6 +4507,46 @@ inst "$H2" >/dev/null 2>&1
 check "no saved object: the tap's prefix is stripped" "/x/bar.sh" \
   "$(jq -r '.statusLine.command' "$H2/.claude/settings.json")"
 
+# The follower is the authority whenever there is one: the saved object dates from the
+# day the tap was wired, and an operator may have changed his line since — or made it
+# portable. Restoring the saved command would undo both and write a machine-absolute
+# path into a settings file other machines share. The saved object only fills the keys
+# the line lacks; the command stays the follower, spelled as it was written.
+H2B="$WORK/home2b"; mkdir -p "$H2B/.claude/claude-orchestrator"; stub_venv "$H2B"
+jq --arg cmd '$HOME/.claude/claude-orchestrator/statusline-tap.sh $HOME/.claude/statusbar/statusline.sh' \
+  '.statusLine.command = $cmd | del(.statusLine.padding)' "$ROOT/tests/fixtures/tap-settings.json" > "$H2B/.claude/settings.json"
+printf '{"type":"command","command":"/Users/elsewhere/.claude/statusbar/statusline.sh","padding":2}\n' \
+  > "$H2B/.claude/claude-orchestrator/statusline.previous.json"
+inst "$H2B" >/dev/null 2>&1
+check "a saved object never overrides the follower: its spelling is kept, the missing keys filled" \
+  '{"type":"command","command":"$HOME/.claude/statusbar/statusline.sh","padding":2}' \
+  "$(jq -c '.statusLine' "$H2B/.claude/settings.json")"
+
+# The uninstall unwraps the same way, through the same code: the follower kept as
+# written beside a saved object, and kept as well when no saved object exists — the
+# status bar behind the tap is the operator's, not the plugin's to drop.
+H2C="$WORK/home2c"; mkdir -p "$H2C/.claude/claude-orchestrator"
+jq --arg cmd '$HOME/.claude/claude-orchestrator/statusline-tap.sh $HOME/.claude/statusbar/statusline.sh' \
+  '.statusLine.command = $cmd' "$ROOT/tests/fixtures/tap-settings.json" > "$H2C/.claude/settings.json"
+printf '{"type":"command","command":"/Users/elsewhere/.claude/statusbar/statusline.sh","padding":0}\n' \
+  > "$H2C/.claude/claude-orchestrator/statusline.previous.json"
+uninst "$H2C" >/dev/null 2>&1
+check "uninstall keeps the follower's spelling beside a saved object" \
+  '$HOME/.claude/statusbar/statusline.sh' "$(jq -r '.statusLine.command' "$H2C/.claude/settings.json")"
+H2D="$WORK/home2d"; mkdir -p "$H2D/.claude/claude-orchestrator"
+sed "s#@TAP@#$H2D/.claude/claude-orchestrator/statusline-tap.sh#" \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H2D/.claude/settings.json"
+uninst "$H2D" >/dev/null 2>&1
+check "uninstall with no saved object keeps the follower, not an empty settings" "/x/bar.sh|0" \
+  "$(jq -r '.statusLine.command' "$H2D/.claude/settings.json")|$(jq -r '.statusLine.padding' "$H2D/.claude/settings.json")"
+H2E="$WORK/home2e"; mkdir -p "$H2E/.claude/claude-orchestrator"
+jq --arg cmd "$H2E/.claude/claude-orchestrator/statusline-tap.sh" '.statusLine.command = $cmd' \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H2E/.claude/settings.json"
+printf '{"type":"command","command":"/x/saved.sh"}\n' > "$H2E/.claude/claude-orchestrator/statusline.previous.json"
+uninst "$H2E" >/dev/null 2>&1
+check "uninstall restores the saved object whole when the tap was all the line held" \
+  '{"type":"command","command":"/x/saved.sh"}' "$(jq -c '.statusLine' "$H2E/.claude/settings.json")"
+
 H3="$WORK/home3"; mkdir -p "$H3/.claude"; stub_venv "$H3"
 jq --arg cmd "$H3/.claude/claude-orchestrator/statusline-tap.sh" '.statusLine.command = $cmd' \
   "$ROOT/tests/fixtures/tap-settings.json" > "$H3/.claude/settings.json"
@@ -4528,6 +4568,18 @@ printf '{"statusLine": {"command": "not json' > "$H4B/.claude/settings.json"
 before=$(cat "$H4B/.claude/settings.json")
 check "an unparseable settings.json still installs, says what was skipped, touches nothing" "0|1|1" \
   "$(inst "$H4B" >/dev/null 2>&1; echo $?)|$(inst "$H4B" 2>&1 >/dev/null | grep -c 'does not parse as JSON')|$([ "$(cat "$H4B/.claude/settings.json")" = "$before" ] && echo 1 || echo 0)"
+# The broken file may still point at the tap's copy: the copy stays while it might be
+# in use, by the install and the uninstall alike, so the status line does not break on
+# top of the settings file.
+mkdir -p "$H4B/.claude/claude-orchestrator"
+printf '#!/bin/sh\n' > "$H4B/.claude/claude-orchestrator/statusline-tap.sh"
+inst "$H4B" >/dev/null 2>&1
+check "an install that could not unwire keeps the tap's copy" "kept" \
+  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)"
+uninst "$H4B" >/dev/null 2>&1
+check "an uninstall that could not unwire keeps the tap's copy, removes the rest" "kept|gone" \
+  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/models.json" ] && echo kept || echo gone)"
+
 # What the tap left behind: its own ctx/ directory, and measure files from sessions
 # long ended. A file a day stale or more is noise to whatever reads the directory;
 # a fresh one belongs to a live session and is never touched.
