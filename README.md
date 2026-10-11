@@ -54,6 +54,32 @@ every session in-process, and a session restart makes it take effect.
 
 This release was tested against the host at 2.1.295.
 
+## Upgrade from 0.48
+
+A slash command runs the `install.sh` of the plugin version the session loaded. Run
+`/orchestrator:install` before 0.49.0 is delivered and restarted into, and the 0.48
+installer runs instead: it finds its tap "already wired" and keeps it, so nothing is
+unwired and nothing is purged, yet the run looks like success. The order is therefore:
+
+1. Merge the release pull request (#162).
+2. Push the tag `orchestrator--v0.49.0`.
+3. Merge the bugs-bot release (its #27), then the two catalogue pull requests (#21, #22).
+4. Update the catalogue, then both plugins:
+
+   ```
+   /plugin marketplace update lounisbou
+   /plugin update orchestrator@lounisbou
+   /plugin update bugs-bot@lounisbou
+   ```
+
+5. Restart the session, so the slash command resolves to the 0.49.0 installer.
+6. Run `/orchestrator:install`. It takes the tap off the status line and keeps the
+   command that followed it exactly as written, `$HOME` or `~` spelling included. It then
+   removes the old pipeline's files and the measure files of sessions that ended over a
+   week ago.
+7. Restart every running session: until it restarts, a session keeps the hooks of the
+   version it loaded.
+
 ## Requirements
 
 - `bash` 3.2 (the version macOS ships), `jq`

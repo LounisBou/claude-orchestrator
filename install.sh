@@ -48,6 +48,82 @@ tap_spellings() {
   printf '%s\n' "$TAP_DEST" "\$HOME/$rel" "\${HOME}/$rel" "~/$rel"
 }
 
+# One jq program applied to settings.json, the file backed up first; a dry run says what
+# it would do and touches nothing.
+apply_settings() {
+  local message=$1; shift
+  if [ "$DRY" = "1" ]; then
+    say "[dry-run] $message"
+    return
+  fi
+  mkdir -p "$BACKUP_DIR"
+  cp "$SETTINGS" "$BACKUP_DIR/settings.json.before"
+  local tmp
+  tmp=$(mktemp "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+  jq "$@" "$SETTINGS" > "$tmp"
+  chmod 600 "$tmp"; mv "$tmp" "$SETTINGS"
+  say "$message"
+}
+
+# The inverse of the tap's own wrap. The command that followed the tap is the authority,
+# kept exactly as written: the saved object dates from the day the tap was wired, and
+# restoring its command would undo every change the operator made since, the portable
+# home spelling among them. The saved object only fills the keys the line lacks, and is
+# restored whole only when the tap was all the line held; with no saved object, such a
+# line is removed.
+#
+# The outcome is left in UNWRAP: `unwired` (the tap was taken off the line, or would be in
+# a dry run), `none` (no line runs the tap) or `skipped` (a line may still run it: the file
+# did not parse, or the spelling is not one this code knows). The caller keeps the tap's
+# copy only in the last case.
+unwrap_statusline() {
+  UNWRAP=skipped
+  if [ ! -f "$SETTINGS" ]; then
+    say "no $SETTINGS: nothing to unwire"
+    UNWRAP=none; return
+  fi
+  if ! jq empty "$SETTINGS" 2>/dev/null; then
+    # Named on stderr and skipped, not silently read as empty: a file that does not parse
+    # may still hold the tap's wiring, and the operator must know the unwrap never ran.
+    echo "  $SETTINGS does not parse as JSON: the status line was not unwired — the tap's wiring, if it is in there, is left as it is; fix the file and run this again." >&2
+    return
+  fi
+  if ! jq -e 'has("statusLine")' "$SETTINGS" >/dev/null 2>&1; then
+    say "no statusLine to unwire"
+    UNWRAP=none; return
+  fi
+  local stored current rest="" matched=0 saved=0 t
+  stored=$(jq -r '.statusLine.command // ""' "$SETTINGS")
+  current=$(normalise_home "$stored")
+  case "$current" in
+    "$TAP_DEST"|"$TAP_DEST "*) ;;
+    *) say "statusLine carries no tap, left untouched"; UNWRAP=none; return ;;
+  esac
+  while IFS= read -r t; do
+    case "$stored" in
+      "$t")   rest=""; matched=1; break ;;
+      "$t "*) rest=${stored#"$t "}; matched=1; break ;;
+    esac
+  done < <(tap_spellings)
+  if [ "$matched" != "1" ]; then
+    say "statusLine carries no tap spelling this installer knows, left untouched"
+    return
+  fi
+  [ -f "$PREVIOUS" ] && jq -e 'type == "object"' "$PREVIOUS" >/dev/null 2>&1 && saved=1
+  if [ -n "$rest" ] && [ "$saved" = "1" ]; then
+    apply_settings "statusLine.command → $rest" --arg cmd "$rest" --slurpfile prev "$PREVIOUS" \
+      '.statusLine = ($prev[0] + .statusLine + {command: $cmd})'
+  elif [ -n "$rest" ]; then
+    apply_settings "statusLine.command → $rest" --arg cmd "$rest" '.statusLine.command = $cmd'
+  elif [ "$saved" = "1" ]; then
+    apply_settings "statusLine restored from the saved object" --slurpfile prev "$PREVIOUS" \
+      '.statusLine = $prev[0]'
+  else
+    apply_settings "statusLine removed (the tap was all it held)" 'del(.statusLine)'
+  fi
+  UNWRAP=unwired
+}
+
 # True when <version> sorts below <floor>, component by component, missing components
 # counting as zero. Both are dotted numerics; nothing else reaches it.
 older_than_floor() {
@@ -61,6 +137,10 @@ older_than_floor() {
     exit 1
   }'
 }
+
+# uninstall.sh sources this file for the definitions above and nothing else, so the two
+# scripts share one unwrap and can never treat the same status line differently.
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
 
 # --- prerequisites ----------------------------------------------------------
 
@@ -97,17 +177,36 @@ step "State directory"
 run "mkdir -p '$STATE_DIR/measure'"
 say "measure directory ready: $STATE_DIR/measure"
 
-# The tap's own files, and any measure file a day stale or more: a session whose
-# gauge pass is that old has ended, and its file is noise to whatever reads the
-# directory. Fresh measure files are never touched.
+# The tap's ctx/ directory: nothing reads it since the module measures the session itself.
 if [ -d "$STATE_DIR/ctx" ]; then
   run "rm -rf '$STATE_DIR/ctx'"
   say "the tap's ctx/ removed"
 else
   say "no ctx/ to remove"
 fi
-run "find '$STATE_DIR/measure' -type f -mtime +0 -delete"
-say "measure files older than a day purged"
+
+# A session writes its measure file when a turn ends, so an idle one — an agent waiting
+# through a weekend, a quiet coordinator — keeps an old file it will read again in its next
+# turn. Age alone proves nothing: a file is pruned only past a week AND when no live
+# session owns it. The host's registry (sessions/<pid>.json) names each session's id; a
+# registry file whose pid is gone frees that session's measure file.
+live_sessions=""
+for reg in "$CONFIG_DIR"/sessions/*.json; do
+  [ -f "$reg" ] || continue
+  pid=$(basename "$reg" .json)
+  case "$pid" in ''|*[!0-9]*) continue ;; esac
+  ps -p "$pid" >/dev/null 2>&1 || continue
+  sid=$(jq -r '.sessionId // empty' "$reg" 2>/dev/null || true)
+  [ -n "$sid" ] && live_sessions="$live_sessions $sid "
+done
+pruned=0
+while IFS= read -r f; do
+  [ -n "$f" ] || continue
+  case "$live_sessions" in *" $(basename "$f" .json) "*) continue ;; esac
+  run "rm -f '$f'"
+  pruned=$((pruned + 1))
+done < <(find "$STATE_DIR/measure" -type f -name '*.json' -mtime +6 2>/dev/null)
+say "measure files pruned (past a week, no live session): $pruned"
 
 # The tier map: three capability tiers, bound by the operator to identifiers this
 # plugin must not name. An empty binding means "let the host choose", so a fresh
@@ -170,74 +269,27 @@ say "iTerm2 must have its API enabled (Preferences > General > Magic > Enable Py
 
 step "settings.json"
 
-if [ ! -f "$SETTINGS" ]; then
-  if [ "$DRY" = "1" ]; then say "[dry-run] no $SETTINGS to unwire"
-  else say "no $SETTINGS: nothing to unwire"; fi
-elif ! jq empty "$SETTINGS" 2>/dev/null; then
-  # Named on stderr and skipped, not silently read as empty: a file that does not parse
-  # may still hold the tap's wiring, and the operator must know the unwrap never ran.
-  echo "  $SETTINGS does not parse as JSON: the status line was not unwired — the tap's wiring, if it is in there, is left as it is; fix the file and run this again." >&2
-elif ! jq -e 'has("statusLine")' "$SETTINGS" >/dev/null 2>&1; then
-  say "no statusLine to unwire"
+unwrap_statusline
+
+# --- the old pipeline's files -------------------------------------------------
+
+step "Old pipeline files"
+
+# The tap's copy and saved object, the shell gates' logs and the heads they kept: inert
+# once no line runs the tap, and a stale saved object would only mislead a later unwrap.
+# They stay while a status line may still point at the tap (a settings file that did not
+# parse, a spelling not recognised). The module's own heads (.mheads) are never touched.
+if [ "$UNWRAP" = "skipped" ]; then
+  say "the status line may still run the tap: its files are kept"
 else
-  stored=$(jq -r '.statusLine.command // ""' "$SETTINGS")
-  current=$(normalise_home "$stored")
-  case "$current" in
-    "$TAP_DEST"|"$TAP_DEST "*)
-      # The inverse of the tap's own wrap: the saved object is the authority — it
-      # holds the padding and the command as they were — and only a lost save falls
-      # back to stripping the prefix, leaving the command that followed the tap
-      # spelled exactly as it was written.
-      if [ -f "$PREVIOUS" ] && [ "$(cat "$PREVIOUS")" != "null" ]; then
-        if [ "$DRY" = "1" ]; then
-          say "[dry-run] statusLine restored from $PREVIOUS"
-        else
-          mkdir -p "$BACKUP_DIR"
-          cp "$SETTINGS" "$BACKUP_DIR/settings.json.before"
-          tmp=$(mktemp "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
-          jq --slurpfile prev "$PREVIOUS" '.statusLine = $prev[0]' "$SETTINGS" > "$tmp"
-          chmod 600 "$tmp"; mv "$tmp" "$SETTINGS"
-          say "statusLine restored from the saved object"
-        fi
-      else
-        rest="" matched=0
-        while IFS= read -r t; do
-          case "$stored" in
-            "$t")   rest=""; matched=1; break ;;
-            "$t "*) rest=${stored#"$t "}; matched=1; break ;;
-          esac
-        done < <(tap_spellings)
-        if [ "$matched" != "1" ]; then
-          say "statusLine carries no tap spelling this installer knows, left untouched"
-        elif [ -n "$rest" ]; then
-          if [ "$DRY" = "1" ]; then
-            say "[dry-run] statusLine.command → $rest"
-          else
-            mkdir -p "$BACKUP_DIR"
-            cp "$SETTINGS" "$BACKUP_DIR/settings.json.before"
-            tmp=$(mktemp "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
-            jq --arg cmd "$rest" '.statusLine.command = $cmd' "$SETTINGS" > "$tmp"
-            chmod 600 "$tmp"; mv "$tmp" "$SETTINGS"
-            say "statusLine.command → $rest"
-          fi
-        else
-          if [ "$DRY" = "1" ]; then
-            say "[dry-run] statusLine removed (the tap was all it held)"
-          else
-            mkdir -p "$BACKUP_DIR"
-            cp "$SETTINGS" "$BACKUP_DIR/settings.json.before"
-            tmp=$(mktemp "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
-            jq 'del(.statusLine)' "$SETTINGS" > "$tmp"
-            chmod 600 "$tmp"; mv "$tmp" "$SETTINGS"
-            say "statusLine removed (the tap was all it held)"
-          fi
-        fi
-      fi
-      ;;
-    *)
-      say "statusLine carries no tap, left untouched"
-      ;;
-  esac
+  removed=0
+  for f in "$TAP_DEST" "$PREVIOUS" "$STATE_DIR/context-gate.log" "$STATE_DIR/stop-gate.log" \
+           "$STATE_DIR"/stop-gate/*.heads; do
+    [ -f "$f" ] || continue
+    run "rm -f '$f'"
+    removed=$((removed + 1))
+  done
+  say "old pipeline files removed: $removed"
 fi
 
 step "Done."

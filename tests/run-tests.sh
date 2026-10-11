@@ -4661,7 +4661,12 @@ OBIN="$WORK/oldcli"; mkdir -p "$OBIN"
 printf '#!/usr/bin/env bash\necho "2.1.100 (stand-in)"\n' > "$OBIN/claude"; chmod +x "$OBIN/claude"
 NBIN="$WORK/nocli"; mkdir -p "$NBIN"
 printf '#!/usr/bin/env bash\necho "a version I will not say"\n' > "$NBIN/claude"; chmod +x "$NBIN/claude"
-inst() { env HOME="$1" ORCHESTRATOR_HOST_CLI="$HBIN/claude" bash "$ROOT/install.sh" "${@:2}"; }
+# Both scripts resolve CLAUDE_CONFIG_DIR before HOME: an operator's exported one would aim
+# every case below at his real configuration, and the uninstall at its removal. Each run
+# drops it, and the state override with it, so HOME alone decides where they act.
+inst() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" ORCHESTRATOR_HOST_CLI="$HBIN/claude" bash "$ROOT/install.sh" "${@:2}"; }
+uninst() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" bash "$ROOT/uninstall.sh" "${@:2}"; }
+instwith() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" ORCHESTRATOR_HOST_CLI="$2" bash "$ROOT/install.sh"; }
 # The tab tooling's environment is planted, not built: a real build is network work the
 # suite must not wait on. The stand-in python answers the probe the installer makes.
 stub_venv() {
@@ -4672,14 +4677,14 @@ stub_venv() {
 
 H0="$WORK/home0"; mkdir -p "$H0/.claude"
 check_status "a host below 2.1.287 is refused" 1 \
-  env HOME="$H0" ORCHESTRATOR_HOST_CLI="$OBIN/claude" bash "$ROOT/install.sh"
+  instwith "$H0" "$OBIN/claude"
 check "the refusal names the floor and what needs it" "1" \
-  "$(env HOME="$H0" ORCHESTRATOR_HOST_CLI="$OBIN/claude" bash "$ROOT/install.sh" 2>&1 \
+  "$(instwith "$H0" "$OBIN/claude" 2>&1 \
     | grep -c 'this plugin needs 2.1.287 or later (the hooks module)')"
 check_status "a version that cannot be read is refused, not guessed at" 1 \
-  env HOME="$H0" ORCHESTRATOR_HOST_CLI="$NBIN/claude" bash "$ROOT/install.sh"
+  instwith "$H0" "$NBIN/claude"
 check "the unreadable refusal names where it looked" "1" \
-  "$(env HOME="$H0" ORCHESTRATOR_HOST_CLI="$NBIN/claude" bash "$ROOT/install.sh" 2>&1 | grep -c 'could not be read from')"
+  "$(instwith "$H0" "$NBIN/claude" 2>&1 | grep -c 'could not be read from')"
 check "a refused install creates nothing" "none" \
   "$([ -e "$H0/.claude/claude-orchestrator" ] && echo made || echo none)"
 
@@ -4716,9 +4721,13 @@ check "the installer says which of the two it found" "1|1" \
 before=$(cat "$H/.claude/settings.json")
 inst "$H" >/dev/null 2>&1
 check "second run leaves settings untouched" "$before" "$(cat "$H/.claude/settings.json")"
-env HOME="$H" bash "$ROOT/uninstall.sh" >/dev/null 2>&1
-check "uninstall removes the state directory" "gone" \
-  "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)"
+# The module's log rotates to one `.1` file beside a lock; the uninstall takes all three.
+for f in hooks-module.log hooks-module.log.1 hooks-module.log.lock; do
+  printf 'line\n' > "$H/.claude/claude-orchestrator/$f"
+done
+uninst "$H" >/dev/null 2>&1
+check "uninstall removes the state directory, the module's rotated log and lock with it" "gone|absent|absent" \
+  "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)|$([ -e "$H/.claude/claude-orchestrator/hooks-module.log.1" ] && echo present || echo absent)|$([ -e "$H/.claude/claude-orchestrator/hooks-module.log.lock" ] && echo present || echo absent)"
 
 H2="$WORK/home2"; mkdir -p "$H2/.claude"; stub_venv "$H2"
 sed "s#@TAP@#$H2/.claude/claude-orchestrator/statusline-tap.sh#" \
@@ -4726,6 +4735,46 @@ sed "s#@TAP@#$H2/.claude/claude-orchestrator/statusline-tap.sh#" \
 inst "$H2" >/dev/null 2>&1
 check "no saved object: the tap's prefix is stripped" "/x/bar.sh" \
   "$(jq -r '.statusLine.command' "$H2/.claude/settings.json")"
+
+# The follower is the authority whenever there is one: the saved object dates from the
+# day the tap was wired, and an operator may have changed his line since — or made it
+# portable. Restoring the saved command would undo both and write a machine-absolute
+# path into a settings file other machines share. The saved object only fills the keys
+# the line lacks; the command stays the follower, spelled as it was written.
+H2B="$WORK/home2b"; mkdir -p "$H2B/.claude/claude-orchestrator"; stub_venv "$H2B"
+jq --arg cmd '$HOME/.claude/claude-orchestrator/statusline-tap.sh $HOME/.claude/statusbar/statusline.sh' \
+  '.statusLine.command = $cmd | del(.statusLine.padding)' "$ROOT/tests/fixtures/tap-settings.json" > "$H2B/.claude/settings.json"
+printf '{"type":"command","command":"/Users/elsewhere/.claude/statusbar/statusline.sh","padding":2}\n' \
+  > "$H2B/.claude/claude-orchestrator/statusline.previous.json"
+inst "$H2B" >/dev/null 2>&1
+check "a saved object never overrides the follower: its spelling is kept, the missing keys filled" \
+  '{"type":"command","command":"$HOME/.claude/statusbar/statusline.sh","padding":2}' \
+  "$(jq -c '.statusLine' "$H2B/.claude/settings.json")"
+
+# The uninstall unwraps the same way, through the same code: the follower kept as
+# written beside a saved object, and kept as well when no saved object exists — the
+# status bar behind the tap is the operator's, not the plugin's to drop.
+H2C="$WORK/home2c"; mkdir -p "$H2C/.claude/claude-orchestrator"
+jq --arg cmd '$HOME/.claude/claude-orchestrator/statusline-tap.sh $HOME/.claude/statusbar/statusline.sh' \
+  '.statusLine.command = $cmd' "$ROOT/tests/fixtures/tap-settings.json" > "$H2C/.claude/settings.json"
+printf '{"type":"command","command":"/Users/elsewhere/.claude/statusbar/statusline.sh","padding":0}\n' \
+  > "$H2C/.claude/claude-orchestrator/statusline.previous.json"
+uninst "$H2C" >/dev/null 2>&1
+check "uninstall keeps the follower's spelling beside a saved object" \
+  '$HOME/.claude/statusbar/statusline.sh' "$(jq -r '.statusLine.command' "$H2C/.claude/settings.json")"
+H2D="$WORK/home2d"; mkdir -p "$H2D/.claude/claude-orchestrator"
+sed "s#@TAP@#$H2D/.claude/claude-orchestrator/statusline-tap.sh#" \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H2D/.claude/settings.json"
+uninst "$H2D" >/dev/null 2>&1
+check "uninstall with no saved object keeps the follower, not an empty settings" "/x/bar.sh|0" \
+  "$(jq -r '.statusLine.command' "$H2D/.claude/settings.json")|$(jq -r '.statusLine.padding' "$H2D/.claude/settings.json")"
+H2E="$WORK/home2e"; mkdir -p "$H2E/.claude/claude-orchestrator"
+jq --arg cmd "$H2E/.claude/claude-orchestrator/statusline-tap.sh" '.statusLine.command = $cmd' \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H2E/.claude/settings.json"
+printf '{"type":"command","command":"/x/saved.sh"}\n' > "$H2E/.claude/claude-orchestrator/statusline.previous.json"
+uninst "$H2E" >/dev/null 2>&1
+check "uninstall restores the saved object whole when the tap was all the line held" \
+  '{"type":"command","command":"/x/saved.sh"}' "$(jq -c '.statusLine' "$H2E/.claude/settings.json")"
 
 H3="$WORK/home3"; mkdir -p "$H3/.claude"; stub_venv "$H3"
 jq --arg cmd "$H3/.claude/claude-orchestrator/statusline-tap.sh" '.statusLine.command = $cmd' \
@@ -4748,23 +4797,60 @@ printf '{"statusLine": {"command": "not json' > "$H4B/.claude/settings.json"
 before=$(cat "$H4B/.claude/settings.json")
 check "an unparseable settings.json still installs, says what was skipped, touches nothing" "0|1|1" \
   "$(inst "$H4B" >/dev/null 2>&1; echo $?)|$(inst "$H4B" 2>&1 >/dev/null | grep -c 'does not parse as JSON')|$([ "$(cat "$H4B/.claude/settings.json")" = "$before" ] && echo 1 || echo 0)"
+# The broken file may still point at the tap's copy: the copy stays while it might be
+# in use, by the install and the uninstall alike, so the status line does not break on
+# top of the settings file.
+mkdir -p "$H4B/.claude/claude-orchestrator"
+printf '#!/bin/sh\n' > "$H4B/.claude/claude-orchestrator/statusline-tap.sh"
+inst "$H4B" >/dev/null 2>&1
+check "an install that could not unwire keeps the tap's copy" "kept" \
+  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)"
+for f in hooks-module.log.1 hooks-module.log.lock; do printf 'line\n' > "$H4B/.claude/claude-orchestrator/$f"; done
+uninst "$H4B" >/dev/null 2>&1
+check "an uninstall that could not unwire keeps the tap's copy, removes the rest, the log's rotation and lock among it" "kept|gone|gone|gone" \
+  "$([ -f "$H4B/.claude/claude-orchestrator/statusline-tap.sh" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/models.json" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/hooks-module.log.1" ] && echo kept || echo gone)|$([ -e "$H4B/.claude/claude-orchestrator/hooks-module.log.lock" ] && echo kept || echo gone)"
 
-# What the tap left behind: its own ctx/ directory, and measure files from sessions
-# long ended. A file a day stale or more is noise to whatever reads the directory;
-# a fresh one belongs to a live session and is never touched.
+# What the old pipeline left behind: the tap's ctx/ directory, its copy and saved object,
+# the shell gates' logs and heads, and measure files from sessions long ended. A session
+# writes its measure file only when a turn ends, so age alone proves nothing: an idle one
+# waits for days. A file is pruned only past a week AND when no live session owns it —
+# the host's registry names each session's pid; a dead or absent pid frees the file.
 H5="$WORK/home5"; mkdir -p "$H5/.claude"; stub_venv "$H5"
-mkdir -p "$H5/.claude/claude-orchestrator/ctx" "$H5/.claude/claude-orchestrator/measure"
-printf 'noise\n' > "$H5/.claude/claude-orchestrator/ctx/old.json"
-for sid in s-gone s-kept; do
-  printf '{"context_tokens":1,"context_window":200000,"context_percent":0,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' \
-    > "$H5/.claude/claude-orchestrator/measure/$sid.json"
+S5="$H5/.claude/claude-orchestrator"
+mkdir -p "$S5/ctx" "$S5/measure" "$S5/stop-gate" "$H5/.claude/sessions"
+printf 'noise\n' > "$S5/ctx/old.json"
+for f in statusline-tap.sh context-gate.log stop-gate.log stop-gate/s-a.heads stop-gate/s-a.mheads; do
+  printf 'old\n' > "$S5/$f"
 done
-touch -t 202001010000 "$H5/.claude/claude-orchestrator/measure/s-gone.json"
+printf '{"type":"command","command":"/x/bar.sh"}\n' > "$S5/statusline.previous.json"
+for sid in s-gone s-dead s-live s-idle s-kept; do
+  printf '{"context_tokens":1,"context_window":200000,"context_percent":0,"model":"a-model","updated_at":"2026-10-10T00:00:00Z"}\n' \
+    > "$S5/measure/$sid.json"
+done
+sleep 0 & deadpid=$!; wait "$deadpid"
+printf '{"pid":%s,"sessionId":"s-live"}\n' "$$" > "$H5/.claude/sessions/$$.json"
+printf '{"pid":%s,"sessionId":"s-dead"}\n' "$deadpid" > "$H5/.claude/sessions/$deadpid.json"
+touch -t 202001010000 "$S5/measure/s-gone.json" "$S5/measure/s-dead.json" "$S5/measure/s-live.json"
+touch -t "$(date -v-3d +%Y%m%d%H%M 2>/dev/null || date -d '3 days ago' +%Y%m%d%H%M)" "$S5/measure/s-idle.json"
 inst "$H5" >/dev/null 2>&1
 check "the tap's ctx/ is purged" "gone" \
-  "$([ -d "$H5/.claude/claude-orchestrator/ctx" ] && echo kept || echo gone)"
-check "a stale measure file is pruned, a fresh one kept" "absent|present" \
-  "$([ -e "$H5/.claude/claude-orchestrator/measure/s-gone.json" ] && echo present || echo absent)|$([ -e "$H5/.claude/claude-orchestrator/measure/s-kept.json" ] && echo present || echo absent)"
+  "$([ -d "$S5/ctx" ] && echo kept || echo gone)"
+present() { [ -e "$1" ] && echo present || echo absent; }
+check "a measure file is pruned only past a week with no live session: gone, dead pid, live pid, idle, fresh" \
+  "absent|absent|present|present|present" \
+  "$(present "$S5/measure/s-gone.json")|$(present "$S5/measure/s-dead.json")|$(present "$S5/measure/s-live.json")|$(present "$S5/measure/s-idle.json")|$(present "$S5/measure/s-kept.json")"
+check "with no tap wired, the old pipeline's files are removed and the module's heads kept" \
+  "absent|absent|absent|absent|absent|present" \
+  "$(present "$S5/statusline-tap.sh")|$(present "$S5/statusline.previous.json")|$(present "$S5/context-gate.log")|$(present "$S5/stop-gate.log")|$(present "$S5/stop-gate/s-a.heads")|$(present "$S5/stop-gate/s-a.mheads")"
+# After an unwrap the same files go: nothing reads them once the line no longer runs the tap.
+H5B="$WORK/home5b"; mkdir -p "$H5B/.claude/claude-orchestrator"; stub_venv "$H5B"
+sed "s#@TAP@#$H5B/.claude/claude-orchestrator/statusline-tap.sh#" \
+  "$ROOT/tests/fixtures/tap-settings.json" > "$H5B/.claude/settings.json"
+printf '#!/bin/sh\n' > "$H5B/.claude/claude-orchestrator/statusline-tap.sh"
+printf '{"type":"command","command":"/x/bar.sh","padding":0}\n' > "$H5B/.claude/claude-orchestrator/statusline.previous.json"
+inst "$H5B" >/dev/null 2>&1
+check "an unwrap that succeeded removes the tap's copy and saved object" "/x/bar.sh|absent|absent" \
+  "$(jq -r '.statusLine.command' "$H5B/.claude/settings.json")|$(present "$H5B/.claude/claude-orchestrator/statusline-tap.sh")|$(present "$H5B/.claude/claude-orchestrator/statusline.previous.json")"
 
 H6="$WORK/home6"; mkdir -p "$H6/.claude"
 sed "s#@TAP@#$H6/.claude/claude-orchestrator/statusline-tap.sh#" \
