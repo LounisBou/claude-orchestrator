@@ -813,6 +813,17 @@ check "a file ignored only by the global excludes is copied and reads clean" "no
 check "a file ignored by nothing is absent from the checkout" "0" "$([ -e "$GE/plain.txt" ] && echo 1 || echo 0)"
 check "a path both the repository's and the global excludes ignore is copied once" "local|1" \
   "$(cat "$GE/LOCAL.md" 2>/dev/null)|$(grep -c 'copied 1 files kept out by the global excludes' "$WORK/wsge.err")"
+# A review session in a pin lacked the project's instruction file, kept out by the global
+# excludes: the pin carries the files `create` copies from them (§37), and still nothing the
+# source's own exclude file or its settings directory holds — the orchestrator's material.
+out=$(GIT_CONFIG_GLOBAL="$WORK/global-gitconfig" bash "$WS" pin "$SRC" round-ge main 2>"$WORK/wspinge.err")
+PGE="$WORK/wsroot/proj/round-ge"
+check "a pin carries the files the global excludes keep out, and reads clean" "$PGE|notes||1" \
+  "$out|$(cat "$PGE/NOTES.local.md" 2>/dev/null)|$(GIT_CONFIG_GLOBAL="$WORK/global-gitconfig" git -C "$PGE" status --porcelain 2>/dev/null)|$(grep -c 'copied 1 files kept out by the global excludes' "$WORK/wspinge.err")"
+check "and nothing the source's own exclude file or settings directory holds" "0|0|0" \
+  "$([ -e "$PGE/LOCAL.md" ] && echo 1 || echo 0)|$([ -e "$PGE/.claude" ] && echo 1 || echo 0)|$([ -e "$PGE/plain.txt" ] && echo 1 || echo 0)"
+check "such a pin deletes clean and the source forgets it" "deleted|0" \
+  "$(GIT_CONFIG_GLOBAL="$WORK/global-gitconfig" bash "$WS" delete "$PGE" 2>/dev/null | cut -d' ' -f1)|$(git -C "$SRC" worktree list | grep -c round-ge)"
 
 # Steps 1, 2 and 2b copy their lists in one pass each, never one process per file: a create
 # listing 3,421 excluded files ran over four minutes at heavy system CPU on a shared server.
