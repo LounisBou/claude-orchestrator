@@ -2,17 +2,30 @@
 import { measureFilePath, tripGate, hasFigures, type MeasureReading } from './gauge-core.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
-// Module memory only — a reload resets both, by design (Review Focus 3): drift is
+// Module memory only — a reload resets all three, by design (Review Focus 3): drift is
 // announced between two measures of the same load, never re-announced from a stale
 // previous model after a hot reload.
 let current: MeasureReading | null = null
+// The session the figures above were measured in: after a /clear the id changes.
+let currentIn: string | null = null
 let lastModel: string | null = null
+// The drift line not yet said to the model: the guards' prompt gate takes it into the
+// context of the next prompt (takeDrift), the channel every gate line reaches the
+// model by — a toast alone fades in seconds, and nothing tells the model.
+let pendingDrift: string | null = null
 
 // The band's input: null until the first measure of a load fills it — the usage
 // fields are optional in the shipped types before the first answered turn, so a null
 // reading is the expected start, not an error.
 export function currentReading(): MeasureReading | null {
   return current
+}
+
+// The drift line waiting for the model, handed over once: the next prompt carries it.
+export function takeDrift(): string | null {
+  const drift = pendingDrift
+  pendingDrift = null
+  return drift
 }
 
 export function driftAnnouncement(model: string, previous: string): string {
@@ -66,15 +79,23 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         model: String(model ?? 'unavailable'),
         updated_at: new Date().toISOString(),
       }
-      // Before the first answer the host has no token count yet: nothing is
-      // written, and the next measure fills the file.
-      if (!hasFigures(reading)) return next(e)
-      await writeMeasure($, e.sessionId ?? await $.session.id(), reading)
+      // Before the first answer the host has no token count yet — nor right after a
+      // /clear or a compaction: nothing is written, and the next measure fills the
+      // file. Figures kept from before are no longer this conversation's: the band,
+      // the store's row and the measure file stop showing them.
+      const sessionId = e.sessionId ?? await $.session.id()
+      if (!hasFigures(reading)) {
+        if (current !== null) await forget($, sessionId)
+        return next(e)
+      }
+      await writeMeasure($, sessionId, reading)
       if (lastModel !== null && lastModel !== reading.model) {
-        await $.ui.toast(driftAnnouncement(reading.model, lastModel))
+        pendingDrift = driftAnnouncement(reading.model, lastModel)
+        await $.ui.toast(pendingDrift)
       }
       lastModel = reading.model
       current = reading
+      currentIn = sessionId
       $.ui.invalidate('ui.render')
     } catch (err) {
       // A measure that fails never blocks: the next turn measures again.
@@ -88,7 +109,26 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
+  // A compaction of the main conversation starts: the figures measured before it go
+  // with what it summarises, and the next answer measures again. The measure file is
+  // emptied now — the gate reads it — so the next prompt is not told a fill the
+  // conversation no longer has. A subagent's own compaction is not the session's.
+  on('session.compact', async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      if (!e.agentId) await forget($, await $.session.id(), true)
+    } catch (err) {
+      await logLine($, (err as Error).message)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
   on('session.end', async ($: any, e: any, next: (e: any) => any) => {
+    // A /clear ends this conversation and starts another in the same process: the
+    // figures in memory were the ended one's.
+    current = null
+    currentIn = null
     try {
       // $.fs offers no remove: an empty file reads as unmeasured everywhere, and
       // install.sh purges the stale ones.
@@ -141,6 +181,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
+}
+
+// The figures of a conversation that no longer has them: memory, and the measure
+// file when they were this session's — another session's (a /clear's predecessor)
+// was emptied by its own end.
+async function forget($: any, sessionId: string, mine = currentIn === sessionId): Promise<void> {
+  current = null
+  currentIn = null
+  $.ui.invalidate('ui.render')
+  if (mine) await $.fs.write(measureFilePath(await configDir($), sessionId), '')
 }
 
 // The gate's thresholds from the environment, guards.ts's own reading spelled again

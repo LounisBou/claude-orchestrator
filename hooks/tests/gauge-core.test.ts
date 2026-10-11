@@ -1,7 +1,7 @@
 // hooks/tests/gauge-core.test.ts
 import { expect, test } from 'claude-code/testing'
 import { tripGate, parseMeasure, measureFilePath } from '../gauge-core.ts'
-import { driftAnnouncement, writeMeasure, register as registerGauge } from '../gauge.ts'
+import { driftAnnouncement, writeMeasure, takeDrift, register as registerGauge } from '../gauge.ts'
 
 test('the gate trips at 80 percent of the window', () => {
   expect(tripGate(79, 79000, 100000).tripped).toBe(false)
@@ -89,6 +89,42 @@ test('a fresh module load announces no drift, and a later change is announced on
   expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
   await handlers['session.measure']($, {}, through)
   expect(toasts).toEqual([driftAnnouncement('another-model', 'a-model')])
+  // The toast fades; the line itself waits for the model's next prompt, handed once.
+  expect(takeDrift()).toBe(driftAnnouncement('another-model', 'a-model'))
+  expect(takeDrift()).toBeNull()
+})
+
+test('a compaction empties the measure file, and a measure without figures forgets the old ones', async () => {
+  // After /compact the figures measured before it are no longer the conversation's:
+  // the gate reads the measure file, and the next prompt was told the old fill.
+  const handlers: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  const writes: [string, string][] = []
+  let usage: object = { context: { tokens: 850, window: 1000, percent: 85 } }
+  const $ = {
+    session: { usage: async () => usage, model: async () => 'a-model', id: async () => 's-compact' },
+    fs: { write: async (p: string, t: string) => { writes.push([p, t]) } },
+    env: { get: async (name: string) => (name === 'CLAUDE_CONFIG_DIR' ? '/tmp/cfg' : undefined) },
+    ui: { toast: () => undefined, invalidate: () => undefined },
+  }
+  const path = measureFilePath('/tmp/cfg', 's-compact')
+  await handlers['session.measure']($, {}, (x: unknown) => x)
+  const e = { trigger: 'manual', messages: [] }
+  expect(await handlers['session.compact']($, e, (x: unknown) => x)).toBe(e)
+  expect(writes[writes.length - 1]).toEqual([path, ''])
+  // A subagent's compaction is its own.
+  writes.length = 0
+  await handlers['session.compact']($, { ...e, agentId: 'a-1' }, (x: unknown) => x)
+  expect(writes).toEqual([])
+  // Measured again, then a measure with no token count: the figures are forgotten.
+  await handlers['session.measure']($, {}, (x: unknown) => x)
+  usage = { context: { window: 1000 } }
+  await handlers['session.measure']($, {}, (x: unknown) => x)
+  expect(writes[writes.length - 1]).toEqual([path, ''])
+  takeDrift()
 })
 
 test('a measure before the first answer writes nothing and logs nothing', async () => {
