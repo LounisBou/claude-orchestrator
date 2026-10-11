@@ -35,8 +35,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // no-matcher registration, so this one carries the empty matcher. Listed with
   // its schema, never behind the tool search: a model that must search for it
   // first would hand the operator the /rename line instead.
+  // A session the launcher opened — an agent, a review session, a successor —
+  // carries the name it was launched with, and never sees the tool: a review
+  // session's subagent once renamed its agent « Coord : norms check… », a
+  // second coordinator every listing then counted.
   on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
+      if (await $.env.get('ORCHESTRATOR_SPAWNED')) return next(e)
       await $.tool.register({
         name: RENAME_TOOL,
         isDeferred: false,
@@ -58,6 +63,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   on('tool.call', { tool: `mcp__orchestrator__${RENAME_TOOL}` }, async ($: any, e: any) => {
+    if (await $.env.get('ORCHESTRATOR_SPAWNED')) {
+      return { result: 'this session was named by the launcher and keeps that name', isError: true }
+    }
     const checked = checkName(e.name)
     if ('refused' in checked) return { result: checked.refused, isError: true }
     pending = checked.name

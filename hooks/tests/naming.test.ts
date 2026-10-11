@@ -64,6 +64,19 @@ test('the call records the name and the turn\'s completion runs the rename, once
   expect(fx.runs.length).toBe(1)
 })
 
+test('a session the launcher opened neither sees the tool nor renames itself', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar()
+  fx.dollar.env.get = async (name: string) => (name === 'ORCHESTRATOR_SPAWNED' ? '1' : name === 'HOME' ? '/tmp/h' : undefined)
+  const e = {}
+  expect(await handlers['session.start'](fx.dollar, e, (x: unknown) => x)).toBe(e)
+  expect(fx.registered).toEqual([])
+  const answer = await handlers['tool.call'](fx.dollar, { name: 'Coord : norms check' })
+  expect(answer.isError).toBe(true)
+  await handlers['turn.complete'](fx.dollar, {}, (x: unknown) => x)
+  expect(fx.runs).toEqual([])
+})
+
 test('a refused name is said to the model and renames nothing', async () => {
   const { handlers } = mounted()
   const fx = fakeDollar()
