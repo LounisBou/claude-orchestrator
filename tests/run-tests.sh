@@ -4436,7 +4436,12 @@ OBIN="$WORK/oldcli"; mkdir -p "$OBIN"
 printf '#!/usr/bin/env bash\necho "2.1.100 (stand-in)"\n' > "$OBIN/claude"; chmod +x "$OBIN/claude"
 NBIN="$WORK/nocli"; mkdir -p "$NBIN"
 printf '#!/usr/bin/env bash\necho "a version I will not say"\n' > "$NBIN/claude"; chmod +x "$NBIN/claude"
-inst() { env HOME="$1" ORCHESTRATOR_HOST_CLI="$HBIN/claude" bash "$ROOT/install.sh" "${@:2}"; }
+# Both scripts resolve CLAUDE_CONFIG_DIR before HOME: an operator's exported one would aim
+# every case below at his real configuration, and the uninstall at its removal. Each run
+# drops it, and the state override with it, so HOME alone decides where they act.
+inst() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" ORCHESTRATOR_HOST_CLI="$HBIN/claude" bash "$ROOT/install.sh" "${@:2}"; }
+uninst() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" bash "$ROOT/uninstall.sh" "${@:2}"; }
+instwith() { env -u CLAUDE_CONFIG_DIR -u ORCHESTRATOR_STATE_DIR HOME="$1" ORCHESTRATOR_HOST_CLI="$2" bash "$ROOT/install.sh"; }
 # The tab tooling's environment is planted, not built: a real build is network work the
 # suite must not wait on. The stand-in python answers the probe the installer makes.
 stub_venv() {
@@ -4447,14 +4452,14 @@ stub_venv() {
 
 H0="$WORK/home0"; mkdir -p "$H0/.claude"
 check_status "a host below 2.1.287 is refused" 1 \
-  env HOME="$H0" ORCHESTRATOR_HOST_CLI="$OBIN/claude" bash "$ROOT/install.sh"
+  instwith "$H0" "$OBIN/claude"
 check "the refusal names the floor and what needs it" "1" \
-  "$(env HOME="$H0" ORCHESTRATOR_HOST_CLI="$OBIN/claude" bash "$ROOT/install.sh" 2>&1 \
+  "$(instwith "$H0" "$OBIN/claude" 2>&1 \
     | grep -c 'this plugin needs 2.1.287 or later (the hooks module)')"
 check_status "a version that cannot be read is refused, not guessed at" 1 \
-  env HOME="$H0" ORCHESTRATOR_HOST_CLI="$NBIN/claude" bash "$ROOT/install.sh"
+  instwith "$H0" "$NBIN/claude"
 check "the unreadable refusal names where it looked" "1" \
-  "$(env HOME="$H0" ORCHESTRATOR_HOST_CLI="$NBIN/claude" bash "$ROOT/install.sh" 2>&1 | grep -c 'could not be read from')"
+  "$(instwith "$H0" "$NBIN/claude" 2>&1 | grep -c 'could not be read from')"
 check "a refused install creates nothing" "none" \
   "$([ -e "$H0/.claude/claude-orchestrator" ] && echo made || echo none)"
 
@@ -4491,7 +4496,7 @@ check "the installer says which of the two it found" "1|1" \
 before=$(cat "$H/.claude/settings.json")
 inst "$H" >/dev/null 2>&1
 check "second run leaves settings untouched" "$before" "$(cat "$H/.claude/settings.json")"
-env HOME="$H" bash "$ROOT/uninstall.sh" >/dev/null 2>&1
+uninst "$H" >/dev/null 2>&1
 check "uninstall removes the state directory" "gone" \
   "$([ -d "$H/.claude/claude-orchestrator" ] && echo kept || echo gone)"
 
@@ -4523,7 +4528,6 @@ printf '{"statusLine": {"command": "not json' > "$H4B/.claude/settings.json"
 before=$(cat "$H4B/.claude/settings.json")
 check "an unparseable settings.json still installs, says what was skipped, touches nothing" "0|1|1" \
   "$(inst "$H4B" >/dev/null 2>&1; echo $?)|$(inst "$H4B" 2>&1 >/dev/null | grep -c 'does not parse as JSON')|$([ "$(cat "$H4B/.claude/settings.json")" = "$before" ] && echo 1 || echo 0)"
-
 # What the tap left behind: its own ctx/ directory, and measure files from sessions
 # long ended. A file a day stale or more is noise to whatever reads the directory;
 # a fresh one belongs to a live session and is never touched.
