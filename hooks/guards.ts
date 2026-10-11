@@ -28,6 +28,7 @@ import {
   listing, chainEntries, ownAgents, hostStatusOf, pullRequestOf, openRows, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchSlug, watchedNumbers,
   checkWake, checkWakeDone, checkCi, isSuccessorSpawn, processTable, ownWatches, logTell,
+  noticeFrom, awaitingAny,
 } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
@@ -269,11 +270,26 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // The session id that handed over (it spawned its successor), the stop gate's
   // release: keyed by id like the memo above, a /clear's new session has not.
   let handedOverIn: string | null = null
+  // The peers whose idle notice this session subscribed to (SendMessage with
+  // notify_when_idle), each with the time it was asked: the stop gate's release until
+  // the peer's notice or message comes in, or the time-to-live runs out. Keyed by the
+  // session id like the two above.
+  let awaited: { sessionId: string; peers: Map<string, number> } | null = null
+  const awaitingIn = (sessionId: string): boolean => {
+    if (!awaited || awaited.sessionId !== sessionId) return false
+    return awaitingAny(awaited.peers, Date.now())
+  }
   // The launcher's mark, read once and kept: a re-entered call, or one past its
   // budget, can no longer read the environment, and the push guard's net decides
   // on this instead. Undefined until the first read answers.
   let spawnedMark: string | null | undefined = undefined
   on('prompt.submit', async ($: any, e: any, next: (e: any) => any) => {
+    // An awaited peer's notice or message ends the wait on it, whatever else this prompt is.
+    if (awaited && awaited.peers.size > 0) {
+      const text = String(e.text ?? '')
+      const kind = String(e.origin?.kind ?? '')
+      for (const peer of [...awaited.peers.keys()]) if (noticeFrom(peer, text, kind)) awaited.peers.delete(peer)
+    }
     // The model drift the gauge measured is said on this channel — the context the
     // model reads beside the prompt, never only a toast nobody sees — whatever the
     // session's role, once.
@@ -325,6 +341,27 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     // Focus 2's law, here for the walks). Either way the prompt is let
     // through, and the state dir says why; next is replay-safe in a catch,
     // called or not.
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // A subscription to a peer's idle notice, made by the main thread and sent: kept for
+  // the stop gate, which reads it as something that will wake the session. Mounted
+  // before the Bash guard below.
+  on('tool.call', { tool: 'SendMessage' }, async ($: any, e: any, next: (e: any) => any) => {
+    const out = await next(e)
+    const to = typeof e.to === 'string' ? e.to.trim() : ''
+    if (!e.agentId && e.notify_when_idle === true && to && out && !out.isError && !out.deny) {
+      try {
+        const sessionId = await $.session.id()
+        if (!awaited || awaited.sessionId !== sessionId) awaited = { sessionId, peers: new Map() }
+        awaited.peers.set(to, Date.now())
+      } catch (err) {
+        await logLine($, `the subscription to ${to} could not be kept: ${(err as Error).message}`)
+      }
+    }
+    return out
+  }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
@@ -449,6 +486,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const watching = !agents.some(a => a.state === 'busy') && ownWatches(await processes(), pid).size > 0
       const wake = checkWake({
         agents, resident, delivered, watching,
+        awaiting: sessionId !== '' && awaitingIn(sessionId),
         message: String(e.last_assistant_message ?? ''),
         handedOver: (sessionId !== '' && handedOverIn === sessionId) || isEnding(),
       })

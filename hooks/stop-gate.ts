@@ -290,6 +290,12 @@ export type Held = { case: string; reason: string }
 // block, honoured before the « stand it down » refusal — an idle agent may be waiting
 // on the very answer the block names; and a ci-watch this session started, still
 // running (`watching`), whose exit wakes it as an agent's idle notice would.
+//
+// Two more, from a live succession where each side waited on the other and both were
+// told nothing would wake them: a peer's idle notice the session subscribed to
+// (`awaiting`: a SendMessage with notify_when_idle, its notice not arrived yet) wakes
+// it as a busy agent's would; and a session that handed over is never told nothing
+// will wake it — its successor's « takeover confirmed » will.
 export function checkWake(facts: {
   agents: readonly OwnAgent[]
   resident: boolean
@@ -297,6 +303,7 @@ export function checkWake(facts: {
   message: string
   handedOver?: boolean
   watching?: boolean
+  awaiting?: boolean
 }): Held | { blocks: string } | 'read-what-is-left' | null {
   const last = machineLine(facts.message)
   const matched = MACHINE_LINE.exec(last)
@@ -309,6 +316,7 @@ export function checkWake(facts: {
   }
   if (facts.agents.some(a => a.state === 'busy')) return null
   if (facts.watching) return null
+  if (facts.awaiting) return null
   if (matched) return 'read-what-is-left'
   if (facts.agents.length > 0) {
     const names = facts.agents.map(a => a.label).join(', ')
@@ -325,7 +333,44 @@ export function checkWake(facts: {
     // command wakes it as a running turn would: something will wake the orchestrator.
     return null
   }
+  if (facts.handedOver) return null
   return { case: 'nothing-will-wake', reason: NOTHING }
+}
+
+// How long a subscription to a peer's idle notice counts as something that will wake the
+// session: a notice that never comes (a peer that crashed past the host's own exit notice,
+// a lost delivery) must not hold the gate open for ever. Two hours covers a takeover's
+// verification and an agent's long turn.
+export const NOTICE_TTL_MS = 2 * 60 * 60 * 1000
+
+// Whether a subscription still stands at `now`: the ones past their time-to-live are
+// dropped from the map as they are read.
+export function awaitingAny(peers: Map<string, number>, now: number): boolean {
+  for (const [peer, at] of peers) if (now - at > NOTICE_TTL_MS) peers.delete(peer)
+  return peers.size > 0
+}
+
+// The ways a SendMessage target names its peer: the target as written, the name without
+// its bracketed reference, and the reference alone.
+function peerKeys(to: string): string[] {
+  const keys = new Set<string>([to.trim()])
+  const m = /^(.*?)\s*\[([^\]]+)\]\s*$/.exec(to.trim())
+  if (m) {
+    if (m[1]) keys.add(m[1])
+    keys.add(m[2])
+  }
+  return [...keys].filter(k => k !== '')
+}
+
+// Whether an incoming prompt is the awaited peer's word: its message (a peer delivery) or
+// its idle or exit notice (one the host queues with no stamp). Either names the peer, by
+// name or by reference. The operator's own prompt is never it, and neither is a delivery
+// receipt: the notice says the peer went idle or exited.
+export function noticeFrom(to: string, text: string, kind: string): boolean {
+  if (!peerKeys(to).some(key => text.includes(key))) return false
+  if (kind === 'peer' || kind === 'peer-send-message') return true
+  if (kind === 'unclassified') return /\b(?:idle|exit(?:ed|s)?)\b/i.test(text)
+  return false
 }
 
 // The successor's spawn, as the session ran it through Bash: the launcher's spawn

@@ -11,6 +11,7 @@ import {
   machineLine, readHeads, writeHeads, headsPath, listing, ownAgents, hostStatusOf, openRows,
   projectCheckouts, watchedNumbers, parseCiWatchLog, watchNumberOf, pullRequestOf,
   checkWake, checkWakeDone, checkCi, chainEntries, logTell, isSuccessorSpawn, processTable, ownWatches,
+  noticeFrom, awaitingAny, NOTICE_TTL_MS,
 } from '../stop-gate.ts'
 import { register as registerGuards } from '../guards.ts'
 import { logLineOf, blockOf } from './fakes.ts'
@@ -476,8 +477,11 @@ function mounted(): { handlers: Record<string, Function>; matchers: Record<strin
   const handlers: Record<string, Function> = {}
   const matchers: Record<string, object | undefined> = {}
   registerGuards((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
-    handlers[args[0]] = args[args.length - 1] as Function
-    matchers[args[0]] = args.length === 3 ? args[1] : undefined
+    // The two tool calls the guards watch are told apart by their tool: Bash keeps the
+    // event's own key, SendMessage gets its own.
+    const key = args.length === 3 && (args[1] as any).tool === 'SendMessage' ? 'tool.call:SendMessage' : args[0]
+    handlers[key] = args[args.length - 1] as Function
+    matchers[key] = args.length === 3 ? args[1] : undefined
     // The engine's on returns a registration taking one .catch; the fake accepts it and
     // drops it — the body's own catch is what the wiring tests.
     return { catch: () => undefined }
@@ -1020,6 +1024,80 @@ test('a successor spawn that failed hands nothing over', async () => {
   const spawn = { tool: 'Bash', tool_use_id: 't9', command: 'bash iterm-agent.sh spawn --successor' }
   await handlers['tool.call'](fx.dollar, spawn, async () => ({ isError: true, result: 'never started', text: 'Exit code 1' }))
   expect(((await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))).answer as any).block).toContain('row r-12')
+})
+
+// Live, both sides of a succession were refused « Nothing will wake you » while each waited on
+// the other: the predecessor for « takeover confirmed » after its successor's spawn, the
+// successor for « handed over ». A peer's idle notice the session subscribed to wakes it as a
+// busy agent's would, until that notice or a message from the peer arrives; and a session
+// that handed over is never told nothing will wake it.
+test('the predecessor that spawned its successor is never told nothing will wake it', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({})
+  const spawn = { tool: 'Bash', tool_use_id: 't9', command: 'bash /plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh spawn --successor --title "Orch : belt"' }
+  await handlers['tool.call'](fx.dollar, spawn, async () => ({ result: { stdout: 'spawned' } }))
+  const waiting = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'Successor spawned; waiting for its « takeover confirmed ».' }))
+  expect(waiting.answer).toBe(waiting.passed)
+})
+
+const SUBSCRIBE = { tool: 'SendMessage', tool_use_id: 't7', to: 'Orch : belt [b7f1]', message: 'takeover confirmed', notify_when_idle: true }
+const SENT = async () => ({ result: { delivered: true } })
+const WAITING = { last_assistant_message: 'Takeover confirmed sent; waiting for « handed over ».' }
+
+test("a peer's idle notice the session subscribed to will wake it, until the notice arrives", async () => {
+  const { handlers, matchers } = mounted()
+  expect(matchers['tool.call:SendMessage']).toEqual({ tool: 'SendMessage' })
+  const fx = fakeDollar({})
+  // Not subscribed: refused.
+  await handlers['tool.call:SendMessage'](fx.dollar, { ...SUBSCRIBE, notify_when_idle: false }, SENT)
+  expect(((await stop(handlers['classic.Stop'], fx.dollar, stopEvent(WAITING))).answer as any).block).toContain('Nothing will wake you')
+  await handlers['tool.call:SendMessage'](fx.dollar, SUBSCRIBE, SENT)
+  const held = await stop(handlers['classic.Stop'], fx.dollar, stopEvent(WAITING))
+  expect(held.answer).toBe(held.passed)
+  // A prompt from someone else leaves the subscription standing.
+  await handlers['prompt.submit'](fx.dollar, { text: 'what is the state?', origin: { kind: 'composer' }, wait: false }, (x: unknown) => x)
+  const still = await stop(handlers['classic.Stop'], fx.dollar, stopEvent(WAITING))
+  expect(still.answer).toBe(still.passed)
+  // The peer's message arrives: the wait is over, and the gate reads the session again.
+  await handlers['prompt.submit'](fx.dollar, { text: 'Message from Orch : belt [b7f1]: handed over', origin: { kind: 'peer-send-message' }, wait: false }, (x: unknown) => x)
+  expect(((await stop(handlers['classic.Stop'], fx.dollar, stopEvent(WAITING))).answer as any).block).toContain('Nothing will wake you')
+})
+
+test('a subscription a subagent made, or one whose send failed, wakes nothing', async () => {
+  const { handlers } = mounted()
+  const sub = fakeDollar({})
+  await handlers['tool.call:SendMessage'](sub.dollar, { ...SUBSCRIBE, agentId: 'a-1' }, SENT)
+  expect(((await stop(handlers['classic.Stop'], sub.dollar, stopEvent(WAITING))).answer as any).block).toContain('Nothing will wake you')
+  const failed = fakeDollar({})
+  await handlers['tool.call:SendMessage'](failed.dollar, SUBSCRIBE, async () => ({ isError: true, result: 'no such peer' }))
+  expect(((await stop(handlers['classic.Stop'], failed.dollar, stopEvent(WAITING))).answer as any).block).toContain('Nothing will wake you')
+})
+
+test('a subscription past its time-to-live wakes nothing: a notice that never comes holds no gate open', () => {
+  const peers = new Map([['Orch : belt', 1_000], ['Agent : x', 1_000 + NOTICE_TTL_MS]])
+  expect(awaitingAny(peers, 1_000 + NOTICE_TTL_MS)).toBe(true)
+  expect(awaitingAny(peers, 1_001 + NOTICE_TTL_MS)).toBe(true)
+  expect([...peers.keys()]).toEqual(['Agent : x'])
+  expect(awaitingAny(peers, 2_001 + 2 * NOTICE_TTL_MS)).toBe(false)
+  expect(NOTICE_TTL_MS).toBe(2 * 60 * 60 * 1000)
+})
+
+test("a notice is the awaited peer's when it names it, by name or by reference", () => {
+  expect(noticeFrom('Orch : belt [b7f1]', 'Orch : belt is idle', 'unclassified')).toBe(true)
+  expect(noticeFrom('Orch : belt [b7f1]', 'session b7f1 exited', 'unclassified')).toBe(true)
+  expect(noticeFrom('Orch : belt', 'handed over — Orch : belt', 'peer')).toBe(true)
+  expect(noticeFrom('Orch : belt', 'handed over — Orch : belt', 'peer-send-message')).toBe(true)
+  // The operator's own words, a stranger's message, a delivery receipt: not the notice.
+  expect(noticeFrom('Orch : belt', 'is Orch : belt idle?', 'composer')).toBe(false)
+  expect(noticeFrom('Orch : belt', 'Agent : x is idle', 'unclassified')).toBe(false)
+  expect(noticeFrom('Orch : belt', 'Message delivered to Orch : belt', 'unclassified')).toBe(false)
+})
+
+test('the wake decision: an awaited notice wakes, and a handed-over session is never told nothing will', () => {
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting for it', awaiting: true })).toBeNull()
+  expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting for it', handedOver: true })).toBeNull()
+  // A delivered idle agent is still told: a subscription does not lift it.
+  expect((checkWake({ agents: [{ label: 'Agent : a', state: 'idle', tty: '/dev/ttys003' }], resident: false, delivered: ['Agent : a (pull request #1, OPEN)'], message: 'x', awaiting: true }) as any).case).toBe('idle-delivered')
 })
 
 test('a ci-watch this session started, still running, will wake it; a stranger\'s will not', async () => {

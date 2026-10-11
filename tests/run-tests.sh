@@ -218,6 +218,10 @@ check "the succession brief closes every predecessor and asks nothing" "1|1|1|0"
   "$(succ4_has 'the successor ALWAYS closes its predecessor')|$(succ4_has 'a predecessor the launcher did not open (started by hand) included')|$(succ4_has 'call mcp__orchestrator__end_session')|$(succ4_has '« close it »')"
 check "the end_session fallback is proved on the tty, not on list" "1|1|0" \
   "$(succ4_has '`verify --tty <its tty>` fails (no host on it)')|$(succ4_has '`ps -t <that tty without /dev/>` shows no host CLI')|$(succ4_has 'and `list` shows it gone; then tell')"
+# The successor waits for « handed over » on a subscription the stop gate counts: without it,
+# live, the gate refused that wait « Nothing will wake you ».
+check "the successor subscribes to its predecessor's idle notice with « takeover confirmed »" "1" \
+  "$(succ4_has 'message the predecessor "takeover confirmed" with `notify_when_idle: true`')"
 check "the lifecycle closes a predecessor started by hand like any other" "1|0" \
   "$(grep -c 'is closed like any other, nothing asked' "$ORCH_REFS/lifecycle.md")|$(grep -c 'close it himself' "$ORCH_REFS/lifecycle.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
