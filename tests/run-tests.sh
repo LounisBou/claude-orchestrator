@@ -202,24 +202,16 @@ check "the review brief's finding line ends with the proposed fix" "yes" \
   "$(spells "$ROOT/templates/agent-review-brief.md" '`[severity] file:line — the claim — the evidence in a few words — proposed fix`')"
 check "the comments brief's end report carries the threads and their outcomes" "yes" \
   "$(spells "$ROOT/templates/agent-comments-brief.md" 'threads and their outcomes')"
-# A predecessor started by hand lists as `(host default)`; the host refuses closing a session the
-# plugin did not launch unless the operator's word is already in the conversation, so the successor
-# asks him up front, before « takeover confirmed ». Step 4 is read with its line breaks folded for
-# the parts, and by line number for the order: the ask comes before the line that sends the
-# confirmation.
+# The successor always closes its predecessor, one started by hand included (the operator's
+# standing order): nothing is asked of him, and where the host refuses the close of a tab the
+# plugin did not open, the predecessor is asked to end its own session through the module.
 SUCC="$ROOT/templates/orchestrator-succession-brief.md"
 SUCC4=$(awk '/^4\. /{f=1} /^5\. /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
 succ4_has() { printf '%s' "$SUCC4" | grep -oF -- "$1" | wc -l | tr -d ' '; }
-check "the succession brief holds the up-front close question by its parts" "1|1|1|1" \
-  "$(succ4_has 'BEFORE "takeover confirmed" is sent')|$(succ4_has '(host default)')|$(succ4_has 'asks him to close it himself or to say « close it »')|$(succ4_has 'A predecessor with a name is closed as below, nothing asked')"
-SUCC_ASK=$(grep -n -m1 -F -- 'asks him to close it himself or to say « close it »' "$SUCC" | cut -d: -f1)
-SUCC_CONFIRM=$(grep -n -m1 -F -- 'Then message the predecessor "takeover confirmed"' "$SUCC" | cut -d: -f1)
-check "the succession brief asks before it sends « takeover confirmed »" "1" \
-  "$([ -n "$SUCC_ASK" ] && [ -n "$SUCC_CONFIRM" ] && [ "$SUCC_ASK" -lt "$SUCC_CONFIRM" ] && echo 1 || echo 0)"
-# The lifecycle reference says the same in one sentence: the ask stands in front of the message
-# that confirms the takeover, not behind it.
-check "the lifecycle puts the close question before « takeover confirmed »" "1" \
-  "$(tr '\n' ' ' < "$ORCH_REFS/lifecycle.md" | tr -s ' ' | awk '{ a = index($0, "to close it himself or to say « close it »"); b = index($0, "message the predecessor \"takeover confirmed\""); print (a > 0 && b > 0 && a < b) ? 1 : 0 }')"
+check "the succession brief closes every predecessor and asks nothing" "1|1|1|0" \
+  "$(succ4_has 'the successor ALWAYS closes its predecessor')|$(succ4_has '(host default)')|$(succ4_has 'call mcp__orchestrator__end_session')|$(succ4_has '« close it »')"
+check "the lifecycle closes a predecessor started by hand like any other" "1|0" \
+  "$(grep -c 'is closed like any other, nothing asked' "$ORCH_REFS/lifecycle.md")|$(grep -c 'close it himself' "$ORCH_REFS/lifecycle.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
 # of a lower branch is replayed around, never through.
 check "ready leaves the pull request in draft" "1" "$(grep -c "Ready is the operator's turn, and the pull request stays in draft" "$ORCH_REFS/review.md")"

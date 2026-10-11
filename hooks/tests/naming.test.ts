@@ -3,14 +3,18 @@
 // the call that records the name and the turn's completion that runs the host's
 // /rename with it — never from the call itself, which the host refuses.
 import { expect, test } from 'claude-code/testing'
-import { checkName, register as registerNaming, RENAME_TOOL } from '../naming.ts'
+import { checkName, END_TOOL, register as registerNaming, RENAME_TOOL } from '../naming.ts'
 
+// A registration is keyed by its event, and a tool call by its tool too: the
+// file serves two tools.
 function mounted(): { handlers: Record<string, Function>; matchers: Record<string, object | undefined> } {
   const handlers: Record<string, Function> = {}
   const matchers: Record<string, object | undefined> = {}
   registerNaming((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
-    handlers[args[0]] = args[args.length - 1] as Function
-    matchers[args[0]] = args.length === 3 ? args[1] : undefined
+    const tool = args.length === 3 ? (args[1] as any).tool : undefined
+    const key = tool === `mcp__orchestrator__${END_TOOL}` ? 'tool.call:end' : args[0]
+    handlers[key] = args[args.length - 1] as Function
+    matchers[key] = args.length === 3 ? args[1] : undefined
     return { catch: () => undefined }
   })
   return { handlers, matchers }
@@ -45,9 +49,21 @@ test('every start declares the tool with its schema in the prompt', async () => 
   const fx = fakeDollar()
   const e = {}
   expect(await handlers['session.start'](fx.dollar, e, (x: unknown) => x)).toBe(e)
-  expect(fx.registered.length).toBe(1)
-  expect(fx.registered[0].name).toBe('rename_session')
-  expect(fx.registered[0].isDeferred).toBe(false)
+  expect(fx.registered.map((spec: any) => spec.name)).toEqual(['rename_session', 'end_session'])
+  expect(fx.registered.every((spec: any) => spec.isDeferred === false)).toBe(true)
+})
+
+test('the end is asked by a call and run when the turn completes, after the rename', async () => {
+  const { handlers, matchers } = mounted()
+  expect(matchers['tool.call:end']).toEqual({ tool: `mcp__orchestrator__${END_TOOL}` })
+  const fx = fakeDollar()
+  await handlers['tool.call'](fx.dollar, { name: 'Orch : phase-3' })
+  expect(await handlers['tool.call:end'](fx.dollar, {})).toEqual({ result: 'This session ends when this turn ends.' })
+  expect(fx.runs).toEqual([])
+  await handlers['turn.complete'](fx.dollar, {}, (x: unknown) => x)
+  expect(fx.runs).toEqual([{ command: 'rename', args: 'Orch : phase-3' }, { command: 'exit' }])
+  await handlers['turn.complete'](fx.dollar, {}, (x: unknown) => x)
+  expect(fx.runs.length).toBe(2)
 })
 
 test('the call records the name and the turn\'s completion runs the rename, once', async () => {
@@ -64,7 +80,7 @@ test('the call records the name and the turn\'s completion runs the rename, once
   expect(fx.runs.length).toBe(1)
 })
 
-test('a session the launcher opened neither sees the tool nor renames itself', async () => {
+test('a session the launcher opened neither sees the tools nor renames or ends itself', async () => {
   const { handlers } = mounted()
   const fx = fakeDollar()
   fx.dollar.env.get = async (name: string) => (name === 'ORCHESTRATOR_SPAWNED' ? '1' : name === 'HOME' ? '/tmp/h' : undefined)
@@ -73,6 +89,7 @@ test('a session the launcher opened neither sees the tool nor renames itself', a
   expect(fx.registered).toEqual([])
   const answer = await handlers['tool.call'](fx.dollar, { name: 'Coord : norms check' })
   expect(answer.isError).toBe(true)
+  expect((await handlers['tool.call:end'](fx.dollar, {})).isError).toBe(true)
   await handlers['turn.complete'](fx.dollar, {}, (x: unknown) => x)
   expect(fx.runs).toEqual([])
 })

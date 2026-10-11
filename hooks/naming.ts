@@ -1,5 +1,5 @@
 // hooks/naming.ts
-// The session's own rename: a tool the model calls with the house name, and the
+// The session's own name and its own end. The rename: a tool the model calls with the house name, and the
 // host's own /rename run for it once the turn ends. A session the operator
 // starts by hand is named after its directory stem, which no listing reads as a
 // role; the model chooses the subject, so the model asks for the name, and the
@@ -11,6 +11,13 @@
 
 // The tool's short name: the model calls it as mcp__orchestrator__rename_session.
 export const RENAME_TOOL = 'rename_session'
+
+// The end: the successor closes its predecessor's tab, and where the host
+// refuses that close — a tab the plugin did not open — it asks the predecessor
+// to end its own session instead, which no refusal reaches: the run is the
+// module's. A session the launcher opened is always closable by its successor
+// and never sees this tool.
+export const END_TOOL = 'end_session'
 
 // The names a session takes for itself: the two roles a session the operator
 // starts by hand declares. An agent and an auditor are named by the launcher at
@@ -30,6 +37,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // Module memory: the name asked during this turn, run at its completion. A
   // second call in the same turn replaces the first — the last word stands.
   let pending: string | null = null
+  let ending = false
 
   // The tool is declared at every start: register.ts owns session.start's
   // no-matcher registration, so this one carries the empty matcher. Listed with
@@ -51,6 +59,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           properties: { name: { type: 'string', description: 'The full name, e.g. "Orch : <subject>"' } },
           required: ['name'],
         },
+      })
+      await $.tool.register({
+        name: END_TOOL,
+        isDeferred: false,
+        description: 'Ends this session when the current turn ends. Only for an orchestrator that has handed over and whose successor asks it to end its session.',
+        inputSchema: { type: 'object', properties: {} },
       })
     } catch (err) {
       // A start never fails on the tool: the session runs, unnamed by itself.
@@ -75,6 +89,17 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return { result: 'the rename could not be recorded; hand the operator the /rename line instead', isError: true }
   })
 
+  on('tool.call', { tool: `mcp__orchestrator__${END_TOOL}` }, async ($: any) => {
+    if (await $.env.get('ORCHESTRATOR_SPAWNED')) {
+      return { result: 'this session was opened by the launcher; its successor closes its tab', isError: true }
+    }
+    ending = true
+    return { result: 'This session ends when this turn ends.' }
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return { result: 'the end could not be recorded', isError: true }
+  })
+
   on('turn.complete', async ($: any, e: any, next: (e: any) => any) => {
     if (pending !== null) {
       const name = pending
@@ -83,6 +108,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // very completion is still holding. Its failure is said in the log.
       $.command.run({ command: 'rename', args: name })
         .catch((err: unknown) => logLine($, `rename to "${name}" failed: ${String((err as Error)?.message ?? err)}`))
+    }
+    if (ending) {
+      ending = false
+      // Queued after any rename, run once the session is idle.
+      $.command.run({ command: 'exit' })
+        .catch((err: unknown) => logLine($, `exit failed: ${String((err as Error)?.message ?? err)}`))
     }
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
