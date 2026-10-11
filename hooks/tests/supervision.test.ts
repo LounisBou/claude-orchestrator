@@ -12,11 +12,11 @@ import {
   writeSession, readSessions, deleteSession, sessionKey, parseSessionRow,
 } from '../supervision.ts'
 import { register } from '../register.ts'
+import { logLineOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const STATE = `${HOME}/.claude/claude-orchestrator`
 const SESSIONS = `${STATE}/store/sessions`
-const LOG = `${STATE}/hooks-module.log`
 const PROJECTS = `${HOME}/.claude/projects`
 
 // --- the store's mechanics ----------------------------------------------------------------
@@ -56,14 +56,14 @@ function fakeDollar(over: {
       surfaces: async () => [],
     },
     env: { get: async (name: string) => env[name] },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
     fs: {
       read: async (p: string) => {
         if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
         return files.get(p)
       },
       write: async (p: string, text: string) => {
-        if (p === LOG) written.push(text)
-        else files.set(p, text)
+        files.set(p, text)
       },
       stat: async (p: string) => {
         const text = files.get(p)
@@ -88,6 +88,11 @@ function fakeDollar(over: {
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         ran.push(argv.join(' '))
         if (argv[0] === 'sh') return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
         if (argv[0] === 'ps' && argv[1] === '-t') {

@@ -8,6 +8,7 @@
 // later event (turn.complete) »), so the call only records the name and the
 // turn's completion runs the rename — the same transcript entry a typed /rename
 // writes, the one every name walk reads.
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 // The tool's short name: the model calls it as mcp__orchestrator__rename_session.
 export const RENAME_TOOL = 'rename_session'
@@ -127,7 +128,6 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | naming | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'naming', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }

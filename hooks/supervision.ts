@@ -20,6 +20,7 @@ import { currentReading } from './gauge.ts'
 import { tripGate } from './gauge-core.ts'
 import { roleOf, walkName, BLOCK } from './session-name.ts'
 import { withDeadline, isDegradedPass, chainEntries } from './stop-gate.ts'
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 // One row per live session, the store's whole schema.
 export type SessionRow = {
@@ -404,13 +405,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 }
 
-// One line in the module's log, the gauge's own shape: the stamp names the
+// One line appended to the module's log (module-log.ts): the stamp names the
 // half that failed. Never throws, never blocks the handler it serves.
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = await configDir($)
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | supervision | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'supervision', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }
 

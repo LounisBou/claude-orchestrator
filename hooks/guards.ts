@@ -24,6 +24,7 @@ import {
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchSlug, watchedNumbers,
   checkWake, checkWakeDone, checkCi,
 } from './stop-gate.ts'
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 // The config dir, gauge.ts's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -457,13 +458,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 }
 
-// One line in the module's log, the gauge's own shape: the stamp names the half
-// that failed. Never throws, never blocks the handler it serves.
+// One line appended to the module's log (module-log.ts): the stamp names the
+// half that failed. Never throws, never blocks the handler it serves.
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = await configDir($)
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | guards | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'guards', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }
 

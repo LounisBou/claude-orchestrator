@@ -13,6 +13,7 @@ import {
   checkWake, checkWakeDone, checkCi, chainEntries,
 } from '../stop-gate.ts'
 import { register as registerGuards } from '../guards.ts'
+import { logLineOf } from './fakes.ts'
 
 // --- the decision shapes -----------------------------------------------------------------
 
@@ -287,7 +288,6 @@ test('a head with no checks read is unread, and ignored checks filter nothing el
 
 const HOME = '/tmp/h'
 const STATE = `${HOME}/.claude/claude-orchestrator`
-const LOG = `${STATE}/hooks-module.log`
 const CHAIN = `${STATE}/chains/ttys001.jsonl`
 const REGISTER = `${STATE}/records/a1b2c3`
 const RECORD = '/tmp/h/rec/round.jsonl'
@@ -370,7 +370,6 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         if (p === S.register) return setup.records ? `${RECORD}\n` : ''
         if (p === RECORD) return (setup.records ?? [])[0] ?? ''
         if (p === S.heads) return setup.heads ?? ''
-        if (p === LOG) return ''
         if (p === S.ignored) {
           if (setup.failIgnoredRead) throw new Error('EACCES: permission denied')
           if (setup.ignoredText !== undefined) return setup.ignoredText
@@ -386,8 +385,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
       },
       write: async (p: string, text: string) => {
         if (p === S.heads && setup.hangHeadsWrite) return new Promise(() => undefined)
-        if (p === LOG) written.push(text)
-        else wrote[p] = text
+        wrote[p] = text
       },
       stat: async (p: string) => {
         if (p === TRANSCRIPT && setup.transcript !== undefined) {
@@ -412,6 +410,11 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         ran.push(argv.join(' '))
         if (argv[0] === 'sh') {
           return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }

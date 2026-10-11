@@ -11,11 +11,11 @@
 import { expect, test, mock } from 'claude-code/testing'
 import { statusText, agentsText, progressLines, parseDispatchRow, register as registerCommands } from '../commands.ts'
 import type { SessionRow } from '../supervision.ts'
+import { logLineOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const SESSIONS = `${HOME}/.claude/claude-orchestrator/store/sessions`
 const RECORDS = `${HOME}/.claude/claude-orchestrator/records`
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 
 // --- the texts -----------------------------------------------------------------------------
 
@@ -127,8 +127,7 @@ function fakeDollar(over: { failEnv?: boolean; failSession?: boolean } = {}): Fx
         return files.get(p)
       },
       write: async (p: string, text: string) => {
-        if (p === LOG) written.push(text)
-        else files.set(p, text)
+        files.set(p, text)
       },
       list: async (dir: string) => {
         const names = new Set<string>()
@@ -145,6 +144,14 @@ function fakeDollar(over: { failEnv?: boolean; failSession?: boolean } = {}): Fx
         })
       },
       exists: async (p: string) => files.has(p),
+    },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    process: {
+      run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) written.push(line)
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
     },
   }
   return fx

@@ -1,6 +1,7 @@
 // hooks/tests/gauge-band.test.ts
 import { expect, test } from 'claude-code/testing'
 import { bandTree, currentReading, register as registerGauge } from '../gauge.ts'
+import { logLineOf } from './fakes.ts'
 
 test('below the gate the band shows the fill without warning color', () => {
   const tree = bandTree({ context_percent: 42, context_tokens: 42000, context_window: 100000, model: 'a-model', updated_at: 't' })
@@ -94,8 +95,15 @@ test('a session end that cannot purge the measure file is said, and blocks nothi
     fs: {
       read: async () => '',
       write: async (p: string, text: string) => {
-        if (p.endsWith('hooks-module.log')) written.push(text)
-        else throw new Error('EIO: the measure file cannot be written')
+        throw new Error('EIO: the measure file cannot be written')
+      },
+    },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    process: {
+      run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) written.push(line)
+        return { exitCode: 0, stdout: '', stderr: '' }
       },
     },
   }

@@ -1,5 +1,6 @@
 // hooks/gauge.ts
 import { measureFilePath, tripGate, hasFigures, type MeasureReading } from './gauge-core.ts'
+import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
 // Module memory only — a reload resets both, by design (Review Focus 3): drift is
 // announced between two measures of the same load, never re-announced from a stale
@@ -157,10 +158,11 @@ async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number; la
   }
 }
 
+// One line appended to the module's log (module-log.ts): the stamp names the
+// half that failed. Never throws, never blocks the handler it serves.
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = await configDir($)
-    const existing = await $.fs.read(`${config}/claude-orchestrator/hooks-module.log`).catch(() => '')
-    await $.fs.write(`${config}/claude-orchestrator/hooks-module.log`, `${existing}${new Date().toISOString()} | gauge | ${message}\n`)
+    await $.process.run(logArgv($.plugin.root, config, 'gauge', message), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }

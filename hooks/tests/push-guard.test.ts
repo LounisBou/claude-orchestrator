@@ -6,6 +6,7 @@
 // themselves are pinned by the tokeniser's own fixtures (tokenizer.test.ts).
 import { expect, test } from 'claude-code/testing'
 import { pushDecision, register as registerGuards } from '../guards.ts'
+import { logLineOf } from './fakes.ts'
 
 test('a marked session refuses a forced push and names the lease it accepts', () => {
   const d = pushDecision('1', 'git push --force origin main')
@@ -27,7 +28,6 @@ test('a command the guard cannot read passes', () => {
 // $, so the whole of it is faked — here the marker by its literal name and the
 // log a failure writes, the two seams the push handler reads.
 const HOME = '/tmp/h'
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 
 function fakeDollar(setup: { spawned?: string; noEnv?: boolean }): { dollar: any; written: string[] } {
   const written: string[] = []
@@ -40,8 +40,16 @@ function fakeDollar(setup: { spawned?: string; noEnv?: boolean }): { dollar: any
       },
     },
     fs: {
-      read: async (p: string) => { if (p === LOG) return ''; throw new Error(`unread: ${p}`) },
-      write: async (p: string, text: string) => { if (p === LOG) written.push(text) },
+      read: async (p: string) => { throw new Error(`unread: ${p}`) },
+      write: async () => undefined,
+    },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    process: {
+      run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) written.push(line)
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
     },
   }
   return { dollar, written }

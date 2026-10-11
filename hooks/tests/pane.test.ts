@@ -10,10 +10,10 @@
 import { expect, test } from 'claude-code/testing'
 import { agentPaneRows, hostRecordOf, paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
 import { register as registerAll } from '../register.ts'
+import { logLineOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const SESSIONS = `${HOME}/.claude/claude-orchestrator/store/sessions`
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 const PROJECTS = `${HOME}/.claude/projects`
 
 // --- the rows -------------------------------------------------------------------------------
@@ -147,14 +147,14 @@ function fakeDollar(over: {
       surfaces: async () => ['terminal'],
     },
     env: { get: async (name: string) => env[name] },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
     fs: {
       read: async (p: string) => {
         if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
         return files.get(p)
       },
       write: async (p: string, text: string) => {
-        if (p === LOG) written.push(text)
-        else files.set(p, text)
+        files.set(p, text)
       },
       stat: async (p: string) => {
         const text = files.get(p)
@@ -179,6 +179,11 @@ function fakeDollar(over: {
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         ran.push(argv.join(' '))
         if (argv[0] === 'sh') {
           if (over.hangWalk) return new Promise(() => undefined)

@@ -1,6 +1,7 @@
 // hooks/tests/context-gate.test.ts
 import { expect, test } from 'claude-code/testing'
 import { roleLine, gateAnnouncement, register as registerGuards } from '../guards.ts'
+import { logLineOf } from './fakes.ts'
 
 test('each role gets its own line, verbatim from the shell gate', () => {
   expect(roleLine('orchestrator')).toBe('Succeed at the next quiet boundary — run /orchestrator:succeed: spawn the successor in the operator\'s decision mode, then tell the user; do not ask.')
@@ -38,7 +39,6 @@ test("the auditor's brief is named openably, from any cwd", () => {
 const HOME = '/tmp/h'
 const TRANSCRIPT = `${HOME}/.claude/projects/-a-project/s-gate.jsonl`
 const MEASURE = `${HOME}/.claude/claude-orchestrator/measure/s-gate.json`
-const LOG = `${HOME}/.claude/claude-orchestrator/hooks-module.log`
 
 // The transcript of a session a turn has answered; the rename on the last line
 // is padded — the unmeasured test below reads the session's name from it alone.
@@ -81,10 +81,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
           if (setup.measure === undefined) throw new Error('ENOENT')
           return setup.measure
         }
-        if (p === LOG) return ''
         throw new Error(`unread: ${p}`)
       },
-      write: async (p: string, text: string) => { if (p === LOG) written.push(text) },
+      write: async () => undefined,
       stat: async (p: string) => {
         if (p === TRANSCRIPT && setup.transcript !== undefined) {
           return { kind: 'file', size: setup.transcript.length }
@@ -100,6 +99,11 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[] } {
     },
     process: {
       run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) {
+          written.push(line)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         if (argv[0] === 'sh') {
           // selfTty's seed: a controlling tty, or none for a headless run.
           return { exitCode: 0, stdout: setup.noTty ? '123 ??\n' : '123 ttys001\n', stderr: '' }
