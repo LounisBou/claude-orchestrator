@@ -197,6 +197,10 @@ check "the phase, comments and rotation gauge lines report the context in the fi
 # points high — and a file that is not there yields no figure at all, not an estimate.
 check "all four agent briefs name the agent's own measure file as its context source, and refuse a figure when it is missing" "yes|yes|yes|yes|yes|yes|yes|yes" \
   "$(for t in phase comments review rotation; do spells "$ROOT/templates/agent-$t-brief.md" "your own measure file — the one JSON line the hooks module rewrites on every turn, your session id's file under \`claude-orchestrator/measure/\` in the host's configuration directory"; done | paste -sd'|' -)|$(for t in phase comments review rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'If it is not there, say so and give no figure: an estimate presented as a measurement is worse than an admitted gap'; done | paste -sd'|' -)"
+# The session id is the host's variable, which the agent reads itself: a brief that only says
+# « your session id » left it to guess or to list the directory and read another's file.
+check "every brief that reads a measure file says how to find the session id and the directory" "yes|yes|yes|yes|yes" \
+  "$(for t in agent-phase agent-comments agent-review agent-rotation orchestrator-succession; do spells "$ROOT/templates/$t-brief.md" '`printenv CLAUDE_CODE_SESSION_ID` prints the id, `printenv CLAUDE_CONFIG_DIR` the directory'; done | paste -sd'|' -)"
 # review.md asks for each finding's proposed fix; the one-line finding keeps it as its last field.
 check "the review brief's finding line ends with the proposed fix" "yes" \
   "$(spells "$ROOT/templates/agent-review-brief.md" '`[severity] file:line — the claim — the evidence in a few words — proposed fix`')"
