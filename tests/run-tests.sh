@@ -205,11 +205,15 @@ check "the comments brief's end report carries the threads and their outcomes" "
 # The successor always closes its predecessor, one started by hand included (the operator's
 # standing order): nothing is asked of him, and where the host refuses the close of a tab the
 # plugin did not open, the predecessor is asked to end its own session through the module.
+# That end is proved on the tty, never on `list`, which keeps the row of a tab left holding a
+# shell.
 SUCC="$ROOT/templates/orchestrator-succession-brief.md"
 SUCC4=$(awk '/^4\. /{f=1} /^5\. /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
 succ4_has() { printf '%s' "$SUCC4" | grep -oF -- "$1" | wc -l | tr -d ' '; }
 check "the succession brief closes every predecessor and asks nothing" "1|1|1|0" \
-  "$(succ4_has 'the successor ALWAYS closes its predecessor')|$(succ4_has '(host default)')|$(succ4_has 'call mcp__orchestrator__end_session')|$(succ4_has '« close it »')"
+  "$(succ4_has 'the successor ALWAYS closes its predecessor')|$(succ4_has 'a predecessor the launcher did not open (started by hand) included')|$(succ4_has 'call mcp__orchestrator__end_session')|$(succ4_has '« close it »')"
+check "the end_session fallback is proved on the tty, not on list" "1|1|0" \
+  "$(succ4_has '`verify --tty <its tty>` fails (no host on it)')|$(succ4_has '`ps -t <that tty without /dev/>` shows no host CLI')|$(succ4_has 'and `list` shows it gone; then tell')"
 check "the lifecycle closes a predecessor started by hand like any other" "1|0" \
   "$(grep -c 'is closed like any other, nothing asked' "$ORCH_REFS/lifecycle.md")|$(grep -c 'close it himself' "$ORCH_REFS/lifecycle.md")"
 # Ready is the operator's turn: the pull request stays in draft, rebased, and the squash-merge
