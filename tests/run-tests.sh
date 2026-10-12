@@ -6477,6 +6477,16 @@ check "the calibration reference states the selection by equivalence, its keys a
 check "the calibration reference no longer states a floor for the tables" "no" "$(spells "$MRC" 'The reliability floors')"
 check "the routing skill skips a notch found not equivalent, not one below a floor" "yes|no" \
   "$(spells "$MR" 'measured and found not equivalent to the best')|$(spells "$MR" 'measured below the floor')"
+check "the skill passes the phase's size to pick: both options, and the two thresholds of the readings" "yes|yes|yes|yes" \
+  "$(spells "$MR" '--files')|$(spells "$MR" '--lines')|$(spells "$MR" 'files > 3')|$(spells "$MR" 'lines > 50')"
+check "the skill says what beyond= means for the brief, and that a correction round runs at nbis=" "yes|yes|yes" \
+  "$(spells "$MR" 'size=large beyond=<scope>')|$(spells "$MR" 'nbis=')|$(spells "$MR" '--class n-bis')"
+check "the skill puts a search exploration, summary in the brief, before a phase beyond every measured size" "yes|yes" \
+  "$(spells "$MR" 'beyond every measured size')|$(carries "$MR" 'read-only search exploration')"
+check "the calibration reference states pick's options and its lines" "yes|yes|yes" \
+  "$(spells "$MRC" '--files <n> --lines <n>')|$(spells "$MRC" 'size=large beyond=<scope>')|$(spells "$MRC" 'nbis=<pair>')"
+check "the dispatch log holds the correction round's notch and the size rule" "yes|yes" \
+  "$(spells "$ROOT/docs/agent-dispatches.md" 'A correction round runs one effort notch above its phase')|$(spells "$ROOT/docs/agent-dispatches.md" 'A table measured on small work does not serve a large phase')"
 check "the routing skill and the brief say a pair, not a tier" "yes|yes" \
   "$(spells "$MR" 'must choose the model/effort pair')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'then choose the model/effort pair the work needs')"
 
