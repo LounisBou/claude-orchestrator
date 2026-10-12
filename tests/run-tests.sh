@@ -6363,6 +6363,15 @@ check "and the last line counts every trial of the run" "bench: spent=2.26 trial
 : > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
 out=$(STUB_FADE="c-model:5:$FADE" rb4 --grid c-model/medium,c-model/high,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
 check "--reps 1 runs no second repetition" "|bench: spent=1.38 trials=12 unmeasured=0 pruned=0" "$(reps_of 2)|$(last_line "$out")"
+# The band has an upper edge: a pair above seven tenths is as good as the best already. Two pairs
+# that pass every task at one price are such a pair, the one named first being the best.
+: > "$B4T"
+rb4 --grid b-model/medium,c-model/medium --max-usd 100 --reps 1 --concurrency 1 >/dev/null 2>&1
+ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" calibrate bench4 >/dev/null 2>&1
+check "the pair behind the best is equivalent to it in more than seven tenths of the draws" "b-model/medium|true" \
+  "$(jq -r '.entries[].ladder|map(select(.p_equiv==1).pair)[0] + "|" + (map(select(.pair=="c-model/medium").p_equiv>0.7)[0]|tostring)' "$BS/routing/tables/project-bench4.json")"
+rb4 --grid b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1 >/dev/null 2>&1
+check "so it gets no second repetition, and the best does, on every task" "b-model/medium=4" "$(reps_of 2)"
 # Re-admission: the survivor is weak after stage B; the pruned pairs come back cheapest first and
 # the first entry stops them.
 : > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
@@ -6374,6 +6383,11 @@ before=$(wc -l < "$B4T" | tr -d ' ')
 out=$(STUB_COSTS="c-model=0.05,a-model=0.30" rb4 --grid c-model/medium,b-model/medium,a-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
 check "a restart re-runs no trial, takes the same decisions and counts the same pruned pair" "$before|bench: spent=0.00 trials=0 unmeasured=0 pruned=1" \
   "$(wc -l < "$B4T" | tr -d ' ')|$(last_line "$out")"
+# A single pruned pair that re-enters and gives the entry leaves nothing pruned.
+: > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
+out=$(STUB_COSTS="c-model=0.05" STUB_FADE="c-model:2:$FADE" rb4 --grid c-model/medium,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "the one pruned pair runs stage B and gives the entry: graded on all four tasks, and the last line counts nothing pruned" "4|4|bench: spent=0.72 trials=8 unmeasured=0 pruned=0" \
+  "$(tasks_of b-model/medium)|$(tasks_of c-model/medium)|$(last_line "$out")"
 : > "$BT"
 out=$(rb --grid b-model/medium,c-model/medium --max-usd 0.15 --concurrency 1)
 check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=2 pruned=0$')"
@@ -6411,6 +6425,15 @@ check "errors of an earlier run do not drop the pair" "0|5" "$(grep -c 'dropping
 STUB_JUDGE=garbage rb --grid b-model/medium --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
 check "a judge that answers nothing drops no pair" "0|3" "$(grep -c 'dropping' "$WORK/bench.err")|$(wc -l < "$BT" | tr -d ' ')"
 cp "$WORK/bm.bak" "$BM"
+# Six tasks, so that stage A holds the three errors that drop a pair. A pair dropped there is out of
+# the pruning: it runs no stage B and the last line does not count it among the pruned.
+mkdir -p "$BS/routing/projects/bench6"; cp -R "$BS/routing/projects/benchrepo/briefs" "$BS/routing/projects/bench6/"
+jq '.slug="bench6" | .tasks += [(10, 11, 12) as $n | .tasks[2] | .id="pr-\($n)" | .pr=$n]' "$BM" > "$BS/routing/projects/bench6/manifest.json"
+B6T="$BS/routing/projects/bench6/trials.jsonl"; : > "$B6T"
+out=$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" \
+  python3 "$ROUTING" bench bench6 --grid b-model/medium,b-model/max --max-usd 100 --reps 1 --concurrency 1 2>"$WORK/bench.err")
+check "a pair dropped after three errors in stage A runs no stage B and is not counted among the pruned" "1|3|6|bench: spent=1.92 trials=9 unmeasured=0 pruned=0" \
+  "$(grep -c 'dropping b-model/max after 3 errors' "$WORK/bench.err")|$(jq -s '[.[]|select(.pair=="b-model/max")]|length' "$B6T")|$(jq -s '[.[]|select(.pair=="b-model/medium")]|length' "$B6T")|$(last_line "$out")"
 # The selection thresholds are read before anything is spent.
 : > "$BT"; printf '{"selection":{"delta":2}}' > "$BS/routing/config.json"
 check "a mistyped selection threshold stops the bench before any trial" "ERROR: selection: delta must be a number from 0 to 1, got 2|0" \
