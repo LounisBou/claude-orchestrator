@@ -644,25 +644,23 @@ def class_tasks(stats):
     return sorted({k for s in stats.values() for k in s["per_task"] if k != "record"})
 
 
-def compare(stats, rng, delta):
+def compare(cls, stats, delta):
     """Every pair's rung, cheapest first; the best covered pair (None when no pair is covered);
     and the median of the best pair's posterior.
 
     A pair is covered when it was graded on every task of the class, and the class has at
     least MIN_TASKS of them; in a class with no bench task (record rows only) when it has
     MIN_TRIALS graded trials. A stat carrying its own `covered`, as a fold sets it, keeps it.
-    Its pass rate is the mean of its per-task rates. Each pair's success probability is
-    Beta(1 + passes, 1 + fails): DRAWS draws per pair, pairs in sorted order, then the
-    bootstrap of each pair's costs in the same order, all from `rng`. A covered pair is
-    equivalent when its draw is at least the best's minus `delta` in half the paired draws.
+    Its pass rate is the mean of its per-task rates. Each covered pair's success probability is
+    Beta(1 + passes, 1 + fails): DRAWS draws, then the bootstrap of its costs, both from a
+    generator of the pair's own seeded by the class and the pair, so its draws depend on its
+    own trials only: a pair added without being covered, or a trial of another class, moves no
+    figure of the others. A covered pair is equivalent when its draw is at least the best's
+    minus `delta` in half the paired draws.
     """
     tasks = class_tasks(stats)
     pairs = sorted(stats)
-    draws = {}
-    for p in pairs:
-        s = stats[p]
-        draws[p] = [rng.betavariate(1 + s["passes"], 1 + s["n"] - s["passes"]) for _ in range(DRAWS)]
-    rungs = {}
+    draws, rungs = {}, {}
     for p in pairs:
         s = stats[p]
         cells = s["per_task"]
@@ -672,6 +670,9 @@ def compare(stats, rng, delta):
             covered = len(tasks) >= MIN_TASKS and all(t in cells for t in tasks)
         else:
             covered = s["n"] >= MIN_TRIALS
+        rng = random.Random("%s|%s" % (cls, p))
+        if covered and s["n"]:
+            draws[p] = [rng.betavariate(1 + s["passes"], 1 + s["n"] - s["passes"]) for _ in range(DRAWS)]
         med, lo, hi = median_ci(s["costs"], rng)
         rate = sum(a / b for a, b in cells.values()) / len(cells) if cells else 0.0
         rungs[p] = {"pair": p, "n": s["n"], "tasks": sum(1 for k in cells if k != "record"),
@@ -705,14 +706,14 @@ def compare(stats, rng, delta):
     return ladder, best, statistics.median(draws[best])
 
 
-def select_entry(cls, stats, strict, sizes, rng):
+def select_entry(cls, stats, strict, sizes):
     """The class's entry: the cheapest pair, by expected cost, among the covered pairs
     equivalent to the best one; a strict class also needs every graded trial passed. None, with
     the reason, when no pair is covered, when the best pair's posterior median is below `bar`,
     or when no pair is equivalent. A pair a fold held back stays on the ladder, never chosen.
     """
     delta, bar = selection()
-    ladder, best, best_median = compare(stats, rng, delta)
+    ladder, best, best_median = compare(cls, stats, delta)
     if best is None:
         return None, "no covered pair"
     for r in ladder:
@@ -744,12 +745,11 @@ def entry_line(cls, entry, note):
 
 
 def build_table(scope, trials, sizes):
-    """One generator, seeded, for the whole table: the same trials give the same file."""
-    rng = random.Random(0)
+    """The same trials give the same file: every random figure is seeded by its class and pair."""
     entries, lines = {}, []
     for cls in sorted({t["class"] for t in trials}):
         entry, note = select_entry(cls, stats_of([t for t in trials if t["class"] == cls]),
-                                   cls in STRICT_CLASSES, sizes, rng)
+                                   cls in STRICT_CLASSES, sizes)
         if entry:
             entries[cls] = entry
         lines.append(entry_line(cls, entry, note))
@@ -1337,7 +1337,6 @@ def fold(scope, projects):
     profile: it keeps its pooled figures on the ladder, measured, never chosen.
     """
     delta, _ = selection()
-    rng = random.Random(0)
     need = 1 if len(projects) == 1 else 2
     entries = {}
     classes = sorted({t["class"] for _, trials, _ in projects.values() for t in trials})
@@ -1348,7 +1347,7 @@ def fold(scope, projects):
             mine = [t for t in trials if t["class"] == cls]
             if not mine:
                 continue
-            ladder, _, _ = compare(stats_of(mine), rng, delta)
+            ladder, _, _ = compare(cls, stats_of(mine), delta)
             for r in ladder:
                 if r["covered"]:
                     where.setdefault(r["pair"], []).append(slug)
@@ -1363,7 +1362,7 @@ def fold(scope, projects):
             own = [t for slug, t in pooled_trials
                    if t["pair"] == pair and (not qualifies or slug in where[pair])]
             pooled[pair] = dict(stats_of(own)[pair], covered=qualifies, held_back=pair in held)
-        entry, _ = select_entry(cls, pooled, cls in STRICT_CLASSES, sizes, rng)
+        entry, _ = select_entry(cls, pooled, cls in STRICT_CLASSES, sizes)
         if entry:
             entries[cls] = entry
     return {"scope": scope, "generated": datetime.date.today().isoformat(), "entries": entries}

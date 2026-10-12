@@ -5767,11 +5767,11 @@ printf '{"task":"t","class":"behaviour-phase","pair":"b-model/medium","rep":1,"m
 printf '{"slug":"demo","repo":"/nonexistent","profile":"x/y","tasks":[]}' > "$CS/routing/projects/demo/manifest.json"
 rcal() { ORCHESTRATOR_STATE_DIR="$CS" python3 "$ROUTING" calibrate "$@"; }
 out=$(rcal demo 2>"$WORK/cal.err")
-check "a pair not equivalent to the best is never chosen, however cheap" "class=behaviour-phase pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.2643 p_best=0.493 size=unknown" \
+check "a pair not equivalent to the best is never chosen, however cheap" "class=behaviour-phase pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.2643 p_best=0.4815 size=unknown" \
   "$(printf '%s\n' "$out" | grep '^class=behaviour-phase')"
-check "work nothing re-checks takes only a pair that never failed" "class=contract-phase pair=a-model/high pass_rate=1.0 n=6 expected_usd=0.9 p_best=0.4188 size=unknown" \
+check "work nothing re-checks takes only a pair that never failed" "class=contract-phase pair=a-model/high pass_rate=1.0 n=6 expected_usd=0.9 p_best=0.4143 size=unknown" \
   "$(printf '%s\n' "$out" | grep '^class=contract-phase')"
-check "a cheaper pair that fails now and then loses to a dearer sure one on the escalation it costs" "class=search pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.105 p_best=0.4622 size=unknown" \
+check "a cheaper pair that fails now and then loses to a dearer sure one on the escalation it costs" "class=search pair=b-model/medium pass_rate=1.0 n=6 expected_usd=0.105 p_best=0.4497 size=unknown" \
   "$(printf '%s\n' "$out" | grep '^class=search')"
 check "and its expected cost is the cheaper pair's cost plus the escalation" "0.105838" \
   "$(jq -r '.entries.search.ladder[]|select(.pair=="c-model/low")|.expected_usd' "$CS/routing/tables/project-demo.json")"
@@ -5914,6 +5914,22 @@ check "a notch measured and found not equivalent is no notch; a notch not covere
 cp "$TTAB" "$WORK/tasks.first.json"
 rtc >/dev/null 2>&1
 check "the same trials give the same table, byte for byte" "same" "$(cmp -s "$TTAB" "$WORK/tasks.first.json" && echo same || echo changed)"
+# A pair's draws and its cost bootstrap come from a generator of its own, seeded by the class
+# and the pair: a pair added to the class without being covered, or a trial of another class,
+# moves no figure of the covered pairs. The extra pair sorts between a-model/high and
+# b-model/medium, where a shared generator would have shifted every pair after it.
+IS="$WORK/indepstate"
+covered_figures() { jq -c '[.entries["review-collector"].ladder[]|select(.covered)|[.pair,.p_best,.equivalent,.median_ci]]' "$1"; }
+with_extra_trial() { # the review-collector figures after one more trial line in the project's file
+  rm -rf "$IS"; cp -R "$TS" "$IS"; printf '%s\n' "$1" >> "$IS/routing/projects/tasks/trials.jsonl"
+  ORCHESTRATOR_STATE_DIR="$IS" python3 "$ROUTING" calibrate tasks >/dev/null 2>&1
+  covered_figures "$IS/routing/tables/project-tasks.json"; }
+check "a pair added without being covered moves no p_best, equivalence or interval of the covered pairs" \
+  "$(covered_figures "$TTAB")" \
+  "$(with_extra_trial '{"task":"t-a","class":"review-collector","pair":"a-model/low","rep":1,"models":{"a-model-1":0.05},"cost_usd":0.05,"status":"pass"}')"
+check "a trial of another class moves no p_best, equivalence or interval either" \
+  "$(covered_figures "$TTAB")" \
+  "$(with_extra_trial '{"task":"t-a","class":"behaviour-phase","pair":"a-model/high","rep":1,"models":{"a-model-1":0.5},"cost_usd":0.5,"status":"fail"}')"
 printf '{"selection":{"delta":0.2}}' > "$TS/routing/config.json"
 check "the operator's config sets the selection: with delta 0.2, 8/10 is equivalent" "c-model/low|true|0.2" \
   "$(rtc 2>/dev/null >/dev/null; jq -r '.entries["review-collector"]|"\(.pair)|\(.ladder[]|select(.pair=="c-model/low")|.equivalent)|\(.delta)"' "$TTAB")"

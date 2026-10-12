@@ -131,8 +131,10 @@ in production is paid by an escalation. Beside it, `median_usd` and `median_ci`,
 cheapest first, form the class's ladder.
 
 **The selection.** Each pair's success probability is Beta(1 + passes, 1 + fails), drawn 4,000
-times, pairs in sorted order, from one generator seeded with 0 for the whole table: the same
-trials give the same file.
+times for each covered pair, from a generator of the pair's own seeded by the class and the
+pair (the cost bootstrap draws from the same one): the same trials give the same file, and
+a pair's draws depend on its own trials only, so a pair added without being covered, or a
+trial of another class, moves no figure of the others.
 
 - **Covered**: graded on every task of the class, in a class of at least 3 tasks. A class
   with fewer gets `no covered pair`. A class with no bench task (record rows only) covers
