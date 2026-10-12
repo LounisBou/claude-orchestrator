@@ -364,6 +364,17 @@ def ladder_down(pair, entry=None):
     return notch
 
 
+def nbis_pair(pair):
+    """The pair a phase's corrective round runs at: the same family one effort level up, the
+    same pair at the top. The round is the retry - cheap first, escalate on failure. None for a
+    pair with no effort to raise: the host's default, a bare model, an effort the list lacks.
+    """
+    model, _, effort = pair.partition("/")
+    if effort not in EFFORTS:
+        return None
+    return "%s/%s" % (model, EFFORTS[min(EFFORTS.index(effort) + 1, len(EFFORTS) - 1)])
+
+
 def resolve_shipped(pair):
     tier, _, effort = pair.partition("/")
     bound = read_map().get(tier)
@@ -468,6 +479,9 @@ def cmd_pick(argv):
         below = ladder_down(pair, entry)
         if below:
             print("explore=%s" % below)
+    up = nbis_pair(pair)
+    if up:
+        print("nbis=%s" % up)
 
 
 # --- calibration --------------------------------------------------------------------

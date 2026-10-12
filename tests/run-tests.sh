@@ -5692,46 +5692,46 @@ printf '{"deep":"a-model","standard":{"model":"b-model","effort":"medium"},"ligh
 printf '{"slug":"laravel","repo":"%s","profile":"php/laravel-app","tasks":[]}' "$T/laravel" > "$PS/routing/projects/laravel/manifest.json"
 DEF="$WORK/defaults"; mkdir -p "$DEF"
 rpick() { ORCHESTRATOR_STATE_DIR="$PS" ORCHESTRATOR_ROUTING_DEFAULTS="$DEF" python3 "$ROUTING" pick --repo "$T/laravel" "$@"; }
-check "nothing measured: the tier table through the map" "pair=b-model/medium source=tier-table" "$(rpick --class behaviour-phase)"
+check "nothing measured: the tier table through the map" $'pair=b-model/medium source=tier-table\nnbis=b-model/high' "$(rpick --class behaviour-phase)"
 check "nothing measured, a tier bound to a model alone" "pair=c-model source=tier-table" "$(rpick --class search)"
 mv "$PS/models.json" "$PS/models.json.off"
 check "nothing measured and nothing bound: the host's default" "pair=host-default source=tier-table" "$(rpick --class search)"
 mv "$PS/models.json.off" "$PS/models.json"
 printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"light/high"}}}' > "$DEF/global.json"
-check "a shipped default resolves its tier through the map" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+check "a shipped default resolves its tier through the map" $'pair=c-model/high source=shipped:global\nnbis=c-model/xhigh' "$(rpick --class behaviour-phase)"
 printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"deep/low"}}}' > "$DEF/profile-php-laravel-app.json"
-check "a shipped profile default beats the shipped global one" "pair=a-model/low source=shipped:profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+check "a shipped profile default beats the shipped global one" $'pair=a-model/low source=shipped:profile:php/laravel-app\nnbis=a-model/medium' "$(rpick --class behaviour-phase)"
 printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"nonsense/low"}}}' > "$DEF/profile-php-laravel-app.json"
-check "a shipped default on a tier the map does not bind falls through" "pair=c-model/high source=shipped:global" "$(rpick --class behaviour-phase)"
+check "a shipped default on a tier the map does not bind falls through" $'pair=c-model/high source=shipped:global\nnbis=c-model/xhigh' "$(rpick --class behaviour-phase)"
 printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"c-model/medium","models":["c-model-1"]}}}' > "$PS/routing/tables/global.json"
-check "the local global table beats the shipped defaults" "pair=c-model/medium source=global" "$(rpick --class behaviour-phase)"
+check "the local global table beats the shipped defaults" $'pair=c-model/medium source=global\nnbis=c-model/high' "$(rpick --class behaviour-phase)"
 printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"b-model/low","models":["b-model-1"]}}}' > "$PS/routing/tables/profile-php-laravel-app.json"
-check "the profile table beats the global one" "pair=b-model/low source=profile:php/laravel-app" "$(rpick --class behaviour-phase)"
+check "the profile table beats the global one" $'pair=b-model/low source=profile:php/laravel-app\nnbis=b-model/medium' "$(rpick --class behaviour-phase)"
 printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true}]},"conversion-phase":{"pair":"a-model/medium","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/medium","n":8,"pass_rate":1.0,"eligible":true}]},"comments":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":8,"pass_rate":0.5,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-collector":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"review-lens":{"pair":"a-model/high","models":["a-model-1"],"floor":0.9,"ladder":[{"pair":"a-model/low","n":6,"pass_rate":1.0,"eligible":true},{"pair":"a-model/medium","n":2,"pass_rate":1.0,"eligible":false},{"pair":"a-model/high","n":6,"pass_rate":1.0,"eligible":true}]},"contract-phase":{"pair":"a-model/high","models":["a-model-1"]}}}' > "$PS/routing/tables/project-laravel.json"
-check "the project table beats them all" "pair=a-model/low source=project:laravel" "$(rpick --class behaviour-phase)"
+check "the project table beats them all" $'pair=a-model/low source=project:laravel\nnbis=a-model/medium' "$(rpick --class behaviour-phase)"
 printf '{"a-model":"a-model-2"}' > "$PS/routing/aliases.json"
-check "an entry measured on another identifier is flagged stale" "pair=a-model/low source=project:laravel stale" "$(rpick --class behaviour-phase)"
+check "an entry measured on another identifier is flagged stale" $'pair=a-model/low source=project:laravel stale\nnbis=a-model/medium' "$(rpick --class behaviour-phase)"
 check_status "an unknown class is a refusal" 1 rpick --class nonsense
 # Exploration: three one-round closes at the class's pair, none escaped, and a class that may be explored.
 ER="$WORK/explore.jsonl"; : > "$ER"
 for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed"}\n' "$i" >> "$ER"; done
 check "three clean closes offer one notch down: the lowest rung, no lower effort, so the next lighter family" \
   "explore=b-model/low" "$(rpick --class behaviour-phase --record "$ER" | sed -n 2p)"
-check "two clean closes are not enough" "1" \
+check "two clean closes are not enough" "2" \
   "$(sed -n 1,2p "$ER" > "$WORK/two.jsonl"; rpick --class behaviour-phase --record "$WORK/two.jsonl" | wc -l | tr -d ' ')"
 check "a line of the record that does not read is skipped, not fatal" "explore=b-model/low" \
   "$({ cat "$ER"; echo '{"id":'; } > "$WORK/torn.jsonl"; rpick --class behaviour-phase --record "$WORK/torn.jsonl" 2>/dev/null | sed -n 2p)"
-check "an escaped defect at the class's pair closes the exploration" "1" \
+check "an escaped defect at the class's pair closes the exploration" "2" \
   "$({ cat "$ER"; printf '{"id":4,"class":"behaviour-phase","model":"a-model","effort":"low","rounds":1,"state":"closed","escaped":true}\n'; } > "$WORK/esc.jsonl"; rpick --class behaviour-phase --record "$WORK/esc.jsonl" | wc -l | tr -d ' ')"
-check "a failed exploration freezes the class for the build" "1" \
+check "a failed exploration freezes the class for the build" "2" \
   "$({ cat "$ER"; printf '{"id":5,"class":"behaviour-phase","model":"b-model","effort":"low","rounds":2,"state":"closed","explore":true}\n'; } > "$WORK/frozen.jsonl"; rpick --class behaviour-phase --record "$WORK/frozen.jsonl" | wc -l | tr -d ' ')"
-check "a notch the ladder measured below the floor is never offered" "1" \
+check "a notch the ladder measured below the floor is never offered" "2" \
   "$(for i in 1 2 3; do printf '{"id":%d,"class":"conversion-phase","model":"a-model","effort":"medium","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/conv.jsonl"; rpick --class conversion-phase --record "$WORK/conv.jsonl" | wc -l | tr -d ' ')"
 hi3() { for i in 1 2 3; do printf '{"id":%d,"class":"%s","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n' "$i" "$1"; done; }
 # The notch is the IMMEDIATE cheaper rung. Comments: medium was measured at 0.5 over 8, below
 # the 0.9 floor, so no notch - the eligible low rung beneath it is two notches, not one.
 hi3 comments > "$WORK/n-a.jsonl"
-check "an immediate rung measured below the floor is no notch, the eligible one beneath it is not offered" "1" \
+check "an immediate rung measured below the floor is no notch, the eligible one beneath it is not offered" "2" \
   "$(rpick --class comments --record "$WORK/n-a.jsonl" | wc -l | tr -d ' ')"
 hi3 review-collector > "$WORK/n-b.jsonl"
 check "an eligible immediate rung is the notch" "explore=a-model/medium" \
@@ -5740,7 +5740,7 @@ check "an eligible immediate rung is the notch" "explore=a-model/medium" \
 hi3 review-lens > "$WORK/n-c.jsonl"
 check "an immediate rung with too few trials is offered, not skipped for the eligible one below" "explore=a-model/medium" \
   "$(rpick --class review-lens --record "$WORK/n-c.jsonl" | sed -n 2p)"
-check "a contract phase is never explored, measured or not" "1" \
+check "a contract phase is never explored, measured or not" "2" \
   "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
 # A table written before the selection by equivalence: a floor, rungs with no new field.
 check "show --detail reads a table written before the tables by task, a missing figure as -" "1|1" \
@@ -5751,6 +5751,16 @@ rcall() { # a python expression over the module as `m`, printed; a crash is read
   "$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(eval(sys.argv[2]))' "$ROUTING" "$1" 2>&1 | tail -1; }
 check "a phase of 3 files and 50 lines is small; one more file or one more line is large" "small|small|large|large" \
   "$(rcall 'm.size_bucket(3, 50)')|$(rcall 'm.size_bucket(0, 0)')|$(rcall 'm.size_bucket(4, 0)')|$(rcall 'm.size_bucket(0, 51)')"
+
+# The N-bis pair: the corrective round runs one effort notch above its phase (the round is the
+# retry: cheap first, escalate on failure). The top effort has no notch above, so it stays.
+check "the notch up is the next effort of the same family, and the top stays" "a-model/medium|a-model/high|a-model/xhigh|a-model/max|a-model/max" \
+  "$(rcall 'm.nbis_pair("a-model/low")')|$(rcall 'm.nbis_pair("a-model/medium")')|$(rcall 'm.nbis_pair("a-model/high")')|$(rcall 'm.nbis_pair("a-model/xhigh")')|$(rcall 'm.nbis_pair("a-model/max")')"
+check "a pair with no effort, or one the efforts do not list, has no notch up" "None|None|None" \
+  "$(rcall 'm.nbis_pair("a-model")')|$(rcall 'm.nbis_pair("host-default")')|$(rcall 'm.nbis_pair("a-model/ultra")')"
+check "the notch up comes last, after the explore line" $'explore=b-model/low\nnbis=a-model/medium' \
+  "$(rpick --class behaviour-phase --record "$ER" | sed -n 2,3p)"
+check "and nothing follows it" "3" "$(rpick --class behaviour-phase --record "$ER" | wc -l | tr -d ' ')"
 
 echo "== routing: calibrate =="
 
@@ -6346,7 +6356,7 @@ out=$(rg generalize)
 check "projects of unknown language get no profile table, and still count globally" "no|global projects=5 classes=2" \
   "$([ -f "$GS/routing/tables/profile-unknown-library.json" ] && echo yes || echo no)|$(printf '%s\n' "$out" | grep '^global')"
 UT="$WORK/unknown-tree"; mkdir -p "$UT"
-check "a third project of unknown language is served by the global table" "pair=c-model/low source=global" \
+check "a third project of unknown language is served by the global table" $'pair=c-model/low source=global\nnbis=c-model/medium' \
   "$(ORCHESTRATOR_STATE_DIR="$GS" ORCHESTRATOR_ROUTING_DEFAULTS="$WORK/no-defaults" python3 "$ROUTING" pick --repo "$UT" --class search)"
 
 # One weak trial does not hold a pair back: r3 has a single failed trial of c-model/medium.
@@ -6368,7 +6378,7 @@ printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$XS/models
 printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"standard/high","floor":0.9,"n":6,"pass_rate":1.0,"ladder":[{"pair":"light/high","n":6,"pass_rate":0.5,"eligible":false},{"pair":"standard/high","n":6,"pass_rate":1.0,"eligible":true}]}}}' > "$XD/global.json"
 for i in 1 2 3; do printf '{"id":%d,"class":"behaviour-phase","model":"b-model","effort":"high","rounds":1,"state":"closed"}\n' "$i"; done > "$WORK/x.jsonl"
 xpick() { ORCHESTRATOR_STATE_DIR="$XS" ORCHESTRATOR_ROUTING_DEFAULTS="$XD" python3 "$ROUTING" pick --repo "$UT" --class behaviour-phase --record "$WORK/x.jsonl"; }
-check "a shipped rung measured below the floor, read through the map, is no notch" "pair=b-model/high source=shipped:global" "$(xpick)"
+check "a shipped rung measured below the floor, read through the map, is no notch" $'pair=b-model/high source=shipped:global\nnbis=b-model/xhigh' "$(xpick)"
 printf '{"deep":"a-model","standard":"b-model"}' > "$XS/models.json"
 check "a shipped rung on an unbound tier is skipped: the effort notch stands" "explore=b-model/medium" "$(xpick | sed -n 2p)"
 
