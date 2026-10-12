@@ -5953,6 +5953,30 @@ check "a trial of another class moves no p_best, equivalence or interval either"
 printf '{"selection":{"delta":0.2}}' > "$TS/routing/config.json"
 check "the operator's config sets the selection: with delta 0.2, 8/10 is equivalent" "c-model/low|true|0.2" \
   "$(rtc 2>/dev/null >/dev/null; jq -r '.entries["review-collector"]|"\(.pair)|\(.ladder[]|select(.pair=="c-model/low")|.equivalent)|\(.delta)"' "$TTAB")"
+# The selection is checked where it is read: a delta or a bar that is no number (a boolean is
+# not one), not finite or outside [0, 1] is refused naming the key and the value, and the
+# table on disk is left as it was.
+cp "$TTAB" "$WORK/tasks.before-selection.json"
+selection_refusal() { # config text: calibrate's exit status and its refusal
+  printf '%s' "$1" > "$TS/routing/config.json"
+  rtc >/dev/null 2>"$WORK/selection.err"; local code=$?
+  echo "$code|$(grep -m1 '^ERROR' "$WORK/selection.err")"; }
+check "a delta given as a string is refused" '1|ERROR: selection: delta must be a number from 0 to 1, got "0.1"' \
+  "$(selection_refusal '{"selection":{"delta":"0.1"}}')"
+check "a bar given as a boolean is refused" "1|ERROR: selection: bar must be a number from 0 to 1, got true" \
+  "$(selection_refusal '{"selection":{"bar":true}}')"
+check "a delta given as null is refused" "1|ERROR: selection: delta must be a number from 0 to 1, got null" \
+  "$(selection_refusal '{"selection":{"delta":null}}')"
+check "a delta that is not a number is refused" "1|ERROR: selection: delta must be a number from 0 to 1, got NaN" \
+  "$(selection_refusal '{"selection":{"delta":NaN}}')"
+check "a bar that is not finite is refused" "1|ERROR: selection: bar must be a number from 0 to 1, got Infinity" \
+  "$(selection_refusal '{"selection":{"bar":Infinity}}')"
+check "a delta below 0 is refused" "1|ERROR: selection: delta must be a number from 0 to 1, got -0.1" \
+  "$(selection_refusal '{"selection":{"delta":-0.1}}')"
+check "a bar above 1 is refused" "1|ERROR: selection: bar must be a number from 0 to 1, got 1.5" \
+  "$(selection_refusal '{"selection":{"bar":1.5}}')"
+check "the refusal leaves the table as it was" "same" "$(cmp -s "$TTAB" "$WORK/tasks.before-selection.json" && echo same || echo changed)"
+check "the bounds 0 and 1 are numbers in range" "0|" "$(selection_refusal '{"selection":{"delta":0,"bar":1}}')"
 rm "$TS/routing/config.json"
 # A manifest whose repository is missing: every size unknown, one warning per task, the table written.
 jq '.repo="/nonexistent/repo"' "$TS/routing/projects/tasks/manifest.json" > "$WORK/m.tmp" && mv "$WORK/m.tmp" "$TS/routing/projects/tasks/manifest.json"

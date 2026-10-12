@@ -152,6 +152,7 @@ trial of another class, moves no figure of the others.
   rate; none eligible is `no equivalent pair`.
 
 `config.json` may set `{"selection": {"delta": <d>, "bar": <b>}}`; 0.10 and 0.8 by default.
+Each is a number from 0 to 1: any other value is refused, naming the key and the value.
 
 The entry keeps its pair, `pass_rate`, `n`, `tasks`, `p_best`, `cost_usd`, `median_usd`,
 `expected_usd`, the `best` pair, the `delta`, `bar` and `strict` it was selected with, the

@@ -491,9 +491,20 @@ def floors():
 
 
 def selection():
-    """`delta` and `bar` from config.json's "selection", else the defaults."""
+    """`delta` and `bar` from config.json's "selection", else the defaults. A value that is not
+    a number (a boolean is not one), is not finite or lies outside [0, 1] is refused: a mistyped
+    threshold would otherwise select on nonsense without a word.
+    """
     cfg = read_json(os.path.join(ROUTING_DIR, "config.json"), {}).get("selection") or {}
-    return float(cfg.get("delta", SELECTION["delta"])), float(cfg.get("bar", SELECTION["bar"]))
+    out = []
+    for key in ("delta", "bar"):
+        v = cfg.get(key, SELECTION[key])
+        # NaN fails every comparison and infinity lies outside the range: the range check alone
+        # refuses a value that is not finite.
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
+            die("selection: %s must be a number from 0 to 1, got %s" % (key, json.dumps(v)))
+        out.append(float(v))
+    return tuple(out)
 
 
 def main_model(models):
