@@ -5746,6 +5746,12 @@ check "a contract phase is never explored, measured or not" "1" \
 check "show --detail reads a table written before the tables by task, a missing figure as -" "1|1" \
   "$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^class=conversion-phase project=a-model/medium ')|$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^  rung pair=a-model/low tasks=- pass_rate=0.5 p_best=- median_usd=- ci=-..- expected_usd=- off_model=-$')"
 
+# The size of a phase: one rule, the bucket a task is stamped with and the one `pick` is given.
+rcall() { # a python expression over the module as `m`, printed; a crash is read as its last traceback line
+  "$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(eval(sys.argv[2]))' "$ROUTING" "$1" 2>&1 | tail -1; }
+check "a phase of 3 files and 50 lines is small; one more file or one more line is large" "small|small|large|large" \
+  "$(rcall 'm.size_bucket(3, 50)')|$(rcall 'm.size_bucket(0, 0)')|$(rcall 'm.size_bucket(4, 0)')|$(rcall 'm.size_bucket(0, 51)')"
+
 echo "== routing: calibrate =="
 
 CS="$WORK/calstate"; mkdir -p "$CS/routing/projects/demo"
@@ -5939,6 +5945,9 @@ for f in a b c; do git -C "$NR" mv "$f.txt" "$f.moved"; done
 gc -C "$NR" commit -qm moved
 check "a rename counts as one file, whatever the configuration says about rename detection" "small" \
   "$(sized "$NR" "$NR0" "$(git -C "$NR" rev-parse HEAD)")"
+# One rule, two callers: a task's bucket is the one size_bucket gives, not a comparison of its own.
+check "a task is bucketed by size_bucket" "bucket-of-3-files" \
+  "$("$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.size_bucket=lambda files, lines: "bucket-of-%d-files" % files; print(m.task_sizes({"repo":sys.argv[2],"tasks":[{"id":"t","base":sys.argv[3],"merged":sys.argv[4]}]})["t"])' "$ROUTING" "$NR" "$NR0" "$(git -C "$NR" rev-parse HEAD)" 2>&1 | tail -1)"
 check "the entry carries the selection it was made with, and no floor" "0.1|0.8|false|false" \
   "$(jq -r '.entries["behaviour-phase"]|"\(.delta)|\(.bar)|\(.strict)|\(has("floor"))"' "$TTAB")"
 check "every rung carries the per-task figures, the median and its interval" "true" \

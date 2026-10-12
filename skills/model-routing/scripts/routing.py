@@ -625,6 +625,13 @@ def median_ci(costs, rng):
     return statistics.median(costs), meds[round(0.05 * (RESAMPLES - 1))], meds[round(0.95 * (RESAMPLES - 1))]
 
 
+def size_bucket(files, lines):
+    """The bucket of a piece of work: `small` at most SMALL_FILES files and SMALL_LINES lines,
+    `large` beyond. The one rule a measured task and a phase given to `pick` are both read by.
+    """
+    return "small" if files <= SMALL_FILES and lines <= SMALL_LINES else "large"
+
+
 def task_sizes(m):
     """Each task's size from its merged diff, the test files left out: the hidden tests are not
     the agent's work. `small` at most SMALL_FILES files and SMALL_LINES lines added and
@@ -662,7 +669,7 @@ def task_sizes(m):
                 continue
             files += 1
             lines += sum(int(x) for x in (added, deleted) if x != "-")
-        out[tid] = "small" if files <= SMALL_FILES and lines <= SMALL_LINES else "large"
+        out[tid] = size_bucket(files, lines)
     return out
 
 
