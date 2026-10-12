@@ -113,6 +113,7 @@ dispatch-record.sh round <record> <id>                                  # a revi
 dispatch-record.sh review <record> <id> --head <sha> --norms tool|none  # and what it read
 dispatch-record.sh fixed <record> <id> --head <sha>                     # the one correction round, verified
 dispatch-record.sh surface <record> <id> --ui <owner/repo>#<n>|--minor <reason>|--none  # whether the pull request changes what a user sees
+dispatch-record.sh audit <record> <id> --head <sha> --images <n> [--defect "<text>"]...  # your own audit of the screenshots on a --ui pull request, read by ready
 dispatch-record.sh ready <record> <id> --head <sha>                     # refuses a head neither reviewed nor fixed, no surface, or a --ui pull request with no image; with no review, warns
 dispatch-record.sh close <record> <id> --verdict approved
 dispatch-record.sh cost <record> <id> --session <session id>         # after each session of the dispatch ends
