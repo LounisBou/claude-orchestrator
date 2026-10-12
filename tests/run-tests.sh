@@ -6442,6 +6442,26 @@ check "a restart re-runs no trial, takes the same decisions and counts the same 
 out=$(STUB_COSTS="c-model=0.05" STUB_FADE="c-model:2:$FADE" rb4 --grid c-model/medium,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
 check "the one pruned pair runs stage B and gives the entry: graded on all four tasks, and the last line counts nothing pruned" "4|4|bench: spent=0.72 trials=8 unmeasured=0 pruned=0" \
   "$(tasks_of b-model/medium)|$(tasks_of c-model/medium)|$(last_line "$out")"
+# One model, one pair. The grid is read through aliases.json: a trial recorded under the
+# identifier an alias resolves to is the alias's, whatever name the grid gives the model.
+[ -f "$BS/routing/aliases.json" ] && cp "$BS/routing/aliases.json" "$WORK/aliases.bench.bak"
+printf '{"b-model":"b-model-1"}' > "$BS/routing/aliases.json"
+: > "$B4T"
+rb4 --grid b-model/medium --max-usd 100 --reps 1 --concurrency 1 >/dev/null 2>&1
+jq -c '.pair="b-model-1/medium"' "$B4T" > "$WORK/b4t.tmp" && mv "$WORK/b4t.tmp" "$B4T"
+before=$(wc -l < "$B4T" | tr -d ' ')
+out=$(rb4 --grid b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "a grid naming the alias reuses the trials recorded under the identifier: none re-run, the last line counts none" \
+  "$before|bench: spent=0.00 trials=0 unmeasured=0 pruned=0" "$(wc -l < "$B4T" | tr -d ' ')|$(last_line "$out")"
+: > "$B4T"
+out=$(rb4 --grid b-model-1/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "a grid naming the identifier runs the alias and records every new trial under the alias" "4|b-model/medium" \
+  "$(wc -l < "$B4T" | tr -d ' ')|$(jq -rs 'map(.pair)|unique|join(",")' "$B4T")"
+: > "$B4T"
+out=$(rb4 --grid b-model-1/medium,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "a grid naming one model twice, by identifier and by alias, runs it once" "4|bench: spent=0.48 trials=4 unmeasured=0 pruned=0" \
+  "$(wc -l < "$B4T" | tr -d ' ')|$(last_line "$out")"
+if [ -f "$WORK/aliases.bench.bak" ]; then cp "$WORK/aliases.bench.bak" "$BS/routing/aliases.json"; else rm -f "$BS/routing/aliases.json"; fi
 : > "$BT"
 out=$(rb --grid b-model/medium,c-model/medium --max-usd 0.15 --concurrency 1)
 check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=2 pruned=0$')"

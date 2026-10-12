@@ -1352,9 +1352,11 @@ def cmd_bench(argv):
     if not m.get("test_command") or not m.get("test_globs"):
         die("bench: project %s has no test_command or test_globs in its manifest" % m["slug"])
     aliases = read_aliases()
-    pairs = grid_of(a)
+    # One model is one pair: the grid is read through the aliases once, so a trial recorded under
+    # the identifier an alias resolves to is the alias's, and a model named twice runs once.
+    pairs = list(dict.fromkeys(canonical_pair(pr, aliases) for pr in grid_of(a)))
     judge_pair("bench")
-    done = {(t["task"], t["pair"], t.get("rep", 1)): t
+    done = {(t["task"], canonical_pair(t["pair"], aliases), t.get("rep", 1)): t
             for t in read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))}
     state = {"spent": 0.0, "trials": 0, "errors": {}, "dropped": set(), "warned": set(),
              "unmeasured": 0, "pruned": 0}
