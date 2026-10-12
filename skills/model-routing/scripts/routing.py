@@ -606,7 +606,9 @@ def task_sizes(m):
     """Each task's size from its merged diff, the test files left out: the hidden tests are not
     the agent's work. `small` at most SMALL_FILES files and SMALL_LINES lines added and
     deleted, `large` beyond, `unknown` with a warning when the diff cannot be read. A binary
-    file counts as a file of no line.
+    file counts as a file of no line. Git's output is read as bytes: a path that is not UTF-8
+    is still a path. Renames are detected (`-M`) whatever the user's configuration says, so a
+    rename is one file.
     """
     repo, globs, out = m.get("repo") or "", m.get("test_globs") or [], {}
     for t in m.get("tasks") or []:
@@ -615,15 +617,16 @@ def task_sizes(m):
             continue
         r = None
         if os.path.isdir(repo):
-            r = subprocess.run(["git", "-C", repo, "diff", "--numstat", "-z", t.get("base") or "",
-                                t.get("merged") or ""], capture_output=True, text=True)
+            r = subprocess.run(["git", "-C", repo, "diff", "-M", "--numstat", "-z", t.get("base") or "",
+                                t.get("merged") or ""], capture_output=True)
         if r is None or r.returncode != 0:
             warn("routing: the size of task %s cannot be read: %s"
-                 % (tid, r.stderr.strip() if r else "no repository at %s" % (repo or "''")))
+                 % (tid, r.stderr.decode("utf-8", errors="replace").strip() if r
+                    else "no repository at %s" % (repo or "''")))
             out[tid] = "unknown"
             continue
         files = lines = 0
-        parts = r.stdout.split("\0")
+        parts = r.stdout.decode("utf-8", errors="replace").split("\0")
         while parts:
             record = parts.pop(0)
             if not record:

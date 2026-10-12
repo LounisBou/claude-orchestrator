@@ -5901,6 +5901,26 @@ check "a task's size leaves its test files out: two files, 40 lines is small" "s
   "$(ORCHESTRATOR_STATE_DIR="$TS" python3 -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.task_sizes(json.load(open(sys.argv[2])))["t-a"])' "$ROUTING" "$TS/routing/projects/tasks/manifest.json")"
 check "four files is large, and the entry takes the largest bucket and counts each" "large|1|4|0" \
   "$(jq -r '.entries["behaviour-phase"]|"\(.size)|\(.sizes.large)|\(.sizes.small)|\(.sizes.unknown)"' "$TTAB")"
+sized() { # repo base merged: the size task_sizes gives a manifest of one task, a crash read as its traceback
+  "$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(m.task_sizes({"repo":sys.argv[2],"tasks":[{"id":"t","base":sys.argv[3],"merged":sys.argv[4]}]})["t"])' "$ROUTING" "$@" 2>&1 | tail -1; }
+# A path that is not UTF-8 is a valid path for git. The file cannot be made on every file
+# system, so its commit is built in the index.
+NB="$WORK/nonutf8repo"; mkdir -p "$NB"; git -C "$NB" init -q
+echo base > "$NB/README"; gc -C "$NB" add -A; gc -C "$NB" commit -qm base
+NB0=$(git -C "$NB" rev-parse HEAD)
+git -C "$NB" update-index --add --cacheinfo "100644,$(printf 'one\ntwo\n' | git -C "$NB" hash-object -w --stdin),$(printf 'bad\377name.txt')"
+gc -C "$NB" commit -qm bad
+check "a path that is not UTF-8 is sized, not a crash" "small" "$(sized "$NB" "$NB0" "$(git -C "$NB" rev-parse HEAD)")"
+# A rename is one file whatever the user's configuration: three pure renames are three files and
+# no line, where a configuration turning rename detection off reads them as six files and sixty lines.
+NR="$WORK/renamerepo"; mkdir -p "$NR"; git -C "$NR" init -q; git -C "$NR" config diff.renames false
+for f in a b c; do seq 10 > "$NR/$f.txt"; done
+gc -C "$NR" add -A; gc -C "$NR" commit -qm base
+NR0=$(git -C "$NR" rev-parse HEAD)
+for f in a b c; do git -C "$NR" mv "$f.txt" "$f.moved"; done
+gc -C "$NR" commit -qm moved
+check "a rename counts as one file, whatever the configuration says about rename detection" "small" \
+  "$(sized "$NR" "$NR0" "$(git -C "$NR" rev-parse HEAD)")"
 check "the entry carries the selection it was made with, and no floor" "0.1|0.8|false|false" \
   "$(jq -r '.entries["behaviour-phase"]|"\(.delta)|\(.bar)|\(.strict)|\(has("floor"))"' "$TTAB")"
 check "every rung carries the per-task figures, the median and its interval" "true" \
