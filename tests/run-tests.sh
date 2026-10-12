@@ -515,6 +515,10 @@ check_status "a summary of nothing is not an error" 0 bash "$REC" summary "$WORK
 # anything else this file no longer refuses.
 G="$WORK/gate.jsonl"
 g1=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "gate")
+check_status "ready refuses a row that does not say whether it changes a frontend surface" 1 bash "$REC" ready "$G" "$g1" --head aaa1111
+check "and names the subcommand that records it" "1" \
+  "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>&1 | grep -c 'ready: row 1 does not say whether its pull request changes a frontend surface: record it with `surface`')"
+bash "$REC" surface "$G" "$g1" --none >/dev/null
 check_status "ready warns, it does not refuse, a row no review has touched" 0 bash "$REC" ready "$G" "$g1" --head aaa1111
 check "and names what is missing" "1" \
   "$(bash "$REC" ready "$G" "$g1" --head aaa1111 2>&1 | grep -c 'no review recorded on row')"
@@ -544,6 +548,7 @@ check_status "a project shipping no norms tool still passes the gate" 0 bash "$R
 # characters up; anything shorter identifies nothing, and no git call is made to check.
 full=0123456789abcdef0123456789abcdef01234567
 g2=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "abbreviated")
+bash "$REC" surface "$G" "$g2" --none >/dev/null
 bash "$REC" review "$G" "$g2" --head 0123456 --norms tool >/dev/null
 check_status "a short recorded head accepts the full head of the same commit" 0 bash "$REC" ready "$G" "$g2" --head "$full"
 bash "$REC" review "$G" "$g2" --head "$full" --norms tool >/dev/null
@@ -561,6 +566,7 @@ check "and says so" "1" "$(bash "$REC" ready "$G" "$g2" --head 012345 2>&1 | gre
 # correction round: it warns and records anyway, the way a project's own method may still
 # forbid either.
 g3=$(bash "$REC" open "$G" --class behaviour-phase --tier standard --label "one fix")
+bash "$REC" surface "$G" "$g3" --none >/dev/null
 fout=$(bash "$REC" fixed "$G" "$g3" --head ddd4444 2>&1); fcode=$?
 check "fixed warns, it does not refuse, a row no review has touched" "0" "$fcode"
 check "and says a review is missing" "1" "$(printf '%s\n' "$fout" | grep -c 'fixed: row 3 has no review recorded')"
@@ -608,7 +614,68 @@ check "and names the row it did not find" "1" "$(bash "$REC" ready "$G" 99 --hea
 check_status "review on an unknown option is an error" 1 bash "$REC" review "$G" "$g1" --head ccc333 --norms tool --force
 check_status "an unknown subcommand is an error" 1 bash "$REC" bogus "$G"
 check "and names the subcommands it expects" "1" \
-  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, ready, close, escaped, cost or summary)')"
+  "$(bash "$REC" bogus "$G" 2>&1 | grep -c 'unknown subcommand: bogus (expected open, round, review, fixed, surface, ready, close, escaped, cost or summary)')"
+
+# The screenshots. Five front-office pull requests were declared ready without one image,
+# under a rule written three times in prose. A `--ui` row reads its pull request's
+# description and refuses ready while no image is there; `--minor` passes with its reason
+# printed for the operator; a review round does not erase the surface.
+S="$WORK/surface.jsonl"; SB="$WORK/surface-bin"; mkdir -p "$SB"
+cat > "$SB/gh" <<'GH'
+#!/bin/bash
+# gh pr view <n> -R <repo> --json body -q .body: the body file named after the number.
+[ "$1 $2" = "pr view" ] || exit 9
+f="$SURFACE_BODIES/$3"; [ -f "$f" ] || { echo "no pull request $3" >&2; exit 1; }
+cat "$f"
+GH
+chmod +x "$SB/gh"
+export SURFACE_BODIES="$WORK/surface-bodies"; mkdir -p "$SURFACE_BODIES"
+printf 'Adds the alert pop-up avatar.\n\n**Related PRs:** none\n' > "$SURFACE_BODIES/11"
+printf 'Adds the avatar.\n\n![pop-up](https://github.com/user-attachments/assets/abc)\n' > "$SURFACE_BODIES/12"
+printf 'Adds the avatar.\n\n<img width="600" alt="pop-up" src="https://github.com/user-attachments/assets/def" />\n' > "$SURFACE_BODIES/13"
+srec() { env PATH="$SB:$PATH" bash "$REC" "$@"; }
+s1=$(srec open "$S" --class behaviour-phase --tier standard --label "ui")
+srec review "$S" "$s1" --head aaa1111 --norms tool >/dev/null
+srec surface "$S" "$s1" --ui acme/front#11 >/dev/null
+check "surface records the kind and the pull request" "ui|acme/front#11" \
+  "$(jq -r --argjson i "$s1" 'select(.id==$i)|[.surface.kind,.surface.pr]|join("|")' "$S")"
+check_status "ready refuses a frontend pull request with no image in its description" 1 srec ready "$S" "$s1" --head aaa1111
+check "and says why" "1" \
+  "$(srec ready "$S" "$s1" --head aaa1111 2>&1 | grep -c 'ready: acme/front#11 changes a frontend surface and its description carries no screenshot: not ready')"
+srec surface "$S" "$s1" --ui acme/front#12 >/dev/null
+check_status "a markdown image passes" 0 srec ready "$S" "$s1" --head aaa1111
+check "and is counted on the ready line" "1" \
+  "$(srec ready "$S" "$s1" --head aaa1111 2>/dev/null | grep -c 'norms check tool; 1 screenshot(s) on acme/front#12')"
+srec surface "$S" "$s1" --ui acme/front#13 >/dev/null
+check_status "an uploaded HTML image passes" 0 srec ready "$S" "$s1" --head aaa1111
+srec review "$S" "$s1" --head bbb2222 --norms tool >/dev/null
+check "a new review round keeps the surface" "ui|acme/front#13" \
+  "$(jq -r --argjson i "$s1" 'select(.id==$i)|[.surface.kind,.surface.pr]|join("|")' "$S")"
+srec surface "$S" "$s1" --ui acme/front#99 >/dev/null
+check_status "a description that cannot be read is not ready" 1 srec ready "$S" "$s1" --head bbb2222
+check "and says the screenshots are unverified" "1" \
+  "$(srec ready "$S" "$s1" --head bbb2222 2>&1 | grep -c 'could not read the description of acme/front#99: its screenshots are unverified')"
+srec surface "$S" "$s1" --minor "a label wording, nothing moves on screen" >/dev/null
+check "a minor ruling passes and prints its reason for the operator" "1" \
+  "$(srec ready "$S" "$s1" --head bbb2222 2>/dev/null | grep -c 'frontend change ruled minor: a label wording, nothing moves on screen - tell the operator this reason with the ready')"
+s2=$(srec open "$S" --class behaviour-phase --tier standard --label "no review yet")
+srec surface "$S" "$s2" --ui acme/front#11 >/dev/null
+check_status "the no-review warning does not let a frontend pull request with no image by" 1 srec ready "$S" "$s2" --head aaa1111
+check_status "surface without a kind is an error" 1 bash "$REC" surface "$S" "$s1"
+check_status "surface with two kinds is an error" 1 bash "$REC" surface "$S" "$s1" --none --minor x
+check_status "--ui needs <owner/repo>#<number>" 1 bash "$REC" surface "$S" "$s1" --ui 1520
+check_status "--minor needs a reason" 1 bash "$REC" surface "$S" "$s1" --minor ""
+check_status "surface on an unknown row is an error" 1 bash "$REC" surface "$S" 99 --none
+check_status "surface on an unknown option is an error" 1 bash "$REC" surface "$S" "$s1" --skip
+unset SURFACE_BODIES
+check "the review reference records the surface before ready" "1" \
+  "$(grep -c 'dispatch-record.sh surface <record> <id> --ui <owner/repo>#<n>' "$ROOT/skills/orchestrator/references/review.md")"
+check "a screen with no data on the reference account is seeded, never skipped" "1|1|1" \
+  "$(grep -c 'A screen the reference account has no data for is not minor and not skipped' "$ROOT/skills/orchestrator/references/review.md")|$(grep -c 'A screen the reference account has no data for is never minor' "$ROOT/skills/orchestrator/references/briefs.md")|$(grep -c 'seed the data on the local environment, and if you cannot, STOP' "$ROOT/templates/agent-phase-brief.md")"
+check "the review brief reports the surface in one line" "1" \
+  "$(grep -c 'frontend surface: yes|minor|no' "$ROOT/templates/agent-review-brief.md")"
+check "the record's subcommands list surface" "1" \
+  "$(grep -c '^dispatch-record.sh surface <record> <id>' "$ROOT/skills/model-routing/SKILL.md")"
 
 # A pair row names the alias and the effort it ran on, and carries what its sessions cost:
 # rounds alone cannot say whether a lighter pair paid. The tier rows above print unchanged.
