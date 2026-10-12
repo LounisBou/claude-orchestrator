@@ -6302,6 +6302,11 @@ check "the calibration reference states that a trial's session can reach the rea
   "$(spells "$MRC" 'with its own permissions on the machine and could reach the real repository')"
 check "the calibration reference states that a run can pass its cap by the trials in flight" "yes" \
   "$(spells "$MRC" "a run can pass \`--max-usd\` by at most N per-trial ceilings")"
+check "the calibration reference states the selection by equivalence, its keys and the size stamp" "yes|yes|yes|yes" \
+  "$(spells "$MRC" '{"selection": {"delta": <d>, "bar": <b>}}')|$(spells "$MRC" 'The entry**: the eligible pair with the lowest expected cost')|$(spells "$MRC" 'the files matching `test_globs` left out')|$(spells "$MRC" 'show [--detail] [<slug>...]')"
+check "the calibration reference no longer states a floor for the tables" "no" "$(spells "$MRC" 'The reliability floors')"
+check "the routing skill skips a notch found not equivalent, not one below a floor" "yes|no" \
+  "$(spells "$MR" 'measured and found not equivalent to the best')|$(spells "$MR" 'measured below the floor')"
 check "the routing skill and the brief say a pair, not a tier" "yes|yes" \
   "$(spells "$MR" 'must choose the model/effort pair')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'then choose the model/effort pair the work needs')"
 
