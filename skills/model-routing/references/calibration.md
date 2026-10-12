@@ -108,11 +108,11 @@ Each class runs paired, its tasks in manifest order, every pair on the same task
 3. **Stage B**: every surviving pair, once, on the remaining tasks. A survivor is then covered
    (section 5), in a class of at least 3 tasks.
 4. **Second repetition**: the selection of section 5 is computed on the class's trials. The
-   best pair, and each covered pair of the grid whose `p_equiv` lies between 0.3 and 0.7, run
-   repetitions 2 to `--reps` (2 by default; 1 skips the step) on every task, and the selection
-   is computed again. `p_equiv` is the share of paired draws where the pair is at least the
-   best minus `delta`, the figure `equivalent` thresholds at one half: a pair well inside or
-   well outside that threshold would not move, one near it might.
+   best pair, when it is in the grid, and each covered pair of the grid whose `p_equiv` lies
+   between 0.3 and 0.7, run repetitions 2 to `--reps` (2 by default; 1 skips the step) on every
+   task, and the selection is computed again. `p_equiv` is the share of paired draws where the
+   pair is at least the best minus `delta`, the figure `equivalent` thresholds at one half: a
+   pair well inside or well outside that threshold would not move, one near it might.
 5. **Re-admission**: when the class is then weak or has no equivalent pair, the pairs pruned
    at step 2 re-enter, cheapest first (mean stage-A cost, then name): each runs stage B and,
    as step 4 would for it, its second repetition if it is the best or between 0.3 and 0.7.
