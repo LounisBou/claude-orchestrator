@@ -6717,6 +6717,8 @@ check "the calibration reference walks the paired bench: the two stages, the pru
 check "and its last line carries pruned=, and no screening, cost band or bench floor is left" "yes|no|no|no" \
   "$(spells "$MRC" 'unmeasured=<n> pruned=<n>')|$(carries "$MRC" 'screening')|$(spells "$MRC" '1.5 times the cheapest')|$(spells "$MRC" 'reads its floors from')"
 check "the calibration reference lists p_equiv among the rung's fields" "yes" "$(spells "$MRC" '`p_best` (covered pairs only), `p_equiv` (covered pairs only)')"
+check "the calibration reference says one model is one pair, an older release a pair of its own, and an alias is recorded only for a model that carries it" "yes|yes|yes" \
+  "$(spells "$MRC" 'trial whose pair names the identifier an alias resolves to in `aliases.json` counts under the')|$(spells "$MRC" 'older release of the family has no alias and stays a pair of its own')|$(spells "$MRC" 'when one of the models it reports carries the alias, updates')"
 check "the dispatch log holds the paired bench" "yes" "$(spells "$ROOT/docs/agent-dispatches.md" 'The bench runs every pair on the same tasks')"
 check "the routing skill and the brief say a pair, not a tier" "yes|yes" \
   "$(spells "$MR" 'must choose the model/effort pair')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'then choose the model/effort pair the work needs')"
