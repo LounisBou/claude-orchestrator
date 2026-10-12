@@ -183,13 +183,16 @@ def resolve_alias(alias, models):
 
 
 def note_alias(alias, models):
-    """Record which identifier an alias resolved to. A stale table entry is read against this."""
-    pick = resolve_alias(alias, models)
-    if not pick:
+    """Record which identifier an alias resolved to, when one of `models` carries it. A session
+    that ran other models says nothing about the alias: the costliest of them is not its
+    identifier, and recording it would fold the trials of two models under one pair. A stale
+    table entry is read against this.
+    """
+    if not alias or not any(carries_alias(m, alias) for m in models or {}):
         return
     path = os.path.join(ROUTING_DIR, "aliases.json")
     data = read_json(path, {})
-    data[alias] = pick
+    data[alias] = resolve_alias(alias, models)
     write_json(path, data)
 
 

@@ -5716,6 +5716,11 @@ check "a transcript path that does not exist is a refusal, never a cost of zero"
 rcost --session s-1 --alias a-model >/dev/null
 check "the alias records the identifier it resolved to" "a-model-1" \
   "$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
+# A session of other models says nothing about an alias none of its identifiers carries: the
+# costliest one is not that alias's identifier, and folding pairs on it would merge two models.
+rcost --session s-1 --alias b-model >/dev/null
+check "an alias no model of the session carries is recorded as nothing, the others kept" "false|a-model-1" \
+  "$(jq -r 'has("b-model")' "$RSTATE/routing/aliases.json")|$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
 
 echo "== routing: pick =="
 
@@ -6165,6 +6170,18 @@ check "generalize folds the same way: the pooled rung is the alias's and holds a
   "$(ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" generalize >/dev/null 2>&1; jq -r '[.entries["behaviour-phase"].ladder[].pair]|join(",")' "$AS/routing/tables/global.json")|$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b/medium")|.n' "$AS/routing/tables/global.json")"
 check "without an aliases file nothing folds: the identifier's pair is a rung of its own" "b-model-0/medium,b-model-1/medium,b/medium" \
   "$(rm "$AS/routing/aliases.json"; ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" calibrate alias >/dev/null 2>&1; jq -r '[.entries["behaviour-phase"].ladder[].pair]|sort|join(",")' "$ATAB")"
+# note_alias records an alias only for an identifier that carries it.
+NS="$WORK/notestate"; mkdir -p "$NS/routing"
+rnote() { # alias, models as JSON: what aliases.json holds after the call, "none" when there is no file
+  ORCHESTRATOR_STATE_DIR="$NS" "$py" -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.note_alias(sys.argv[2], json.loads(sys.argv[3]))' "$ROUTING" "$1" "$2"
+  if [ -f "$NS/routing/aliases.json" ]; then jq -c . "$NS/routing/aliases.json"; else echo none; fi; }
+check "note_alias: no identifier carries the alias, nothing is written" "none" "$(rnote b '{"c-model-1": 2.0}')"
+printf '{"b":"b-model-1"}' > "$NS/routing/aliases.json"
+check "and a recorded alias is left as it was" '{"b":"b-model-1"}' "$(rnote b '{"c-model-1": 2.0}')"
+rm "$NS/routing/aliases.json"
+check "note_alias: the identifier that carries the alias is written, though another model cost more" '{"b":"b-model-1"}' \
+  "$(rnote b '{"b-model-1": 1.0, "c-model-1": 2.0}')"
+
 echo "== routing: bench =="
 
 # A project whose merged change makes hello.sh greet, with a test the merge added.
