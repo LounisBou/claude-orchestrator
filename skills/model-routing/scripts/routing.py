@@ -1291,6 +1291,40 @@ def grid_of(a):
     return ["%s/%s" % (f, e) for f in families for e in EFFORTS]
 
 
+def stage_split(tasks):
+    """A class's tasks, in manifest order, cut into the bench's two stages: stage A is the
+    first half rounded up, stage B the rest. A class of one task is all stage A.
+    """
+    half = (len(tasks) + 1) // 2
+    return list(tasks[:half]), list(tasks[half:])
+
+
+def prune(pairs, results, stage_a):
+    """(survivors, pruned) among `pairs` once stage A has run. `results` maps (task, pair) to
+    the trial, its `status` and `cost_usd`. A pair is pruned when it passed no stage-A task,
+    or when another pair of `pairs` costs no more on average (errors are paid for; a cost
+    that could not be read is no figure) and passed every task it passed, and beats it on
+    one of the two: cheaper, or one more task passed. A pair the caller left out of `pairs`,
+    a dropped one, is in neither list and dominates nobody. `pruned` comes cheapest first,
+    then by name: the order the bench re-admits them in.
+    """
+    passed, cost = {}, {}
+    for p in pairs:
+        trials = [results[(t, p)] for t in stage_a if (t, p) in results]
+        passed[p] = {t for t in stage_a if results.get((t, p), {}).get("status") == "pass"}
+        costs = [r["cost_usd"] for r in trials if not r.get("cost_incomplete")]
+        cost[p] = statistics.fmean(costs) if costs else None
+
+    def beats(y, x):
+        return (cost[y] is not None and cost[x] is not None and cost[y] <= cost[x]
+                and passed[y] >= passed[x] and (cost[y] < cost[x] or passed[y] > passed[x]))
+
+    survivors = [p for p in pairs if passed[p] and not any(beats(y, p) for y in pairs if y != p)]
+    pruned = sorted((p for p in pairs if p not in survivors),
+                    key=lambda p: (float("inf") if cost[p] is None else cost[p], p))
+    return survivors, pruned
+
+
 def cmd_bench(argv):
     p = argparse.ArgumentParser(prog="bench")
     p.add_argument("slug")

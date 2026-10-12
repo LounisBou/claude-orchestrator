@@ -6285,6 +6285,34 @@ rbench harvest "$BR" --class behaviour-phase --pr 9 >/dev/null; rbench ready ben
 : > "$BT"
 rb() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench benchrepo "$@"; }
 check_status "bench wants a cap" 2 rb --grid b-model/medium
+
+# The two stages of the paired bench. stage_split cuts a class's tasks, in manifest order, after
+# the first half rounded up; prune reads stage A: a pair with no pass, or that another pair
+# matches on cost and on every task it passed and beats on one of the two, stops.
+check "stage A is the first half of the tasks rounded up, stage B the rest: 4, 5, 1 and 0 tasks" "2+2|3+2|1+0|0+0" \
+  "$(rcall '"|".join("+".join(str(len(x)) for x in m.stage_split(list(w))) for w in ("abcd", "abcde", "a", ""))')"
+check "and the tasks keep their order, stage A ahead of stage B" "['t1', 't2', 't3']|['t4', 't5']" \
+  "$(rcall '"|".join(str(x) for x in m.stage_split(["t1", "t2", "t3", "t4", "t5"]))')"
+rprune() { # pairs, then rows (task, pair, status, cost[, 1 for a cost not read]) of stage A (t1, t2): "survivors/pruned"
+  rcall "(lambda r: '%s/%s' % (','.join(r[0]), ','.join(r[1])))(m.prune($1, {(t, p): dict(status=s, cost_usd=c, cost_incomplete=bool(i)) for t, p, s, c, *i in $2}, ['t1', 't2']))"; }
+check "prune: a pair another pair undercuts on the same passed tasks is pruned" "y/x" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',.2),('t2','x','pass',.2),('t1','y','pass',.1),('t2','y','pass',.1)]")"
+check "prune: a cheaper pair that missed a task the other passed leaves both standing" "x,y/" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',.2),('t2','x','pass',.2),('t1','y','pass',.1),('t2','y','fail',.1)]")"
+check "prune: equal cost and equal passes, neither is better, both survive" "x,y/" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',.1),('t2','x','pass',.1),('t1','y','pass',.1),('t2','y','pass',.1)]")"
+check "prune: at equal cost, one more task passed is better" "y/x" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',.1),('t2','x','fail',.1),('t1','y','pass',.1),('t2','y','pass',.1)]")"
+check "prune: a pair with no pass on stage A is pruned, an errored pair too" "z/x,y" \
+  "$(rprune "['x', 'y', 'z']" "[('t1','x','fail',.01),('t2','x','fail',.01),('t1','y','error',.01),('t2','y','error',.01),('t1','z','pass',.5),('t2','z','pass',.5)]")"
+check "prune: an error is paid for, it counts in the mean cost" "y/x" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',.1),('t2','x','error',.4),('t1','y','pass',.2),('t2','y','pass',.2)]")"
+check "prune: a dropped pair, left out of the pairs, is in neither list and dominates nobody" "x/" \
+  "$(rprune "['x']" "[('t1','x','pass',.2),('t2','x','pass',.2),('t1','y','pass',.01),('t2','y','pass',.01)]")"
+check "prune: the pruned come cheapest first, then by name" "d/c,a,b" \
+  "$(rprune "['a', 'b', 'c', 'd']" "[('t1','a','pass',.2),('t2','a','pass',.2),('t1','b','pass',.2),('t2','b','pass',.2),('t1','c','pass',.1),('t2','c','pass',.1),('t1','d','pass',.05),('t2','d','pass',.05)]")"
+check "prune: a pair whose cost is unreadable is neither beaten nor beating on cost" "x,y/" \
+  "$(rprune "['x', 'y']" "[('t1','x','pass',1.25,1),('t2','x','pass',1.25,1),('t1','y','pass',.1),('t2','y','pass',.1)]")"
 out=$(rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1)
 check "screening runs every pair on two tasks" "6" "$(jq -s '[.[]|select(.rep==1)]|map(.task+.pair)|unique|map(select(startswith("pr-7") or startswith("pr-8")))|length' "$BT")"
 check "a pair that failed screening is not confirmed" "0" "$(jq -s '[.[]|select(.pair=="b-model/low" and .task=="pr-9")]|length' "$BT")"
