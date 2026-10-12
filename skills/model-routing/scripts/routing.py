@@ -734,8 +734,9 @@ def compare(cls, stats, delta):
     Beta(1 + passes, 1 + fails): DRAWS draws, then the bootstrap of its costs, both from a
     generator of the pair's own seeded by the class and the pair, so its draws depend on its
     own trials only: a pair added without being covered, or a trial of another class, moves no
-    figure of the others. A covered pair is equivalent when its draw is at least the best's
-    minus `delta` in half the paired draws.
+    figure of the others. A covered pair's `p_equiv` is the share of paired draws where its draw
+    is at least the best's minus `delta` (None on a pair that is not covered); it is equivalent
+    when that share reaches a half.
     """
     tasks = class_tasks(stats)
     pairs = sorted(stats)
@@ -756,7 +757,7 @@ def compare(cls, stats, delta):
         rate = sum(a / b for a, b in cells.values()) / len(cells) if cells else 0.0
         rungs[p] = {"pair": p, "n": s["n"], "tasks": sum(1 for k in cells if k != "record"),
                     "per_task": {k: list(v) for k, v in sorted(cells.items())},
-                    "pass_rate": round(rate, 4), "p_best": None,
+                    "pass_rate": round(rate, 4), "p_best": None, "p_equiv": None,
                     "cost_usd": round(sum(s["costs"]) / len(s["costs"]), 6) if s["costs"] else 0.0,
                     "median_usd": None if med is None else round(med, 6),
                     "median_ci": None if lo is None else [round(lo, 6), round(hi, 6)],
@@ -781,6 +782,7 @@ def compare(cls, stats, delta):
     for p in covered:
         rungs[p]["p_best"] = round(wins[p] / DRAWS, 4)
         near = sum(1 for x, b in zip(draws[p], draws[best]) if x >= b - delta)
+        rungs[p]["p_equiv"] = round(near / DRAWS, 4)
         rungs[p]["equivalent"] = near / DRAWS >= 0.5
     return ladder, best, statistics.median(draws[best])
 

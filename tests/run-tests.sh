@@ -6099,6 +6099,18 @@ check "show --detail prints one rung line per pair of the project's table, chose
   "$(ORCHESTRATOR_STATE_DIR="$TS" python3 "$ROUTING" show --detail tasks | sed -n '/^class=review-collector/,/^class=/p' | grep -c '^  rung ')|$(ORCHESTRATOR_STATE_DIR="$TS" python3 "$ROUTING" show --detail tasks | grep -cE '^  rung pair=b-model/medium tasks=5 pass_rate=0.9 p_best=[0-9.]+ median_usd=0.4 ci=0.4..0.4 expected_usd=0.5 off_model=0 equivalent chosen$')"
 check "show without --detail prints no rung" "0" "$(ORCHESTRATOR_STATE_DIR="$TS" python3 "$ROUTING" show tasks | grep -c 'rung')"
 
+# p_equiv: the share of paired draws the `equivalent` figure thresholds at 0.5, on a covered rung.
+check "every covered rung carries p_equiv, equivalent exactly when it reaches 0.5; a rung not covered carries null" "0|true" \
+  "$(jq -r '[.entries[].ladder[]|select((if .covered then ((.p_equiv|type)=="number" and ((.p_equiv>=0.5)==.equivalent)) else (has("p_equiv") and .p_equiv==null) end)|not)]|length' "$TTAB")|$(jq -r '[.entries[].ladder[]|select(.covered)]|length>0' "$TTAB")"
+check "the best pair is equivalent to itself in every draw" "true" "$(rung behaviour-phase a-model/high '.p_equiv==1')"
+PQ='{"x-model/low": {"n": 10, "passes": 0, "costs": [0.1], "models": set(), "per_task": {"t1": [0, 4], "t2": [0, 3], "t3": [0, 3]}, "off_model": 0}, "y-model/high": {"n": 10, "passes": 10, "costs": [0.5], "models": set(), "per_task": {"t1": [4, 4], "t2": [3, 3], "t3": [3, 3]}, "off_model": 0}}'
+check "a pair at 0 of 10 against a best at 10 of 10 is equivalent in next to no draw, p_equiv rounded to 4 places" "True|True|1.0" \
+  "$(rcall '(lambda r: "|".join(str(x) for x in (r[0]["p_equiv"] < 0.01, round(r[0]["p_equiv"], 4) == r[0]["p_equiv"], r[1]["p_equiv"])))(sorted(m.compare("c", '"$PQ"', 0.1)[0], key=lambda r: r["pair"]))')"
+cp -R "$TS" "$WORK/nopeq"
+jq 'del(.entries[].ladder[].p_equiv)' "$TTAB" > "$WORK/nopeq/routing/tables/project-tasks.json"
+check "a table written without p_equiv still reads in show, output unchanged" "$(ORCHESTRATOR_STATE_DIR="$TS" python3 "$ROUTING" show --detail tasks 2>&1)" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/nopeq" python3 "$ROUTING" show --detail tasks 2>&1)"
+
 echo "== routing: bench =="
 
 # A project whose merged change makes hello.sh greet, with a test the merge added.
