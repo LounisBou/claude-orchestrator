@@ -329,10 +329,11 @@ def tier_order():
 def failed_rung(rung, entry):
     """A rung measured and found wanting: covered, and not equivalent to the best pair. A rung
     that is not covered is not failed, only unmeasured - the pair an exploration tests. A rung
-    of an older table, written before equivalence, is read by the floor it was selected with.
+    of an older table, written before equivalence, is read by the floor it was selected with:
+    a rung with no `equivalent`, or a null one, is such a rung.
     """
-    if "equivalent" in rung:
-        return bool(rung.get("covered")) and rung.get("equivalent") is False
+    if rung.get("equivalent") is not None:
+        return bool(rung.get("covered")) and rung["equivalent"] is False
     return (rung.get("n") or 0) >= MIN_TRIALS and (rung.get("pass_rate") or 0) < entry.get("floor", 0)
 
 
@@ -1438,11 +1439,14 @@ def cmd_export(argv):
                 continue
             # The ladder keeps its order and its measured reliability; a rung on an unbound
             # family has no tier to be written in, and costs and identifiers never ship.
-            ladder = [dict({k: r.get(k) for k in ("tasks", "pass_rate", "p_best", "covered", "equivalent",
-                                                    "eligible")}, pair=tiered(r["pair"]))
+            # Only the figures a rung or an entry has are written, never a null in their place: a
+            # table written before the selection by equivalence stays one, and a rung that was
+            # never covered has no p_best to write.
+            ladder = [dict({k: r[k] for k in ("tasks", "pass_rate", "p_best", "covered", "equivalent",
+                                                "eligible") if r.get(k) is not None}, pair=tiered(r["pair"]))
                       for r in e.get("ladder") or [] if is_pair(r.get("pair")) and tiered(r["pair"])]
-            entries[cls] = dict({k: e.get(k) for k in ("pass_rate", "n", "delta", "bar", "strict", "size")},
-                                pair=pair, ladder=ladder)
+            entries[cls] = dict({k: e[k] for k in ("pass_rate", "n", "delta", "bar", "strict", "size")
+                                 if e.get(k) is not None}, pair=pair, ladder=ladder)
         out = os.path.join(a.to, os.path.basename(path))
         if not entries:
             warn("export: %s has no class in tier form, not written" % os.path.basename(path))

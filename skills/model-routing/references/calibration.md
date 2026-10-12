@@ -216,7 +216,8 @@ refreshing it.
 `defaults/`, each pair's family replaced by the tier the map binds it to (`standard/medium`),
 its ladder written the same way, model identifiers, costs and project names dropped. An
 exported entry keeps `pass_rate`, `n`, `delta`, `bar`, `strict` and `size`; a rung keeps
-`tasks`, `pass_rate`, `p_best`, `covered`, `equivalent` and `eligible`. A table with no class in tier form is not written (`export: <file> has no class in tier form, not written`), and an existing file stays as it was. A family
+`tasks`, `pass_rate`, `p_best`, `covered`, `equivalent` and `eligible`; a figure a table does
+not have is left out, never written as a null. A table with no class in tier form is not written (`export: <file> has no class in tier form, not written`), and an existing file stays as it was. A family
 bound to no tier is skipped with a warning, `export: <alias> is bound to no tier, <class>
 skipped`; `pick` reads a shipped ladder's rungs back through the map. The exported files name no model, so they resolve through any operator's own map.
 The operator decides when an export is committed.

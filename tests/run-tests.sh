@@ -6350,6 +6350,28 @@ check "a shipped rung measured below the floor, read through the map, is no notc
 printf '{"deep":"a-model","standard":"b-model"}' > "$XS/models.json"
 check "a shipped rung on an unbound tier is skipped: the effort notch stands" "explore=b-model/medium" "$(xpick | sed -n 2p)"
 
+# An old table stays old. A rung written before the selection by equivalence has no `equivalent`,
+# and an export used to write one as null: either way the floor rule that selected the table reads
+# it, never the new rule on a key that was not measured. An export writes the keys a table carries
+# and no null in their place.
+check "a rung with no equivalence, or a null one, is read by the floor rule" "True|True|False|False|False" \
+  "$("$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); e={"floor":0.9}; f=lambda r: m.failed_rung(r, e); print("|".join(str(x) for x in (f({"n":8,"pass_rate":0.5}), f({"n":8,"pass_rate":0.5,"covered":None,"equivalent":None}), f({"n":8,"pass_rate":1.0}), f({"n":8,"pass_rate":1.0,"covered":None,"equivalent":None}), f({"n":2,"pass_rate":0.5,"equivalent":None}))))' "$ROUTING")"
+OS="$WORK/oldstate"; OD="$WORK/oldexport"; mkdir -p "$OS/routing/tables" "$OD"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$OS/models.json"
+printf '{"scope":"global","generated":"2026-01-01","entries":{"conversion-phase":{"pair":"b-model/medium","pass_rate":1.0,"n":8,"floor":0.9,"models":["b-model-1"],"ladder":[{"pair":"c-model/medium","n":8,"pass_rate":0.5,"eligible":false},{"pair":"b-model/medium","n":8,"pass_rate":1.0,"eligible":true}]},"review-collector":{"pair":"b-model/medium","pass_rate":1.0,"n":8,"floor":0.9,"models":["b-model-1"],"ladder":[{"pair":"c-model/medium","n":8,"pass_rate":1.0,"eligible":true},{"pair":"b-model/medium","n":8,"pass_rate":1.0,"eligible":true}]}}}' > "$OS/routing/tables/global.json"
+ORCHESTRATOR_STATE_DIR="$OS" python3 "$ROUTING" export --to "$OD" >/dev/null 2>&1
+check "an old table exported carries no null, and no key it never had" "0|ladder,n,pair,pass_rate|eligible,pair,pass_rate" \
+  "$(jq -r '[..|nulls]|length' "$OD/global.json")|$(jq -r '.entries["conversion-phase"]|keys|join(",")' "$OD/global.json")|$(jq -r '.entries["conversion-phase"].ladder[0]|keys|join(",")' "$OD/global.json")"
+# A table written by this code has rungs that were never covered, whose p_best is null: its export
+# carries no null either, and the rung is written without the figure it does not have.
+with_extra_trial '{"task":"t-a","class":"review-collector","pair":"a-model/low","rep":1,"models":{"a-model-1":0.05},"cost_usd":0.05,"status":"pass"}' >/dev/null
+NX="$WORK/newexport"; ND="$WORK/newexported"; mkdir -p "$NX/routing/tables" "$ND"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$NX/models.json"
+cp "$IS/routing/tables/project-tasks.json" "$NX/routing/tables/global.json"
+ORCHESTRATOR_STATE_DIR="$NX" python3 "$ROUTING" export --to "$ND" >/dev/null 2>&1
+check "the table to export has a rung with a null p_best, and its export carries no null" "1|0|1" \
+  "$(jq -r '[.entries["review-collector"].ladder[]|select(.p_best==null)]|length' "$NX/routing/tables/global.json")|$(jq -r '[..|nulls]|length' "$ND/global.json")|$(jq -r '[.entries["review-collector"].ladder[]|select(has("p_best")|not)]|length' "$ND/global.json")"
+
 echo "== routing: the skill =="
 
 MR="$ROOT/skills/model-routing/SKILL.md"
