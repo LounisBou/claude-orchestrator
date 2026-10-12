@@ -6127,6 +6127,44 @@ jq 'del(.entries[].ladder[].p_equiv)' "$TTAB" > "$WORK/nopeq/routing/tables/proj
 check "a table written without p_equiv still reads in show, output unchanged" "$(ORCHESTRATOR_STATE_DIR="$TS" python3 "$ROUTING" show --detail tasks 2>&1)" \
   "$(ORCHESTRATOR_STATE_DIR="$WORK/nopeq" python3 "$ROUTING" show --detail tasks 2>&1)"
 
+# One model, one pair. A pair that names the identifier an alias resolved to counts under the
+# alias: canonical_pair folds the name, stats_of reads each trial through it, and an older
+# release of the family is another model and stays apart.
+check "canonical_pair: the identifier's pair becomes the alias's, the alias's pair stays, an alias that maps to itself yields to the other alias" "b/low|b/low|b/low" \
+  "$(rcall 'm.canonical_pair("b-model-1/low", {"b": "b-model-1"})')|$(rcall 'm.canonical_pair("b/low", {"b": "b-model-1"})')|$(rcall 'm.canonical_pair("b-model-1/low", {"b-model-1": "b-model-1", "b": "b-model-1"})')"
+check "canonical_pair: an older release is another model, a pair no alias names is unchanged" "b-model-0/low|c-model-1/high" \
+  "$(rcall 'm.canonical_pair("b-model-0/low", {"b": "b-model-1"})')|$(rcall 'm.canonical_pair("c-model-1/high", {"b": "b-model-1"})')"
+check "canonical_pair: two aliases on one identifier, the first in name order, whatever order the file lists them in" "a/low|b/low" \
+  "$(rcall 'm.canonical_pair("b-model-1/low", {"z": "b-model-1", "a": "b-model-1", "m": "b-model-1"})')|$(rcall 'm.canonical_pair("b-model-1/low", {"m": "b-model-1", "b": "b-model-1"})')"
+check "canonical_pair: the effort is kept whatever it is, and no aliases leaves the pair as it is" "b/max|b-model-1/low" \
+  "$(rcall 'm.canonical_pair("b-model-1/max", {"b": "b-model-1"})')|$(rcall 'm.canonical_pair("b-model-1/low", {})')"
+AS="$WORK/aliasstate"; mkdir -p "$AS/routing/projects/alias"
+AT="$AS/routing/projects/alias/trials.jsonl"; : > "$AT"
+ATAB="$AS/routing/tables/project-alias.json"
+printf '{"slug":"alias","repo":"/nonexistent","profile":"x/y","tasks":[]}' > "$AS/routing/projects/alias/manifest.json"
+printf '{"b":"b-model-1"}' > "$AS/routing/aliases.json"
+at() { # task pair status cost main-model
+  printf '{"task":"%s","class":"behaviour-phase","pair":"%s","rep":1,"models":{"%s":%s},"cost_usd":%s,"status":"%s"}\n' \
+    "$1" "$2" "$5" "$4" "$4" "$3" >> "$AT"; }
+for t in t1 t2 t3; do
+  at "$t" b/medium pass 0.10 b-model-1; at "$t" b-model-1/medium pass 0.10 b-model-1
+  at "$t" b-model-0/medium pass 0.20 b-model-0
+done
+# One trial of the identifier's pair spent its money on another family: off-model, whatever name its pair has.
+at t1 b-model-1/medium pass 0.90 c-model-1
+ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" calibrate alias >/dev/null 2>&1
+check "trials under the alias and under the identifier it resolves to are one rung, n the sum; the older release keeps its own" "b/medium,b-model-0/medium" \
+  "$(jq -r '[.entries["behaviour-phase"].ladder[].pair]|join(",")' "$ATAB")"
+check "the folded rung weighs both names' trials: n, tasks and the per-task cells add up" "6|3|[2,2]" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b/medium")|"\(.n)|\(.tasks)|\(.per_task.t1|tostring)"' "$ATAB")"
+check "an off-model trial under the identifier's pair is still counted in off_model, under the folded rung, and not in n" "1|6|0.1" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b/medium")|"\(.off_model)|\(.n)|\(.cost_usd)"' "$ATAB")"
+check "the older release is a rung of three trials of its own" "3|0" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model-0/medium")|"\(.n)|\(.off_model)"' "$ATAB")"
+check "generalize folds the same way: the pooled rung is the alias's and holds all six trials" "b/medium,b-model-0/medium|6" \
+  "$(ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" generalize >/dev/null 2>&1; jq -r '[.entries["behaviour-phase"].ladder[].pair]|join(",")' "$AS/routing/tables/global.json")|$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b/medium")|.n' "$AS/routing/tables/global.json")"
+check "without an aliases file nothing folds: the identifier's pair is a rung of its own" "b-model-0/medium,b-model-1/medium,b/medium" \
+  "$(rm "$AS/routing/aliases.json"; ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" calibrate alias >/dev/null 2>&1; jq -r '[.entries["behaviour-phase"].ladder[].pair]|sort|join(",")' "$ATAB")"
 echo "== routing: bench =="
 
 # A project whose merged change makes hello.sh greet, with a test the merge added.
