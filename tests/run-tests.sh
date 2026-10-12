@@ -5718,9 +5718,8 @@ check "the alias records the identifier it resolved to" "a-model-1" \
   "$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
 # A session of other models says nothing about an alias none of its identifiers carries: the
 # costliest one is not that alias's identifier, and folding pairs on it would merge two models.
-rcost --session s-1 --alias b-model >/dev/null
-check "an alias no model of the session carries is recorded as nothing, the others kept" "false|a-model-1" \
-  "$(jq -r 'has("b-model")' "$RSTATE/routing/aliases.json")|$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
+check "an alias no model of the session carries is recorded as nothing, the others kept" "0|false|a-model-1" \
+  "$(rcost --session s-1 --alias b-model >/dev/null 2>&1; echo $?)|$(jq -r 'has("b-model")' "$RSTATE/routing/aliases.json")|$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
 
 echo "== routing: pick =="
 
@@ -6172,8 +6171,11 @@ check "without an aliases file nothing folds: the identifier's pair is a rung of
   "$(rm "$AS/routing/aliases.json"; ORCHESTRATOR_STATE_DIR="$AS" python3 "$ROUTING" calibrate alias >/dev/null 2>&1; jq -r '[.entries["behaviour-phase"].ladder[].pair]|sort|join(",")' "$ATAB")"
 # note_alias records an alias only for an identifier that carries it.
 NS="$WORK/notestate"; mkdir -p "$NS/routing"
-rnote() { # alias, models as JSON: what aliases.json holds after the call, "none" when there is no file
-  ORCHESTRATOR_STATE_DIR="$NS" "$py" -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.note_alias(sys.argv[2], json.loads(sys.argv[3]))' "$ROUTING" "$1" "$2"
+rnote() { # alias, models as JSON: what aliases.json holds after the call, "none" when there is no file, "failed:<status>" when the call itself dies
+  local status
+  ORCHESTRATOR_STATE_DIR="$NS" "$py" -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.note_alias(sys.argv[2], json.loads(sys.argv[3]))' "$ROUTING" "$1" "$2" 2>/dev/null
+  status=$?
+  if [ "$status" -ne 0 ]; then echo "failed:$status"; return; fi
   if [ -f "$NS/routing/aliases.json" ]; then jq -c . "$NS/routing/aliases.json"; else echo none; fi; }
 check "note_alias: no identifier carries the alias, nothing is written" "none" "$(rnote b '{"c-model-1": 2.0}')"
 printf '{"b":"b-model-1"}' > "$NS/routing/aliases.json"
