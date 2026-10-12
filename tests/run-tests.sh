@@ -6598,6 +6598,12 @@ check "the calibration reference states pick's options and its lines" "yes|yes|y
   "$(spells "$MRC" '--files <n> --lines <n>')|$(spells "$MRC" 'size=large beyond=<scope>')|$(spells "$MRC" 'nbis=<pair>')"
 check "the dispatch log holds the correction round's notch and the size rule" "yes|yes" \
   "$(spells "$ROOT/docs/agent-dispatches.md" 'A correction round runs one effort notch above its phase')|$(spells "$ROOT/docs/agent-dispatches.md" 'A table measured on small work does not serve a large phase')"
+check "the calibration reference walks the paired bench: the two stages, the prune rule, the band of the second repetition, re-admission" "yes|yes|yes|yes|yes" \
+  "$(spells "$MRC" '**Stage A**')|$(spells "$MRC" '**Stage B**')|$(spells "$MRC" 'stage-A task it passed, and beats it on one of the two')|$(spells "$MRC" 'between 0.3 and 0.7')|$(spells "$MRC" '**Re-admission**')"
+check "and its last line carries pruned=, and no screening, cost band or bench floor is left" "yes|no|no|no" \
+  "$(spells "$MRC" 'unmeasured=<n> pruned=<n>')|$(carries "$MRC" 'screening')|$(spells "$MRC" '1.5 times the cheapest')|$(spells "$MRC" 'reads its floors from')"
+check "the calibration reference lists p_equiv among the rung's fields" "yes" "$(spells "$MRC" '`p_best` (covered pairs only), `p_equiv` (covered pairs only)')"
+check "the dispatch log holds the paired bench" "yes" "$(spells "$ROOT/docs/agent-dispatches.md" 'The bench runs every pair on the same tasks')"
 check "the routing skill and the brief say a pair, not a tier" "yes|yes" \
   "$(spells "$MR" 'must choose the model/effort pair')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'then choose the model/effort pair the work needs')"
 
