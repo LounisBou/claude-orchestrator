@@ -5762,6 +5762,53 @@ check "the notch up comes last, after the explore line" $'explore=b-model/low\nn
   "$(rpick --class behaviour-phase --record "$ER" | sed -n 2,3p)"
 check "and nothing follows it" "3" "$(rpick --class behaviour-phase --record "$ER" | wc -l | tr -d ' ')"
 
+# Pick by the phase's size. An entry stamped on smaller work than the phase does not serve it,
+# and pick goes on down its order; a table written before the stamp reads as unknown size.
+ZS="$WORK/zstate"; ZD="$WORK/zdefaults"; mkdir -p "$ZS/routing/tables" "$ZS/routing/projects/laravel" "$ZD"
+printf '{"deep":"a-model","standard":{"model":"b-model","effort":"medium"},"light":"c-model"}' > "$ZS/models.json"
+cp "$PS/routing/projects/laravel/manifest.json" "$ZS/routing/projects/laravel/manifest.json"
+printf '{"a-model":"a-model-2","b-model":"b-model-2"}' > "$ZS/routing/aliases.json"
+printf '{"scope":"project:laravel","entries":{"behaviour-phase":{"pair":"a-model/low","size":"small"},"conversion-phase":{"pair":"a-model/medium"},"comments":{"pair":"a-model/high","size":"large","models":["a-model-1"]},"review-lens":{"pair":"a-model/low","size":"small"}}}' > "$ZS/routing/tables/project-laravel.json"
+printf '{"scope":"profile:php/laravel-app","entries":{"behaviour-phase":{"pair":"b-model/low","size":"large"},"conversion-phase":{"pair":"b-model/medium","size":"large","models":["b-model-1"]},"review-lens":{"pair":"b-model/low","size":"small"}}}' > "$ZS/routing/tables/profile-php-laravel-app.json"
+printf '{"scope":"global","entries":{"behaviour-phase":{"pair":"c-model/medium","size":"small"},"review-lens":{"pair":"c-model/low","size":"small"}}}' > "$ZS/routing/tables/global.json"
+printf '{"scope":"profile:php/laravel-app","entries":{"search":{"pair":"nonsense/low","size":"small"},"n-bis":{"pair":"standard/low","size":"small"}}}' > "$ZD/profile-php-laravel-app.json"
+printf '{"scope":"global","entries":{"search":{"pair":"deep/high","size":"large"},"n-bis":{"pair":"standard/high","size":"small"}}}' > "$ZD/global.json"
+zpick() { ORCHESTRATOR_STATE_DIR="$ZS" ORCHESTRATOR_ROUTING_DEFAULTS="$ZD" python3 "$ROUTING" pick --repo "$T/laravel" "$@"; }
+check "a small phase takes the project's entry measured on small work" $'pair=a-model/low source=project:laravel size=small\nnbis=a-model/medium' \
+  "$(zpick --class behaviour-phase --files 2 --lines 40)"
+check "3 files and 50 lines, and nothing at all, are still a small phase" "size=small|size=small" \
+  "$(zpick --class behaviour-phase --files 3 --lines 50 | grep -o 'size=[a-z]*')|$(zpick --class behaviour-phase --files 0 --lines 0 | grep -o 'size=[a-z]*')"
+check "a large phase by its files skips an entry measured on small work and says which scope" $'pair=b-model/low source=profile:php/laravel-app size=large beyond=project:laravel\nnbis=b-model/medium' \
+  "$(zpick --class behaviour-phase --files 4 --lines 10)"
+check "a large phase by its lines falls through the same way" $'pair=b-model/low source=profile:php/laravel-app size=large beyond=project:laravel\nnbis=b-model/medium' \
+  "$(zpick --class behaviour-phase --files 1 --lines 51)"
+check "without the options pick reads no size: the project's entry, no size= and no beyond=" $'pair=a-model/low source=project:laravel\nnbis=a-model/medium' \
+  "$(zpick --class behaviour-phase)"
+check "a table written before the stamp reads as unknown size: skipped by a large phase" $'pair=b-model/medium source=profile:php/laravel-app stale size=large beyond=project:laravel\nnbis=b-model/high' \
+  "$(zpick --class conversion-phase --files 9 --lines 9)"
+check "and it serves a small phase" $'pair=a-model/medium source=project:laravel size=small\nnbis=a-model/high' \
+  "$(zpick --class conversion-phase --files 1 --lines 1)"
+check "a large phase with no entry measured on large work lands on the tier table, naming the first scope skipped" $'pair=b-model/medium source=tier-table size=large beyond=project:laravel\nnbis=b-model/high' \
+  "$(zpick --class review-lens --files 9 --lines 9)"
+check "a project entry measured on large work serves a large phase, nothing skipped" $'pair=a-model/high source=project:laravel stale size=large\nnbis=a-model/xhigh' \
+  "$(zpick --class comments --files 9 --lines 9)"
+check "a shipped entry measured on large work serves a large phase through the map, a shipped tier the map does not bind never being a beyond" \
+  $'pair=a-model/high source=shipped:global size=large\nnbis=a-model/xhigh' "$(zpick --class search --files 9 --lines 9)"
+check "a shipped entry measured on small work is skipped by a large phase, the first one named" $'pair=b-model/medium source=tier-table size=large beyond=shipped:profile:php/laravel-app\nnbis=b-model/high' \
+  "$(zpick --class n-bis --files 9 --lines 9)"
+check "and serves a small phase" $'pair=b-model/low source=shipped:profile:php/laravel-app size=small\nnbis=b-model/medium' \
+  "$(zpick --class n-bis --files 1 --lines 1)"
+check "the explore line keeps its place when the phase is sized" $'pair=a-model/low source=project:laravel size=small\nexplore=b-model/low\nnbis=a-model/medium' \
+  "$(zpick --class behaviour-phase --files 2 --lines 40 --record "$ER")"
+check "--files without --lines is a refusal that says they go together" "exit 1|ERROR: pick: --files and --lines go together" \
+  "$(zpick --class behaviour-phase --files 3 >/dev/null 2>&1; echo "exit $?")|$(zpick --class behaviour-phase --files 3 2>&1)"
+check "--lines without --files is the same refusal" "ERROR: pick: --files and --lines go together" \
+  "$(zpick --class behaviour-phase --lines 3 2>&1)"
+check "a negative count, or one that is not a whole number, is a refusal that says what a count is" \
+  "exit 1|ERROR: pick: --files and --lines are counts, 0 or more|ERROR: pick: --files and --lines are counts, 0 or more|ERROR: pick: --files and --lines are counts, 0 or more|ERROR: pick: --files and --lines are counts, 0 or more" \
+  "$(zpick --class behaviour-phase --files -1 --lines 3 >/dev/null 2>&1; echo "exit $?")|$(zpick --class behaviour-phase --files -1 --lines 3 2>&1)|$(zpick --class behaviour-phase --files 3 --lines -1 2>&1)|$(zpick --class behaviour-phase --files abc --lines 3 2>&1)|$(zpick --class behaviour-phase --files 2.5 --lines 3 2>&1)"
+check "a refusal prints no pair" "0" "$(zpick --class behaviour-phase --files -1 --lines 3 2>/dev/null | wc -l | tr -d ' ')"
+
 echo "== routing: calibrate =="
 
 CS="$WORK/calstate"; mkdir -p "$CS/routing/projects/demo"

@@ -393,24 +393,37 @@ def resolve_ladder(entry):
     return dict(entry, ladder=ladder)
 
 
-def lookup(repo, cls):
+def lookup(repo, cls, size=None):
+    """(pair, source, entry, beyond) from the most specific table that has one. For a `large`
+    phase an entry that was not measured on large work does not serve it (a table written
+    before the stamp has no size and reads as unknown): the order goes on, and `beyond` is the
+    source of the first entry skipped that way. A shipped entry whose tier the map does not
+    bind is skipped as ever and is never a `beyond`.
+    """
     slug = project_slug(repo)
     profile = project_profile(repo)
+    beyond = None
     for scope, shipped in (("project:" + slug, False), ("profile:" + profile, False), ("global", False),
                            ("profile:" + profile, True), ("global", True)):
         entry = read_json(table_path(scope, shipped), {}).get("entries", {}).get(cls)
         if not entry or not entry.get("pair"):
             continue
+        source = "shipped:" + scope if shipped else scope
         if shipped:
             pair = resolve_shipped(entry["pair"])
-            if pair:
-                return pair, "shipped:" + scope, resolve_ladder(entry)
+            if not pair:
+                continue
+            entry = resolve_ladder(entry)
+        else:
+            pair = entry["pair"]
+        if size == "large" and entry.get("size") != "large":
+            beyond = beyond or source
             continue
-        return entry["pair"], scope, entry
+        return pair, source, entry, beyond
     bound = read_map().get(CLASS_TIERS[cls])
     if not bound:
-        return "host-default", "tier-table", None
-    return (bound[0] + ("/" + bound[1] if bound[1] else "")), "tier-table", None
+        return "host-default", "tier-table", None, beyond
+    return (bound[0] + ("/" + bound[1] if bound[1] else "")), "tier-table", None, beyond
 
 
 def is_stale(pair, entry):
@@ -465,16 +478,35 @@ def cmd_profile(argv):
     print(infer_profile(argv[0]))
 
 
+def phase_size(files, lines):
+    """The bucket of the phase `pick` was given, or None when it was given none. Both counts or
+    neither: a bucket needs both, and a count is a whole number, 0 or more.
+    """
+    if files is None and lines is None:
+        return None
+    if files is None or lines is None:
+        die("pick: --files and --lines go together")
+    if not all(re.fullmatch(r"[0-9]+", c) for c in (files, lines)):
+        die("pick: --files and --lines are counts, 0 or more")
+    return size_bucket(int(files), int(lines))
+
+
 def cmd_pick(argv):
     p = argparse.ArgumentParser(prog="pick")
     p.add_argument("--repo", required=True)
     p.add_argument("--class", dest="cls", required=True)
     p.add_argument("--record")
+    p.add_argument("--files")
+    p.add_argument("--lines")
     a = p.parse_args(argv)
     if a.cls not in CLASS_TIERS:
         die("pick: unknown class: %s (expected one of %s)" % (a.cls, ", ".join(sorted(CLASS_TIERS))))
-    pair, source, entry = lookup(a.repo, a.cls)
-    print("pair=%s source=%s%s" % (pair, source, " stale" if is_stale(pair, entry) else ""))
+    size = phase_size(a.files, a.lines)
+    pair, source, entry, beyond = lookup(a.repo, a.cls, size)
+    line = "pair=%s source=%s%s" % (pair, source, " stale" if is_stale(pair, entry) else "")
+    if size:
+        line += " size=%s%s" % (size, " beyond=" + beyond if beyond else "")
+    print(line)
     if may_explore(a.record, a.cls, pair):
         below = ladder_down(pair, entry)
         if below:
