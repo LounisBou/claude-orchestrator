@@ -5861,8 +5861,11 @@ tt t-a behaviour-phase c-model/low pass 0.05; tt t-a behaviour-phase c-model/low
 for t in t-large t-a t-b t-c; do for r in 1 2 3; do tt "$t" behaviour-phase c-model/medium pass 0.01; done; done
 # An off-model trial: the pair is b-model's, the money went to a-model-1.
 tt t-a behaviour-phase b-model/medium pass 0.2; tt t-a behaviour-phase b-model/medium fail 0.9 a-model-1
-# A full identifier and an alias, each run on its own model.
-for t in t-large t-a t-b t-c t-d; do tt "$t" behaviour-phase b-model-1/low pass 0.3; tt "$t" behaviour-phase b-model/high pass 0.35; done
+# A full identifier and an alias, each run on its own model: the full identifier is reported exactly
+# as the pair names it; the alias is reported as the identifier it resolved to. One trial of the
+# full identifier's pair reports a key that merely starts with it: another model, off-model.
+for t in t-large t-a t-b t-c t-d; do tt "$t" behaviour-phase b-model-1/low pass 0.3 b-model-1; tt "$t" behaviour-phase b-model/high pass 0.35; done
+tt t-a behaviour-phase b-model-1/low pass 0.9 b-model-1-1
 # comments: the best is 4/5, its posterior median below 0.8.
 for t in t-a t-b t-c t-d; do tt "$t" comments a-model/high pass 0.5; done; tt t-e comments a-model/high fail 0.5
 # contract-phase, strict: b-model/high at 9/10 is equivalent and cheaper, the 10/10 pair is chosen.
@@ -5880,8 +5883,10 @@ check "a pair's pass rate is the mean of its per-task rates, n its graded trials
   "$(rung behaviour-phase c-model/low '"\(.pass_rate)|\(.n)|\(.tasks)"')"
 check "a trial whose main model is another family is out of n and costs, counted off-model" "1|1.0|0.2|1" \
   "$(rung behaviour-phase b-model/medium '"\(.n)|\(.pass_rate)|\(.cost_usd)|\(.off_model)"')"
-check "a full-identifier pair and an alias pair, each on its own model, are both on-model" "0|5|0|5" \
+check "a full-identifier pair is compared exactly, an alias pair by its dash segment: only the key that starts with the identifier is off-model" "1|5|0|5" \
   "$(rung behaviour-phase b-model-1/low '"\(.off_model)|\(.n)"')|$(rung behaviour-phase b-model/high '"\(.off_model)|\(.n)"')"
+check "on_model: an identifier is compared exactly, a bracketed suffix ignored; an alias keeps the dash-segment rule" "True|True|False|False|False|True|True|True" \
+  "$("$py" -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); f=m.on_model; print("|".join(str(x) for x in (f("b-model-1/low", {"b-model-1": 1}), f("b-model-1/low", {"b-model-1[1m]": 1}), f("b-model-1/low", {"b-model-1-1": 1}), f("b-model-1/low", {"x-b-model-1": 1}), f("b-model-1/low", {"b-model-12": 1}), f("b-model/high", {"b-model-1": 1}), f("b-model/high", {"b-model-1[1m]": 1}), f("b-model-1/low", {}))))' "$ROUTING")"
 check "the cheapest pair equivalent to the best is the entry; one too far below is not equivalent" \
   "b-model/medium|a-model/high|false|true" \
   "$(jq -r '.entries["review-collector"]|"\(.pair)|\(.best)|\(.ladder[]|select(.pair=="c-model/low")|.equivalent)|\(.ladder[]|select(.pair=="b-model/medium")|.equivalent)"' "$TTAB")"

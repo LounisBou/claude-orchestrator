@@ -114,11 +114,13 @@ pass_rate=<r> n=<n> expected_usd=<e> p_best=<p> size=<s>`, or `class=<c> no elig
 (<reason>)`.
 
 **What enters.** A trial whose main model — the identifier it spent most on — is not its
-pair's model is off-model: the pair's identifier itself, or an identifier carrying the pair's
-alias as a dash segment (`b-model` in `b-model-1`), is on-model; anything else (an alias
-resolved to another family, a fallback) measured another model. It is counted in its rung's
-`off_model` and kept out of every other figure. A trial that reports no model (a record row,
-an old trial) is not checked.
+pair's model is off-model. A pair naming a full identifier (a dash and a last segment that is
+a number or a date, `b-model-1`) is on-model only when the main model is that identifier, a
+bracketed suffix on the reported one (`[1m]`) ignored: `b-model-1-1` is another model. A pair
+naming an alias is on-model when the main model carries it as a dash segment (`b-model` in
+`b-model-1`). Anything else (an alias resolved to another family, a fallback) measured another
+model. It is counted in its rung's `off_model` and kept out of every other figure. A trial
+that reports no model (a record row, an old trial) is not checked.
 
 **Per task.** A class's tasks are every task with at least one graded trial. Per pair:
 `per_task`, each task's `[passes, graded]`; `tasks`, the tasks it was graded on; `n`, its

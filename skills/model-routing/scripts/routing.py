@@ -514,16 +514,27 @@ def main_model(models):
     return max(sorted(models), key=lambda m: models[m] or 0)
 
 
+def is_identifier(model):
+    """Whether a pair's model names a release (`b-model-1`: a dash and a last segment that is a
+    number or a date) rather than a family alias (`b-model`).
+    """
+    return bool(re.search(r"-\d+$", model))
+
+
 def on_model(pair, models):
-    """Whether a trial ran on its pair's model: its main model is the pair's model, or carries
-    the pair's alias as a dash segment. A trial that reports no model (a record row, an old
-    trial) is not checked.
+    """Whether a trial ran on its pair's model. A pair that names a full identifier is on-model
+    only when the main model is that identifier, a bracketed suffix on the reported one
+    (`[1m]`) ignored: an identifier that merely starts or ends with it is another model. A pair
+    that names an alias is on-model when the main model carries it as a dash segment. A trial
+    that reports no model (a record row, an old trial) is not checked.
     """
     main = main_model(models)
     if main is None:
         return True
     model = pair.split("/")[0]
-    return main == model or carries_alias(main, model)
+    if is_identifier(model):
+        return re.sub(r"\[[^\]]*\]$", "", main) == model
+    return carries_alias(main, model)
 
 
 def is_pair(text):
