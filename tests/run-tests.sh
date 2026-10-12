@@ -5931,6 +5931,10 @@ check "p_best is shared among the covered pairs only" "1|null" \
   "$(jq -r '[.entries["review-collector"].ladder[].p_best]|add*1000|round/1000' "$TTAB")|$(rung behaviour-phase c-model/medium '.p_best')"
 check "a notch measured and found not equivalent is no notch; a notch not covered is offered" "None|b-model/medium" \
   "$(ORCHESTRATOR_STATE_DIR="$TS" python3 -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); e=json.load(open(sys.argv[2]))["entries"]; print("%s|%s" % (m.ladder_down("b-model/medium", e["review-collector"]), m.ladder_down("b-model-1/low", e["behaviour-phase"])))' "$ROUTING" "$TTAB")"
+# The case the two above leave out: on a table written by this code, the rung under the pair is
+# covered and equivalent to the best, so it is the notch an exploration may test.
+check "a notch measured and found equivalent to the best is offered" "b-model/medium" \
+  "$(ORCHESTRATOR_STATE_DIR="$TS" python3 -c 'import importlib.util,json,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); e=json.load(open(sys.argv[2]))["entries"]["review-collector"]; print(m.ladder_down("a-model/high", e))' "$ROUTING" "$TTAB")"
 cp "$TTAB" "$WORK/tasks.first.json"
 rtc >/dev/null 2>&1
 check "the same trials give the same table, byte for byte" "same" "$(cmp -s "$TTAB" "$WORK/tasks.first.json" && echo same || echo changed)"
