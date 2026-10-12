@@ -81,7 +81,7 @@ Two readings high or more raises the pair by **one** notch up the class's ladder
 
 ## The correction round runs one notch above its phase
 
-`pick` ends with `nbis=<pair>`: the phase's pair one effort level up on the same family, the same pair at `max`, and no line for a pair with no effort to raise. The phase's correction round runs at that pair, and the brief names it. The round is the retry: the phase starts cheap and a failure escalates, so the review and its correction round are the escalation, not a cascade; the phase itself is never retried at its own pair. `--class n-bis` serves a correction round whose phase's pair is unknown.
+`pick` ends with `nbis=<pair>`: the phase's pair one effort level up on the same family, the same pair at `max`, and no line for a pair with no effort to raise. The phase's correction round runs at that pair, and the brief names it. The round is the retry: the phase starts cheap and a failure escalates, so the review and its correction round are the escalation, not a cascade; the phase itself is never retried at its own pair. `--class n-bis` serves a correction round whose phase's pair is unknown: the round runs at that call's `pair=` line, and its `nbis=` line is not read.
 
 ## Explore one notch, never more
 

@@ -6481,6 +6481,7 @@ check "the skill passes the phase's size to pick: both options, and the two thre
   "$(spells "$MR" '--files')|$(spells "$MR" '--lines')|$(spells "$MR" 'files > 3')|$(spells "$MR" 'lines > 50')"
 check "the skill says what beyond= means for the brief, and that a correction round runs at nbis=" "yes|yes|yes" \
   "$(spells "$MR" 'size=large beyond=<scope>')|$(spells "$MR" 'nbis=')|$(spells "$MR" '--class n-bis')"
+check "the skill says an n-bis call's own pair is the round's, not its nbis= line" "yes" "$(spells "$MR" "its \`nbis=\` line is not read")"
 check "the skill puts a search exploration, summary in the brief, before a phase beyond every measured size" "yes|yes" \
   "$(spells "$MR" 'beyond every measured size')|$(carries "$MR" 'read-only search exploration')"
 check "the calibration reference states pick's options and its lines" "yes|yes|yes" \
