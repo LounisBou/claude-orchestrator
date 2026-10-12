@@ -143,8 +143,10 @@ that reports no model (a record row, an old trial) is not checked. One model is 
 trial whose pair names the identifier an alias resolves to in `aliases.json` counts under the
 alias (`b-model-1/medium` under `b-model/medium` once `b-model` maps to `b-model-1`, the first
 alias in name order if several do), the on-model check still reading the pair as recorded; an
-older release of the family has no alias and stays a pair of its own. `bench` reads its grid the
-same way, so a trial recorded under the identifier is reused when the grid names the alias.
+older release of the family has no alias and stays a pair of its own. A grid that names that
+identifier runs and records under the alias too, so a bench cannot pin one release behind an
+alias that lags. `bench` reads its grid the same way, so a trial recorded under the identifier
+is reused when the grid names the alias.
 
 **Per task.** A class's tasks are every task with at least one graded trial. Per pair:
 `per_task`, each task's `[passes, graded]`; `tasks`, the tasks it was graded on; `n`, its
