@@ -6314,27 +6314,69 @@ check "prune: the pruned come cheapest first, then by name" "d/c,a,b" \
 check "prune: a pair whose cost is unreadable is neither beaten nor beating on cost" "x,y/" \
   "$(rprune "['x', 'y']" "[('t1','x','pass',1.25,1),('t2','x','pass',1.25,1),('t1','y','pass',.1),('t2','y','pass',.1)]")"
 out=$(rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1)
-check "screening runs every pair on two tasks" "6" "$(jq -s '[.[]|select(.rep==1)]|map(.task+.pair)|unique|map(select(startswith("pr-7") or startswith("pr-8")))|length' "$BT")"
-check "a pair that failed screening is not confirmed" "0" "$(jq -s '[.[]|select(.pair=="b-model/low" and .task=="pr-9")]|length' "$BT")"
-check "confirmation runs every task at every rep" "6|3" \
+check "stage A runs every pair of the grid once on the first half of the tasks, rounded up: two of three" "6" "$(jq -s '[.[]|select(.rep==1)]|map(.task+.pair)|unique|map(select(startswith("pr-7") or startswith("pr-8")))|length' "$BT")"
+check "a pair with no pass on stage A is pruned: it never runs stage B, and the last line counts it" "0|1" \
+  "$(jq -s '[.[]|select(.pair=="b-model/low" and .task=="pr-9")]|length' "$BT")|$(printf '%s\n' "$out" | tail -1 | grep -c ' pruned=1$')"
+check "every surviving pair runs stage B: graded on all three tasks" "3|3" \
+  "$(jq -s '[.[]|select(.pair=="b-model/medium")]|map(.task)|unique|length' "$BT")|$(jq -s '[.[]|select(.pair=="c-model/medium")]|map(.task)|unique|length' "$BT")"
+check "the best pair runs every task at every rep" "6|3" \
   "$(jq -s '[.[]|select(.pair=="b-model/medium")]|length' "$BT")|$(jq -s '[.[]|select(.pair=="b-model/medium")]|map(.task)|unique|length' "$BT")"
+check "the last line counts what the three stages and the second repetition spent, and the pair pruned" "bench: spent=1.64 trials=14 unmeasured=0 pruned=1" "$(printf '%s\n' "$out" | tail -1)"
 check "a run leaves no trial directory behind" "0" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
 before=$(wc -l < "$BT" | tr -d ' ')
 rb --grid b-model/low,b-model/medium,c-model/medium --max-usd 100 --reps 2 --concurrency 1 >/dev/null
 check "a restart re-pays nothing already measured" "$before" "$(wc -l < "$BT" | tr -d ' ')"
-# An easy screen lets the cheapest family through and its confirmation misses the floor: the
-# next band up is confirmed, and a pair dearer than the eligible one is not.
+# The cheapest family does stage A and then fades: it is the only survivor, it misses on stage B and
+# the class is weak. The pruned pairs re-enter cheapest first and the first entry stops them: the
+# dearest is never run past stage A. Against a best that weak, the pair that failed everything is
+# half-way equivalent, so its own second repetition runs (6 trials, not 3).
 : > "$BT"; FADE="$WORK/fade"; rm -rf "$FADE"; mkdir -p "$FADE"
-STUB_COSTS="c-model=0.05,a-model=0.30" STUB_FADE="c-model:2:$FADE" \
-  rb --grid c-model/medium,b-model/medium,a-model/medium,b-model/low --max-usd 100 --reps 2 --concurrency 1 >/dev/null 2>&1
-check "a cheap band that misses the floor hands confirmation to the next band, and stops there" \
-  "a-model/medium=2|b-model/low=2|b-model/medium=6|c-model/medium=6" \
+out=$(STUB_COSTS="c-model=0.05,a-model=0.30" STUB_FADE="c-model:2:$FADE" \
+  rb --grid c-model/medium,b-model/medium,a-model/medium,b-model/low --max-usd 100 --reps 2 --concurrency 1 2>/dev/null)
+check "a survivor that misses on stage B hands the class to the pruned pairs, cheapest first, and the first entry stops it" \
+  "a-model/medium=2|b-model/low=6|b-model/medium=6|c-model/medium=6" \
   "$(jq -rs 'group_by(.pair)|map("\(.[0].pair)=\(length)")|join("|")' "$BT")"
-check "the band confirmed after it meets the floor" "6/6" \
+check "the pair re-admitted last meets the bar on every task" "6/6" \
   "$(jq -rs '[.[]|select(.pair=="b-model/medium")]|"\(map(select(.status=="pass"))|length)/\(length)"' "$BT")"
+check "and the last line counts only the pair never re-admitted" "bench: spent=2.30 trials=20 unmeasured=0 pruned=1" "$(printf '%s\n' "$out" | tail -1)"
+# Four tasks, so that stage A (the first two) and stage B (the last two) are told apart.
+mkdir -p "$BS/routing/projects/bench4"; cp -R "$BS/routing/projects/benchrepo/briefs" "$BS/routing/projects/bench4/"
+jq '.slug="bench4" | .tasks += [.tasks[2] | .id="pr-10" | .pr=10]' "$BM" > "$BS/routing/projects/bench4/manifest.json"
+B4T="$BS/routing/projects/bench4/trials.jsonl"
+rb4() { ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench bench4 "$@"; }
+tasks_of() { jq -rs --arg p "$1" '[.[]|select(.pair==$p)]|map(.task)|unique|length' "$B4T"; }
+reps_of() { jq -rs --arg r "$1" '[.[]|select(.rep==($r|tonumber))]|group_by(.pair)|map("\(.[0].pair)=\(length)")|join("|")' "$B4T"; }
+last_line() { printf '%s\n' "$1" | tail -1; }
+# A pair another pair undercuts while passing the same stage-A tasks stops after stage A.
+: > "$B4T"
+out=$(STUB_COSTS="c-model=0.05" rb4 --grid c-model/medium,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "a pair dominated on stage A runs two tasks only, the dominating pair all four, and the last line counts the pruned" "4|2|bench: spent=0.52 trials=6 unmeasured=0 pruned=1" \
+  "$(tasks_of c-model/medium)|$(tasks_of b-model/medium)|$(last_line "$out")"
+# The second repetition goes to the best pair and to the pairs between a third and seven tenths
+# likely to be equivalent to it, on every task. The family fades after its fifth run: c-model/medium
+# ends at 3 of 4 (about 0.39), c-model/high at 2 of 4 (about 0.16), b-model/medium at 4 of 4.
+: > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
+out=$(STUB_FADE="c-model:5:$FADE" rb4 --grid c-model/medium,c-model/high,b-model/medium --max-usd 100 --reps 2 --concurrency 1 2>/dev/null)
+check "every survivor is graded on all four tasks" "4|4|4" "$(tasks_of c-model/medium)|$(tasks_of c-model/high)|$(tasks_of b-model/medium)"
+check "only the best pair and the pair between 0.3 and 0.7 have a second repetition, on every task" "b-model/medium=4|c-model/medium=4" "$(reps_of 2)"
+check "and the last line counts every trial of the run" "bench: spent=2.26 trials=20 unmeasured=0 pruned=0" "$(last_line "$out")"
+: > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
+out=$(STUB_FADE="c-model:5:$FADE" rb4 --grid c-model/medium,c-model/high,b-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "--reps 1 runs no second repetition" "|bench: spent=1.38 trials=12 unmeasured=0 pruned=0" "$(reps_of 2)|$(last_line "$out")"
+# Re-admission: the survivor is weak after stage B; the pruned pairs come back cheapest first and
+# the first entry stops them.
+: > "$B4T"; rm -rf "$FADE"; mkdir -p "$FADE"
+out=$(STUB_COSTS="c-model=0.05,a-model=0.30" STUB_FADE="c-model:2:$FADE" rb4 --grid c-model/medium,b-model/medium,a-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "the cheapest pruned pair runs stage B and gives the entry; the dearer one is left at stage A" "a-model/medium=2|b-model/medium=4|c-model/medium=4" \
+  "$(jq -rs 'group_by(.pair)|map("\(.[0].pair)=\(length)")|join("|")' "$B4T")"
+check "and the last line counts the pair never re-admitted" "bench: spent=1.36 trials=10 unmeasured=0 pruned=1" "$(last_line "$out")"
+before=$(wc -l < "$B4T" | tr -d ' ')
+out=$(STUB_COSTS="c-model=0.05,a-model=0.30" rb4 --grid c-model/medium,b-model/medium,a-model/medium --max-usd 100 --reps 1 --concurrency 1 2>/dev/null)
+check "a restart re-runs no trial, takes the same decisions and counts the same pruned pair" "$before|bench: spent=0.00 trials=0 unmeasured=0 pruned=1" \
+  "$(wc -l < "$B4T" | tr -d ' ')|$(last_line "$out")"
 : > "$BT"
 out=$(rb --grid b-model/medium,c-model/medium --max-usd 0.15 --concurrency 1)
-check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=6$')"
+check "the cap stops new trials and says what is left" "1" "$(printf '%s\n' "$out" | tail -1 | grep -c '^bench: spent=0.24 trials=2 unmeasured=2 pruned=0$')"
 : > "$BT"
 out=$(rb --grid b-model/medium,c-model/medium --max-usd 100 --reps 1 --concurrency 2)
 check "two trials at once measure the same grid" "6|0" \
@@ -6344,7 +6386,7 @@ mkdir -p "$BS/routing/projects/badbase"; cp -R "$BS/routing/projects/benchrepo/b
 jq '.slug="badbase" | .tasks=[{id:"bad-1",pr:1,class:"behaviour-phase",base:"0000000000000000000000000000000000000000",merged:.tasks[0].merged,brief:"briefs/pr-7.md",status:"ready"}]' "$BM" \
   > "$BS/routing/projects/badbase/manifest.json"
 out=$(ORCHESTRATOR_STATE_DIR="$BS" ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" TMPDIR="$WORK" python3 "$ROUTING" bench badbase --grid b-model/medium --max-usd 100 2>/dev/null)
-check "a trial that raises is recorded as an error and the bench goes on to its last line" "error|bench: spent=0.00 trials=1 unmeasured=0" \
+check "a trial that raises is recorded as an error and the bench goes on to its last line" "error|bench: spent=0.00 trials=1 unmeasured=0 pruned=1" \
   "$(jq -r .status "$BS/routing/projects/badbase/trials.jsonl")|$(printf '%s\n' "$out" | tail -1)"
 check "and leaves no trial directory" "0" "$(ls -d "$WORK"/trial-* 2>/dev/null | wc -l | tr -d ' ')"
 # Costs that cannot be read are never free; a draft is named; errors count within one run.
@@ -6354,7 +6396,7 @@ jq '.tasks += [{id:"draft-1",pr:1,class:"behaviour-phase",base:.tasks[0].base,me
 : > "$BT"
 out=$(STUB_SILENT=1 rb --grid b-model/medium --max-usd 100 --class behaviour-phase --reps 1 --concurrency 1 2>"$WORK/silent.err")
 check "a host that answers nothing costs the ceiling it was launched with, flagged" "1.25|true|error" "$(last '[.cost_usd,.cost_incomplete,.status]|map(tostring)|join("|")')"
-check "the cap counts the ceiling" "bench: spent=2.50 trials=2 unmeasured=0" "$(printf '%s\n' "$out" | tail -1)"
+check "the cap counts the ceiling" "bench: spent=2.50 trials=2 unmeasured=0 pruned=1" "$(printf '%s\n' "$out" | tail -1)"
 check "a draft task is named when the bench skips it" "1" "$(grep -c 'bench: task draft-1 is still a draft, skipped' "$WORK/silent.err")"
 : > "$BT"
 rb --grid b-model/max --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
@@ -6369,6 +6411,11 @@ check "errors of an earlier run do not drop the pair" "0|5" "$(grep -c 'dropping
 STUB_JUDGE=garbage rb --grid b-model/medium --max-usd 100 --concurrency 1 2>"$WORK/bench.err" >/dev/null
 check "a judge that answers nothing drops no pair" "0|3" "$(grep -c 'dropping' "$WORK/bench.err")|$(wc -l < "$BT" | tr -d ' ')"
 cp "$WORK/bm.bak" "$BM"
+# The selection thresholds are read before anything is spent.
+: > "$BT"; printf '{"selection":{"delta":2}}' > "$BS/routing/config.json"
+check "a mistyped selection threshold stops the bench before any trial" "ERROR: selection: delta must be a number from 0 to 1, got 2|0" \
+  "$(rb --grid b-model/medium --max-usd 100 2>&1 | tail -1)|$(wc -l < "$BT" | tr -d ' ')"
+rm -f "$BS/routing/config.json"
 check "no grid and no family bound is a refusal" "ERROR: bench: no family bound in the tier map; name them with --families" \
   "$(mv "$BS/models.json" "$WORK/models.off"; rb --max-usd 1 2>&1; mv "$WORK/models.off" "$BS/models.json")"
 printf '{"slug":"bare","repo":"%s","profile":"x/y","tasks":[]}' "$BR" > "$WORK/bare.json"; mkdir -p "$BS/routing/projects/bare"; cp "$WORK/bare.json" "$BS/routing/projects/bare/manifest.json"

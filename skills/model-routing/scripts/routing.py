@@ -529,14 +529,6 @@ SELECTION = {"delta": 0.10, "bar": 0.8}
 STATUSES = ("pass", "fail", "error")
 
 
-def floors():
-    """The bench's confirmation floors. The tables no longer read them: they select by
-    equivalence to the best pair (`selection`).
-    """
-    cfg = read_json(os.path.join(ROUTING_DIR, "config.json"), {}).get("floor", {})
-    return float(cfg.get("default", 0.9)), float(cfg.get("strict", 1.0))
-
-
 def selection():
     """`delta` and `bar` from config.json's "selection", else the defaults. A value that is not
     a number (a boolean is not one), is not finite or lies outside [0, 1] is refused: a mistyped
@@ -1342,7 +1334,9 @@ def cmd_bench(argv):
     judge_pair("bench")
     done = {(t["task"], t["pair"], t.get("rep", 1)): t
             for t in read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))}
-    state = {"spent": 0.0, "trials": 0, "errors": {}, "dropped": set(), "warned": set()}
+    state = {"spent": 0.0, "trials": 0, "errors": {}, "dropped": set(), "warned": set(),
+             "unmeasured": 0, "pruned": 0}
+    delta = selection()[0]  # read before anything is spent: a mistyped threshold stops the run here
     # Errors drop a pair for this run only: one host outage must not strike a pair for good.
 
     def run(jobs):
@@ -1389,7 +1383,65 @@ def cmd_bench(argv):
         # Unmeasured: every job with no trial, whether the cap or a dropped pair left it.
         return results, len(set(jobs) - set(results))
 
-    unmeasured = 0
+    def go(jobs):
+        """Run a stage's jobs: (results, whether the cap left some of them unmeasured, which
+        ends the class: a stage the cap interrupted is the last one planned).
+        """
+        results, left = run(jobs)
+        state["unmeasured"] += left
+        return results, bool(left) and state["spent"] >= a.max_usd
+
+    def bench_class(cls, tasks):
+        """The class's stages; the number of pairs pruned after stage A and never re-admitted.
+        The trials of those pairs stay out of the selection until they re-enter, so a restart,
+        which finds the trials of an earlier re-admission, reads the class as the first run did.
+        """
+        stage_a, stage_b = stage_split(tasks)
+        res, stopped = go([(tid, pr, 1) for pr in pairs for tid in stage_a])
+        if stopped:
+            return 0
+        survivors, pruned = prune([pr for pr in pairs if pr not in state["dropped"]],
+                                  {(tid, pr): t for (tid, pr, _), t in res.items()}, stage_a)
+        out = set(pruned)
+
+        def class_stats():
+            return stats_of([t for (tid, pr, _), t in done.items()
+                             if tid in tasks and t["class"] == cls and pr not in out])
+
+        def selected():
+            return select_entry(cls, class_stats(), cls in STRICT_CLASSES, {})
+
+        def repeat(only=None):
+            """Reps 2..--reps on every task for the best pair and for each covered pair of the
+            grid that is equivalent to it in between three and seven tenths of the draws:
+            the pairs a repetition can move. True when the cap ended the stage.
+            """
+            if a.reps < 2:
+                return False
+            ladder, best, _ = compare(cls, class_stats(), delta)
+            want = [r["pair"] for r in ladder
+                    if r["covered"] and r["pair"] in pairs and r["pair"] not in state["dropped"]
+                    and (r["pair"] == best or 0.3 <= r["p_equiv"] <= 0.7) and (only is None or r["pair"] in only)]
+            return go([(tid, pr, rep) for pr in want for tid in tasks for rep in range(2, a.reps + 1)])[1]
+
+        if go([(tid, pr, 1) for pr in survivors for tid in stage_b])[1] or repeat():
+            return len(out)
+        entry, note = selected()
+        # Cheapest first, until one gives an entry; a class with no covered pair has nothing a
+        # pruned pair could change.
+        for pr in pruned:
+            if entry or note == "no covered pair":
+                break
+            if pr in state["dropped"]:
+                continue
+            if go([(tid, pr, 1) for tid in stage_b])[1]:
+                break
+            out.discard(pr)
+            if repeat({pr}):
+                break
+            entry, note = selected()
+        return len(out)
+
     by_class = {}
     for t in m["tasks"]:
         if a.cls and t["class"] != a.cls:
@@ -1399,36 +1451,9 @@ def cmd_bench(argv):
         else:
             warn("bench: task %s is still a draft, skipped" % t["id"])
     for cls, tasks in sorted(by_class.items()):
-        screen = [(tid, pr, 1) for pr in pairs for tid in tasks[:2]]
-        res, left = run(screen)
-        unmeasured += left
-        passing = [pr for pr in pairs
-                   if all(res.get((tid, pr, 1), {}).get("status") == "pass" for tid in tasks[:2])]
-        floor = floors()[1] if cls in STRICT_CLASSES else floors()[0]
-        tried = set()
-        # Band after band, cheapest first: an easy screen lets a cheap pair through, and when
-        # its confirmation misses the floor the dearer pairs that also passed are still owed
-        # theirs. Only a pair cheaper than the best eligible one can still change the entry. A
-        # band the cap leaves unmeasured is counted, and no further band is tried.
-        while True:
-            stats = stats_of([t for (tid, _, _), t in done.items() if tid in tasks and t["class"] == cls])
-            mean = lambda pr: (sum(stats[pr]["costs"]) / len(stats[pr]["costs"])
-                               if pr in stats and stats[pr]["costs"] else float("inf"))
-            eligible = [pr for pr, s in stats.items()
-                        if s["n"] >= MIN_TRIALS and s["passes"] / s["n"] >= floor and s["costs"]]
-            best = min((mean(pr) for pr in eligible), default=float("inf"))
-            candidates = sorted((pr for pr in passing if pr not in tried and pr not in state["dropped"]
-                                 and pr not in eligible and mean(pr) < best), key=lambda pr: (mean(pr), pr))
-            if not candidates:
-                break
-            band = [pr for pr in candidates if mean(pr) <= 1.5 * mean(candidates[0])]
-            tried.update(band)
-            jobs = [(tid, pr, rep) for pr in band for tid in tasks for rep in range(1, a.reps + 1)]
-            _, left = run(jobs)
-            unmeasured += left
-            if state["spent"] >= a.max_usd:
-                break
-    print("bench: spent=%.2f trials=%d unmeasured=%d" % (state["spent"], state["trials"], unmeasured))
+        state["pruned"] += bench_class(cls, tasks)
+    print("bench: spent=%.2f trials=%d unmeasured=%d pruned=%d"
+          % (state["spent"], state["trials"], state["unmeasured"], state["pruned"]))
 
 
 # --- generalisation and export --------------------------------------------------------
