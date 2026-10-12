@@ -166,7 +166,7 @@ The class of each kind of work and its tier: `skills/model-routing/SKILL.md`, «
 
 ### 15. The bench runs every pair on the same tasks
 
-- Since: routing phase 4 (2026-10-12), from the operator's study of the dispatch trials.
+- Since: routing phase 4 (#184, 2026-10-12), from the operator's study of the dispatch trials.
 - Rule: `skills/model-routing/references/calibration.md`, « 4. Run the bench, on the
   operator's cap ».
 - Choice: every pair of the grid runs the first half of a class's tasks; a pair stops there
