@@ -140,7 +140,7 @@ The class of each kind of work and its tier: `skills/model-routing/SKILL.md`, «
 
 ### 13. A correction round runs one effort notch above its phase
 
-- Since: routing phase 4 (2026-10-12), from the operator's study of the dispatch trials.
+- Since: routing phase 4 (#181, 2026-10-12), from the operator's study of the dispatch trials.
 - Rule: `skills/model-routing/SKILL.md`, « The correction round runs one notch above its
   phase »; `routing.py pick` prints the pair as `nbis=<pair>`.
 - Choice: a phase starts at the cheap pair its table gives, and its correction round runs the
@@ -152,7 +152,7 @@ The class of each kind of work and its tier: `skills/model-routing/SKILL.md`, «
 
 ### 14. A table measured on small work does not serve a large phase
 
-- Since: routing phase 4 (2026-10-12), from the same study.
+- Since: routing phase 4 (#181, 2026-10-12), from the same study.
 - Rule: `skills/model-routing/SKILL.md`, « Where the pair comes from »;
   `skills/model-routing/references/calibration.md`, « 5. Calibrate the project's table » (the
   size stamp, pick by size).
