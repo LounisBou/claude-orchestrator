@@ -6570,6 +6570,8 @@ check "ready proves a task whose merged tree passes, and keeps the control it ra
 check "and says so, with the time the tests took" "1" "$(printf '%s\n' "$out" | grep -c '^ready: ok-1 (control passed in [0-9.]*s)$')"
 check "a passing control keeps no failure lines" "0|false|false" "$(ktask ok-1 .control.exit)|$(ktask ok-1 '.control|has("tests_failed")')|$(ktask ok-1 '.control|has("tests_tail")')"
 
+# ok-1 was proved by the call above: put it back to a draft, so that only this call can leave it ready.
+jq '(.tasks[]|select(.id=="ok-1")) |= (.status="draft" | del(.control, .void))' "$KM" > "$WORK/ctl.tmp" && mv "$WORK/ctl.tmp" "$KM"
 out=$(rk ready ctl bad-1 ok-1 2>"$WORK/ctl.err"); code=$?
 check "ready voids a task whose merged tree fails its own tests, proves the next one, and exits 1" "1|void|ready" \
   "$code|$(ktask bad-1 .status)|$(ktask ok-1 .status)"
