@@ -6640,6 +6640,64 @@ out=$(ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" rk bench
 check "the bench skips a void task and says it is void, and a draft keeps its wording" "1|1|0" \
   "$(printf '%s\n' "$out" | grep -c 'bench: task bad-1 is void, skipped')|$(printf '%s\n' "$out" | grep -c 'bench: task draft-2 is still a draft, skipped')|$(printf '%s\n' "$out" | grep -c 'bench: task ok-1 is')"
 
+# What a table counts: the trials of ready tasks, those naming no task (record rows), and those
+# naming a task the manifest does not know.
+check "counted keeps a trial of a ready task, one naming no task and one naming an unknown task; the others come back by task" "['a', None, 'x']|[('d', 1), ('v', 2)]" \
+  "$(rcall '(lambda r: "%s|%s" % ([t.get("task") for t in r[0]], sorted(r[1].items())))(m.counted({"tasks": [{"id": "a", "status": "ready"}, {"id": "v", "status": "void"}, {"id": "d", "status": "draft"}]}, [{"task": "a"}, {"task": "v"}, {"task": "d"}, {}, {"task": "x"}, {"task": "v"}]))')"
+check "counted of a manifest with no task keeps every trial" "3|{}" \
+  "$(rcall '(lambda r: "%d|%s" % (len(r[0]), r[1]))(m.counted({}, [{"task": "a"}, {"task": "b"}, {}]))')"
+
+QS="$WORK/countstate"; QP="$QS/routing/projects/cnt"; mkdir -p "$QP"
+printf '{"slug":"cnt","repo":"/nonexistent","profile":"x/y","tasks":[{"id":"t1","status":"ready"},{"id":"t2","status":"ready"},{"id":"t3","status":"ready"},{"id":"t4","status":"void"},{"id":"t5","status":"draft"}]}' > "$QP/manifest.json"
+qtrial() { # task status [times]: a trial of b-model/medium; an empty task names none
+  local i tf=""; [ -n "$1" ] && tf="\"task\":\"$1\","
+  for i in $(seq "${3:-1}"); do
+    printf '{%s"class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{"b-model-1":0.3},"cost_usd":0.3,"status":"%s"}\n' "$tf" "$2" >> "$QP/trials.jsonl"
+  done; }
+: > "$QP/trials.jsonl"
+for t in t1 t2 t3; do qtrial "$t" pass 2; done
+qtrial t4 fail 2; qtrial t5 fail; qtrial "" pass; qtrial t9 pass
+rcnt() { ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt "$@"; }
+rcnt >/dev/null 2>"$WORK/cnt.err"
+qrung() { jq -r '.entries["behaviour-phase"].ladder[0]|"\(.n)|\(.tasks)|\(.per_task|keys|join(","))"' "$QS/routing/tables/project-cnt.json"; }
+check "calibrate leaves the trials of a voided and of a draft task out of the figures, and keeps the rest" "8|4|record,t1,t2,t3,t9" "$(qrung)"
+check "and says what it left out, once, with the ids sorted" "1|1" \
+  "$(grep -c 'cnt: excluded 3 trial(s) of task(s) not ready: t4 t5$' "$WORK/cnt.err")|$(grep -c 'excluded' "$WORK/cnt.err")"
+# Made ready again, t4 and t5 bring their trials back (their failures are now passes, so the class
+# keeps its entry and the ladder can be read).
+jq '(.tasks[]|select(.id=="t4" or .id=="t5")).status="ready"' "$QP/manifest.json" > "$WORK/cnt.tmp" && mv "$WORK/cnt.tmp" "$QP/manifest.json"
+sed 's/"status":"fail"/"status":"pass"/' "$QP/trials.jsonl" > "$WORK/cnt.tmp" && mv "$WORK/cnt.tmp" "$QP/trials.jsonl"
+rcnt >/dev/null 2>"$WORK/cnt.err"
+check "a task made ready again brings its trials back, and nothing is said when nothing is left out" "11|6|0" \
+  "$(qrung | cut -d'|' -f1,2)|$(grep -c 'excluded' "$WORK/cnt.err")"
+# Every trial on a voided task: only the record rows are left to calibrate on.
+printf '{"slug":"cnt2","repo":"/nonexistent","profile":"x/y","tasks":[{"id":"t1","status":"void"}]}' > "$WORK/cnt2.json"
+mkdir -p "$QS/routing/projects/cnt2"; cp "$WORK/cnt2.json" "$QS/routing/projects/cnt2/manifest.json"
+for i in 1 2 3; do printf '{"task":"t1","class":"n-bis","pair":"c-model/low","rep":1,"models":{"c-model-1":0.1},"cost_usd":0.1,"status":"pass"}\n' >> "$QS/routing/projects/cnt2/trials.jsonl"; done
+RR2="$WORK/cnt-rec.jsonl"; : > "$RR2"
+for i in 1 2 3 4 5 6; do printf '{"id":%d,"class":"n-bis","model":"c-model","effort":"low","rounds":1,"state":"closed","cost_usd":0.02,"sessions":["s"],"cost_incomplete":false}\n' "$i" >> "$RR2"; done
+check "trials all left out, the record rows still calibrate" "class=n-bis pair=c-model/low pass_rate=1.0 n=6 expected_usd=0.02 p_best=1.0 size=unknown" \
+  "$(ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt2 --from-record "$RR2" 2>/dev/null)"
+check_status "and with no record row either, calibrate has nothing to read" 1 env ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt2
+
+GQ="$WORK/gcountstate"
+gcmk() { mkdir -p "$GQ/routing/projects/$1"; printf '{"slug":"%s","repo":"/x/%s","profile":"php/laravel-app","tasks":%s}' "$1" "$1" "$2" > "$GQ/routing/projects/$1/manifest.json"; : > "$GQ/routing/projects/$1/trials.jsonl"; }
+gctrial() { # slug task status [times]
+  local i; for i in $(seq "${4:-1}"); do
+    printf '{"task":"%s","class":"behaviour-phase","pair":"b-model/medium","rep":1,"models":{"b-model-1":0.3},"cost_usd":0.3,"status":"%s"}\n' "$2" "$3" >> "$GQ/routing/projects/$1/trials.jsonl"
+  done; }
+gcmk g1 '[{"id":"t1","status":"ready"},{"id":"t2","status":"ready"},{"id":"t3","status":"ready"},{"id":"t4","status":"void"}]'
+gcmk g2 '[{"id":"t1","status":"ready"},{"id":"t2","status":"ready"},{"id":"t3","status":"ready"}]'
+gcmk g3 '[{"id":"t1","status":"void"}]'
+for s in g1 g2; do for t in t1 t2 t3; do gctrial $s $t pass 2; done; done
+gctrial g1 t4 fail 2; gctrial g3 t1 pass 2
+out=$(ORCHESTRATOR_STATE_DIR="$GQ" python3 "$ROUTING" generalize 2>"$WORK/gcount.err")
+check "generalize leaves the trials of a voided task out of the pooled figures" "12|6" \
+  "$(jq -r '.entries["behaviour-phase"].ladder[]|select(.pair=="b-model/medium")|"\(.n)|\(.tasks)"' "$GQ/routing/tables/global.json")"
+check "and says which project left what out, one line per project that did" "g1: excluded 2 trial(s) of task(s) not ready: t4|g3: excluded 2 trial(s) of task(s) not ready: t1" \
+  "$(grep 'excluded' "$WORK/gcount.err" | sed 's/^WARNING: //' | paste -sd'|' -)"
+check "a project with no trial left is no project of the fold" "global projects=2 classes=1" "$(printf '%s\n' "$out" | grep '^global')"
+
 echo "== routing: generalize =="
 
 GS="$WORK/gstate"

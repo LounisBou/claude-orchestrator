@@ -610,6 +610,30 @@ def read_trials(path):
     return out
 
 
+def counted(m, trials):
+    """The trials a table may count, and the number left out per task. A trial of a task the
+    manifest holds as anything but ready (void, or still a draft) measures no pair: nothing
+    could pass that task. A trial naming no task (a record row) or a task the manifest does not
+    know is kept: the manifest says nothing against it.
+    """
+    status = {t.get("id"): t.get("status") for t in m.get("tasks") or []}
+    kept, left = [], {}
+    for t in trials:
+        tid = t.get("task")
+        if tid and tid in status and status[tid] != "ready":
+            left[tid] = left.get(tid, 0) + 1
+        else:
+            kept.append(t)
+    return kept, left
+
+
+def note_excluded(slug, left):
+    """What `counted` left out of a project, said once per command and project."""
+    if left:
+        warn("%s: excluded %d trial(s) of task(s) not ready: %s"
+             % (slug, sum(left.values()), " ".join(sorted(left))))
+
+
 def record_trials(record):
     """A closed pair row graded by the record's own signals: one round and no escaped
     defect is a pass. Rows without a complete measured cost are left out.
@@ -858,12 +882,14 @@ def cmd_calibrate(argv):
     p.add_argument("slug")
     p.add_argument("--from-record", dest="records", action="append", default=[])
     a = p.parse_args(argv)
-    trials = read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl"))
+    m = read_json(manifest_path(a.slug), {}) or {}
+    trials, left = counted(m, read_trials(os.path.join(ROUTING_DIR, "projects", a.slug, "trials.jsonl")))
+    note_excluded(a.slug, left)
     for rec in a.records:
         trials += record_trials(rec)
     if not trials:
         die("calibrate: no trial and no record row for %s" % a.slug)
-    sizes = task_sizes(read_json(manifest_path(a.slug), {}) or {})
+    sizes = task_sizes(m)
     table, lines = build_table("project:" + a.slug, trials, sizes, read_aliases())
     write_json(table_path("project:" + a.slug), table)
     print("\n".join(lines))
@@ -1570,7 +1596,9 @@ def all_projects():
     out = {}
     for path in sorted(glob.glob(os.path.join(ROUTING_DIR, "projects", "*", "manifest.json"))):
         m = read_json(path, {})
-        trials = read_trials(os.path.join(os.path.dirname(path), "trials.jsonl"))
+        trials, left = counted(m, read_trials(os.path.join(os.path.dirname(path), "trials.jsonl")))
+        if m.get("slug"):
+            note_excluded(m["slug"], left)
         if trials and m.get("slug"):
             out[m["slug"]] = (m.get("profile") or "unknown/unknown", trials, task_sizes(m))
     return out
