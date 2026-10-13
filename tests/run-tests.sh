@@ -6872,6 +6872,8 @@ check "the skill puts a search exploration, summary in the brief, before a phase
   "$(spells "$MR" 'beyond every measured size')|$(carries "$MR" 'read-only search exploration')"
 check "the calibration reference states pick's options and its lines" "yes|yes|yes" \
   "$(spells "$MRC" '--files <n> --lines <n>')|$(spells "$MRC" 'size=large beyond=<scope>')|$(spells "$MRC" 'nbis=<pair>')"
+check "the calibration reference says ready runs the merged commit's tests, what void is for, and that a table counts only ready tasks" "yes|yes|yes|yes|yes" \
+  "$(spells "$MRC" '`ready` proves each task passable before it is benched')|$(spells "$MRC" '`void <slug> <task-id>... --reason <text>`')|$(spells "$MRC" 'whose tests assert behaviour the brief never')|$(spells "$MRC" '**Ready tasks only.**')|$(spells "$MRC" 'excluded <n> trial(s) of task(s) not ready: <ids>')"
 check "the dispatch log holds the correction round's notch and the size rule" "yes|yes" \
   "$(spells "$ROOT/docs/agent-dispatches.md" 'A correction round runs one effort notch above its phase')|$(spells "$ROOT/docs/agent-dispatches.md" 'A table measured on small work does not serve a large phase')"
 check "the calibration reference walks the paired bench: the two stages, the prune rule, the band of the second repetition, re-admission" "yes|yes|yes|yes|yes" \
