@@ -995,6 +995,32 @@ def cmd_ready(argv):
         die("ready: voided %s" % " ".join(voided))
 
 
+def cmd_void(argv):
+    """Set tasks aside with a reason, no control run: a task whose merged commit passes but whose
+    tests assert what the brief never states. A voided task returns only through `ready`, which
+    proves it again.
+    """
+    p = argparse.ArgumentParser(prog="void")
+    p.add_argument("slug")
+    p.add_argument("tasks", nargs="+")
+    p.add_argument("--reason", required=True)
+    a = p.parse_args(argv)
+    reason = a.reason.strip()
+    if not reason:
+        die("void: --reason must not be empty")
+    m = load_manifest(a.slug)
+    by_id = {t["id"]: t for t in m["tasks"]}
+    ids = list(dict.fromkeys(a.tasks))
+    for tid in ids:
+        if tid not in by_id:
+            die("void: no task %s in %s" % (tid, a.slug))
+    for tid in ids:
+        by_id[tid].update(status="void", void=reason)
+    write_json(manifest_path(a.slug), m)
+    for tid in ids:
+        print("void: %s %s" % (tid, reason))
+
+
 # --- bench: one trial -----------------------------------------------------------------
 
 RUBRIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -1686,7 +1712,7 @@ def cmd_show(argv):
 
 
 COMMANDS = {"cost": cmd_cost, "profile": cmd_profile, "pick": cmd_pick, "calibrate": cmd_calibrate,
-            "harvest": cmd_harvest, "ready": cmd_ready, "trial": cmd_trial,
+            "harvest": cmd_harvest, "ready": cmd_ready, "void": cmd_void, "trial": cmd_trial,
             "bench": cmd_bench, "generalize": cmd_generalize, "show": cmd_show,
             "export": cmd_export}
 

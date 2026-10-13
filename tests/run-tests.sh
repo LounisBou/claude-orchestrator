@@ -6619,6 +6619,22 @@ check "a run killed midway keeps the task proved before it, and the one it was p
   "$(ktask bad-1 .status)|$(ktask slow-1 .status)|$(ktask slow-1 'has("control")')"
 rm -rf "${KT:?}"/*
 
+# void: a task whose merged commit passes but whose tests assert what the brief never states.
+check_status "void wants a reason" 2 rk void ctl ok-1
+check "and a reason that says something" "ERROR: void: --reason must not be empty" "$(rk void ctl ok-1 --reason '  ' 2>&1)"
+check "void of an unknown task is refused, naming it" "ERROR: void: no task nope-9 in ctl" "$(rk void ctl nope-9 --reason why 2>&1)"
+at=$(ktask ok-1 .control.at)
+out=$(rk void ctl ok-1 draft-1 --reason "the tests assert what the brief never states" 2>&1); code=$?
+check "void marks each task with its reason, prints it for each, and runs no control" "0|void|void|the tests assert what the brief never states|$at|false" \
+  "$code|$(ktask ok-1 .status)|$(ktask draft-1 .status)|$(ktask ok-1 .void)|$(ktask ok-1 .control.at)|$(ktask draft-1 'has("control")')"
+check "one line each" "void: ok-1 the tests assert what the brief never states|void: draft-1 the tests assert what the brief never states" \
+  "$(printf '%s\n' "$out" | paste -sd'|' -)"
+rk ready ctl ok-1 >/dev/null 2>&1
+check "a voided task whose merged tree passes returns through ready, its void field gone" "ready|false" \
+  "$(ktask ok-1 .status)|$(ktask ok-1 'has("void")')"
+rk ready ctl bad-1 >/dev/null 2>&1
+check "and one whose merged tree fails stays void" "void" "$(ktask bad-1 .status)"
+
 echo "== routing: generalize =="
 
 GS="$WORK/gstate"
