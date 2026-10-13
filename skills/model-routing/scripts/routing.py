@@ -957,18 +957,42 @@ def cmd_harvest(argv):
 
 
 def cmd_ready(argv):
+    """Prove each task passable, in the order given: the merged commit's own tests run on the
+    merged tree, and a task they fail is void. The manifest is written after each task, so a
+    run killed midway keeps the tasks proved before it.
+    """
     if len(argv) < 2:
         die("ready: a project and at least one task id are required")
     m = load_manifest(argv[0])
-    ids = {t["id"] for t in m["tasks"]}
-    for tid in argv[1:]:
-        if tid not in ids:
+    need_tests(m)
+    by_id = {t["id"]: t for t in m["tasks"]}
+    ids = list(dict.fromkeys(argv[1:]))
+    for tid in ids:
+        if tid not in by_id:
             die("ready: no task %s in %s" % (tid, argv[0]))
-    for t in m["tasks"]:
-        if t["id"] in argv[1:]:
+    voided = []
+    for tid in ids:
+        t = by_id[tid]
+        try:
+            c = t["control"] = control(m, t, tempfile.gettempdir())
+        except subprocess.CalledProcessError as exc:
+            die("ready: the merged commit of task %s cannot be read: %s"
+                % (tid, (exc.stderr or b"").decode("utf-8", errors="replace").strip() or exc))
+        if c["exit"] == 0:
             t["status"] = "ready"
-    write_json(manifest_path(argv[0]), m)
-    print("ready: %s" % " ".join(argv[1:]))
+            t.pop("void", None)
+            print("ready: %s (control passed in %ss)" % (tid, c["duration_s"]))
+        else:
+            t["status"] = "void"
+            t["void"] = ("control: the merged commit's own tests time out" if c["exit"] is None
+                         else "control: the merged commit's own tests fail (exit %d)" % c["exit"])
+            print("void: %s %s" % (tid, t["void"]))
+            for line in c["tests_failed"][:5]:
+                print(line, file=sys.stderr)
+            voided.append(tid)
+        write_json(manifest_path(argv[0]), m)
+    if voided:
+        die("ready: voided %s" % " ".join(voided))
 
 
 # --- bench: one trial -----------------------------------------------------------------
@@ -1099,6 +1123,33 @@ def overlay_hidden_tests(repo, base, merged, d, globs):
             fh.write(blob.stdout)
 
 
+def control(m, task, root):
+    """The merged commit's own tests, run on the merged tree and on nothing else - never the
+    base, never an agent's diff. A task whose reference solution fails its own tests can be
+    passed by no pair: it says nothing about any of them. `exit` is None when the tests time
+    out; a run that did not pass keeps the failing lines and the tail of the output, as a
+    failed trial does. A merged commit that cannot be archived raises: that is no verdict on
+    the task.
+    """
+    at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    d = isolate(m["repo"], task["merged"], root)
+    try:
+        started = time.time()
+        try:
+            code, out, err = run_group(["bash", "-c", m["test_command"]], TRIAL_TIMEOUT, d)
+        except subprocess.TimeoutExpired:
+            code, out, err = None, "", ""
+        took = round(time.time() - started, 1)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+    res = {"at": at, "exit": code, "duration_s": took}
+    if code != 0:
+        tests = out + err
+        failed = [line[:FAIL_LINE_CHARS] for line in tests.splitlines() if FAIL_WORD.search(line)]
+        res.update(tests_failed=failed[:FAIL_LINES], tests_tail=tests[-RECORDED_CHARS:])
+    return res
+
+
 def judge(brief, agent_diff, ref_diff, tests_out, d):
     """The verdict with the scores and reasons the rubric's JSON gives, and the judge's cost
     (the ceiling it ran under when its cost could not be read).
@@ -1208,9 +1259,14 @@ def append_trial(slug, trial):
         fh.write(("\n" if torn else "") + json.dumps(trial, sort_keys=True) + "\n")
 
 
-def runnable(m, tid):
+def need_tests(m):
+    """A manifest that names no test command or no test globs can grade no trial and prove no task."""
     if not m.get("test_command") or not m.get("test_globs"):
         die("bench: project %s has no test_command or test_globs in its manifest" % m["slug"])
+
+
+def runnable(m, tid):
+    need_tests(m)
     task = next((t for t in m["tasks"] if t["id"] == tid), None)
     if task is None:
         die("trial: no task %s in %s" % (tid, m["slug"]))
@@ -1352,8 +1408,7 @@ def cmd_bench(argv):
     p.add_argument("--class", dest="cls")
     a = p.parse_args(argv)
     m = load_manifest(a.slug)
-    if not m.get("test_command") or not m.get("test_globs"):
-        die("bench: project %s has no test_command or test_globs in its manifest" % m["slug"])
+    need_tests(m)
     aliases = read_aliases()
     # One model is one pair: the grid is read through the aliases once, so a trial recorded under
     # the identifier an alias resolves to is the alias's, and a model named twice runs once.

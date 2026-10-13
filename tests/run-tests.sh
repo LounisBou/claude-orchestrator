@@ -6538,6 +6538,87 @@ printf '{"slug":"bare","repo":"%s","profile":"x/y","tasks":[]}' "$BR" > "$WORK/b
 check "a manifest with no test command is refused" "ERROR: bench: project bare has no test_command or test_globs in its manifest" \
   "$(ORCHESTRATOR_STATE_DIR="$BS" python3 "$ROUTING" bench bare --grid b-model/medium --max-usd 1 2>&1)"
 
+echo "== routing: task control =="
+
+# A task is proved passable before it is benched: `ready` runs the merged commit's own tests on the
+# merged tree. Here ok-1's base fails its test and its merge fixes it, bad-1's base passes and its
+# merge breaks it, slow-1's merge adds a test that never ends, and lost-1's merged commit is no
+# commit: a control run on the base, or on anything but the merged tree, reads each one wrong.
+KR="$WORK/controlrepo"; mkdir -p "$KR/tests"; git -C "$KR" init -q
+kcommit() { printf '%s\n' "$1" > "$KR/tests/t.sh"; gc -C "$KR" add -A; gc -C "$KR" commit -qm "$2"; git -C "$KR" rev-parse HEAD; }
+K0=$(kcommit 'echo "FAIL the base is broken"; exit 1' broken)
+K1=$(kcommit 'exit 0' fixed)
+K2=$(kcommit 'for i in 1 2 3 4 5 6 7; do echo "FAIL case $i"; done; exit 1' regressed)
+K3=$(kcommit 'sleep 31339' hangs)
+KT="$WORK/ctl-tmp"; mkdir -p "$KT"
+KS="$WORK/ctlstate"; KP="$KS/routing/projects/ctl"; mkdir -p "$KP"; KM="$KP/manifest.json"
+printf '{"deep":"a-model","standard":"b-model","light":"c-model"}' > "$KS/models.json"
+jq -n --arg repo "$KR" --arg k0 "$K0" --arg k1 "$K1" --arg k2 "$K2" --arg k3 "$K3" '
+  def task($id; $base; $merged): {id: $id, class: "behaviour-phase", base: $base, merged: $merged,
+                                  brief: "briefs/x.md", status: "draft"};
+  {slug: "ctl", repo: $repo, profile: "x/y", test_globs: ["tests/*"],
+   test_command: "for t in tests/*.sh; do bash \"$t\" || exit 1; done",
+   tasks: [task("ok-1"; $k0; $k1), task("bad-1"; $k1; $k2), task("slow-1"; $k1; $k3),
+           task("draft-1"; $k0; $k1), task("draft-2"; $k0; $k1),
+           task("lost-1"; $k0; "0000000000000000000000000000000000000000")]}' > "$KM"
+rk() { ORCHESTRATOR_STATE_DIR="$KS" TMPDIR="$KT" python3 "$ROUTING" "$@"; }
+ktask() { jq -r --arg id "$1" ".tasks[]|select(.id==\$id)|$2" "$KM"; }
+
+out=$(rk ready ctl ok-1 2>"$WORK/ctl.err"); code=$?
+check "ready proves a task whose merged tree passes, and keeps the control it ran" "0|ready|0|true|number" \
+  "$code|$(ktask ok-1 .status)|$(ktask ok-1 .control.exit)|$(ktask ok-1 '.control.at|test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")')|$(ktask ok-1 '.control.duration_s|type')"
+check "and says so, with the time the tests took" "1" "$(printf '%s\n' "$out" | grep -c '^ready: ok-1 (control passed in [0-9.]*s)$')"
+check "a passing control keeps no failure lines" "0|false|false" "$(ktask ok-1 .control.exit)|$(ktask ok-1 '.control|has("tests_failed")')|$(ktask ok-1 '.control|has("tests_tail")')"
+
+out=$(rk ready ctl bad-1 ok-1 2>"$WORK/ctl.err"); code=$?
+check "ready voids a task whose merged tree fails its own tests, proves the next one, and exits 1" "1|void|ready" \
+  "$code|$(ktask bad-1 .status)|$(ktask ok-1 .status)"
+check "the void carries its reason and the failure the control saw, as a failed trial does" "control: the merged commit's own tests fail (exit 1)|1|7|FAIL case 1|true" \
+  "$(ktask bad-1 .void)|$(ktask bad-1 .control.exit)|$(ktask bad-1 '.control.tests_failed|length')|$(ktask bad-1 '.control.tests_failed[0]')|$(ktask bad-1 '.control.tests_tail|contains("FAIL case 7")')"
+check "each task has its line, the void one with its reason" "1|1" \
+  "$(printf '%s\n' "$out" | grep -c "^void: bad-1 control: the merged commit's own tests fail (exit 1)\$")|$(printf '%s\n' "$out" | grep -c '^ready: ok-1 (control passed in ')"
+check "stderr shows the first five failing lines of a voided task, then names the voided tasks last" "5|ERROR: ready: voided bad-1" \
+  "$(grep -c '^FAIL case' "$WORK/ctl.err")|$(tail -1 "$WORK/ctl.err")"
+check "a control leaves no tree behind" "0" "$(ls "$KT" | wc -l | tr -d ' ')"
+
+out=$(ORCHESTRATOR_TRIAL_TIMEOUT=1 rk ready ctl slow-1 2>"$WORK/ctl.err"); code=$?
+# The kill is a signal: give the group a moment to be reaped before counting survivors.
+for _ in 1 2 3 4 5 6 7 8 9 10; do ps -axo command | grep -q '[s]leep 31339' || break; sleep 0.3; done
+check "a control that never ends is voided as a timeout, with no exit code" "1|void|control: the merged commit's own tests time out|null" \
+  "$code|$(ktask slow-1 .status)|$(ktask slow-1 .void)|$(ktask slow-1 '.control.exit|tostring')"
+check "and leaves no process and no tree behind" "0|0" "$(ps -axo command | grep -c '[s]leep 31339')|$(ls "$KT" | wc -l | tr -d ' ')"
+pkill -f 'sleep 31339' 2>/dev/null || true
+
+# A merged commit that cannot be read is not the task's fault: nothing is voided.
+out=$(rk ready ctl lost-1 2>&1); code=$?
+check "a merged commit that cannot be read stops ready, and the task is left as it was" "1|1|draft|false" \
+  "$code|$(printf '%s\n' "$out" | grep -c '^ERROR: ready: the merged commit of task lost-1 cannot be read')|$(ktask lost-1 .status)|$(ktask lost-1 'has("control")')"
+
+# Refusals come before any run.
+cp "$KM" "$WORK/ctl.before"
+out=$(rk ready ctl draft-1 nope-9 2>&1); code=$?
+check "ready refuses an unknown task before running any, and writes nothing" "1|ERROR: ready: no task nope-9 in ctl|false|same" \
+  "$code|$out|$(ktask draft-1 'has("control")')|$(cmp -s "$KM" "$WORK/ctl.before" && echo same || echo changed)"
+mkdir -p "$KS/routing/projects/notests" "$KS/routing/projects/noglobs"
+jq 'del(.test_command) | .slug="notests"' "$KM" > "$KS/routing/projects/notests/manifest.json"
+jq 'del(.test_globs) | .slug="noglobs"' "$KM" > "$KS/routing/projects/noglobs/manifest.json"
+for slug in notests noglobs; do
+  out=$(rk ready "$slug" draft-1 2>&1); code=$?
+  check "ready dies before any run on a manifest with no test command or no test globs: $slug" "1|ERROR: bench: project $slug has no test_command or test_globs in its manifest|draft|false" \
+    "$code|$out|$(jq -r '.tasks[]|select(.id=="draft-1")|.status' "$KS/routing/projects/$slug/manifest.json")|$(jq -r '.tasks[]|select(.id=="draft-1")|has("control")' "$KS/routing/projects/$slug/manifest.json")"
+done
+
+# The manifest is written after each task: a run killed midway keeps the tasks proved before it.
+jq '(.tasks[]|select(.id=="bad-1" or .id=="slow-1")) |= (.status="draft" | del(.control, .void))' "$KM" > "$WORK/ctl.tmp" && mv "$WORK/ctl.tmp" "$KM"
+ORCHESTRATOR_STATE_DIR="$KS" ORCHESTRATOR_TRIAL_TIMEOUT=60 TMPDIR="$KT" python3 "$ROUTING" ready ctl bad-1 slow-1 >/dev/null 2>&1 &
+kpid=$!
+for _ in $(seq 1 50); do [ "$(ktask bad-1 .status)" = void ] && break; sleep 0.2; done
+kill -9 "$kpid" 2>/dev/null; { wait "$kpid"; } 2>/dev/null
+for _ in 1 2 3 4 5 6 7 8 9 10; do pkill -f 'sleep 31339' 2>/dev/null; ps -axo command | grep -q '[s]leep 31339' || break; sleep 0.3; done
+check "a run killed midway keeps the task proved before it, and the one it was proving is untouched" "void|draft|false" \
+  "$(ktask bad-1 .status)|$(ktask slow-1 .status)|$(ktask slow-1 'has("control")')"
+rm -rf "${KT:?}"/*
+
 echo "== routing: generalize =="
 
 GS="$WORK/gstate"
