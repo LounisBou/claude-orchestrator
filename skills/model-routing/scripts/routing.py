@@ -888,7 +888,16 @@ def cmd_calibrate(argv):
     for rec in a.records:
         trials += record_trials(rec)
     if not trials:
-        die("calibrate: no trial and no record row for %s" % a.slug)
+        if not left:
+            die("calibrate: no trial and no record row for %s" % a.slug)
+        # Nothing is left to count: the table written while those trials counted would go on
+        # serving the entry their exclusion removes, so it goes too.
+        try:
+            os.unlink(table_path("project:" + a.slug))
+            removed = "; its table removed"
+        except FileNotFoundError:
+            removed = ""
+        die("calibrate: no counted trial for %s (%d excluded)%s" % (a.slug, sum(left.values()), removed))
     sizes = task_sizes(m)
     table, lines = build_table("project:" + a.slug, trials, sizes, read_aliases())
     write_json(table_path("project:" + a.slug), table)

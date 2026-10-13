@@ -5936,6 +5936,7 @@ check "a corrective round or an escaped defect grades a row as a failure" "class
   "$(rcal demo --from-record "$RR")"
 : > "$TR"
 check_status "no trial and no record row is a refusal" 1 rcal demo
+check "and with nothing left out, it says there was no trial and no record row" "ERROR: calibrate: no trial and no record row for demo" "$(rcal demo 2>&1)"
 check_status "a record that does not exist is a refusal" 1 rcal demo --from-record "$WORK/no-such-record.jsonl"
 
 # Tables by task: a pair is weighed per task, compared with the best measured pair, and its
@@ -6681,6 +6682,20 @@ for i in 1 2 3 4 5 6; do printf '{"id":%d,"class":"n-bis","model":"c-model","eff
 check "trials all left out, the record rows still calibrate" "class=n-bis pair=c-model/low pass_rate=1.0 n=6 expected_usd=0.02 p_best=1.0 size=unknown" \
   "$(ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt2 --from-record "$RR2" 2>/dev/null)"
 check_status "and with no record row either, calibrate has nothing to read" 1 env ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt2
+# Every trial left out and no record row either: the table those trials built goes with them, or
+# pick would go on serving the entry the exclusion exists to remove.
+rcnt2() { ORCHESTRATOR_STATE_DIR="$QS" python3 "$ROUTING" calibrate cnt2 "$@"; }
+Q2TAB="$QS/routing/tables/project-cnt2.json"
+rcnt2 --from-record "$RR2" >/dev/null 2>&1
+q2had=$([ -f "$Q2TAB" ] && echo table || echo none)
+rcnt2 >/dev/null 2>"$WORK/cnt2.err"; code=$?
+check "calibrate with every trial left out and no record row removes the project's table, naming how many trials it left out" \
+  "table|1|ERROR: calibrate: no counted trial for cnt2 (3 excluded); its table removed|none" \
+  "$q2had|$code|$(tail -1 "$WORK/cnt2.err")|$([ -f "$Q2TAB" ] && echo table || echo none)"
+rm -f "$Q2TAB"
+rcnt2 >/dev/null 2>"$WORK/cnt2.err"; code=$?
+check "and with no table to remove it says only that no trial was counted" \
+  "1|ERROR: calibrate: no counted trial for cnt2 (3 excluded)" "$code|$(tail -1 "$WORK/cnt2.err")"
 
 GQ="$WORK/gcountstate"
 gcmk() { mkdir -p "$GQ/routing/projects/$1"; printf '{"slug":"%s","repo":"/x/%s","profile":"php/laravel-app","tasks":%s}' "$1" "$1" "$2" > "$GQ/routing/projects/$1/manifest.json"; : > "$GQ/routing/projects/$1/trials.jsonl"; }
