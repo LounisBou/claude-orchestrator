@@ -6635,6 +6635,11 @@ check "a voided task whose merged tree passes returns through ready, its void fi
 rk ready ctl bad-1 >/dev/null 2>&1
 check "and one whose merged tree fails stays void" "void" "$(ktask bad-1 .status)"
 
+# The bench names why it skips a task: a draft keeps its wording, a void task is named void.
+out=$(ORCHESTRATOR_HOST_CLI="$ROOT/tests/fixtures/routing/host-stub.sh" rk bench ctl --grid b-model/medium --max-usd 0 2>&1 >/dev/null)
+check "the bench skips a void task and says it is void, and a draft keeps its wording" "1|1|0" \
+  "$(printf '%s\n' "$out" | grep -c 'bench: task bad-1 is void, skipped')|$(printf '%s\n' "$out" | grep -c 'bench: task draft-2 is still a draft, skipped')|$(printf '%s\n' "$out" | grep -c 'bench: task ok-1 is')"
+
 echo "== routing: generalize =="
 
 GS="$WORK/gstate"

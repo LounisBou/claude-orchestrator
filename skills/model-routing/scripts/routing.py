@@ -1557,7 +1557,7 @@ def cmd_bench(argv):
         if t["status"] == "ready":
             by_class.setdefault(t["class"], []).append(t["id"])
         else:
-            warn("bench: task %s is still a draft, skipped" % t["id"])
+            warn("bench: task %s is %s, skipped" % (t["id"], "void" if t["status"] == "void" else "still a draft"))
     for cls, tasks in sorted(by_class.items()):
         state["pruned"] += bench_class(cls, tasks)
     print("bench: spent=%.2f trials=%d unmeasured=%d pruned=%d"
