@@ -24,6 +24,7 @@ import {
 } from './session-name.ts'
 import { withDeadline, isDegradedPass, chainEntries } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
+import { parseWait, waitPatch, NO_WAIT, fingerprint, relayText, coordinatorOf, waitLabel } from './relay.ts'
 
 // One row per live session, the store's whole schema. `pid` is the session's host
 // process — the row lives while it does.
@@ -38,6 +39,13 @@ export type SessionRow = {
   model: string
   busy: boolean
   updated_at: string
+  // An orchestrator's last turn ended on its machine line (relay.ts): waiting on the
+  // operator, with what it blocks, or done; since when; and the fingerprint of the last
+  // wait reported to the coordinator, so the same wait is never reported twice.
+  waiting?: 'operator' | 'done' | null
+  blocks?: string | null
+  waiting_since?: string | null
+  relayed?: string | null
 }
 
 // A row lives while its session's host process does: a session idle for hours —
@@ -103,6 +111,12 @@ async function configDir($: any): Promise<string> {
   return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
 }
 
+// The scripts' state root (the launcher's chains, the coordinator's record): the
+// override first, else the config dir's claude-orchestrator.
+async function stateDir($: any): Promise<string> {
+  return (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${await configDir($)}/claude-orchestrator`
+}
+
 // The store's root under the module's state dir: one file per key.
 function storeDir(config: string): string {
   return `${config}/claude-orchestrator/store`
@@ -133,9 +147,10 @@ export function parseSessionRow(text: string): SessionRow | null {
 // writeSession reads the key's file, merges the patch over what it finds and
 // writes it back stamped: per-key writes do not collide across sessions, and
 // the stamp the row is judged stale by is the write's own unless the patch
-// carries one (the measure handler passes the reading's own time). The measure
-// handler is the only writer of a key: a same-key race is last-writer-wins,
-// at most one measure of freshness.
+// carries one (the measure handler passes the reading's own time). Only the
+// session's own handlers write its key — the measure, and the relay at its turn's
+// start and end: a same-key race is last-writer-wins, at most one measure of
+// freshness or one wait the next turn's end writes again.
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
   const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
   const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
@@ -220,6 +235,8 @@ export function paneRows(rows: Record<string, SessionRow>): { label: string; urg
       ]
       const age = ageLabel(row.updated_at, now)
       if (age !== null) parts.push(age)
+      const wait = waitLabel(row)
+      if (wait !== null) parts.push(wait)
       return { label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + row.context_percent }
     })
     .sort((a, b) => b.urgency - a.urgency)
@@ -255,7 +272,7 @@ export function agentPaneRows(agents: readonly AgentView[]): { label: string; ur
 // session's store row. An entry no live session answers for is an agent gone.
 async function agentViews($: any, tty: string): Promise<AgentView[]> {
   const config = await configDir($)
-  const state = (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${config}/claude-orchestrator`
+  const state = await stateDir($)
   const terminal = String((await $.env.get('ITERM_SESSION_ID')) ?? '')
   const owner = terminal.includes(':') ? terminal.slice(terminal.lastIndexOf(':') + 1) : ''
   if (!owner) return []
@@ -402,6 +419,42 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return next(e)
   })
 
+  // The end of a main-loop turn that answered: an orchestrator's wait written to its
+  // row and, once per wait, reported to a running coordinator (relayTurnEnd). Here
+  // rather than at classic.Stop: a stop the gate refuses goes on in the same turn, so
+  // the message a stop carries is not always the turn's last word, and the gate's own
+  // deadline is not this report's to spend; turn.complete fires once the turn is over,
+  // with its final answer. Bounded, and never holds the turn's end.
+  on('turn.complete', {}, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      if (!e.agentId && e.reason === 'answer') {
+        const done = await withDeadline(relayTurnEnd($, String(e.answer ?? '')), RELAY_BOUND_MS)
+        if (isDegradedPass(done)) await logLine($, `relay: did not finish within ${RELAY_BOUND_MS} ms`)
+      }
+    } catch (err) {
+      await logLine($, `relay: ${(err as Error).message}`)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // A turn starts: the session works again, and a wait its row carried is over.
+  on('turn.start', {}, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      const sessionId = await $.session.id()
+      const row = await readOwnRow($, sessionId)
+      if (row?.waiting) await writeSession($, sessionId, { ...NO_WAIT, updated_at: row.updated_at })
+    } catch (err) {
+      await logLine($, `relay: ${(err as Error).message}`)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
   // The pane opens on the person's own command alone — the shipped types' «
   // asked » open, placed at any width — in the two supervising roles: a
   // coordinator's lists the orchestrators, an orchestrator's its own agents.
@@ -476,6 +529,54 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
   })
+}
+
+// The bound on the whole relay at a turn's end: the row's read and write, the
+// coordinator's record and the send queued. Well inside a handler's ten seconds.
+const RELAY_BOUND_MS = 5000
+
+async function readOwnRow($: any, sessionId: string): Promise<SessionRow | null> {
+  return parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
+}
+
+// An orchestrator's turn end, read and reported. The role comes from the session's row
+// (the measure's walk named it), else from a walk of its own; any other role, nothing.
+// No machine line: a wait the row carried is cleared, nothing is sent. A wait: written
+// to the row, then reported to the registered coordinator unless this very wait was
+// already reported — the fingerprint is kept only once the send is delivered. No
+// coordinator registered: the operator talks to the tab, and nothing is sent. A send
+// refused is one log line; the turn's end is never held on it.
+export async function relayTurnEnd($: any, answer: string): Promise<void> {
+  const sessionId = await $.session.id()
+  const row = await readOwnRow($, sessionId)
+  let name = row?.name ?? null
+  let named: Partial<SessionRow> = {}
+  if (!row?.role) {
+    const walked = await walkWithinBound($, sessionId)
+    if (walked.known) {
+      name = walked.name
+      named = { role: roleOf(walked.name), name: walked.name, ...(walked.pid ? { pid: walked.pid } : {}) }
+    }
+  }
+  if (!name || roleOf(name) !== 'orchestrator') return
+  const stamp = row ? { updated_at: row.updated_at } : {}
+  const wait = parseWait(answer)
+  if (!wait) {
+    if (row?.waiting) await writeSession($, sessionId, { ...NO_WAIT, ...stamp })
+    return
+  }
+  const patch = waitPatch(row, wait, new Date().toISOString())
+  await writeSession($, sessionId, { ...named, ...patch, ...stamp })
+  const key = fingerprint(wait)
+  if (row?.relayed === key) return
+  const coordinator = coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))
+  if (!coordinator) return
+  const sent = await $.session.send({ to: coordinator, text: relayText(name, wait, patch.waiting_since!) })
+  if (sent?.isDelivered) {
+    await writeSession($, sessionId, { relayed: key, ...stamp })
+  } else {
+    await logLine($, `relay: not delivered to ${coordinator}: ${sent?.reason ?? 'no answer'}`)
+  }
 }
 
 // One line appended to the module's log (module-log.ts): the stamp names the

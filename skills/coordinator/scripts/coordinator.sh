@@ -22,6 +22,10 @@
 #     (the repository reads « not a git tree » for a directory in none)
 #   checkout <path> | <repository> | <branch>
 #   heavy <pid> | <directory> | <command>
+#   waiting <orchestrator> | operator since <UTC time> | blocks: <what it blocks>
+#   waiting <orchestrator> | done since <UTC time>
+#     (an orchestrator whose last turn ended on its machine line, read from the row the hooks
+#     module keeps for its live session; the module also sends you that question once)
 #   collision checkouts | <repository> | <branch> | <path>, <path>...
 #   collision sessions | <repository> | <branch> | <pid> <title>, <pid> <title>...
 #   collision heavy | <pid>, <pid>...
@@ -555,6 +559,20 @@ pr_collisions() {
         $4 == "same" { k = $1 "\t" $3; if (c[k] > 1) print "collision pr | " $1 "#" $2 " | " $3 " | " l[k] }' "$T/sessions" "$T/prs" | sort
 }
 
+# waiting_rows: the orchestrators waiting at the end of their turn, from the hooks module's
+# store (its sessions directory under the config dir, one JSON row per session), each kept
+# while its pid is in the process table read above. Display only: a row unread is no line.
+waiting_rows() {
+    local store="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator/store/sessions"
+    [ -d "$store" ] || return 0
+    find "$store" -type f -exec cat {} + 2>/dev/null \
+        | jq -R -r 'fromjson? | select(.role == "orchestrator" and (.waiting == "operator" or .waiting == "done"))
+            | [(.pid // "" | tostring), (.name // "unnamed"), .waiting, (.waiting_since // "?"), (.blocks // "")] | @tsv' 2>/dev/null \
+        | awk -F'\t' 'FILENAME == ARGV[1] { live[$1] = 1; next }
+            $1 in live { if ($3 == "operator") print "waiting " $2 " | operator since " $4 " | blocks: " $5
+                         else print "waiting " $2 " | done since " $4 }' <(awk '{ print $1 }' "$T/ps") -
+}
+
 finish() {
     cat "$T/unread"
     if [ -s "$T/unread" ]; then exit 2; fi
@@ -568,6 +586,7 @@ cmd_facts() {
     awk -F'\t' -v root="$( (cd "${ORCHESTRATOR_WORKSPACES:-$HOME/dev/workspaces}" 2>/dev/null && pwd -P) || true)" \
         'root != "" && index($1, root "/") == 1 { print "checkout " $1 " | " $2 " | " $3 }' "$T/places"
     awk -F'\t' '{ print "heavy " $1 " | " $2 " | " $3 }' "$T/heavy"
+    waiting_rows
 
     {
         awk -F'\t' '$3 != "HEAD" && $3 != "-" { k = $2 "\t" $3; c[k]++; l[k] = (k in l) ? l[k] ", " $1 : $1 }
