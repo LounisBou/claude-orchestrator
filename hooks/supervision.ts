@@ -30,7 +30,7 @@ import {
 } from './relay.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
-  remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, ROW_MARKER, type RemoteRow,
+  remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
 } from './remote-row.ts'
 
 // One row per live session, the store's whole schema. `pid` is the session's host
@@ -614,7 +614,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       let rows: { label: string; urgency: number }[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
       if (opened?.role === 'coordinator') {
-        const merged = withRemote(await readSessions($), await readRemoteRows($), Date.now(), STALE_AFTER_MS)
+        const merged = withRemote(await readSessions($), await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
         rows = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
         none = 'no live orchestrator'
       } else if (opened?.role === 'orchestrator') {
@@ -772,7 +772,7 @@ export async function readRemoteRows($: any): Promise<RemoteRow[]> {
   for (const entry of entries.slice(0, REMOTE_READ_CAP)) {
     if (!entry || entry.kind !== 'file' || entry.name.includes('.tmp-')) continue
     const row = parseRemoteRow(`${ROW_MARKER}${String(await $.fs.read(`${dir}/${entry.name}`).catch(() => ''))}`)
-    if (row && !isRemoteStale(row, now, STALE_AFTER_MS)) rows.push(row)
+    if (row && !isRemoteStale(row, now, REMOTE_STALE_AFTER_MS)) rows.push(row)
     else dead.push(`${dir}/${entry.name}`)
   }
   if (dead.length > 0) await $.process.run(['rm', '-f', ...dead], { timeoutMs: 5000 }).catch(() => undefined)

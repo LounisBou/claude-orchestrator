@@ -22,8 +22,8 @@
 // import — so this file spells its own env resolution, its own store read and
 // its own record read, while the row parser, the staleness rule and the pane's
 // row shaper cross as plain imports from the supervision domain.
-import { parseSessionRow, withWait, paneRows, isStale, livePidsArgv, livePids, sessionKey, STALE_AFTER_MS, type SessionRow } from './supervision.ts'
-import { parseRemoteRow, withRemote, ROW_MARKER, type RemoteRow } from './remote-row.ts'
+import { parseSessionRow, withWait, paneRows, isStale, livePidsArgv, livePids, sessionKey, type SessionRow } from './supervision.ts'
+import { parseRemoteRow, withRemote, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow } from './remote-row.ts'
 import { hostRecordOf, roleOf } from './session-name.ts'
 import { withDeadline, isDegradedPass } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
@@ -306,7 +306,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // the host's own commands of a bare name. The engine validates neither key
   // nor field; the wiring tests pin the exact objects.
   on('command.run', { command: 'orchestrator:status' }, async ($: any) => {
-    return { text: statusText(withRemote(await readRows($), await readRemote($), Date.now(), STALE_AFTER_MS)) }
+    return { text: statusText(withRemote(await readRows($), await readRemote($), Date.now(), REMOTE_STALE_AFTER_MS)) }
   }).catch(async ($: any, e: any, next: any) => {
     // A command whose reader failed is skipped; the net lets the markdown
     // command run as it always did, and the failure is said.

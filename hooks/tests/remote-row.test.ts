@@ -7,9 +7,9 @@
 // the pane, stale rows dropped, a live local row beating a remote one.
 import { expect, test } from 'claude-code/testing'
 import {
-  ROW_MARKER, ROW_REFRESH_MS, ROW_TEXT_CAP, parseRemoteRow, rowText, deliveryOf, remoteRowOf, withRemote, type RemoteRow,
+  ROW_MARKER, ROW_REFRESH_MS, ROW_TEXT_CAP, REMOTE_STALE_AFTER_MS, parseRemoteRow, rowText, deliveryOf, remoteRowOf, withRemote, type RemoteRow,
 } from '../remote-row.ts'
-import { paneRows, sendRow, readRemoteRows, STALE_AFTER_MS, type SessionRow } from '../supervision.ts'
+import { paneRows, sendRow, readRemoteRows, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 
@@ -148,7 +148,7 @@ test('a wait change is sent, and so is a band crossing; a move inside the band i
   fx.files.set(ROW, storeRow({ context_percent: 24, context_tokens: 240000 }))
   await sendRow(fx.dollar, 's-one')
   expect(fx.sent.length).toBe(1)
-  fx.files.set(ROW, storeRow({ context_percent: 26, context_tokens: 260000 }))
+  fx.files.set(ROW, storeRow({ context_percent: 27, context_tokens: 270000 }))
   await sendRow(fx.dollar, 's-one')
   expect(fx.sent.length).toBe(2)
   fx.files.set(WAIT, JSON.stringify({ waiting: 'operator', blocks: 'phase 3', waiting_since: new Date().toISOString(), relayed: null, name: 'Orch : belt', pid: '501' }) + '\n')
@@ -261,15 +261,15 @@ test('the envelope is read for its sender, and a text without one is its own bod
 
 test('the pane shows a remote row with its machine and drops a stale one', () => {
   const now = Date.now()
-  const old = remote({ name: 'Orch : old', updated_at: new Date(now - STALE_AFTER_MS - 60000).toISOString() })
-  const rows = paneRows(withRemote({}, [remote(), old], now, STALE_AFTER_MS))
+  const old = remote({ name: 'Orch : old', updated_at: new Date(now - REMOTE_STALE_AFTER_MS - 60000).toISOString() })
+  const rows = paneRows(withRemote({}, [remote(), old], now, REMOTE_STALE_AFTER_MS))
   expect(rows.length).toBe(1)
   expect(rows[0].label).toContain('Orch : far · orchestrator · remote bench-mac · 12%')
 })
 
 test('a live local row beats a remote one of the same name', () => {
   const local = JSON.parse(storeRow({ name: 'Orch : far', context_percent: 40 })) as SessionRow
-  const rows = paneRows(withRemote({ 'sessions/x': local }, [remote()], Date.now(), STALE_AFTER_MS))
+  const rows = paneRows(withRemote({ 'sessions/x': local }, [remote()], Date.now(), REMOTE_STALE_AFTER_MS))
   expect(rows.length).toBe(1)
   expect(rows[0].label).toContain('40%')
   expect(rows[0].label).not.toContain('remote')
@@ -292,4 +292,20 @@ test('the row out of a store row: an orchestrator only, its waits only when show
   expect(row.waiting).toBeNull()
   expect(row.blocks).toBeNull()
   expect(row.machine).toBe('m')
+})
+
+test('a remote orchestrator waiting on the operator stays drawn for hours; past a day it is dropped and swept', async () => {
+  const hour = 60 * 60 * 1000
+  const fx = fake()
+  const waiting = { waiting: 'operator' as const, blocks: 'phase 3', waiting_since: new Date(Date.now() - 3 * hour).toISOString() }
+  fx.files.set(`${STORE}/remote/Orch___waits`, JSON.stringify(remote({ name: 'Orch : waits', ...waiting, updated_at: new Date(Date.now() - 3 * hour).toISOString() })))
+  fx.files.set(`${STORE}/remote/Orch___gone`, JSON.stringify(remote({ name: 'Orch : gone', ...waiting, updated_at: new Date(Date.now() - 25 * hour).toISOString() })))
+  const read = await readRemoteRows(fx.dollar)
+  expect(read.map(r => r.name)).toEqual(['Orch : waits'])
+  expect(fx.files.has(`${STORE}/remote/Orch___gone`)).toBe(false)
+  const rows = paneRows(withRemote({}, read, Date.now(), REMOTE_STALE_AFTER_MS))
+  expect(rows.length).toBe(1)
+  expect(rows[0].label).toContain('Orch : waits · orchestrator · remote bench-mac')
+  expect(rows[0].label).toContain('3h')
+  expect(rows[0].label).toContain('waiting for the operator')
 })

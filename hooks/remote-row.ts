@@ -18,6 +18,12 @@ export const ROW_MARKER = '[module-row] '
 // The fill is reported by band: a crossing is news, a point is not.
 export const ROW_BAND_PERCENT = 5
 
+// How long a remote row is drawn after its last reading. It carries no pid, so its
+// session's life cannot be read; an orchestrator waiting on the operator takes no turn and
+// sends no refresh, and the store's one-hour rule would drop it exactly while it waits.
+// The pane's age says how old the reading is.
+export const REMOTE_STALE_AFTER_MS = 24 * 60 * 60 * 1000
+
 // At most one send per this bound while nothing changes: the pane draws the row's age,
 // and a row the sender stopped refreshing must age into the stale bound.
 export const ROW_REFRESH_MS = 10 * 60 * 1000
