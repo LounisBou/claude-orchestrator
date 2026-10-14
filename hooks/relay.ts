@@ -30,16 +30,25 @@ export function parseWait(answer: string): Wait | null {
   return matched[1] ? { kind: 'operator', blocks: matched[1].trim(), question } : { kind: 'done', question }
 }
 
-// The row's wait fields for this turn's wait: `waiting_since` is kept while the same
-// wait lasts (same kind, same blocks), and starts now on a new one.
-export function waitPatch(row: SessionRow | null, wait: Wait, now: string): Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since'> {
+// The wait as its file last held it: the current wait, or the one a turn's start
+// cleared (`last_waiting`, its blocks and start kept beside it).
+export type PriorWait = { waiting?: 'operator' | 'done' | null; last_waiting?: 'operator' | 'done' | null; blocks?: string | null; waiting_since?: string | null }
+
+// The wait fields for this turn's wait: `waiting_since` is kept while the same wait
+// lasts (same kind, same blocks) — across the turns between, which clear it only for
+// display — and starts now on a new one.
+export function waitPatch(prior: PriorWait | null, wait: Wait, now: string): Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since'> {
   const blocks = wait.kind === 'operator' ? wait.blocks : null
-  const same = row?.waiting === wait.kind && (row?.blocks ?? null) === blocks && typeof row?.waiting_since === 'string'
-  return { waiting: wait.kind, blocks, waiting_since: same ? row!.waiting_since! : now }
+  const kind = prior?.waiting ?? prior?.last_waiting ?? null
+  const same = kind === wait.kind && (prior?.blocks ?? null) === blocks && typeof prior?.waiting_since === 'string'
+  return { waiting: wait.kind, blocks, waiting_since: same ? prior!.waiting_since! : now }
 }
 
-// The wait fields cleared: the session works again, or its turn ended without a wait.
-export const NO_WAIT: Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since'> = { waiting: null, blocks: null, waiting_since: null }
+// A wait cleared — the session works again, or its turn ended without one: nothing is
+// waited on, and the wait it was is kept so that the same wait asked again keeps its start.
+export function clearedWait<T extends PriorWait>(prior: T): T & { waiting: null; last_waiting: 'operator' | 'done' | null } {
+  return { ...prior, waiting: null, last_waiting: prior.waiting ?? prior.last_waiting ?? null }
+}
 
 // The deduplication key: the same wait (kind, blocks and question) is reported once,
 // a new question is reported. FNV-1a over the text, enough to tell two waits apart.
@@ -53,12 +62,14 @@ export function fingerprint(wait: Wait): string {
   return `${text.length}-${hash.toString(16)}`
 }
 
-// The report sent to the coordinator: a header naming the session and its wait, then,
-// for the operator, the question as the answer carried it. A report, never an order:
+// The report sent to the coordinator: a header naming the session and its wait, the
+// address the operator's answer goes back to, then, for the operator, the question as
+// the answer carried it. A report, never an order:
 // it carries no approval, no merge and no undraft.
 export function relayText(name: string, wait: Wait, since: string): string {
-  if (wait.kind === 'done') return `[module] ${name} reports its work done and proposes to be closed`
-  const header = `[module] ${name} waits for the operator since ${since} — blocks: ${wait.blocks}`
+  const reply = `reply with SendMessage to: ${name}`
+  if (wait.kind === 'done') return `[module] ${name} reports its work done and proposes to be closed\n${reply}`
+  const header = `[module] ${name} waits for the operator since ${since} — blocks: ${wait.blocks}\n${reply}`
   if (!wait.question) return header
   const cut = wait.question.length > RELAY_CAP
   const question = cut ? `${wait.question.slice(0, RELAY_CAP)}\n[cut at ${RELAY_CAP} of ${wait.question.length} characters]` : wait.question

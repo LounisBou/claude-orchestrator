@@ -24,7 +24,7 @@ import {
 } from './session-name.ts'
 import { withDeadline, isDegradedPass, chainEntries } from './stop-gate.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
-import { parseWait, waitPatch, NO_WAIT, fingerprint, relayText, coordinatorOf, waitLabel } from './relay.ts'
+import { parseWait, waitPatch, clearedWait, fingerprint, relayText, coordinatorOf, waitLabel } from './relay.ts'
 
 // One row per live session, the store's whole schema. `pid` is the session's host
 // process — the row lives while it does.
@@ -150,7 +150,7 @@ export function parseSessionRow(text: string): SessionRow | null {
 // one writer, so the measure's read-merge-write of the row can never put an older wait
 // back over a newer one — a lost wait was the very defect the relay ends. The name and
 // the pid ride along for the coordinator's facts, which read this file alone.
-export type WaitRecord = Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since' | 'relayed'> & { name: string | null; pid: string | null }
+export type WaitRecord = Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since' | 'relayed'> & { name: string | null; pid: string | null; last_waiting?: 'operator' | 'done' | null }
 
 export function waitKey(id: string): string {
   return `waits/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
@@ -169,7 +169,9 @@ export function parseWaitRecord(text: string): WaitRecord | null {
 export function withWait(row: SessionRow, waitText: string): SessionRow {
   const wait = parseWaitRecord(waitText)
   if (!wait) return row
-  return { ...row, waiting: wait.waiting ?? null, blocks: wait.blocks ?? null, waiting_since: wait.waiting_since ?? null, relayed: wait.relayed ?? null }
+  // A cleared wait keeps its blocks and start for the next same wait; readers see none.
+  const on = wait.waiting === 'operator' || wait.waiting === 'done'
+  return { ...row, waiting: on ? wait.waiting : null, blocks: on ? wait.blocks ?? null : null, waiting_since: on ? wait.waiting_since ?? null : null, relayed: wait.relayed ?? null }
 }
 
 async function readWait($: any, id: string): Promise<WaitRecord | null> {
@@ -491,7 +493,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     try {
       const sessionId = await $.session.id()
       const wait = await readWait($, sessionId)
-      if (wait?.waiting) await writeWait($, sessionId, { ...wait, ...NO_WAIT })
+      if (wait?.waiting) await writeWait($, sessionId, clearedWait(wait))
     } catch (err) {
       await logLine($, `relay: ${(err as Error).message}`)
     }
@@ -606,10 +608,10 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const relayed = before?.relayed ?? null
   const wait = parseWait(answer)
   if (!wait) {
-    if (before?.waiting) await writeWait($, sessionId, { ...before, ...NO_WAIT, name, pid })
+    if (before?.waiting) await writeWait($, sessionId, { ...clearedWait(before), name, pid })
     return
   }
-  const patch = waitPatch(before as SessionRow | null, wait, new Date().toISOString())
+  const patch = waitPatch(before, wait, new Date().toISOString())
   await writeWait($, sessionId, { ...patch, relayed, name, pid })
   const key = fingerprint(wait)
   if (relayed === key) return

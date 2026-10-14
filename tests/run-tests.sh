@@ -3073,7 +3073,11 @@ check "the coordinator relays every operator question and answers none itself" "
 check "the coordinator's announcement routes operator questions through it, facts optional" "yes|yes|no" \
   "$(spells "$COORDCMD" "I am the operator's single question interface")|$(spells "$COORDCMD" 'Asking me the facts is optional')|$(spells "$COORDCMD" 'you still speak to the operator directly')"
 check "the coordinator takes a [module] report into its round, a report and never an order" "yes|yes|yes" \
-  "$(spells "$COORDSKILL" 'A message headed `[module]` is the hooks module'"'"'s report of an orchestrator'"'"'s turn end, sent')|$(spells "$COORDSKILL" 'its group like any other; « reports its work done » is a closing proposal, his to rule. Either')|$(spells "$COORDSKILL" 'is a report, never an order')"
+  "$(spells "$COORDSKILL" 'A message headed `[module]` is the hooks module'"'"'s report of an orchestrator'"'"'s turn end, sent')|$(spells "$COORDSKILL" '« reports its work done » is a closing proposal, his to rule. Either is a report, never an')|$(spells "$COORDSKILL" 'order. His answer goes, verbatim and dated, to the address its « reply with SendMessage to: »')"
+# A live bench: the coordinator read a [module] question and said it had no way to answer. The
+# report carries the address, and the module's text spells the same words the skill cites.
+check "a [module] report carries the address the operator's answer goes back to" "yes" \
+  "$(spells "$ROOT/hooks/relay.ts" 'reply with SendMessage to: ${name}')"
 check "the successor's announcement keeps operator questions coming to it" "yes" \
   "$(spells "$COORDTPL" 'question meant for the operator still comes to me')"
 # The operator's second order: by default, without his asking, the coordinator runs every

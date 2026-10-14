@@ -50,12 +50,12 @@ test('the fingerprint tells a new question from the same wait', () => {
 test('the report: a header naming the session and its wait, then the question, cut past the cap and said', () => {
   const wait = parseWait(answerOf(QUESTION, 'waiting: operator — blocks: phase 3'))!
   expect(relayText('Orch : belt', wait, '2026-10-14T10:00:00.000Z')).toBe(
-    `[module] Orch : belt waits for the operator since 2026-10-14T10:00:00.000Z — blocks: phase 3\n\n${QUESTION}`)
+    `[module] Orch : belt waits for the operator since 2026-10-14T10:00:00.000Z — blocks: phase 3\nreply with SendMessage to: Orch : belt\n\n${QUESTION}`)
   const long = parseWait(answerOf('x'.repeat(RELAY_CAP + 10), 'waiting: operator — blocks: phase 3'))!
   const text = relayText('Orch : belt', long, 'T')
   expect(text).toContain(`[cut at ${RELAY_CAP} of ${RELAY_CAP + 10} characters]`)
   expect(text.length).toBeLessThan(RELAY_CAP + 200)
-  expect(relayText('Orch : belt', { kind: 'done', question: 'x' }, 'T')).toBe('[module] Orch : belt reports its work done and proposes to be closed')
+  expect(relayText('Orch : belt', { kind: 'done', question: 'x' }, 'T')).toBe('[module] Orch : belt reports its work done and proposes to be closed\nreply with SendMessage to: Orch : belt')
 })
 
 test('the coordinator is read from its record, and no record names nobody', () => {
@@ -162,7 +162,7 @@ test('an operator wait lands in the row and is sent to the coordinator once', as
   expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
   expect(fx.sent.length).toBe(1)
   expect(fx.sent[0].to).toBe('Coord : ops [abc]')
-  expect(fx.sent[0].text).toBe(`[module] Orch : belt waits for the operator since ${row.waiting_since} — blocks: phase 3\n\n${QUESTION}`)
+  expect(fx.sent[0].text).toBe(`[module] Orch : belt waits for the operator since ${row.waiting_since} — blocks: phase 3\nreply with SendMessage to: Orch : belt\n\n${QUESTION}`)
 })
 
 test('the same wait is never sent twice; a new question is', async () => {
@@ -183,7 +183,7 @@ test('done is one closing proposal', async () => {
   const fx = fake()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Everything merged.', 'waiting: done')))
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Everything merged.', 'waiting: done')))
-  expect(fx.sent.map(s => s.text)).toEqual(['[module] Orch : belt reports its work done and proposes to be closed'])
+  expect(fx.sent.map(s => s.text)).toEqual(['[module] Orch : belt reports its work done and proposes to be closed\nreply with SendMessage to: Orch : belt'])
   expect(fx.row()!.waiting).toBe('done')
 })
 
@@ -259,4 +259,19 @@ test('a measure write after the relay write keeps waiting, blocks and waiting_si
   expect(row.waiting).toBe('operator')
   expect(row.blocks).toBe('phase 3')
   expect(row.waiting_since).toBe(since)
+})
+
+test('two turns ending on the same wait keep the first waiting_since, the turn between them notwithstanding', async () => {
+  const chains = mounted()
+  const fx = fake()
+  const same = turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3'))
+  await drive(chains, 'turn.complete', fx.dollar, same)
+  const first = '2026-10-14T08:00:00.000Z'
+  fx.files.set(WAIT, JSON.stringify({ ...JSON.parse(fx.files.get(WAIT)!), waiting_since: first }) + '\n')
+  await drive(chains, 'turn.start', fx.dollar, { text: 'go on' })
+  expect(fx.row().waiting).toBeNull()
+  await drive(chains, 'turn.complete', fx.dollar, same)
+  expect(fx.row().waiting_since).toBe(first)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 4')))
+  expect(fx.row().waiting_since).not.toBe(first)
 })
