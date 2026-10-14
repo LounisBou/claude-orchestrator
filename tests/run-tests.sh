@@ -3098,8 +3098,11 @@ check "the orchestrator asks in its tab and the module carries the question to a
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**While a coordinator runs, every question for the operator goes to it** — his order —')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here, in the shape of `/orchestrator:decide` step 2, and')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
 check "the orchestrator rulebook no longer runs the lookup and the send itself" "no|no" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'coordinator.sh lookup')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'no coordinator runs, and you ask him directly')"
-check "a decision round goes through a running coordinator" "yes|1" \
-  "$(spells "$ROOT/commands/decide.md" '**While a coordinator runs, the wave goes through it.**')|$(sed -n '1,5p' "$ROOT/commands/decide.md" | grep -c '^allowed-tools: .*coordinator\.sh')"
+check "a decision round goes through a running coordinator, carried by the module" "yes|yes" \
+  "$(spells "$ROOT/commands/decide.md" '**While a coordinator runs, the wave goes through it**, carried by the hooks module: each')|$(spells "$ROOT/commands/decide.md" 'blocks>`, and the module forwards it; never send it yourself.')"
+# The module carries each question; the round sending them itself as well delivered one question twice.
+check "the decision round no longer looks the coordinator up or sends it the questions itself, and stays at 8,650 bytes or fewer" "no|no|0|yes" \
+  "$(spells "$ROOT/commands/decide.md" 'coordinator.sh lookup')|$(spells "$ROOT/commands/decide.md" 'goes to that coordinator with `SendMessage`')|$(sed -n '1,5p' "$ROOT/commands/decide.md" | grep -c '^allowed-tools: .*coordinator\.sh')|$([ "$(wc -c < "$ROOT/commands/decide.md" | tr -d ' ')" -le 8650 ] && echo yes || echo no)"
 COORDSPAWN=$(grep -m1 -o 'iterm-agent.sh spawn --coordinator-successor.*' "$COORDSKILL" 2>/dev/null | sed -e 's/^iterm-agent.sh spawn //' \
   -e 's#<subject>#ops#' -e "s#<your working directory>#$WORK#" -e 's#<brief path>#/tmp/coord-brief.md#')
 coordspawn() { eval "set -- $COORDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
@@ -5603,12 +5606,12 @@ case "$(git -C "$1" remote get-url origin)" in
 esac
 FG
 chmod +x "$CF/forge"
-# The hooks module's store, as facts reads it for the orchestrators waiting at a turn's end:
-# a live orchestrator waiting on the operator, one done, one whose pid is gone, an agent.
-CCFG="$WORK/coord-config"; CSTORE="$CCFG/claude-orchestrator/store/sessions"; mkdir -p "$CSTORE"
-printf '%s\n' '{"role":"orchestrator","name":"Orch : alpha","pid":"100","waiting":"operator","blocks":"phase 3","waiting_since":"2026-10-14T09:45:16.000Z","updated_at":"x"}' > "$CSTORE/s-alpha"
-printf '%s\n' '{"role":"orchestrator","name":"Orch : gone","pid":"999","waiting":"operator","blocks":"x","waiting_since":"y","updated_at":"x"}' > "$CSTORE/s-gone"
-printf '%s\n' '{"role":"agent","name":"Agent : a1","pid":"101","waiting":"operator","blocks":"x","waiting_since":"y","updated_at":"x"}' > "$CSTORE/s-a1"
+# The hooks module's wait files, as facts reads them for the orchestrators waiting at a turn's
+# end: a live one waiting on the operator, one whose pid is gone, a cleared wait, a broken file.
+CCFG="$WORK/coord-config"; CSTORE="$CCFG/claude-orchestrator/store/waits"; mkdir -p "$CSTORE"
+printf '%s\n' '{"name":"Orch : alpha","pid":"100","waiting":"operator","blocks":"phase 3","waiting_since":"2026-10-14T09:45:16.000Z","relayed":null}' > "$CSTORE/s-alpha"
+printf '%s\n' '{"name":"Orch : gone","pid":"999","waiting":"operator","blocks":"x","waiting_since":"y"}' > "$CSTORE/s-gone"
+printf '%s\n' '{"name":"Orch : beta","pid":"101","waiting":null,"blocks":null,"waiting_since":null}' > "$CSTORE/s-beta"
 printf 'not json\n' > "$CSTORE/s-broken"
 cfacts() {
   CLAUDE_CONFIG_DIR="$CCFG" ORCHESTRATOR_STATE_DIR="$CS" ORCHESTRATOR_WORKSPACES="$CWS" ORCHESTRATOR_HOST_CLI=hostcli \
@@ -5652,7 +5655,7 @@ check "the same branch in two repositories does not collide" "0" \
 check "facts exits 1 on a collision" "exit 1" "$(cfacts_status facts)"
 # The defect: an orchestrator that asked the operator in its own tab looked stopped, and the
 # coordinator spent two turns asking it why. Its wait is in the module's row, and facts shows it.
-check "facts shows a live orchestrator waiting on the operator, and no dead one, agent or broken row" \
+check "facts shows a live orchestrator waiting on the operator, and no dead one, cleared wait or broken file" \
   "waiting Orch : alpha | operator since 2026-10-14T09:45:16.000Z | blocks: phase 3" \
   "$(printf '%s\n' "$FACTS" | grep '^waiting ')"
 

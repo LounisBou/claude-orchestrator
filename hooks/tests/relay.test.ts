@@ -5,12 +5,13 @@
 // that is no orchestrator, and a send that fails never holding the turn's end.
 import { expect, test } from 'claude-code/testing'
 import { parseWait, waitPatch, fingerprint, relayText, coordinatorOf, waitLabel, RELAY_CAP } from '../relay.ts'
-import { parseSessionRow, paneRows, type SessionRow } from '../supervision.ts'
+import { parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
 const ROW = `${HOME}/.claude/claude-orchestrator/store/sessions/s-one`
+const WAIT = `${HOME}/.claude/claude-orchestrator/store/waits/s-one`
 const RECORD = `${HOME}/.claude/claude-orchestrator/coordinator.json`
 const QUESTION = 'Question 1 of 1 — merge the scraper pull request now?\n_Context._ It is green.'
 
@@ -105,20 +106,30 @@ function fake(over: { name?: string; role?: SessionRow['role']; coordinator?: st
       },
       write: async (p: string, text: string) => { files.set(p, text) },
       exists: async (p: string) => files.has(p),
-      list: async () => [],
+      list: async (dir: string) => [...files.keys()].filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
+        .map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
       stat: async (p: string) => { throw new Error(`ENOENT: ${p}`) },
     },
     process: {
       run: async (argv: readonly string[]) => {
         const line = logLineOf(argv)
         if (line !== null) logged.push(line)
+        if (argv[0] === 'mv' && files.has(argv[2])) {
+          files.set(argv[3], files.get(argv[2])!)
+          files.delete(argv[2])
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
+        if (argv[0] === 'rm') {
+          for (const p of argv.slice(2)) files.delete(p)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         return { exitCode: 1, stdout: '', stderr: '' }
       },
     },
     command: { run: async () => undefined },
     prompt: { submit: async () => undefined },
   }
-  return { dollar, files, sent, logged, row: () => parseSessionRow(files.get(ROW) ?? '') }
+  return { dollar, files, sent, logged, row: () => withWait(parseSessionRow(files.get(ROW) ?? '')!, files.get(WAIT) ?? '') }
 }
 
 function mounted(): Record<string, Function[]> {
@@ -147,6 +158,8 @@ test('an operator wait lands in the row and is sent to the coordinator once', as
   expect(row.blocks).toBe('phase 3')
   expect(typeof row.waiting_since).toBe('string')
   expect(row.updated_at).toBe('2026-10-14T09:00:00.000Z')
+  expect(parseSessionRow(fx.files.get(ROW)!)!.waiting).toBeUndefined()
+  expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
   expect(fx.sent.length).toBe(1)
   expect(fx.sent[0].to).toBe('Coord : ops [abc]')
   expect(fx.sent[0].text).toBe(`[module] Orch : belt waits for the operator since ${row.waiting_since} — blocks: phase 3\n\n${QUESTION}`)
@@ -203,6 +216,7 @@ for (const [name, role] of [['Coord : ops', 'coordinator'], ['Agent : belt-p3', 
     await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
     expect(fx.sent.length).toBe(0)
     expect(fx.files.get(ROW)).toBe(before)
+    expect(fx.files.has(WAIT)).toBe(false)
   })
 }
 
@@ -226,3 +240,23 @@ for (const failure of ['reject', 'refuse'] as const) {
     expect(fx.row()!.relayed ?? null).toBeNull()
   })
 }
+
+test('a measure write after the relay write keeps waiting, blocks and waiting_since', async () => {
+  // The race the wait's own file closes: the measure read the row before the relay
+  // wrote the wait, and writes its merge after it. The row's file is the measure's
+  // alone, so its stale base carries no wait to put back.
+  const chains = mounted()
+  const fx = fake()
+  const stale = fx.files.get(ROW)!
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
+  const since = fx.row().waiting_since
+  const read = fx.dollar.fs.read
+  fx.dollar.fs.read = async (p: string) => (p === ROW ? stale : read(p))
+  await writeSession(fx.dollar, 's-one', { context_percent: 55 })
+  fx.dollar.fs.read = read
+  const row = (await readSessions(fx.dollar))['sessions/s-one']
+  expect(row.context_percent).toBe(55)
+  expect(row.waiting).toBe('operator')
+  expect(row.blocks).toBe('phase 3')
+  expect(row.waiting_since).toBe(since)
+})

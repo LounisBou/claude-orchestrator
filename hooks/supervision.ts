@@ -41,7 +41,9 @@ export type SessionRow = {
   updated_at: string
   // An orchestrator's last turn ended on its machine line (relay.ts): waiting on the
   // operator, with what it blocks, or done; since when; and the fingerprint of the last
-  // wait reported to the coordinator, so the same wait is never reported twice.
+  // wait reported to the coordinator, so the same wait is never reported twice. Never
+  // in the row's own file: they live in the session's wait file (WaitRecord), which the
+  // relay alone writes, and a read merges them in (withWait).
   waiting?: 'operator' | 'done' | null
   blocks?: string | null
   waiting_since?: string | null
@@ -144,13 +146,55 @@ export function parseSessionRow(text: string): SessionRow | null {
   }
 }
 
+// The session's wait, in its own file beside its row (`waits/<id>`): the relay is its
+// one writer, so the measure's read-merge-write of the row can never put an older wait
+// back over a newer one — a lost wait was the very defect the relay ends. The name and
+// the pid ride along for the coordinator's facts, which read this file alone.
+export type WaitRecord = Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since' | 'relayed'> & { name: string | null; pid: string | null }
+
+export function waitKey(id: string): string {
+  return `waits/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
+}
+
+export function parseWaitRecord(text: string): WaitRecord | null {
+  try {
+    const record = JSON.parse(text) as WaitRecord
+    return record && typeof record === 'object' ? record : null
+  } catch {
+    return null
+  }
+}
+
+// A row as the readers show it: the wait file's fields over the row's.
+export function withWait(row: SessionRow, waitText: string): SessionRow {
+  const wait = parseWaitRecord(waitText)
+  if (!wait) return row
+  return { ...row, waiting: wait.waiting ?? null, blocks: wait.blocks ?? null, waiting_since: wait.waiting_since ?? null, relayed: wait.relayed ?? null }
+}
+
+async function readWait($: any, id: string): Promise<WaitRecord | null> {
+  return parseWaitRecord(String(await $.fs.read(`${storeDir(await configDir($))}/${waitKey(id)}`).catch(() => '')))
+}
+
+// Written atomically: a temporary file beside it, then one rename — $.fs.write is not
+// atomic, and a wait caught mid-write would read as none.
+async function writeWait($: any, id: string, record: WaitRecord): Promise<void> {
+  const path = `${storeDir(await configDir($))}/${waitKey(id)}`
+  const tmp = `${path}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  await $.fs.write(tmp, JSON.stringify(record) + '\n')
+  const moved = await $.process.run(['mv', '-f', tmp, path], { timeoutMs: 5000 })
+  if (!moved || moved.exitCode !== 0) {
+    await $.process.run(['rm', '-f', tmp], { timeoutMs: 5000 }).catch(() => undefined)
+    throw new Error(`the wait file ${path} could not be renamed into place`)
+  }
+}
+
 // writeSession reads the key's file, merges the patch over what it finds and
 // writes it back stamped: per-key writes do not collide across sessions, and
 // the stamp the row is judged stale by is the write's own unless the patch
-// carries one (the measure handler passes the reading's own time). Only the
-// session's own handlers write its key — the measure, and the relay at its turn's
-// start and end: a same-key race is last-writer-wins, at most one measure of
-// freshness or one wait the next turn's end writes again.
+// carries one (the measure handler passes the reading's own time). The
+// measure handler is the only writer of a key: a same-key race is last-writer-wins,
+// at most one measure of freshness. The relay writes its own file (writeWait).
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
   const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
   const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
@@ -179,7 +223,9 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   for (const entry of entries) {
     if (!entry || entry.kind !== 'file') continue
     const text = String(await $.fs.read(`${dir}/${entry.name}`).catch(() => ''))
-    read.push([entry.name, text, parseSessionRow(text)])
+    const row = parseSessionRow(text)
+    const waits = `${storeDir(await configDir($))}/waits/${entry.name}`
+    read.push([entry.name, text, row && withWait(row, String(await $.fs.read(waits).catch(() => '')))])
   }
   const argv = livePidsArgv(read.map(([, , row]) => String(row?.pid ?? '')))
   const alive = argv ? livePids(await $.process.run(argv, { timeoutMs: 5000 }).catch(() => null)) : new Set<string>()
@@ -188,7 +234,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   const now = Date.now()
   for (const [name, text, row] of read) {
     if (row && !isStale(row, now, alive)) rows[`sessions/${name}`] = row
-    else if (text === '' || row) dead.push(`${dir}/${name}`)
+    else if (text === '' || row) dead.push(`${dir}/${name}`, `${storeDir(await configDir($))}/waits/${name}`)
   }
   // A liveness read that failed removes nothing: its rows are drawn as alive
   // and the next read that answers sweeps the dead. Removing on it wiped the
@@ -201,7 +247,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
 // empty, which the row parser reads as no row and the next read removes.
 export async function deleteSession($: any, id: string): Promise<void> {
   const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
-  const done = await $.process.run(['rm', '-f', path], { timeoutMs: 5000 }).catch(() => null)
+  const done = await $.process.run(['rm', '-f', path, `${storeDir(await configDir($))}/${waitKey(id)}`], { timeoutMs: 5000 }).catch(() => null)
   if (!done || done.exitCode !== 0) await $.fs.write(path, '')
 }
 
@@ -444,8 +490,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   on('turn.start', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
       const sessionId = await $.session.id()
-      const row = await readOwnRow($, sessionId)
-      if (row?.waiting) await writeSession($, sessionId, { ...NO_WAIT, updated_at: row.updated_at })
+      const wait = await readWait($, sessionId)
+      if (wait?.waiting) await writeWait($, sessionId, { ...wait, ...NO_WAIT })
     } catch (err) {
       await logLine($, `relay: ${(err as Error).message}`)
     }
@@ -531,49 +577,47 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 }
 
-// The bound on the whole relay at a turn's end: the row's read and write, the
-// coordinator's record and the send queued. Well inside a handler's ten seconds.
+// The bound on the whole relay at a turn's end: the row and wait reads, the wait's
+// write, the coordinator's record and the send queued. Well inside a handler's ten seconds.
 const RELAY_BOUND_MS = 5000
-
-async function readOwnRow($: any, sessionId: string): Promise<SessionRow | null> {
-  return parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
-}
 
 // An orchestrator's turn end, read and reported. The role comes from the session's row
 // (the measure's walk named it), else from a walk of its own; any other role, nothing.
-// No machine line: a wait the row carried is cleared, nothing is sent. A wait: written
-// to the row, then reported to the registered coordinator unless this very wait was
-// already reported — the fingerprint is kept only once the send is delivered. No
-// coordinator registered: the operator talks to the tab, and nothing is sent. A send
-// refused is one log line; the turn's end is never held on it.
+// No machine line: a wait the session carried is cleared, nothing is sent. A wait:
+// written to the session's wait file, then reported to the registered coordinator
+// unless this very wait was already reported — the fingerprint is kept only once the
+// send is delivered. No coordinator registered: the operator talks to the tab, and
+// nothing is sent. A send refused is one log line; the turn's end is never held on it.
+// The row itself is never written here: the measure is its one writer.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const sessionId = await $.session.id()
-  const row = await readOwnRow($, sessionId)
+  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
   let name = row?.name ?? null
-  let named: Partial<SessionRow> = {}
+  let pid = row?.pid ?? null
   if (!row?.role) {
     const walked = await walkWithinBound($, sessionId)
     if (walked.known) {
       name = walked.name
-      named = { role: roleOf(walked.name), name: walked.name, ...(walked.pid ? { pid: walked.pid } : {}) }
+      pid = walked.pid ?? pid
     }
   }
   if (!name || roleOf(name) !== 'orchestrator') return
-  const stamp = row ? { updated_at: row.updated_at } : {}
+  const before = await readWait($, sessionId)
+  const relayed = before?.relayed ?? null
   const wait = parseWait(answer)
   if (!wait) {
-    if (row?.waiting) await writeSession($, sessionId, { ...NO_WAIT, ...stamp })
+    if (before?.waiting) await writeWait($, sessionId, { ...before, ...NO_WAIT, name, pid })
     return
   }
-  const patch = waitPatch(row, wait, new Date().toISOString())
-  await writeSession($, sessionId, { ...named, ...patch, ...stamp })
+  const patch = waitPatch(before as SessionRow | null, wait, new Date().toISOString())
+  await writeWait($, sessionId, { ...patch, relayed, name, pid })
   const key = fingerprint(wait)
-  if (row?.relayed === key) return
+  if (relayed === key) return
   const coordinator = coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))
   if (!coordinator) return
   const sent = await $.session.send({ to: coordinator, text: relayText(name, wait, patch.waiting_since!) })
   if (sent?.isDelivered) {
-    await writeSession($, sessionId, { relayed: key, ...stamp })
+    await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
   } else {
     await logLine($, `relay: not delivered to ${coordinator}: ${sent?.reason ?? 'no answer'}`)
   }
