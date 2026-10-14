@@ -211,7 +211,7 @@ check "the delivering briefs no longer ask for context_tokens in the final repor
 # The trim is a ceiling: each brief stays at most the size it reached when the module took
 # the context and the turn-end reports over.
 check "the agent briefs stay within their trimmed sizes" "yes|yes|yes|yes" \
-  "$(for pair in phase:8118 comments:5952 review:7783 rotation:2501; do [ "$(wc -c < "$ROOT/templates/agent-${pair%%:*}-brief.md" | tr -d ' ')" -le "${pair##*:}" ] && echo yes || echo no; done | paste -sd'|' -)"
+  "$(for pair in phase:8267 comments:5952 review:7783 rotation:2501; do [ "$(wc -c < "$ROOT/templates/agent-${pair%%:*}-brief.md" | tr -d ' ')" -le "${pair##*:}" ] && echo yes || echo no; done | paste -sd'|' -)"
 check "the orchestrator succession brief still says how to find its session id and directory" "yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" '`printenv CLAUDE_CODE_SESSION_ID` prints the id, `printenv CLAUDE_CONFIG_DIR` the directory')"
 # review.md asks for each finding's proposed fix; the one-line finding keeps it as its last field.
