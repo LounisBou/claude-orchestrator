@@ -14,7 +14,7 @@ once your predecessor is gone.
    the flags sent, and the sessions already announced to). That list is yours as it stands:
    « Announcing newcomers » compares against it from here on, so you do not re-send the start
    message to a session it already names.
-   Then `{{COORDINATOR_SH}} sleeping`: the orchestrators paused on the operator's word. That
+   Then run `{{COORDINATOR_SH}}` with `sleeping`: the orchestrators paused on the operator's word. That
    record is yours as it stands, outlives every succession, and nothing in it is woken or
    dropped but on his word.
    Then the round file `{{ROUND_FILE}}` (« none » when no round is open): the open decision round, every question received

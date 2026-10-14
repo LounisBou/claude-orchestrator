@@ -179,7 +179,7 @@ order. Before asking him, run
 it the question (your arbitration, or an agent's relayed verbatim) with its context by
 `SendMessage`; its answer, verbatim and dated, is his. Asking it the facts is optional.
 Nothing printed: no coordinator runs, and you ask him directly. A pause it relays:
-`references/lifecycle.md`, « A pause ».
+its bullet in `references/lifecycle.md`.
 
 **When the orchestrator's own session lacks what the role needs — a PATH, a credential the
 sandbox will not open, a tool the launch did not carry — the repair is a successor, not a

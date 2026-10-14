@@ -1910,9 +1910,10 @@ def cmd_spawn(argv):
                 die("spawn: refused: %s is not a wake's: a woken orchestrator runs under its "
                     "recorded name, model and effort, lands immediately right of you, joins "
                     "no chain and comes up under remote control" % flag)
-        if not args.title.startswith("Orch : ") or not TITLE_SHAPE.match(args.title):
-            die('spawn: refused: --wake needs the recorded name, --title "Orch : <subject>", '
-                "got '%s'" % args.title)
+        if (not args.title.startswith("Orch : ") or not TITLE_SHAPE.match(args.title)
+                or re.search(r" \[[0-9A-Za-z]+\]\Z", args.title)):
+            die('spawn: refused: --wake needs the recorded name, --title "Orch : <subject>" '
+                "without its reference, got '%s'" % args.title)
         if not args.model:
             die("spawn: refused: --wake needs the recorded model, --model <id>: a wake never "
                 "guesses the model its orchestrator ran on")
