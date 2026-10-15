@@ -226,8 +226,8 @@ On this machine, open it yourself, right of your tab, in no chain, under remote 
 ${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh spawn --open --title "Orch : <subject>" --dir <its directory> --permission-mode auto --prompt "Read and execute <brief path>"
 ```
 
-Run it alone, never chained to another command: that bare form is the one his
-`install.sh --allow-open` allows. Add `--model <id>` or `--tier <tier>` when he named one,
+Run it alone, never chained to another command and with nothing before it: that bare form,
+by the installed path, is the one his `install.sh --allow-open` allows. Add `--model <id>` or `--tier <tier>` when he named one,
 the deep tier applying otherwise, and `--trust` for a checkout prepared for it. Verify it
 (`iterm-agent.sh list`, `ListAgents` naming `Orch : <subject>`), then announce yourself to it
 as to any newcomer.

@@ -1923,7 +1923,14 @@ def cmd_spawn(argv):
         # A new orchestrator opened on the operator's order, by the coordinator or by an
         # orchestrator the coordinator relayed that order to on another machine: under its own
         # name, right of its caller, in no chain, under remote control like any orchestrator.
-        # Only a coordinator or an orchestrator opens one: an agent never does.
+        # Only a coordinator or an orchestrator opens one: an agent never does. The caller is
+        # read from the real process table: the two stand-ins the suite sets would let any
+        # session name itself the coordinator, so outside a dry run they refuse the opening.
+        if not DRY_RUN and (os.environ.get("ORCHESTRATOR_SELF_TTY")
+                            or os.environ.get("ORCHESTRATOR_PS_TABLE")):
+            die("spawn: refused: --open reads its caller from the real process table, and "
+                "ORCHESTRATOR_SELF_TTY or ORCHESTRATOR_PS_TABLE would stand in for it: both "
+                "are for tests and dry runs")
         for flag, given in (("--successor", args.successor), ("--auditor", args.auditor),
                             ("--coordinator-successor", args.coordinator_successor),
                             ("--wake", args.wake), ("--left-of", args.left_of),
