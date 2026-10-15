@@ -309,9 +309,10 @@ fi
 #     is not read from the first line, which a brief written by hand does not carry: it is a
 #     brief whose reader confirms the takeover to its own predecessor. A brief whose reader is
 #     the one handed over from (an audit brief) names no predecessor of its own and is not
-#     held. The step is read as the launcher's close.
+#     held. The step is read as the launcher's close, by tty and with the title it expects,
+#     on one line, as every succession template writes it.
 if grep -qi 'takeover confirmed' "$brief" 2>/dev/null && grep -qi 'your predecessor' "$brief" 2>/dev/null; then
-    grep -q -- 'close --tty' "$brief" 2>/dev/null \
+    grep -qE -- 'close --tty .*--expect-title' "$brief" 2>/dev/null \
         || say 1 "succession brief without the predecessor's close: the successor closes its predecessor's tab with the launcher's close --tty and --expect-title, on its \"handed over\" or after five minutes on a reading of its screen; instantiate the template, never write the brief by hand"
 fi
 
