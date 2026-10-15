@@ -4082,8 +4082,6 @@ check "a watch that exits 0 over passing and skipped checks only is green, exit 
 # as no checks with the count skipped, never green.
 check "a watch that exits 0 over skipped checks only is no green: no-checks with the count, exit 2" "ci-watch: no-checks 7 $HA skipped=3|2" \
   "$(CW_BUCKETS="unit:skipping\ndocs:skipping\nsmoke:skipping" cw "OPEN $HA" "2" 0 "" 7 --interval 1)"
-check "and its report never says green" "0" \
-  "$(CW_BUCKETS="unit:skipping\ndocs:skipping\nsmoke:skipping" cw "OPEN $HA" "2" 0 "" 7 --interval 1 | grep -c 'ci-watch: green')"
 # A slower workflow's checks are not registered yet when a faster one's are done: the watch
 # exits 0 over the checks it knows, so the head's workflow runs are read before any green, and
 # a run still going is watched to its end, then the checks are watched again.

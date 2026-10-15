@@ -26,6 +26,7 @@
 # A green carries evidence: one check at least passed. A head whose checks all ended skipped, or
 # failed as a draft guard — a draft whose every real job depends on its guard, or jobs each
 # conditioned out — had nothing run, and says `no-checks` with the count skipped, never green.
+# The count leaves the guards out, so a draft whose only checks are its guards says `skipped=0`.
 # Green with auto-merge enabled is not the end: the merge is coming, and nobody re-arms a watch after it,
 # so the pull request is read again at the interval, bounded, until it merges.
 #
