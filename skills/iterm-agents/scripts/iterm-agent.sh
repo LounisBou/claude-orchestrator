@@ -21,6 +21,10 @@
 #   iterm-agent.sh spawn --dir <path> --wake --title "Orch : <subject>" --model <id> [--effort <level>] (--prompt <text> | --prompt-file <path>)
 #     a paused orchestrator relaunched: its recorded name, model and effort, immediately right
 #     of the caller, remote control on, no chain
+#   iterm-agent.sh spawn --dir <path> --open --title "Orch : <subject>" [--tier <t> | --model <id> | --inherit-model] [--effort <level>] (--prompt <text> | --prompt-file <path>)
+#     a new orchestrator opened on the operator's order, by a coordinator or an orchestrator
+#     only: immediately right of the caller, the deep tier unless told, remote control on,
+#     no chain
 #   iterm-agent.sh verify --tty /dev/ttysNNN
 #   iterm-agent.sh resolve-tier <deep|standard|light>
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>] [--keep-checkout]
