@@ -1634,6 +1634,13 @@ ok_brief "$B/badpath.md"; printf 'Read `/nowhere/at/all/spec.md`\n' >> "$B/badpa
 check_status "a path that does not exist is a finding" 1 bash "$LINT" "$B/badpath.md"
 check "the missing path is named" "1" "$(bash "$LINT" "$B/badpath.md" 2>&1 | grep -c '/nowhere/at/all/spec.md')"
 
+# A slash command is not a path: `/<plugin>:<command>`, with or without arguments.
+ok_brief "$B/slash.md"; printf 'Run `/orchestrator:status`, then `/implement:phase 3`.\n' >> "$B/slash.md"
+check_status "a slash command is not a path" 0 bash "$LINT" "$B/slash.md"
+check "a slash command raises no path finding" "0" "$(bash "$LINT" "$B/slash.md" 2>&1 | grep -c 'path does not exist')"
+ok_brief "$B/slashpath.md"; printf 'Run `/orchestrator:status`, read `/nowhere/at/all:x/spec.md`.\n' >> "$B/slashpath.md"
+check "a path with a colon is still a path" "1" "$(bash "$LINT" "$B/slashpath.md" 2>&1 | grep -c 'path does not exist: /nowhere/at/all:x/spec.md')"
+
 ok_brief "$B/twoaddr.md"; printf 'For example `other-12 [9f9f9f]`.\n' >> "$B/twoaddr.md"
 check_status "a second session reference is a finding" 1 bash "$LINT" "$B/twoaddr.md"
 check "the second address is named" "1" "$(bash "$LINT" "$B/twoaddr.md" 2>&1 | grep -c 'more than one session reference')"
