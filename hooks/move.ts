@@ -146,12 +146,12 @@ export function parseMoveMessage(body: string): MoveMessage | null {
   if (!isObject(raw) || typeof raw.kind !== 'string' || !KINDS.includes(raw.kind)) return null
   if (!exactly(raw, FIELDS[raw.kind as MoveMessage['kind']])) return null
   if (typeof raw.move !== 'string' || !MOVE_ID_SHAPE.test(raw.move)) return null
-  return kindHolds(raw) ? raw as MoveMessage : null
+  return kindShaped(raw) ? raw as MoveMessage : null
 }
 
-function kindHolds(o: Record<string, unknown>): boolean {
+function kindShaped(o: Record<string, unknown>): boolean {
   switch (o.kind) {
-    case 'manifest': return originHolds(o.origin) && recordHolds(o.record) && filesHold(o.files)
+    case 'manifest': return originShaped(o.origin) && recordShaped(o.record) && filesShaped(o.files)
     case 'chunk': return fileNumber(o.file) && whole(o.index, 0, MOVE_FILE_CAP - 1) && typeof o.data === 'string'
     case 'sent': return true
     case 'ack': return fileNumber(o.file) && typeof o.ok === 'boolean' && (o.ok ? o.reason === null : reasonShaped(o.reason))
@@ -165,22 +165,22 @@ function kindHolds(o: Record<string, unknown>): boolean {
   return false
 }
 
-function originHolds(v: unknown): boolean {
+function originShaped(v: unknown): boolean {
   return isObject(v) && exactly(v, ORIGIN_FIELDS) && typeof v.machine === 'string' && MACHINE_SHAPE.test(v.machine)
     && homeShaped(v.home) && homeShaped(v.configDir)
 }
 
-function recordHolds(v: unknown): boolean {
+function recordShaped(v: unknown): boolean {
   if (!isObject(v) || !exactly(v, RECORD_FIELDS)) return false
   if (typeof v.name !== 'string' || !NAME_SHAPE.test(v.name) || REF_SUFFIX.test(v.name) || UNQUOTABLE.test(v.name)) return false
   if (!absolute(v.brief) || !absolute(v.dir)) return false
   if (typeof v.model !== 'string' || !MODEL_SHAPE.test(v.model) || !EFFORTS.includes(v.effort)) return false
   if (!Array.isArray(v.prs) || v.prs.length > PRS_CAP || !v.prs.every(prShaped)) return false
   if (!Array.isArray(v.checkouts) || v.checkouts.length > CHECKOUTS_CAP || !v.checkouts.every(absolute)) return false
-  return gitHolds(v.git) && typeof v.order === 'string' && v.order.length > 0 && v.order.length <= ORDER_CAP && !ORDER_CONTROL.test(v.order)
+  return gitShaped(v.git) && typeof v.order === 'string' && v.order.length > 0 && v.order.length <= ORDER_CAP && !ORDER_CONTROL.test(v.order)
 }
 
-function gitHolds(v: unknown): boolean {
+function gitShaped(v: unknown): boolean {
   if (v === null) return true
   return isObject(v) && exactly(v, GIT_FIELDS) && typeof v.url === 'string' && v.url.length <= PATH_CAP && GIT_URL_SHAPE.test(v.url)
     && typeof v.branch === 'string' && BRANCH_SHAPE.test(v.branch)
@@ -188,7 +188,7 @@ function gitHolds(v: unknown): boolean {
 
 // Each file's types and bounds — no more chunks than bytes, since a chunk is never empty but
 // for an empty file's one — then the manifest's own checks.
-function filesHold(v: unknown): boolean {
+function filesShaped(v: unknown): boolean {
   return Array.isArray(v) && v.every(fileShaped) && checkManifestFiles(v as ManifestFile[]) === null
 }
 
