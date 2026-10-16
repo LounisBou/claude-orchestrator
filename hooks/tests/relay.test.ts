@@ -398,6 +398,19 @@ test('a wait rewritten while the withdrawal was being sent is left as it was wri
   expect(JSON.parse(fx.files.get(WAIT)!).relayed).toBe(other)
 })
 
+test('the write-back forgets the fingerprint and keeps every other field of the wait', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const before = JSON.parse(fx.files.get(WAIT)!)
+  const fields = ['waiting', 'last_waiting', 'blocks', 'waiting_since', 'name', 'pid']
+  const kept = (wait: Record<string, unknown>) => Object.fromEntries(fields.map(f => [f, wait[f] ?? null]))
+  expect(kept(before).waiting).toBe('operator')
+  expect(kept(before).name).toBe('Orch : belt')
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  const after = JSON.parse(fx.files.get(WAIT)!)
+  expect(after.relayed).toBeNull()
+  expect(kept(after)).toEqual(kept(before))
+})
+
 test('after a withdrawal, the same question asked again is relayed again', async () => {
   const { chains, fx } = await relayedQuestion()
   await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
