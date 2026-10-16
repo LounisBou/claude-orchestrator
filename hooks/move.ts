@@ -49,13 +49,195 @@ export type MoveRecord = {
 export type Origin = { machine: string; home: string; configDir: string }
 export type ManifestFile = { name: string; bytes: number; sha256: string; chunks: number }  // name: a base name in dirname(brief)
 
+// A move's messages, one marked line each: the sender's manifest, chunks and « sent »; the
+// receiver's acknowledgment of each file, its « missing » list and its « done »; and the
+// probe that measures the largest message crossing between two machines, with its answer.
+export type MoveMessage =
+  | { kind: 'manifest'; move: string; origin: Origin; record: MoveRecord; files: ManifestFile[] }
+  | { kind: 'chunk'; move: string; file: number; index: number; data: string }
+  | { kind: 'sent'; move: string }
+  | { kind: 'ack'; move: string; file: number; ok: boolean; reason: string | null }
+  | { kind: 'missing'; move: string; chunks: [number, number][] }
+  | { kind: 'done'; move: string; ok: boolean; brief: string | null; reason: string | null }
+  | { kind: 'probe'; move: string; size: number; data: string }
+  | { kind: 'probe-ack'; move: string; size: number; received: number }
+
+// The exact field set of each kind, and of each object a manifest holds.
+const FIELDS: Record<MoveMessage['kind'], readonly string[]> = {
+  manifest: ['kind', 'move', 'origin', 'record', 'files'],
+  chunk: ['kind', 'move', 'file', 'index', 'data'],
+  sent: ['kind', 'move'],
+  ack: ['kind', 'move', 'file', 'ok', 'reason'],
+  missing: ['kind', 'move', 'chunks'],
+  done: ['kind', 'move', 'ok', 'brief', 'reason'],
+  probe: ['kind', 'move', 'size', 'data'],
+  'probe-ack': ['kind', 'move', 'size', 'received'],
+}
+const KINDS = Object.keys(FIELDS)
+const ORIGIN_FIELDS = ['machine', 'home', 'configDir']
+const RECORD_FIELDS = ['name', 'brief', 'dir', 'model', 'effort', 'prs', 'checkouts', 'git', 'order']
+const GIT_FIELDS = ['url', 'branch']
+const FILE_FIELDS = ['name', 'bytes', 'sha256', 'chunks']
+
+// A move's id, as moveIdOf writes it: it names the move's files in the receiver's store.
+const MOVE_ID_SHAPE = /^[a-z0-9-]{1,40}-[0-9a-f]{12}$/
+const SLUG_CAP = 40
+const SLUG_FALLBACK = 'move'
+
+// The name the launcher's opening takes and the sleeping record keeps: `Orch : `, a subject of
+// at most 25 characters with no space at either end, and no reference after it.
+const NAME_SHAPE = /^Orch : \S(?:.{0,23}\S)?$/
+const REF_SUFFIX = / \[[0-9A-Za-z]+\]$/
+
+// What the opening command cannot carry between double quotes, nor any line: a quote, a
+// dollar, a backtick, a backslash, a control character. Refused in every name and path.
+const UNQUOTABLE = /["$`\\\u0000-\u001f\u007f]/
+const CONTROL = /[\u0000-\u001f\u007f]/
+// The order keeps its line breaks and tabs: it travels verbatim.
+const ORDER_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/
+
+// A model identifier, with the host's bracketed variant suffix; an effort the launcher knows.
+const MODEL_SHAPE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}(?:\[[A-Za-z0-9]{1,16}\])?$/
+const EFFORTS: readonly unknown[] = ['', 'low', 'medium', 'high', 'xhigh', 'max']
+
+// The machine's label, as the remote rows carry it.
+const MACHINE_SHAPE = /^[A-Za-z0-9_-]{1,64}$/
+
+// A remote git clones from, and a branch it checks out: a web, ssh or git address, or the
+// scp form `user@host:path`. Nothing that reads as an option, a space or another transport,
+// since a model hands both to git.
+const GIT_URL_SHAPE = /^(?:(?:https?|ssh|git):\/\/[A-Za-z0-9._~:/@%+=,-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/@%+=,-]+)$/
+const BRANCH_SHAPE = /^[A-Za-z0-9._+][A-Za-z0-9._/+-]{0,254}$/
+
 // A file's name: one plain base name, so it is written beside the brief and nowhere else.
 const FILE_NAME_SHAPE = /^[A-Za-z0-9._-]+$/
 const SHA256_SHAPE = /^[0-9a-f]{64}$/
 
-// A move's id: the subject's slug, then twelve hex digits of a hash.
-const SLUG_CAP = 40
-const SLUG_FALLBACK = 'move'
+// The receiver's caps on the record's fields: a message past one is refused whole.
+const PATH_CAP = 1024
+const FILE_NAME_CAP = 255
+const PR_CAP = 200
+const PRS_CAP = 50
+const CHECKOUTS_CAP = 50
+const ORDER_CAP = 4000
+const REASON_CAP = 2048
+
+export function moveText(message: MoveMessage): string {
+  return MOVE_MARKER + JSON.stringify(message)
+}
+
+export function isMoveMarked(body: string): boolean {
+  return body.trimStart().startsWith(MOVE_MARKER)
+}
+
+// The receiver's whole check: the marker, the cap, the exact field set of the message's kind
+// and of every object inside it, each field's type and bounds. Anything else is null. What a
+// manifest's paths mean on the receiving machine is arrivalOf's to judge, with a reason the
+// sender is told.
+export function parseMoveMessage(body: string): MoveMessage | null {
+  const text = body.trim()
+  if (!text.startsWith(MOVE_MARKER) || text.length > MOVE_TEXT_CAP) return null
+  let raw: unknown
+  try {
+    raw = JSON.parse(text.slice(MOVE_MARKER.length))
+  } catch {
+    return null
+  }
+  if (!isObject(raw) || typeof raw.kind !== 'string' || !KINDS.includes(raw.kind)) return null
+  if (!exactly(raw, FIELDS[raw.kind as MoveMessage['kind']])) return null
+  if (typeof raw.move !== 'string' || !MOVE_ID_SHAPE.test(raw.move)) return null
+  return kindHolds(raw) ? raw as MoveMessage : null
+}
+
+function kindHolds(o: Record<string, unknown>): boolean {
+  switch (o.kind) {
+    case 'manifest': return originHolds(o.origin) && recordHolds(o.record) && filesHold(o.files)
+    case 'chunk': return fileNumber(o.file) && whole(o.index, 0, MOVE_FILE_CAP - 1) && typeof o.data === 'string'
+    case 'sent': return true
+    case 'ack': return fileNumber(o.file) && typeof o.ok === 'boolean' && (o.ok ? o.reason === null : reasonShaped(o.reason))
+    case 'missing': return Array.isArray(o.chunks) && o.chunks.length > 0 && o.chunks.every(pairShaped)
+    case 'done':
+      if (typeof o.ok !== 'boolean') return false
+      return o.ok ? absolute(o.brief) && o.reason === null : (o.brief === null || absolute(o.brief)) && reasonShaped(o.reason)
+    case 'probe': return whole(o.size, 1, MOVE_TEXT_CAP) && typeof o.data === 'string'
+    case 'probe-ack': return whole(o.size, 1, MOVE_TEXT_CAP) && whole(o.received, 0, MOVE_TEXT_CAP)
+  }
+  return false
+}
+
+function originHolds(v: unknown): boolean {
+  return isObject(v) && exactly(v, ORIGIN_FIELDS) && typeof v.machine === 'string' && MACHINE_SHAPE.test(v.machine)
+    && homeShaped(v.home) && homeShaped(v.configDir)
+}
+
+function recordHolds(v: unknown): boolean {
+  if (!isObject(v) || !exactly(v, RECORD_FIELDS)) return false
+  if (typeof v.name !== 'string' || !NAME_SHAPE.test(v.name) || REF_SUFFIX.test(v.name) || UNQUOTABLE.test(v.name)) return false
+  if (!absolute(v.brief) || !absolute(v.dir)) return false
+  if (typeof v.model !== 'string' || !MODEL_SHAPE.test(v.model) || !EFFORTS.includes(v.effort)) return false
+  if (!Array.isArray(v.prs) || v.prs.length > PRS_CAP || !v.prs.every(prShaped)) return false
+  if (!Array.isArray(v.checkouts) || v.checkouts.length > CHECKOUTS_CAP || !v.checkouts.every(absolute)) return false
+  return gitHolds(v.git) && typeof v.order === 'string' && v.order.length > 0 && v.order.length <= ORDER_CAP && !ORDER_CONTROL.test(v.order)
+}
+
+function gitHolds(v: unknown): boolean {
+  if (v === null) return true
+  return isObject(v) && exactly(v, GIT_FIELDS) && typeof v.url === 'string' && v.url.length <= PATH_CAP && GIT_URL_SHAPE.test(v.url)
+    && typeof v.branch === 'string' && BRANCH_SHAPE.test(v.branch)
+}
+
+// Each file's types and bounds — no more chunks than bytes, since a chunk is never empty but
+// for an empty file's one — then the manifest's own checks.
+function filesHold(v: unknown): boolean {
+  return Array.isArray(v) && v.every(fileShaped) && checkManifestFiles(v as ManifestFile[]) === null
+}
+
+function fileShaped(f: unknown): boolean {
+  return isObject(f) && exactly(f, FILE_FIELDS) && typeof f.name === 'string' && f.name.length <= FILE_NAME_CAP
+    && typeof f.sha256 === 'string' && whole(f.bytes, 0, MOVE_FILE_CAP) && whole(f.chunks, 1, Math.max(1, f.bytes as number))
+}
+
+function pairShaped(p: unknown): boolean {
+  return Array.isArray(p) && p.length === 2 && fileNumber(p[0]) && whole(p[1], 0, MOVE_FILE_CAP - 1)
+}
+
+function fileNumber(v: unknown): boolean {
+  return whole(v, 0, MOVE_FILES_CAP - 1)
+}
+
+function whole(v: unknown, min: number, max: number): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
+}
+
+// An absolute path the opening command can carry; a home or config directory is no root.
+function absolute(v: unknown): v is string {
+  return typeof v === 'string' && v.startsWith('/') && v.length <= PATH_CAP && !UNQUOTABLE.test(v)
+}
+
+function homeShaped(v: unknown): boolean {
+  return absolute(v) && trimSlashes(v) !== ''
+}
+
+function prShaped(v: unknown): boolean {
+  return typeof v === 'string' && v.length > 0 && v.length <= PR_CAP && !CONTROL.test(v)
+}
+
+function reasonShaped(v: unknown): boolean {
+  return typeof v === 'string' && v.length > 0 && v.length <= REASON_CAP && !CONTROL.test(v)
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v)
+}
+
+function exactly(o: Record<string, unknown>, fields: readonly string[]): boolean {
+  const keys = Object.keys(o)
+  return keys.length === fields.length && fields.every(f => keys.includes(f))
+}
+
+function trimSlashes(path: string): string {
+  return path.replace(/\/+$/, '')
+}
 
 // The text's slices, at most `size` UTF-16 units each, a surrogate pair never cut: a slice
 // that would end on a pair's high half ends before it, and at size one the pair is the
