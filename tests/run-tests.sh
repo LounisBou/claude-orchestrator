@@ -6024,6 +6024,9 @@ EOF
 cat > "$RREM/Orch___twin" <<EOF
 {"name":"Orch : twin","role":"orchestrator","context_tokens":0,"context_percent":0,"window":1000000,"waiting":null,"blocks":null,"waiting_since":null,"updated_at":"$RNOW","machine":"lab-mini","repo":null,"prs":["o/gone#5"]}
 EOF
+cat > "$RREM/Orch___zeta" <<EOF
+{"name":"Orch : zeta","role":"orchestrator","context_tokens":0,"context_percent":0,"window":1000000,"waiting":null,"blocks":null,"waiting_since":null,"updated_at":"$RNOW","machine":"lab-mini","repo":"o/app","prs":["o/app#99"]}
+EOF
 cat > "$RREM/Orch___old" <<EOF
 {"name":"Orch : old","role":"orchestrator","context_tokens":0,"context_percent":0,"window":1000000,"waiting":"operator","blocks":"x","waiting_since":"$ROLD","updated_at":"$ROLD","machine":"lab-mini","repo":"o/app","prs":["o/app#8"]}
 EOF
@@ -6040,7 +6043,7 @@ crem_status() { crem "$@" >/dev/null 2>&1; echo "exit $?"; }
 RFACTS=$(crem facts 2>/dev/null)
 ROWNERS=$(crem owners 2>/dev/null)
 check "facts lists each fresh remote row in its wait form: operator, done, working" \
-  "remote Orch : far | on bench-mac | updated $RNOW | context 120000 (12%) | repository o/app | prs o/app#7, o/app#9, o/app#99 | operator since $RNOW | blocks: phase 3|remote Orch : near | on lab-mini | updated $RNOW | context 300000 (30%) | repository none | prs none | done since $RNOW|remote Orch : quiet | on lab-mini | updated $RNOW | context 0 (0%) | repository o/app | prs o/app#10, o/gone#5 | working|remote Orch : twin | on lab-mini | updated $RNOW | context 0 (0%) | repository none | prs o/gone#5 | working" \
+  "remote Orch : far | on bench-mac | updated $RNOW | context 120000 (12%) | repository o/app | prs o/app#7, o/app#9, o/app#99 | operator since $RNOW | blocks: phase 3|remote Orch : near | on lab-mini | updated $RNOW | context 300000 (30%) | repository none | prs none | done since $RNOW|remote Orch : quiet | on lab-mini | updated $RNOW | context 0 (0%) | repository o/app | prs o/app#10, o/gone#5 | working|remote Orch : twin | on lab-mini | updated $RNOW | context 0 (0%) | repository none | prs o/gone#5 | working|remote Orch : zeta | on lab-mini | updated $RNOW | context 0 (0%) | repository o/app | prs o/app#99 | working" \
   "$(printf '%s\n' "$RFACTS" | grep '^remote ' | tr '\n' '|' | sed 's/|$//')"
 check "a stale remote row, a local session's name, and a temporary file are not listed" "0|0|1" \
   "$(printf '%s\n' "$RFACTS" | grep -c '^remote Orch : old ')|$(printf '%s\n' "$RFACTS" | grep -c '^remote Orch : alpha ')|$(printf '%s\n' "$RFACTS" | grep -c '^remote Orch : far ')"
