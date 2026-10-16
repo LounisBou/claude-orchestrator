@@ -368,3 +368,42 @@ export function missingOf(files: ManifestFile[], have: ReadonlySet<string>, acke
   })
   return missing
 }
+
+// What the receiver's model reads once every file is in: the moved orchestrator's facts, the
+// operator's order as it was given, and the launcher's opening in full, last, to be run as it
+// is. Its paths are the arrival's, on this machine.
+export function arrivedNotice(manifest: Extract<MoveMessage, { kind: 'manifest' }>, arrival: Arrival, fromName: string, launcher: string): string {
+  const { name, model, effort, prs, git, order } = manifest.record
+  const count = manifest.files.length
+  return [
+    `[module] ${name} arrived from ${manifest.origin.machine}, sent by ${oneLine(fromName)}: its ${count} ${count === 1 ? 'file is' : 'files are'} written in ${arrival.briefDir}.`,
+    `brief: ${arrival.brief}`,
+    `dir: ${arrival.dir}`,
+    `git: ${git ? `${git.url}, branch ${git.branch}` : 'none, its directory is no checkout'}`,
+    `model: ${model}, effort ${effort || 'default'}`,
+    `pull requests: ${prs.length > 0 ? prs.join(', ') : 'none'}`,
+    `the operator's order, verbatim: ${order}`,
+    'Open it as the order says, with this command alone and nothing before it:',
+    `${launcher} spawn --open --title "${name}" --dir ${shellWord(arrival.dir)} --permission-mode auto --model ${shellWord(model)} --prompt "Read and execute ${arrival.brief}"`,
+  ].join('\n')
+}
+
+// A value the opening command carries outside quotes: as it is when the shell reads it as one
+// plain word, single-quoted otherwise (a directory with a space, a model's variant suffix).
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9._/:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function oneLine(text: string): string {
+  return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim()
+}
+
+// What the sender's model reads when the receiver acknowledged every file.
+export function acknowledgedNotice(record: MoveRecord, to: string, brief: string): string {
+  return `[module] ${record.name} moved to ${to}: every file arrived and was acknowledged, its brief there is ${brief}. Its files here are left as they were.`
+}
+
+// What the sender's model reads when the move failed: the receiver's reason, or its own.
+export function failedNotice(record: MoveRecord, to: string, reason: string): string {
+  return `[module] ${record.name} was not moved to ${to}, its files here are left as they were: ${oneLine(reason)}`
+}

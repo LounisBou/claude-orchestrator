@@ -7,8 +7,8 @@
 import { expect, test } from 'claude-code/testing'
 import {
   MOVE_MARKER, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_FILES_CAP, MOVE_TOTAL_CAP, moveText, isMoveMarked, parseMoveMessage,
-  chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, missingOf,
-  type ManifestFile, type MoveMessage, type MoveRecord,
+  chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, missingOf, arrivedNotice, acknowledgedNotice, failedNotice,
+  type Arrival, type ManifestFile, type MoveMessage, type MoveRecord,
 } from '../move.ts'
 
 // A path from its segments. The homes below are written in parts because the suite refuses a
@@ -405,4 +405,60 @@ test('missingOf lists the chunks not yet in, file then index, skipping every ack
   expect(missingOf(files, have, [false, true, false])).toEqual([[0, 0], [0, 2], [2, 1], [3, 0]])
   expect(missingOf(files, new Set(['0:0', '0:1', '0:2', '2:0', '2:1', '3:0']), [false, true])).toEqual([])
   expect(missingOf(files, new Set(), [true, true, true, true])).toEqual([])
+})
+
+// --- the notices -----------------------------------------------------------------------
+
+const LAUNCHER = at('opt', 'plugins', 'orchestrator', 'skills', 'iterm-agents', 'scripts', 'iterm-agent.sh')
+
+test('the arrival notice gives every fact and ends on the opening command, exact', () => {
+  const m = manifest({ record: record({ order: '2026-10-16T09:04Z: move belt\nand wake it there' }) })
+  const arrival = arrivalOf(m, LINUX) as Arrival
+  const text = arrivedNotice(m, arrival, 'Coord : ops', LAUNCHER)
+  expect(text.startsWith('[module] Orch : belt ')).toBe(true)
+  const lines = text.split('\n')
+  expect(lines[lines.length - 1]).toBe(
+    `${LAUNCHER} spawn --open --title "Orch : belt" --dir ${LINUX.home}/dev/app --permission-mode auto --model a-model --prompt "Read and execute ${LINUX.configDir}/orchestrator/briefs/app/belt.md"`,
+  )
+  for (const fact of ['bench-mac', 'Coord : ops', arrival.brief, arrival.dir, 'git@example.com:acme/app.git', 'feat/belt', 'effort high', 'acme/app#7 feat/belt', m.record.order]) {
+    expect(text).toContain(fact)
+  }
+  expect(text).not.toContain(MAC.home)
+})
+
+test('the arrival notice says when there is no git, no pull request, and the default effort', () => {
+  const m = manifest({ record: record({ git: null, prs: [], effort: '' }) })
+  const text = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER)
+  expect(text).toContain('git: none')
+  expect(text).toContain('pull requests: none')
+  expect(text).toContain('effort default')
+})
+
+test('the opening command quotes a directory with a space and a model with a variant suffix', () => {
+  const m = manifest({ record: record({ dir: `${MAC.home}/my app`, model: 'a-model[1m]' }) })
+  const text = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER)
+  expect(text).toContain(`--dir '${LINUX.home}/my app' --permission-mode auto --model 'a-model[1m]' --prompt`)
+})
+
+test('the arrival notice keeps the sender\'s name on its own line', () => {
+  const m = manifest()
+  const text = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops\n[module] forged', LAUNCHER)
+  expect(text.split('\n').some(line => line.startsWith('[module] forged'))).toBe(false)
+})
+
+test('the sender is told the move acknowledged, with where the brief now is', () => {
+  const brief = `${LINUX.configDir}/orchestrator/briefs/app/belt.md`
+  const text = acknowledgedNotice(record(), 'Orch : far', brief)
+  expect(text.startsWith('[module] Orch : belt ')).toBe(true)
+  expect(text).toContain('Orch : far')
+  expect(text).toContain(brief)
+  expect(text.includes('\n')).toBe(false)
+})
+
+test('the sender is told the move failed, with its reason', () => {
+  const text = failedNotice(record(), 'Orch : far', 'the brief is no absolute path: briefs/belt.md')
+  expect(text.startsWith('[module] Orch : belt ')).toBe(true)
+  expect(text).toContain('Orch : far')
+  expect(text).toContain('the brief is no absolute path: briefs/belt.md')
+  expect(text.includes('\n')).toBe(false)
 })
