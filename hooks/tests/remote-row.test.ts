@@ -453,6 +453,28 @@ test('a ci-watch directory that cannot be read means no pull request, never a fa
   expect(parseRemoteRow(fx.sent[0].text)!.prs).toEqual([])
 })
 
+test('a ci-watch listing that rejects, not only a missing directory, means no pull request and the row is still sent', async () => {
+  const fx = fake()
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log.session`, `${ME}\n`)
+  const list = fx.dollar.fs.list
+  fx.dollar.fs.list = async (dir: string) => {
+    if (dir === CI_WATCH) throw new Error('EACCES: permission denied')
+    return list(dir)
+  }
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  expect(parseRemoteRow(fx.sent[0].text)!.prs).toEqual([])
+})
+
+test('a store row whose repository is not the receiver\'s shape is sent with none', async () => {
+  const fx = fake()
+  fx.files.set(ROW, storeRow({ repo: '/srv/app' }))
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  expect(parseRemoteRow(fx.sent[0].text)!.repo).toBeNull()
+})
+
 test('a received row keeps its repository and pull requests, and an old row is stored with none', async () => {
   const chains = mounted()
   const fx = fake()
