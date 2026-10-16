@@ -428,7 +428,7 @@ export function arrivedNotice(manifest: Extract<MoveMessage, { kind: 'manifest' 
     `pull requests: ${prs.length > 0 ? prs.join(', ') : 'none'}`,
     `the operator's order, verbatim: ${order}`,
     'Open it as the order says, with this command alone and nothing before it:',
-    `${launcher} spawn --open --title "${name}" --dir ${shellWord(arrival.dir)} --permission-mode auto --model ${shellWord(model)} --prompt "Read and execute ${arrival.brief}"`,
+    `${launcher} spawn --open --title "${name}" --dir ${shellWord(arrival.dir)} --permission-mode auto --model ${shellWord(model)}${effort ? ` --effort ${effort}` : ''} --prompt "Read and execute ${arrival.brief}"`,
   ].join('\n')
 }
 

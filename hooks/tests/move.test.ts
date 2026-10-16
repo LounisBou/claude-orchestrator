@@ -526,7 +526,7 @@ test('the arrival notice gives every fact and ends on the opening command, exact
   expect(text.startsWith('[module] Orch : belt ')).toBe(true)
   const lines = text.split('\n')
   expect(lines[lines.length - 1]).toBe(
-    `${LAUNCHER} spawn --open --title "Orch : belt" --dir ${LINUX.home}/dev/app --permission-mode auto --model a-model --prompt "Read and execute ${LANDING}/belt.md"`,
+    `${LAUNCHER} spawn --open --title "Orch : belt" --dir ${LINUX.home}/dev/app --permission-mode auto --model a-model --effort high --prompt "Read and execute ${LANDING}/belt.md"`,
   )
   for (const fact of ['bench-mac', 'Coord : ops', arrival.brief, arrival.dir, 'git@example.com:acme/app.git', 'feat/belt', 'effort high', 'acme/app#7 feat/belt', m.record.order]) {
     expect(text).toContain(fact)
@@ -542,10 +542,20 @@ test('the arrival notice says when there is no git, no pull request, and the def
   expect(text).toContain('effort default')
 })
 
+test('the opening command gives the effort after the model, and no effort at all for the default', () => {
+  const opening = (effort: MoveRecord['effort']) => {
+    const m = manifest({ record: record({ effort }) })
+    return arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER).split('\n').pop()!
+  }
+  expect(opening('max')).toContain(' --model a-model --effort max --prompt "')
+  expect(opening('')).toContain(' --model a-model --prompt "')
+  expect(opening('').includes('--effort')).toBe(false)
+})
+
 test('the opening command quotes a directory with a space and a model with a variant suffix', () => {
   const m = manifest({ record: record({ dir: `${MAC.home}/my app`, model: 'a-model[1m]' }) })
   const text = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER)
-  expect(text).toContain(`--dir '${LINUX.home}/my app' --permission-mode auto --model 'a-model[1m]' --prompt`)
+  expect(text).toContain(`--dir '${LINUX.home}/my app' --permission-mode auto --model 'a-model[1m]' --effort high --prompt`)
 })
 
 test('the arrival notice keeps the sender\'s name on its own line', () => {
