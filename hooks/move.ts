@@ -83,8 +83,10 @@ const RECORD_FIELDS = ['name', 'brief', 'dir', 'model', 'effort', 'prs', 'checko
 const GIT_FIELDS = ['url', 'branch']
 const FILE_FIELDS = ['name', 'bytes', 'sha256', 'chunks']
 
-// A move's id, as moveIdOf writes it: it names the move's files in the receiver's store.
+// A move's id, as moveIdOf writes it: it names the move's files in the receiver's store, and
+// its subject slug, the id without its hash, names the briefs directory the move lands in.
 const MOVE_ID_SHAPE = /^[a-z0-9-]{1,40}-[0-9a-f]{12}$/
+const MOVE_ID_HASH = /-[0-9a-f]{12}$/
 const SLUG_CAP = 40
 const SLUG_FALLBACK = 'move'
 
@@ -351,28 +353,47 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// Where a move lands on the receiving machine: the brief's directory, which takes every file,
-// and the record's paths rewritten.
+// Where a move lands on the receiving machine: the briefs directory that takes every file, the
+// brief in it, and the record's paths rewritten.
 export type Arrival = { briefDir: string; brief: string; dir: string; checkouts: string[] }
 
-// The record's paths rewritten into the target's, or the reason the move is refused: a brief
-// that is no absolute path, a path that climbs with '..', a brief whose directory is not
-// strictly under the target's home, or files the manifest's checks refuse.
+// The arrival, or the reason the move is refused. Every file lands in the target's own briefs
+// directory, named after the move's subject, whatever path the origin gave: a manifest says
+// what it carries, never where it is written. The brief is one of the files, and the
+// directory and the checkouts are the record's, rewritten onto the target, with no '..'.
 export function arrivalOf(manifest: Extract<MoveMessage, { kind: 'manifest' }>, target: { home: string; configDir: string }): Arrival | { refused: string } {
-  const { origin } = manifest
-  const rewrite = (path: string) => rewritePaths(path, [[origin.configDir, target.configDir], [origin.home, target.home]])
-  const brief = rewrite(manifest.record.brief)
-  const dir = rewrite(manifest.record.dir)
-  const checkouts = manifest.record.checkouts.map(rewrite)
-  if (!brief.startsWith('/')) return { refused: `the brief is no absolute path: ${brief}` }
-  const climbing = [brief, dir, ...checkouts].find(path => path.split('/').includes('..'))
-  if (climbing !== undefined) return { refused: `a path climbs with '..': ${climbing}` }
-  const briefDir = brief.slice(0, brief.lastIndexOf('/'))
-  const home = trimSlashes(target.home)
-  if (!briefDir.startsWith(`${home}/`)) return { refused: `the brief's directory ${briefDir || '/'} is not under ${home || '/'}` }
+  const { record } = manifest
+  if (!record.brief.startsWith('/')) return { refused: `the brief is no absolute path: ${record.brief}` }
+  if (record.brief.endsWith('/')) return { refused: `the brief names a directory, not a file: ${record.brief}` }
+  const name = record.brief.slice(record.brief.lastIndexOf('/') + 1)
+  if (!manifest.files.some(f => f.name === name)) return { refused: `the brief ${name} is not among the files` }
+  const briefDir = `${trimSlashes(target.configDir)}/claude-orchestrator/briefs/${manifest.move.replace(MOVE_ID_HASH, '')}`
+  const pairs = pairsOf(manifest, briefDir, target)
+  const dir = rewritePaths(record.dir, pairs)
+  const checkouts = record.checkouts.map(path => rewritePaths(path, pairs))
+  const refusal = [pathRefusal('directory', dir), ...checkouts.map(path => pathRefusal('checkout', path))].find(r => r !== null)
+  if (refusal) return { refused: refusal }
   const files = checkManifestFiles(manifest.files)
   if (files !== null) return { refused: files }
-  return { briefDir, brief, dir, checkouts }
+  return { briefDir, brief: `${briefDir}/${name}`, dir, checkouts }
+}
+
+// Why a rewritten directory or checkout cannot be the arrival's, or null when it can.
+function pathRefusal(label: string, path: string): string | null {
+  if (path.split('/').includes('..')) return `the ${label} ${path} climbs with '..'`
+  return null
+}
+
+// The pairs rewritePaths applies at arrival, to every arriving file and to the record's paths:
+// the brief's directory onto the arrival's, the config directory, then the home. The longest
+// origin that matches wins wherever several do, whatever their order here.
+export function arrivalPairs(manifest: Extract<MoveMessage, { kind: 'manifest' }>, arrival: Arrival, target: { home: string; configDir: string }): [string, string][] {
+  return pairsOf(manifest, arrival.briefDir, target)
+}
+
+function pairsOf(manifest: Extract<MoveMessage, { kind: 'manifest' }>, briefDir: string, target: { home: string; configDir: string }): [string, string][] {
+  const { record, origin } = manifest
+  return [[record.brief.slice(0, record.brief.lastIndexOf('/')) || '/', briefDir], [origin.configDir, target.configDir], [origin.home, target.home]]
 }
 
 // What the receiver asks for again: every chunk it does not hold, of every file not yet

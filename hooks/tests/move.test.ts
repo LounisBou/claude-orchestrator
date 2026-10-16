@@ -7,7 +7,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   MOVE_MARKER, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_FILES_CAP, MOVE_TOTAL_CAP, MOVE_CHUNKS_CAP, moveText, isMoveMarked, parseMoveMessage,
-  chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, missingOf, arrivedNotice, acknowledgedNotice, failedNotice,
+  chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, arrivalPairs, missingOf, arrivedNotice, acknowledgedNotice, failedNotice,
   type Arrival, type ManifestFile, type MoveMessage, type MoveRecord,
 } from '../move.ts'
 
@@ -432,33 +432,67 @@ test('rewritePaths ignores a pair whose origin is the root or empty', () => {
   expect(rewritePaths(`${MAC.home}/x /y`, [['/', LINUX.home], ['', LINUX.home]])).toBe(`${MAC.home}/x /y`)
 })
 
+// Where a move about `Orch : belt` lands on the target, whatever the origin's paths.
+const LANDING = `${LINUX.configDir}/claude-orchestrator/briefs/belt`
+
 test('arrivalOf rewrites the record\'s paths into the target\'s', () => {
   expect(arrivalOf(manifest(), LINUX)).toEqual({
-    briefDir: `${LINUX.configDir}/orchestrator/briefs/app`,
-    brief: `${LINUX.configDir}/orchestrator/briefs/app/belt.md`,
+    briefDir: LANDING,
+    brief: `${LANDING}/belt.md`,
     dir: `${LINUX.home}/dev/app`,
     checkouts: [`${LINUX.home}/dev/app`],
   })
 })
 
-for (const [label, m] of [
-  ['a relative brief', manifest({ record: record({ brief: 'briefs/belt.md' }) })],
-  ['a brief climbing out of its directory', manifest({ record: record({ brief: `${MAC.configDir}/../../x/belt.md` }) })],
-  ['a directory holding ..', manifest({ record: record({ dir: `${MAC.home}/dev/../../b` }) })],
-  ['a checkout holding ..', manifest({ record: record({ checkouts: [`${MAC.home}/dev/app`, `${MAC.home}/..`] }) })],
-  ['a brief outside the target home', manifest({ record: record({ brief: at('opt', 'briefs', 'belt.md') }) })],
-  ['a brief in a longer name beside the target home', manifest({ record: record({ brief: at('home', 'ab', 'briefs', 'belt.md') }) })],
-  ['a brief right in the target home', manifest({ record: record({ brief: `${MAC.home}/belt.md` }) })],
-  ['no file', manifest({ files: [] })],
-  ['a duplicate file', manifest({ files: [file(), file()] })],
-  ['a file name climbing out', manifest({ files: [file({ name: '..' })] })],
+test('arrivalOf lands the files in the target\'s briefs directory named after the move, whatever path the origin gave', () => {
+  const landed = [
+    [at('opt', 'briefs', 'belt.md'), 'belt.md'],
+    [at('home', 'ab', 'briefs', 'belt.md'), 'belt.md'],
+    [`${MAC.home}/belt.md`, 'belt.md'],
+    [`${MAC.configDir}/../../x/belt.md`, 'belt.md'],
+    [`${MAC.home}/.ssh/authorized_keys`, 'authorized_keys'],
+  ].map(([brief, name]) => {
+    const arrival = arrivalOf(manifest({ record: record({ brief }), files: [file({ name })] }), LINUX) as Arrival
+    return [arrival.briefDir, arrival.brief]
+  })
+  expect(landed).toEqual([
+    [LANDING, `${LANDING}/belt.md`], [LANDING, `${LANDING}/belt.md`], [LANDING, `${LANDING}/belt.md`],
+    [LANDING, `${LANDING}/belt.md`], [LANDING, `${LANDING}/authorized_keys`],
+  ])
+})
+
+for (const [label, m, reason] of [
+  ['a relative brief', manifest({ record: record({ brief: 'briefs/belt.md' }) }), 'the brief is no absolute path: briefs/belt.md'],
+  ['a brief ending in a slash', manifest({ record: record({ brief: `${MAC.configDir}/briefs/belt.md/` }) }),
+    `the brief names a directory, not a file: ${MAC.configDir}/briefs/belt.md/`],
+  ['a brief not among the files', manifest({ record: record({ brief: `${MAC.configDir}/briefs/other.md` }) }), 'the brief other.md is not among the files'],
+  ['no file', manifest({ files: [] }), 'the brief belt.md is not among the files'],
+  ['a directory holding ..', manifest({ record: record({ dir: `${MAC.home}/dev/../../b` }) }), `the directory ${LINUX.home}/dev/../../b climbs with '..'`],
+  ['a checkout holding ..', manifest({ record: record({ checkouts: [`${MAC.home}/dev/app`, `${MAC.home}/..`] }) }), `the checkout ${LINUX.home}/.. climbs with '..'`],
+  ['a duplicate file', manifest({ files: [file(), file()] }), 'belt.md: a duplicate name'],
+  ['a file name climbing out', manifest({ files: [file(), file({ name: '..' })] }), 'file 1: its name is no plain base name'],
 ] as const) {
-  test(`arrivalOf refuses ${label}, with its reason`, () => {
-    const arrival = arrivalOf(m, LINUX) as { refused?: string }
-    expect(typeof arrival.refused).toBe('string')
-    expect((arrival.refused ?? '').length > 0).toBe(true)
+  test(`arrivalOf refuses ${label}, with its own reason`, () => {
+    expect(arrivalOf(m, LINUX)).toEqual({ refused: reason })
   })
 }
+
+test('arrivalPairs carries the brief\'s directory onto the arrival\'s, then the config directory, then the home', () => {
+  const m = manifest()
+  expect(arrivalPairs(m, arrivalOf(m, LINUX) as Arrival, LINUX)).toEqual([
+    [`${MAC.configDir}/orchestrator/briefs/app`, LANDING],
+    [MAC.configDir, LINUX.configDir],
+    [MAC.home, LINUX.home],
+  ])
+})
+
+test('a file rewritten with arrivalPairs names the arrival\'s brief directory, config directory and home', () => {
+  const m = manifest()
+  const arrival = arrivalOf(m, LINUX) as Arrival
+  const text = `brief ${m.record.brief}\nnotes ${MAC.configDir}/orchestrator/briefs/app/notes.md\nstate ${MAC.configDir}/orchestrator/x.json\ncode ${MAC.home}/dev/app`
+  expect(rewritePaths(text, arrivalPairs(m, arrival, LINUX)))
+    .toBe(`brief ${arrival.brief}\nnotes ${LANDING}/notes.md\nstate ${LINUX.configDir}/orchestrator/x.json\ncode ${LINUX.home}/dev/app`)
+})
 
 test('missingOf lists the chunks not yet in, file then index, skipping every acknowledged file', () => {
   const files = [file({ chunks: 3 }), file({ name: 'b.md', chunks: 2 }), file({ name: 'c.md', chunks: 2 }), file({ name: 'd.md', chunks: 1 })]
@@ -479,7 +513,7 @@ test('the arrival notice gives every fact and ends on the opening command, exact
   expect(text.startsWith('[module] Orch : belt ')).toBe(true)
   const lines = text.split('\n')
   expect(lines[lines.length - 1]).toBe(
-    `${LAUNCHER} spawn --open --title "Orch : belt" --dir ${LINUX.home}/dev/app --permission-mode auto --model a-model --prompt "Read and execute ${LINUX.configDir}/orchestrator/briefs/app/belt.md"`,
+    `${LAUNCHER} spawn --open --title "Orch : belt" --dir ${LINUX.home}/dev/app --permission-mode auto --model a-model --prompt "Read and execute ${LANDING}/belt.md"`,
   )
   for (const fact of ['bench-mac', 'Coord : ops', arrival.brief, arrival.dir, 'git@example.com:acme/app.git', 'feat/belt', 'effort high', 'acme/app#7 feat/belt', m.record.order]) {
     expect(text).toContain(fact)
