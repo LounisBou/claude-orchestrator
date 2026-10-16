@@ -332,17 +332,19 @@ export function checkManifestFiles(files: ManifestFile[]): string | null {
   return null
 }
 
-// The origin's paths in a text, rewritten into the target's: every place the origin's config
-// directory, else its home, ends a path or the text — before a slash, at the end, or before
-// any character a name cannot hold. A longer name that merely starts the same is left alone.
-// One pass, the config directory tried first, so a path the rewrite wrote is never rewritten.
-export function rewritePaths(text: string, from: { home: string; configDir: string }, to: { home: string; configDir: string }): string {
-  const pairs = [[from.configDir, to.configDir], [from.home, to.home]]
-    .map(([origin, target]) => [trimSlashes(origin), trimSlashes(target)])
+// The origin's paths in a text, rewritten into the target's: every place an origin heads a
+// path — at the text's start or after any character a path cannot hold, and ending before a
+// slash, at the end, or before any character a name cannot hold. The longest origin that
+// matches wins at each place; a longer name that merely starts the same, or a longer path
+// that holds the origin after another directory, is left alone. One pass, so a path the
+// rewrite wrote is never rewritten.
+export function rewritePaths(text: string, pairs: readonly (readonly [from: string, to: string])[]): string {
+  const longest = pairs.map(([origin, target]) => [trimSlashes(origin), trimSlashes(target)])
     .filter(([origin]) => origin !== '')
-  if (pairs.length === 0) return text
-  const pattern = new RegExp(`(?:${pairs.map(([origin]) => escapeRegExp(origin)).join('|')})(?![A-Za-z0-9._-])`, 'g')
-  return text.replace(pattern, match => pairs.find(([origin]) => origin === match)![1])
+    .sort((a, b) => b[0].length - a[0].length)
+  if (longest.length === 0) return text
+  const pattern = new RegExp(`(?<![A-Za-z0-9._/~-])(?:${longest.map(([origin]) => escapeRegExp(origin)).join('|')})(?![A-Za-z0-9._-])`, 'g')
+  return text.replace(pattern, match => longest.find(([origin]) => origin === match)![1])
 }
 
 function escapeRegExp(text: string): string {
@@ -357,7 +359,8 @@ export type Arrival = { briefDir: string; brief: string; dir: string; checkouts:
 // that is no absolute path, a path that climbs with '..', a brief whose directory is not
 // strictly under the target's home, or files the manifest's checks refuse.
 export function arrivalOf(manifest: Extract<MoveMessage, { kind: 'manifest' }>, target: { home: string; configDir: string }): Arrival | { refused: string } {
-  const rewrite = (path: string) => rewritePaths(path, manifest.origin, target)
+  const { origin } = manifest
+  const rewrite = (path: string) => rewritePaths(path, [[origin.configDir, target.configDir], [origin.home, target.home]])
   const brief = rewrite(manifest.record.brief)
   const dir = rewrite(manifest.record.dir)
   const checkouts = manifest.record.checkouts.map(rewrite)

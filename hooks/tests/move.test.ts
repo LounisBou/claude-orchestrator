@@ -378,35 +378,58 @@ test('checkManifestFiles refuses two names that differ only by case, which a cas
 
 // --- the paths at arrival --------------------------------------------------------------
 
+// The pairs that carry one machine's config directory and home onto another's.
+const homes = (from: typeof MAC, to: typeof MAC): [string, string][] => [[from.configDir, to.configDir], [from.home, to.home]]
+
 test('rewritePaths moves the origin home to the target home, wherever it ends a path or the text', () => {
   const text = `dir ${MAC.home}/dev/app, home "${MAC.home}", cd ${MAC.home}\nlast ${MAC.home}`
-  expect(rewritePaths(text, MAC, LINUX)).toBe(`dir ${LINUX.home}/dev/app, home "${LINUX.home}", cd ${LINUX.home}\nlast ${LINUX.home}`)
+  expect(rewritePaths(text, homes(MAC, LINUX))).toBe(`dir ${LINUX.home}/dev/app, home "${LINUX.home}", cd ${LINUX.home}\nlast ${LINUX.home}`)
 })
 
 test('rewritePaths moves a config directory of its own, outside the home, before the home', () => {
   const from = { home: MAC.home, configDir: at('opt', 'cfg-a') }
   const to = { home: LINUX.home, configDir: at('srv', 'cfg-b') }
-  expect(rewritePaths(`${from.configDir}/briefs/x.md ${MAC.home}/dev`, from, to)).toBe(`${to.configDir}/briefs/x.md ${LINUX.home}/dev`)
+  expect(rewritePaths(`${from.configDir}/briefs/x.md ${MAC.home}/dev`, homes(from, to))).toBe(`${to.configDir}/briefs/x.md ${LINUX.home}/dev`)
   const renamed = { home: LINUX.home, configDir: at('home', 'a', '.cfg') }
-  expect(rewritePaths(`${MAC.configDir}/briefs/x.md ${MAC.home}/dev`, MAC, renamed)).toBe(`${renamed.configDir}/briefs/x.md ${LINUX.home}/dev`)
+  expect(rewritePaths(`${MAC.configDir}/briefs/x.md ${MAC.home}/dev`, homes(MAC, renamed))).toBe(`${renamed.configDir}/briefs/x.md ${LINUX.home}/dev`)
 })
 
 test('rewritePaths leaves a longer name that merely starts with the origin home', () => {
   const text = `${MAC.home}b/x ${MAC.home}.old ${MAC.home}-x ${MAC.home}_y ${MAC.configDir}2/z`
-  expect(rewritePaths(text, MAC, LINUX)).toBe(`${MAC.home}b/x ${MAC.home}.old ${MAC.home}-x ${MAC.home}_y ${LINUX.home}/.host2/z`)
+  expect(rewritePaths(text, homes(MAC, LINUX))).toBe(`${MAC.home}b/x ${MAC.home}.old ${MAC.home}-x ${MAC.home}_y ${LINUX.home}/.host2/z`)
 })
 
 test('rewritePaths ignores trailing slashes on both sides, and keeps the text\'s own', () => {
   const from = { home: `${MAC.home}/`, configDir: `${MAC.configDir}//` }
   const to = { home: `${LINUX.home}//`, configDir: `${LINUX.configDir}/` }
-  expect(rewritePaths(`${MAC.home}/ ${MAC.configDir}/x`, from, to)).toBe(`${LINUX.home}/ ${LINUX.configDir}/x`)
+  expect(rewritePaths(`${MAC.home}/ ${MAC.configDir}/x`, homes(from, to))).toBe(`${LINUX.home}/ ${LINUX.configDir}/x`)
 })
 
 test('rewritePaths never rewrites what it wrote, and writes a target holding a dollar as it is', () => {
   const nested = { home: `${MAC.home}/guest`, configDir: `${MAC.home}/guest/.host` }
-  expect(rewritePaths(`${MAC.configDir}/x ${MAC.home}/y`, MAC, nested)).toBe(`${nested.configDir}/x ${nested.home}/y`)
+  expect(rewritePaths(`${MAC.configDir}/x ${MAC.home}/y`, homes(MAC, nested))).toBe(`${nested.configDir}/x ${nested.home}/y`)
   const dollar = { home: at('srv', '$&'), configDir: at('srv', '$1') }
-  expect(rewritePaths(`${MAC.home}/y ${MAC.configDir}/x`, MAC, dollar)).toBe(`${dollar.home}/y ${dollar.configDir}/x`)
+  expect(rewritePaths(`${MAC.home}/y ${MAC.configDir}/x`, homes(MAC, dollar))).toBe(`${dollar.home}/y ${dollar.configDir}/x`)
+})
+
+test('rewritePaths leaves an origin home that a longer path holds after another directory or name', () => {
+  const text = `${at('opt')}${MAC.home}/x x${MAC.home} ~${MAC.home}/y /${MAC.home} a.b${MAC.home}/z -${MAC.home}`
+  expect(rewritePaths(text, homes(MAC, LINUX))).toBe(text)
+})
+
+test('rewritePaths moves an origin home after any character no path holds', () => {
+  const text = `--dir=${MAC.home}/x PATH:${MAC.home}/bin (${MAC.home}) '${MAC.home}/y'`
+  expect(rewritePaths(text, homes(MAC, LINUX))).toBe(`--dir=${LINUX.home}/x PATH:${LINUX.home}/bin (${LINUX.home}) '${LINUX.home}/y'`)
+})
+
+test('rewritePaths takes the longest origin that matches at each place, whatever the pairs\' order', () => {
+  const cfg = at('srv', 'cfg')
+  const pairs: [string, string][] = [[MAC.home, LINUX.home], [`${MAC.configDir}/briefs`, at('srv', 'briefs')], [MAC.configDir, cfg]]
+  expect(rewritePaths(`${MAC.configDir}/briefs/x.md ${MAC.configDir}/y ${MAC.home}/z`, pairs)).toBe(`${at('srv', 'briefs')}/x.md ${cfg}/y ${LINUX.home}/z`)
+})
+
+test('rewritePaths ignores a pair whose origin is the root or empty', () => {
+  expect(rewritePaths(`${MAC.home}/x /y`, [['/', LINUX.home], ['', LINUX.home]])).toBe(`${MAC.home}/x /y`)
 })
 
 test('arrivalOf rewrites the record\'s paths into the target\'s', () => {
