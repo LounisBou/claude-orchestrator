@@ -117,6 +117,9 @@ command -v jq >/dev/null 2>&1 || die "jq is required"
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 STATE="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
 RECORD="$STATE/coordinator.json"
+# Mirrors REMOTE_STALE_AFTER_MS in hooks/remote-row.ts: a remote row is kept for a day after its
+# updated_at, and the module deletes it past that bound.
+REMOTE_STALE_AFTER_S=86400
 SLEEPING="$STATE/sleeping.json"
 LOCK="$STATE/coordinator.lock"
 LAUNCHER="$here/../../iterm-agents/scripts/iterm-agent.sh"
@@ -563,7 +566,7 @@ remote_rows() {
         name=$(printf '%s' "$row" | cut -f1)
         at=$(printf '%s' "$row" | cut -f11)
         [ -n "$at" ] || continue
-        [ $((now - at)) -le 86400 ] || continue
+        [ $((now - at)) -le "$REMOTE_STALE_AFTER_S" ] || continue
         grep -qxF -- "$name" "$T/names" && continue
         printf '%s\n' "$row" >> "$T/remote"
     done < <(find "$store" -maxdepth 1 -type f | sort)
