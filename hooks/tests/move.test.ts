@@ -7,7 +7,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   MOVE_MARKER, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_FILES_CAP, MOVE_TOTAL_CAP, moveText, isMoveMarked, parseMoveMessage,
-  chunkText, moveIdOf, checkManifestFiles,
+  chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, missingOf,
   type ManifestFile, type MoveMessage, type MoveRecord,
 } from '../move.ts'
 
@@ -337,3 +337,72 @@ for (const [label, files] of [
     expect((reason ?? '').length > 0).toBe(true)
   })
 }
+
+// --- the paths at arrival --------------------------------------------------------------
+
+test('rewritePaths moves the origin home to the target home, wherever it ends a path or the text', () => {
+  const text = `dir ${MAC.home}/dev/app, home "${MAC.home}", cd ${MAC.home}\nlast ${MAC.home}`
+  expect(rewritePaths(text, MAC, LINUX)).toBe(`dir ${LINUX.home}/dev/app, home "${LINUX.home}", cd ${LINUX.home}\nlast ${LINUX.home}`)
+})
+
+test('rewritePaths moves a config directory of its own, outside the home, before the home', () => {
+  const from = { home: MAC.home, configDir: at('opt', 'cfg-a') }
+  const to = { home: LINUX.home, configDir: at('srv', 'cfg-b') }
+  expect(rewritePaths(`${from.configDir}/briefs/x.md ${MAC.home}/dev`, from, to)).toBe(`${to.configDir}/briefs/x.md ${LINUX.home}/dev`)
+  const renamed = { home: LINUX.home, configDir: at('home', 'a', '.cfg') }
+  expect(rewritePaths(`${MAC.configDir}/briefs/x.md ${MAC.home}/dev`, MAC, renamed)).toBe(`${renamed.configDir}/briefs/x.md ${LINUX.home}/dev`)
+})
+
+test('rewritePaths leaves a longer name that merely starts with the origin home', () => {
+  const text = `${MAC.home}b/x ${MAC.home}.old ${MAC.home}-x ${MAC.home}_y ${MAC.configDir}2/z`
+  expect(rewritePaths(text, MAC, LINUX)).toBe(`${MAC.home}b/x ${MAC.home}.old ${MAC.home}-x ${MAC.home}_y ${LINUX.home}/.host2/z`)
+})
+
+test('rewritePaths ignores trailing slashes on both sides, and keeps the text\'s own', () => {
+  const from = { home: `${MAC.home}/`, configDir: `${MAC.configDir}//` }
+  const to = { home: `${LINUX.home}//`, configDir: `${LINUX.configDir}/` }
+  expect(rewritePaths(`${MAC.home}/ ${MAC.configDir}/x`, from, to)).toBe(`${LINUX.home}/ ${LINUX.configDir}/x`)
+})
+
+test('rewritePaths never rewrites what it wrote, and writes a target holding a dollar as it is', () => {
+  const nested = { home: `${MAC.home}/guest`, configDir: `${MAC.home}/guest/.host` }
+  expect(rewritePaths(`${MAC.configDir}/x ${MAC.home}/y`, MAC, nested)).toBe(`${nested.configDir}/x ${nested.home}/y`)
+  const dollar = { home: at('srv', '$&'), configDir: at('srv', '$1') }
+  expect(rewritePaths(`${MAC.home}/y ${MAC.configDir}/x`, MAC, dollar)).toBe(`${dollar.home}/y ${dollar.configDir}/x`)
+})
+
+test('arrivalOf rewrites the record\'s paths into the target\'s', () => {
+  expect(arrivalOf(manifest(), LINUX)).toEqual({
+    briefDir: `${LINUX.configDir}/orchestrator/briefs/app`,
+    brief: `${LINUX.configDir}/orchestrator/briefs/app/belt.md`,
+    dir: `${LINUX.home}/dev/app`,
+    checkouts: [`${LINUX.home}/dev/app`],
+  })
+})
+
+for (const [label, m] of [
+  ['a relative brief', manifest({ record: record({ brief: 'briefs/belt.md' }) })],
+  ['a brief climbing out of its directory', manifest({ record: record({ brief: `${MAC.configDir}/../../x/belt.md` }) })],
+  ['a directory holding ..', manifest({ record: record({ dir: `${MAC.home}/dev/../../b` }) })],
+  ['a checkout holding ..', manifest({ record: record({ checkouts: [`${MAC.home}/dev/app`, `${MAC.home}/..`] }) })],
+  ['a brief outside the target home', manifest({ record: record({ brief: at('opt', 'briefs', 'belt.md') }) })],
+  ['a brief in a longer name beside the target home', manifest({ record: record({ brief: at('home', 'ab', 'briefs', 'belt.md') }) })],
+  ['a brief right in the target home', manifest({ record: record({ brief: `${MAC.home}/belt.md` }) })],
+  ['no file', manifest({ files: [] })],
+  ['a duplicate file', manifest({ files: [file(), file()] })],
+  ['a file name climbing out', manifest({ files: [file({ name: '..' })] })],
+] as const) {
+  test(`arrivalOf refuses ${label}, with its reason`, () => {
+    const arrival = arrivalOf(m, LINUX) as { refused?: string }
+    expect(typeof arrival.refused).toBe('string')
+    expect((arrival.refused ?? '').length > 0).toBe(true)
+  })
+}
+
+test('missingOf lists the chunks not yet in, file then index, skipping every acknowledged file', () => {
+  const files = [file({ chunks: 3 }), file({ name: 'b.md', chunks: 2 }), file({ name: 'c.md', chunks: 2 }), file({ name: 'd.md', chunks: 1 })]
+  const have = new Set(['0:1', '2:0'])
+  expect(missingOf(files, have, [false, true, false])).toEqual([[0, 0], [0, 2], [2, 1], [3, 0]])
+  expect(missingOf(files, new Set(['0:0', '0:1', '0:2', '2:0', '2:1', '3:0']), [false, true])).toEqual([])
+  expect(missingOf(files, new Set(), [true, true, true, true])).toEqual([])
+})

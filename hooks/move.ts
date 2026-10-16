@@ -317,3 +317,54 @@ export function checkManifestFiles(files: ManifestFile[]): string | null {
   if (total > MOVE_TOTAL_CAP) return `${total} bytes in all, more than ${MOVE_TOTAL_CAP}`
   return null
 }
+
+// The origin's paths in a text, rewritten into the target's: every place the origin's config
+// directory, else its home, ends a path or the text — before a slash, at the end, or before
+// any character a name cannot hold. A longer name that merely starts the same is left alone.
+// One pass, the config directory tried first, so a path the rewrite wrote is never rewritten.
+export function rewritePaths(text: string, from: { home: string; configDir: string }, to: { home: string; configDir: string }): string {
+  const pairs = [[from.configDir, to.configDir], [from.home, to.home]]
+    .map(([origin, target]) => [trimSlashes(origin), trimSlashes(target)])
+    .filter(([origin]) => origin !== '')
+  if (pairs.length === 0) return text
+  const pattern = new RegExp(`(?:${pairs.map(([origin]) => escapeRegExp(origin)).join('|')})(?![A-Za-z0-9._-])`, 'g')
+  return text.replace(pattern, match => pairs.find(([origin]) => origin === match)![1])
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// Where a move lands on the receiving machine: the brief's directory, which takes every file,
+// and the record's paths rewritten.
+export type Arrival = { briefDir: string; brief: string; dir: string; checkouts: string[] }
+
+// The record's paths rewritten into the target's, or the reason the move is refused: a brief
+// that is no absolute path, a path that climbs with '..', a brief whose directory is not
+// strictly under the target's home, or files the manifest's checks refuse.
+export function arrivalOf(manifest: Extract<MoveMessage, { kind: 'manifest' }>, target: { home: string; configDir: string }): Arrival | { refused: string } {
+  const rewrite = (path: string) => rewritePaths(path, manifest.origin, target)
+  const brief = rewrite(manifest.record.brief)
+  const dir = rewrite(manifest.record.dir)
+  const checkouts = manifest.record.checkouts.map(rewrite)
+  if (!brief.startsWith('/')) return { refused: `the brief is no absolute path: ${brief}` }
+  const climbing = [brief, dir, ...checkouts].find(path => path.split('/').includes('..'))
+  if (climbing !== undefined) return { refused: `a path climbs with '..': ${climbing}` }
+  const briefDir = brief.slice(0, brief.lastIndexOf('/'))
+  const home = trimSlashes(target.home)
+  if (!briefDir.startsWith(`${home}/`)) return { refused: `the brief's directory ${briefDir || '/'} is not under ${home || '/'}` }
+  const files = checkManifestFiles(manifest.files)
+  if (files !== null) return { refused: files }
+  return { briefDir, brief, dir, checkouts }
+}
+
+// What the receiver asks for again: every chunk it does not hold, of every file not yet
+// acknowledged, file then index.
+export function missingOf(files: ManifestFile[], have: ReadonlySet<string>, acked: readonly boolean[]): [number, number][] {
+  const missing: [number, number][] = []
+  files.forEach((f, file) => {
+    if (acked[file]) return
+    for (let index = 0; index < f.chunks; index++) if (!have.has(`${file}:${index}`)) missing.push([file, index])
+  })
+  return missing
+}
