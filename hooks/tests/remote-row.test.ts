@@ -143,8 +143,8 @@ test('the row goes to the learnt coordinator once, and a repeat sends nothing', 
   const row = parseRemoteRow(fx.sent[0].text)!
   expect(row.name).toBe('Orch : belt')
   expect(row.machine).toBe('bench-mac')
-  // Only the pane's fields travel: no path, no repository, no tty, no pid, no model.
-  expect(fx.sent[0].text).not.toContain('acme/app')
+  // Only the pane's fields, the repository and its pull requests travel: no path, no tty, no pid, no model.
+  expect(row.repo).toBe('acme/app')
   expect(fx.sent[0].text).not.toContain('ttys3')
   expect(fx.sent[0].text).not.toContain('a-model')
   expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
@@ -461,4 +461,25 @@ test('a received row keeps its repository and pull requests, and an old row is s
   expect([stored.repo, stored.prs]).toEqual(['acme/app', ['acme/app#7']])
   const old = JSON.parse(fx.files.get(`${STORE}/remote/Orch___old`)!)
   expect([old.repo, old.prs]).toEqual([null, []])
+})
+
+test('twenty maximum-length pull requests: the row is cut from the end to fit the cap, sent, and parses', async () => {
+  const fx = fake()
+  const slugs: string[] = []
+  for (let i = 0; i < PRS_CAP; i++) {
+    const slug = `acme_${'r'.repeat(130)}-${String(i).padStart(2, '0')}`
+    const log = `${slug}-pr${100000000 + i}.log`
+    slugs.push(log)
+    fx.files.set(`${CI_WATCH}/${log}`, '')
+    fx.files.set(`${CI_WATCH}/${log}.session`, `${ME}\n`)
+  }
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  expect(fx.sent[0].text.length).toBeLessThanOrEqual(ROW_TEXT_CAP)
+  const row = parseRemoteRow(fx.sent[0].text)!
+  expect(row).not.toBeNull()
+  expect(row.prs.length).toBeGreaterThan(0)
+  expect(row.prs.length).toBeLessThan(PRS_CAP)
+  const sorted = Array.from({ length: PRS_CAP }, (_, i) => `acme/${'r'.repeat(130)}-${String(i).padStart(2, '0')}#${100000000 + i}`).sort()
+  expect(row.prs).toEqual(sorted.slice(0, row.prs.length))
 })

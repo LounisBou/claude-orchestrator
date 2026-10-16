@@ -87,7 +87,7 @@ export function machineLabel(raw: string): string {
 export function remoteRowOf(row: SessionRow | null, machine: string, prs: readonly string[] = []): RemoteRow | null {
   if (!row || row.role !== 'orchestrator' || !row.name || roleOf(row.name) !== 'orchestrator') return null
   const on = row.waiting === 'operator' || row.waiting === 'done'
-  return {
+  const out: RemoteRow = {
     name: row.name.slice(0, NAME_CAP),
     role: 'orchestrator',
     context_tokens: clampInt(row.context_tokens),
@@ -101,6 +101,10 @@ export function remoteRowOf(row: SessionRow | null, machine: string, prs: readon
     repo: repoShaped(row.repo) ? row.repo : null,
     prs: prs.filter(prShaped).slice(0, PRS_CAP),
   }
+  // The receiver refuses a line past its cap whole, so the pull requests are dropped from the
+  // end of the sorted list until the line fits: the row is sent, with fewer of them.
+  while (out.prs.length > 0 && rowText(out).length > ROW_TEXT_CAP) out.prs.pop()
+  return out
 }
 
 function repoShaped(repo: unknown): repo is string {
