@@ -116,7 +116,8 @@ open question changes nothing but a line in the round file.
 
 1. **The ledger first.** A question received is written, before anything else is done, to
    `decision-round.md` in your scratch directory: number, the sender's exact `ListAgents`
-   name, the time received (`date -u +%FT%TZ`), the question verbatim, status (open,
+   name, the time received (`date -u +%FT%TZ`), the question verbatim with the `[module]`
+   header it came under, its `since` and `blocks` included, status (open,
    recorded, sent). The round file is the ledger: nothing received is dropped, merged or
    kept out of it, and the end line counts it.
 2. **Grouped by sender.** The round orders its questions by the orchestrator that sent them:
