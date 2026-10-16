@@ -303,12 +303,13 @@ function hex48(text: string): string {
 export function checkManifestFiles(files: ManifestFile[]): string | null {
   if (files.length === 0) return 'no file to move'
   if (files.length > MOVE_FILES_CAP) return `${files.length} files, more than ${MOVE_FILES_CAP}`
+  // Names compared lower-cased: a case-insensitive file system writes both to one file.
   const seen = new Set<string>()
   let total = 0
   for (const [i, f] of files.entries()) {
     if (!FILE_NAME_SHAPE.test(f.name) || f.name === '.' || f.name === '..') return `file ${i}: its name is no plain base name`
-    if (seen.has(f.name)) return `${f.name}: a duplicate name`
-    seen.add(f.name)
+    if (seen.has(f.name.toLowerCase())) return `${f.name}: a duplicate name`
+    seen.add(f.name.toLowerCase())
     if (!(f.bytes <= MOVE_FILE_CAP)) return `${f.name}: ${f.bytes} bytes, more than ${MOVE_FILE_CAP}`
     if (!SHA256_SHAPE.test(f.sha256)) return `${f.name}: its sha256 is not 64 lowercase hex digits`
     if (!(f.chunks >= 1)) return `${f.name}: ${f.chunks} chunks, fewer than one`

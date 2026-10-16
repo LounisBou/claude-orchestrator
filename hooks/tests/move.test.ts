@@ -338,6 +338,11 @@ for (const [label, files] of [
   })
 }
 
+test('checkManifestFiles refuses two names that differ only by case, which a case-insensitive file system writes to one file', () => {
+  expect(checkManifestFiles([file(), file({ name: 'Belt.md' })])).toBe('Belt.md: a duplicate name')
+  expect(checkManifestFiles([file({ name: 'NOTES.MD' }), file(), file({ name: 'notes.md' })])).toBe('notes.md: a duplicate name')
+})
+
 // --- the paths at arrival --------------------------------------------------------------
 
 test('rewritePaths moves the origin home to the target home, wherever it ends a path or the text', () => {
