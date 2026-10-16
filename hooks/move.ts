@@ -29,6 +29,10 @@ export const MOVE_FILE_CAP = 4 * 1024 * 1024  // the host's file read and write 
 export const MOVE_TOTAL_CAP = 16 * 1024 * 1024
 export const MOVE_FILES_CAP = 512
 
+// The chunks a move's files take together: the receiver lists what is missing chunk by chunk,
+// and a file may claim up to one chunk per byte, so the bytes alone bound nothing useful.
+export const MOVE_CHUNKS_CAP = 32_768          // chunks summed over a manifest's files
+
 // No timer: the sender resends what a « missing » answer names, this many answers per move at
 // most, then reports the failure. The same send repeated resumes the same move.
 export const MOVE_MISSING_ROUNDS = 3
@@ -306,6 +310,7 @@ export function checkManifestFiles(files: ManifestFile[]): string | null {
   // Names compared lower-cased: a case-insensitive file system writes both to one file.
   const seen = new Set<string>()
   let total = 0
+  let chunks = 0
   for (const [i, f] of files.entries()) {
     if (!FILE_NAME_SHAPE.test(f.name) || f.name === '.' || f.name === '..') return `file ${i}: its name is no plain base name`
     if (seen.has(f.name.toLowerCase())) return `${f.name}: a duplicate name`
@@ -314,8 +319,10 @@ export function checkManifestFiles(files: ManifestFile[]): string | null {
     if (!SHA256_SHAPE.test(f.sha256)) return `${f.name}: its sha256 is not 64 lowercase hex digits`
     if (!(f.chunks >= 1)) return `${f.name}: ${f.chunks} chunks, fewer than one`
     total += f.bytes
+    chunks += f.chunks
   }
   if (total > MOVE_TOTAL_CAP) return `${total} bytes in all, more than ${MOVE_TOTAL_CAP}`
+  if (chunks > MOVE_CHUNKS_CAP) return `${chunks} chunks in all, more than ${MOVE_CHUNKS_CAP}`
   return null
 }
 

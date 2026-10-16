@@ -6,7 +6,7 @@
 // stable over what it carries.
 import { expect, test } from 'claude-code/testing'
 import {
-  MOVE_MARKER, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_FILES_CAP, MOVE_TOTAL_CAP, moveText, isMoveMarked, parseMoveMessage,
+  MOVE_MARKER, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_FILES_CAP, MOVE_TOTAL_CAP, MOVE_CHUNKS_CAP, moveText, isMoveMarked, parseMoveMessage,
   chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, missingOf, arrivedNotice, acknowledgedNotice, failedNotice,
   type Arrival, type ManifestFile, type MoveMessage, type MoveRecord,
 } from '../move.ts'
@@ -198,6 +198,7 @@ const BAD: [string, unknown][] = [
   ['more chunks than bytes', manifest({ files: [file({ bytes: 3, chunks: 4 })] })],
   ['a fractional chunk count', manifest({ files: [file({ chunks: 1.5 })] })],
   ['a sha256 in capitals', manifest({ files: [file({ sha256: 'A'.repeat(64) })] })],
+  ['chunks summed past the cap', manifest({ files: Array.from({ length: 4 }, (_, i) => file({ name: `f${i}.md`, bytes: MOVE_FILE_CAP, chunks: MOVE_FILE_CAP })) })],
   ['a file number past the cap', { kind: 'chunk', move: MOVE, file: MOVE_FILES_CAP, index: 0, data: '' }],
   ['a negative chunk index', { kind: 'chunk', move: MOVE, file: 0, index: -1, data: '' }],
   ['a fractional chunk index', { kind: 'chunk', move: MOVE, file: 0, index: 0.5, data: '' }],
@@ -337,6 +338,14 @@ for (const [label, files] of [
     expect((reason ?? '').length > 0).toBe(true)
   })
 }
+
+test('checkManifestFiles takes chunks summed exactly at their cap, and refuses one more', () => {
+  const half = MOVE_CHUNKS_CAP / 2
+  const reached = [file({ bytes: MOVE_FILE_CAP, chunks: half }), file({ name: 'notes.md', bytes: MOVE_FILE_CAP, chunks: half })]
+  expect(checkManifestFiles(reached)).toBeNull()
+  const over = [reached[0], file({ name: 'notes.md', bytes: MOVE_FILE_CAP, chunks: half + 1 })]
+  expect(checkManifestFiles(over)).toBe(`${MOVE_CHUNKS_CAP + 1} chunks in all, more than ${MOVE_CHUNKS_CAP}`)
+})
 
 test('checkManifestFiles refuses two names that differ only by case, which a case-insensitive file system writes to one file', () => {
   expect(checkManifestFiles([file(), file({ name: 'Belt.md' })])).toBe('Belt.md: a duplicate name')
