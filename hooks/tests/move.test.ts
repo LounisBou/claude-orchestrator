@@ -36,11 +36,11 @@ const MOVE = 'belt-0123456789ab'
 
 type Manifest = Extract<MoveMessage, { kind: 'manifest' }>
 
+// Its move id is the one its record and files give, unless it is given another.
 function manifest(over: Partial<Manifest> = {}): Manifest {
-  return {
-    kind: 'manifest', move: MOVE, origin: { machine: 'bench-mac', ...MAC }, record: record(),
-    files: [file(), file({ name: 'notes.md', bytes: 10, chunks: 1 })], ...over,
-  }
+  const r = over.record ?? record()
+  const files = over.files ?? [file(), file({ name: 'notes.md', bytes: 10, chunks: 1 })]
+  return { kind: 'manifest', move: moveIdOf(r, files), origin: { machine: 'bench-mac', ...MAC }, record: r, files, ...over }
 }
 
 // One message of every kind, and the variants a kind allows: a refusal and its reason, a
@@ -462,6 +462,7 @@ test('arrivalOf lands the files in the target\'s briefs directory named after th
 })
 
 for (const [label, m, reason] of [
+  ['a move id its record and files do not give', manifest({ move: MOVE }), `the move id ${MOVE} is not the one its record and files give`],
   ['a relative brief', manifest({ record: record({ brief: 'briefs/belt.md' }) }), 'the brief is no absolute path: briefs/belt.md'],
   ['a brief ending in a slash', manifest({ record: record({ brief: `${MAC.configDir}/briefs/belt.md/` }) }),
     `the brief names a directory, not a file: ${MAC.configDir}/briefs/belt.md/`],
@@ -469,11 +470,23 @@ for (const [label, m, reason] of [
   ['no file', manifest({ files: [] }), 'the brief belt.md is not among the files'],
   ['a directory holding ..', manifest({ record: record({ dir: `${MAC.home}/dev/../../b` }) }), `the directory ${LINUX.home}/dev/../../b climbs with '..'`],
   ['a checkout holding ..', manifest({ record: record({ checkouts: [`${MAC.home}/dev/app`, `${MAC.home}/..`] }) }), `the checkout ${LINUX.home}/.. climbs with '..'`],
+  ['a directory outside the target home', manifest({ record: record({ dir: at('etc') }) }), `the directory ${at('etc')} is not strictly under ${LINUX.home}`],
+  ['a directory that is the target home', manifest({ record: record({ dir: `${MAC.home}/` }) }), `the directory ${LINUX.home}/ is not strictly under ${LINUX.home}`],
+  ['a directory in a longer name beside the target home', manifest({ record: record({ dir: at('home', 'ab', 'dev') }) }),
+    `the directory ${at('home', 'ab', 'dev')} is not strictly under ${LINUX.home}`],
+  ['a checkout outside the target home', manifest({ record: record({ checkouts: [`${MAC.home}/dev/app`, at('opt', 'app')] }) }),
+    `the checkout ${at('opt', 'app')} is not strictly under ${LINUX.home}`],
   ['a duplicate file', manifest({ files: [file(), file()] }), 'belt.md: a duplicate name'],
   ['a file name climbing out', manifest({ files: [file(), file({ name: '..' })] }), 'file 1: its name is no plain base name'],
 ] as const) {
   test(`arrivalOf refuses ${label}, with its own reason`, () => {
     expect(arrivalOf(m, LINUX)).toEqual({ refused: reason })
+  })
+}
+
+for (const home of ['', '/', '//']) {
+  test(`arrivalOf refuses a target whose home is ${JSON.stringify(home)}, with its own reason`, () => {
+    expect(arrivalOf(manifest(), { home, configDir: LINUX.configDir })).toEqual({ refused: 'the target\'s home is empty or the root' })
   })
 }
 

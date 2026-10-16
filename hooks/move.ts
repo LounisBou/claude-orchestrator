@@ -357,30 +357,36 @@ function escapeRegExp(text: string): string {
 // brief in it, and the record's paths rewritten.
 export type Arrival = { briefDir: string; brief: string; dir: string; checkouts: string[] }
 
-// The arrival, or the reason the move is refused. Every file lands in the target's own briefs
-// directory, named after the move's subject, whatever path the origin gave: a manifest says
-// what it carries, never where it is written. The brief is one of the files, and the
-// directory and the checkouts are the record's, rewritten onto the target, with no '..'.
+// The arrival, or the reason the move is refused. The move's id is the one its record and
+// files give. Every file lands in the target's own briefs directory, named after the move's
+// subject, whatever path the origin gave: a manifest says what it carries, never where it is
+// written. The brief is one of the files, and the directory and the checkouts are the
+// record's, rewritten onto the target, strictly under its home and with no '..'.
 export function arrivalOf(manifest: Extract<MoveMessage, { kind: 'manifest' }>, target: { home: string; configDir: string }): Arrival | { refused: string } {
   const { record } = manifest
+  if (manifest.move !== moveIdOf(record, manifest.files)) return { refused: `the move id ${manifest.move} is not the one its record and files give` }
   if (!record.brief.startsWith('/')) return { refused: `the brief is no absolute path: ${record.brief}` }
   if (record.brief.endsWith('/')) return { refused: `the brief names a directory, not a file: ${record.brief}` }
   const name = record.brief.slice(record.brief.lastIndexOf('/') + 1)
   if (!manifest.files.some(f => f.name === name)) return { refused: `the brief ${name} is not among the files` }
+  const home = trimSlashes(target.home)
+  if (home === '') return { refused: 'the target\'s home is empty or the root' }
   const briefDir = `${trimSlashes(target.configDir)}/claude-orchestrator/briefs/${manifest.move.replace(MOVE_ID_HASH, '')}`
   const pairs = pairsOf(manifest, briefDir, target)
   const dir = rewritePaths(record.dir, pairs)
   const checkouts = record.checkouts.map(path => rewritePaths(path, pairs))
-  const refusal = [pathRefusal('directory', dir), ...checkouts.map(path => pathRefusal('checkout', path))].find(r => r !== null)
+  const refusal = [pathRefusal('directory', dir, home), ...checkouts.map(path => pathRefusal('checkout', path, home))].find(r => r !== null)
   if (refusal) return { refused: refusal }
   const files = checkManifestFiles(manifest.files)
   if (files !== null) return { refused: files }
   return { briefDir, brief: `${briefDir}/${name}`, dir, checkouts }
 }
 
-// Why a rewritten directory or checkout cannot be the arrival's, or null when it can.
-function pathRefusal(label: string, path: string): string | null {
+// Why a rewritten directory or checkout cannot be the arrival's, or null when it can: the
+// launcher opens a session in the one and git reads the other, so neither leaves the home.
+function pathRefusal(label: string, path: string, home: string): string | null {
   if (path.split('/').includes('..')) return `the ${label} ${path} climbs with '..'`
+  if (!trimSlashes(path).startsWith(`${home}/`)) return `the ${label} ${path} is not strictly under ${home}`
   return null
 }
 
