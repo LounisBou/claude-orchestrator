@@ -56,6 +56,7 @@ const SAMPLES: MoveMessage[] = [
   { kind: 'missing', move: MOVE, chunks: [[0, 1], [1, 0]] },
   { kind: 'done', move: MOVE, ok: true, brief: `${LINUX.configDir}/orchestrator/briefs/app/belt.md`, reason: null },
   { kind: 'done', move: MOVE, ok: false, brief: null, reason: 'the brief is no absolute path' },
+  { kind: 'done', move: MOVE, ok: false, brief: `${LINUX.configDir}/orchestrator/briefs/app/belt.md`, reason: 'belt.md: the target exists with other content' },
   { kind: 'probe', move: MOVE, size: 2048, data: 'x'.repeat(1900) },
   { kind: 'probe-ack', move: MOVE, size: 2048, received: 2048 },
 ]
@@ -229,6 +230,7 @@ const BAD: [string, unknown][] = [
   ['a done without its brief', { kind: 'done', move: MOVE, ok: true, brief: null, reason: null }],
   ['a done with a reason', { kind: 'done', move: MOVE, ok: true, brief: `${LINUX.home}/b.md`, reason: 'x' }],
   ['a done with a relative brief', { kind: 'done', move: MOVE, ok: true, brief: 'b.md', reason: null }],
+  ['a failure with a relative brief', { kind: 'done', move: MOVE, ok: false, brief: 'b.md', reason: 'x' }],
   ['a failure with no reason', { kind: 'done', move: MOVE, ok: false, brief: null, reason: null }],
   ['a probe of size zero', { kind: 'probe', move: MOVE, size: 0, data: '' }],
   ['a probe past the cap', { kind: 'probe', move: MOVE, size: MOVE_TEXT_CAP + 1, data: '' }],
@@ -556,6 +558,14 @@ test('the opening command quotes a directory with a space and a model with a var
   const m = manifest({ record: record({ dir: `${MAC.home}/my app`, model: 'a-model[1m]' }) })
   const text = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER)
   expect(text).toContain(`--dir '${LINUX.home}/my app' --permission-mode auto --model 'a-model[1m]' --effort high --prompt`)
+})
+
+test('the opening command closes and reopens its quotes around a single quote in the directory, exact', () => {
+  const m = manifest({ record: record({ dir: `${MAC.home}/it's app` }) })
+  const lines = arrivedNotice(m, arrivalOf(m, LINUX) as Arrival, 'Coord : ops', LAUNCHER).split('\n')
+  expect(lines[lines.length - 1]).toBe(
+    `${LAUNCHER} spawn --open --title "Orch : belt" --dir '${LINUX.home}/it'\\''s app' --permission-mode auto --model a-model --effort high --prompt "Read and execute ${LANDING}/belt.md"`,
+  )
 })
 
 test('the arrival notice keeps the sender\'s name on its own line', () => {
