@@ -552,7 +552,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // before turn.start, so the wait is usually still on. Never adds context, never holds the prompt.
   on('prompt.submit', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
-      const done = await withDeadline(withdrawOnTyped($, String(e.origin?.kind ?? '')), RELAY_BOUND_MS)
+      const done = await withDeadline(withdrawOnTyped($, String(e.origin?.kind ?? ''), String(e.text ?? '')), RELAY_BOUND_MS)
       if (isDegradedPass(done)) await logLine($, `withdraw: did not finish within ${RELAY_BOUND_MS} ms`)
     } catch (err) {
       await logLine($, `withdraw: ${(err as Error).message}`)
@@ -720,11 +720,12 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 // The operator typed a prompt (composer or bridge) in an orchestrator whose relayed question
 // is still on him: it is answered in its own tab, so the coordinator is sent the withdrawal and
 // the fingerprint is forgotten — the same question asked again is relayed again. Anything
-// else sends nothing. Delivered: the wait file is re-read and written back with `relayed`
+// else sends nothing, a slash command included: it starts no turn, so nothing would relay the
+// question again. Delivered: the wait file is re-read and written back with `relayed`
 // null only when it still holds the held fingerprint (a turn's start may have written it).
 // Refused: one log line, the file untouched, so the next typed prompt tries again.
-export async function withdrawOnTyped($: any, kind: string): Promise<void> {
-  if (!typedByOperator(kind)) return
+export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
+  if (!typedByOperator(kind) || text.trimStart().startsWith('/')) return
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
   let name = row?.name ?? null

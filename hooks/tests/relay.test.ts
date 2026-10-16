@@ -348,6 +348,18 @@ for (const [label, setup, kind] of [
   })
 }
 
+for (const text of ['/orchestrator:status', '  /x']) {
+  test(`a composer prompt that is a slash command (${JSON.stringify(text)}) withdraws nothing`, async () => {
+    const { chains, fx } = await relayedQuestion()
+    const before = fx.files.get(WAIT)
+    const e = typed('composer', text)
+    expect(await drive(chains, 'prompt.submit', fx.dollar, e)).toBe(e)
+    expect(fx.sent.length).toBe(0)
+    expect(fx.files.get(WAIT)).toBe(before)
+    expect(fx.row().relayed).toBeTruthy()
+  })
+}
+
 test('no held question: nothing is withdrawn', async () => {
   const chains = mounted()
   const fx = fake()
