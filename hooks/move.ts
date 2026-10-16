@@ -94,8 +94,10 @@ const NAME_SHAPE = /^Orch : \S(?:.{0,23}\S)?$/
 const REF_SUFFIX = / \[[0-9A-Za-z]+\]$/
 
 // What the opening command cannot carry between double quotes, nor any line: a quote, a
-// dollar, a backtick, a backslash, a control character. Refused in every name and path.
-const UNQUOTABLE = /["$`\\\u0000-\u001f\u007f]/
+// dollar, a backtick, a backslash, a control character, a line or paragraph separator, and
+// the invisible or direction-changing format characters that make a text read otherwise than
+// it runs. Refused in every name and path.
+const UNQUOTABLE = /["$`\\\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2069\ufeff]/
 const CONTROL = /[\u0000-\u001f\u007f]/
 // The order keeps its line breaks and tabs: it travels verbatim.
 const ORDER_CONTROL = /[\u0000-\u0008\u000b-\u001f\u007f]/

@@ -173,6 +173,15 @@ const BAD: [string, unknown][] = [
   ['a directory with a dollar', manifest({ record: record({ dir: `${MAC.home}/$HOME` }) })],
   ['a checkout with a line break', manifest({ record: record({ checkouts: [`${MAC.home}/a\nb`] }) })],
   ['a path past its length', manifest({ record: record({ dir: `${MAC.home}/${'d'.repeat(1100)}` }) })],
+  // The C1 controls, the line and paragraph separators, and the invisible or direction-changing
+  // format characters, each range by its two ends.
+  ...['\u0080', '\u0085', '\u009f', '\u2028', '\u2029', '\u200b', '\u200f', '\u202a', '\u202e', '\u2060', '\u2069', '\ufeff'].flatMap(c => {
+    const code = `U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0')}`
+    return [
+      [`a name holding ${code}`, manifest({ record: record({ name: `Orch : be${c}lt` }) })],
+      [`a directory holding ${code}`, manifest({ record: record({ dir: `${MAC.home}/de${c}v` }) })],
+    ] as [string, unknown][]
+  }),
   ['an empty model', manifest({ record: record({ model: '' }) })],
   ['a model with a space', manifest({ record: record({ model: 'a model' }) })],
   ['a model with a semicolon', manifest({ record: record({ model: 'a-model;id' }) })],
