@@ -7,7 +7,8 @@
 // the pane, stale rows dropped, a live local row beating a remote one.
 import { expect, test } from 'claude-code/testing'
 import {
-  ROW_MARKER, ROW_REFRESH_MS, ROW_TEXT_CAP, REMOTE_STALE_AFTER_MS, parseRemoteRow, rowText, deliveryOf, remoteRowOf, withRemote, type RemoteRow,
+  ROW_MARKER, ROW_REFRESH_MS, ROW_TEXT_CAP, REMOTE_STALE_AFTER_MS, PRS_CAP, parseRemoteRow, rowText, deliveryOf, remoteRowOf, withRemote,
+  prsInFlight, rowIsNews, rowSent, type RemoteRow,
 } from '../remote-row.ts'
 import { paneRows, sendRow, readRemoteRows, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
@@ -119,8 +120,15 @@ const envelope = (body: string, name = 'Orch : belt', from = 'bridge:session_02X
 function remote(over: Partial<RemoteRow> = {}): RemoteRow {
   return {
     name: 'Orch : far', role: 'orchestrator', context_tokens: 120000, context_percent: 12, window: 1000000,
-    waiting: null, blocks: null, waiting_since: null, updated_at: new Date().toISOString(), machine: 'bench-mac', ...over,
+    waiting: null, blocks: null, waiting_since: null, updated_at: new Date().toISOString(), machine: 'bench-mac',
+    repo: null, prs: [], ...over,
   }
+}
+
+// The row as 0.58 and 0.59 sent it: the ten fields, no repository and no pull request.
+function oldRowText(row: RemoteRow): string {
+  const { repo: _repo, prs: _prs, ...ten } = row
+  return ROW_MARKER + JSON.stringify(ten)
 }
 
 // --- the send --------------------------------------------------------------------------
@@ -308,4 +316,149 @@ test('a remote orchestrator waiting on the operator stays drawn for hours; past 
   expect(rows[0].label).toContain('Orch : waits · orchestrator · remote bench-mac')
   expect(rows[0].label).toContain('3h')
   expect(rows[0].label).toContain('waiting for the operator')
+})
+
+// --- the repository and the pull requests in flight ------------------------------------
+
+const CI_WATCH = `${HOME}/.claude/claude-orchestrator/ci-watch`
+const ME = 's-one'
+
+test('prsInFlight keeps only the watches this session armed, and drops one merged to its base', () => {
+  const owners = new Map([
+    ['acme_app-pr7.log', ME],
+    ['acme_app-pr8.log', 'S-OTHER'],
+    ['acme_app-pr9.log', ME],
+    ['acme_app-pr9-base.log', ME],
+  ])
+  const names = ['acme_app-pr7.log', 'acme_app-pr7.log.session', 'acme_app-pr8.log', 'acme_app-pr9.log', 'acme_app-pr9-base.log']
+  expect(prsInFlight(names, owners, ME, 'acme/app')).toEqual(['acme/app#7'])
+})
+
+test('prsInFlight keeps nothing for a log with no owner file', () => {
+  expect(prsInFlight(['acme_app-pr5.log'], new Map(), ME, 'acme/app')).toEqual([])
+})
+
+test('prsInFlight names a here log by the repository argument, and none without one', () => {
+  const owners = new Map([['here-pr3.log', ME]])
+  expect(prsInFlight(['here-pr3.log'], owners, ME, 'acme/app')).toEqual(['acme/app#3'])
+  expect(prsInFlight(['here-pr3.log'], owners, ME, null)).toEqual([])
+})
+
+test('prsInFlight splits a slug at its first underscore, so a repository name holding one survives', () => {
+  const owners = new Map([['acme_app_v2-pr4.log', ME]])
+  expect(prsInFlight(['acme_app_v2-pr4.log'], owners, ME, null)).toEqual(['acme/app_v2#4'])
+})
+
+test('prsInFlight drops an entry the receiver would refuse, so one bad name never refuses the row', () => {
+  const owners = new Map([['acme.x_app-pr2.log', ME]])
+  expect(prsInFlight(['acme.x_app-pr2.log'], owners, ME, null)).toEqual([])
+})
+
+test('prsInFlight is unique, sorted and cut to the cap', () => {
+  const names: string[] = []
+  const owners = new Map<string, string>()
+  for (let n = 1; n <= 25; n++) {
+    names.push(`acme_app-pr${n}.log`)
+    owners.set(`acme_app-pr${n}.log`, ME)
+  }
+  names.push('here-pr1.log')
+  owners.set('here-pr1.log', ME)
+  const all = Array.from({ length: 25 }, (_, i) => `acme/app#${i + 1}`).sort()
+  expect(prsInFlight(names, owners, ME, 'acme/app')).toEqual(all.slice(0, PRS_CAP))
+})
+
+test('the receiver takes the new field set and reads the repository and its pull requests back', () => {
+  const row = remote({ repo: 'acme/app', prs: ['acme/app#7', 'acme/app_v2#12'] })
+  expect(parseRemoteRow(rowText(row))).toEqual(row)
+})
+
+test('the ten fields of 0.58 and 0.59 are accepted as no repository and no pull request', () => {
+  const row = remote()
+  expect(parseRemoteRow(oldRowText(row))).toEqual({ ...row, repo: null, prs: [] })
+})
+
+test('a row carrying exactly one of the two new fields is refused', () => {
+  const ten = JSON.parse(oldRowText(remote()).slice(ROW_MARKER.length))
+  expect(parseRemoteRow(ROW_MARKER + JSON.stringify({ ...ten, repo: 'acme/app' }))).toBeNull()
+  expect(parseRemoteRow(ROW_MARKER + JSON.stringify({ ...ten, prs: [] }))).toBeNull()
+})
+
+test('twenty pull requests are the most a row carries', () => {
+  const twenty = Array.from({ length: PRS_CAP }, (_, i) => `acme/app#${i + 1}`)
+  expect(parseRemoteRow(rowText(remote({ repo: 'acme/app', prs: twenty })))!.prs.length).toBe(PRS_CAP)
+})
+
+for (const [label, prs] of [
+  ['a missing hash', ['acme/app7']],
+  ['a zero number', ['acme/app#0']],
+  ['a leading zero', ['acme/app#07']],
+  ['no owner', ['app#7']],
+  ['a space', ['acme/app #7']],
+  ['not an array', 'acme/app#7'],
+  ['21 entries', Array.from({ length: PRS_CAP + 1 }, (_, i) => `acme/app#${i + 1}`)],
+] as const) {
+  test(`a row whose pull requests are malformed (${label}) is refused`, () => {
+    expect(parseRemoteRow(rowText(remote({ repo: 'acme/app', prs: prs as unknown as string[] })))).toBeNull()
+  })
+}
+
+for (const [label, repo] of [['a path', '/srv/x'], ['a space', 'acme app'], ['no name', 'acme/']] as const) {
+  test(`a row whose repository is malformed (${label}) is refused`, () => {
+    expect(parseRemoteRow(rowText(remote({ repo, prs: [] })))).toBeNull()
+  })
+}
+
+test('a change of repository or pull requests is news, and a sent record without the fields is news once', () => {
+  const now = Date.now()
+  const row = remote({ repo: 'acme/app', prs: ['acme/app#7'] })
+  expect(rowIsNews(row, rowSent(remote({ repo: 'acme/app' }), now), now)).toBe(true)
+  expect(rowIsNews(row, rowSent(row, now), now)).toBe(false)
+  expect(rowIsNews(remote({ repo: 'acme/other', prs: ['acme/app#7'] }), rowSent(row, now), now)).toBe(true)
+  const before = { band: 2, waiting: null, blocks: null, sent_at: new Date(now).toISOString() }
+  expect(rowIsNews(row, before, now)).toBe(true)
+})
+
+test('the row sent carries the pull requests this session watches, read from the ci-watch directory', async () => {
+  const fx = fake()
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log.session`, `${ME}\n`)
+  fx.files.set(`${CI_WATCH}/acme_app-pr8.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr8.log.session`, 'S-OTHER\n')
+  fx.files.set(`${CI_WATCH}/here-pr3.log`, '')
+  fx.files.set(`${CI_WATCH}/here-pr3.log.session`, `${ME}\n`)
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  const row = parseRemoteRow(fx.sent[0].text)!
+  expect(row.repo).toBe('acme/app')
+  expect(row.prs).toEqual(['acme/app#3', 'acme/app#7'])
+})
+
+test('a watch armed later sends the row again at once, with its pull request added', async () => {
+  const fx = fake()
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr7.log.session`, `${ME}\n`)
+  await sendRow(fx.dollar, ME)
+  fx.files.set(`${CI_WATCH}/acme_app-pr9.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr9.log.session`, `${ME}\n`)
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(2)
+  expect(parseRemoteRow(fx.sent[1].text)!.prs).toEqual(['acme/app#7', 'acme/app#9'])
+})
+
+test('a ci-watch directory that cannot be read means no pull request, never a failure', async () => {
+  const fx = fake()
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  expect(parseRemoteRow(fx.sent[0].text)!.prs).toEqual([])
+})
+
+test('a received row keeps its repository and pull requests, and an old row is stored with none', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await receive(chains, fx.dollar, envelope(rowText(remote({ name: 'Orch : far', repo: 'acme/app', prs: ['acme/app#7'] }))))
+  await receive(chains, fx.dollar, envelope(oldRowText(remote({ name: 'Orch : old' }))))
+  const stored = JSON.parse(fx.files.get(`${STORE}/remote/Orch___far`)!)
+  expect([stored.repo, stored.prs]).toEqual(['acme/app', ['acme/app#7']])
+  const old = JSON.parse(fx.files.get(`${STORE}/remote/Orch___old`)!)
+  expect([old.repo, old.prs]).toEqual([null, []])
 })
