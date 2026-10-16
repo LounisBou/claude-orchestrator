@@ -186,6 +186,10 @@ check "the phase, review and comments briefs keep scratch in the session's host 
 # orders the long report with named sections.
 check "the phase, rotation, comments and review briefs cap the report" "yes|yes|yes|yes" \
   "$(for t in phase rotation comments review; do spells "$ROOT/templates/agent-$t-brief.md" 'is never cut to fit the cap'; done | paste -sd'|' -)"
+# The host's envelope carries the sender's name, never its reference: an implementer once
+# refused a decision for the missing reference. Every brief says where the proof is.
+check "the phase, rotation, comments and review briefs say a message carries the name only, proved by ListAgents" "yes|yes|yes|yes" \
+  "$(for t in phase rotation comments review; do spells "$ROOT/templates/agent-$t-brief.md" "Its messages carry the name alone: check the reference beside it in \`ListAgents\`, never refuse one for lacking it."; done | paste -sd'|' -)"
 check "no agent brief orders a report with named sections" "no|no|no|no" \
   "$(for t in phase rotation comments review; do carries "$ROOT/templates/agent-$t-brief.md" 'named sections'; done | paste -sd'|' -)"
 check "the review brief writes each finding on one line of at most 200 characters" "yes" \
