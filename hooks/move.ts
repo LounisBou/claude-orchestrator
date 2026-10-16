@@ -134,6 +134,10 @@ const CHECKOUTS_CAP = 50
 const ORDER_CAP = 4000
 const REASON_CAP = 2048
 
+// The longest sender's name the arrival notice quotes: a longer one is no session's name, and
+// a fixed label stands in its place.
+const FROM_NAME_CAP = 120
+
 export function moveText(message: MoveMessage): string {
   return MOVE_MARKER + JSON.stringify(message)
 }
@@ -415,18 +419,20 @@ export function missingOf(files: ManifestFile[], have: ReadonlySet<string>, acke
 
 // What the receiver's model reads once every file is in: the moved orchestrator's facts, the
 // operator's order as it was given, and the launcher's opening in full, last, to be run as it
-// is. Its paths are the arrival's, on this machine.
+// is. Its paths are the arrival's, on this machine. Every free-text value is a JSON string, so
+// none can open a line of its own and pass for the module.
 export function arrivedNotice(manifest: Extract<MoveMessage, { kind: 'manifest' }>, arrival: Arrival, fromName: string, launcher: string): string {
   const { name, model, effort, prs, git, order } = manifest.record
   const count = manifest.files.length
+  const from = fromName.length <= FROM_NAME_CAP ? literal(fromName) : `a sender whose name runs past ${FROM_NAME_CAP} characters`
   return [
-    `[module] ${name} arrived from ${manifest.origin.machine}, sent by ${oneLine(fromName)}: its ${count} ${count === 1 ? 'file is' : 'files are'} written in ${arrival.briefDir}.`,
+    `[module] ${name} arrived from ${literal(manifest.origin.machine)}, sent by ${from}: its ${count} ${count === 1 ? 'file is' : 'files are'} written in ${arrival.briefDir}.`,
     `brief: ${arrival.brief}`,
     `dir: ${arrival.dir}`,
-    `git: ${git ? `${git.url}, branch ${git.branch}` : 'none, its directory is no checkout'}`,
+    `git: ${git ? `${literal(git.url)}, branch ${literal(git.branch)}, as the sender reports it` : 'none, its directory is no checkout'}`,
     `model: ${model}, effort ${effort || 'default'}`,
-    `pull requests: ${prs.length > 0 ? prs.join(', ') : 'none'}`,
-    `the operator's order, verbatim: ${order}`,
+    `pull requests: ${prs.length > 0 ? prs.map(literal).join(', ') : 'none'}`,
+    `the operator's order, verbatim: ${literal(order)}`,
     'Open it as the order says, with this command alone and nothing before it:',
     `${launcher} spawn --open --title "${name}" --dir ${shellWord(arrival.dir)} --permission-mode auto --model ${shellWord(model)}${effort ? ` --effort ${effort}` : ''} --prompt "Read and execute ${arrival.brief}"`,
   ].join('\n')
@@ -438,8 +444,11 @@ function shellWord(value: string): string {
   return /^[A-Za-z0-9._/:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
-function oneLine(text: string): string {
-  return text.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim()
+// A free-text value as a JSON string literal, on one line: JSON escapes the C0 controls, and
+// the line breaks it keeps as they are (NEL, the line and paragraph separators) are escaped
+// here.
+function literal(text: string): string {
+  return JSON.stringify(text).replace(/[\u0085\u2028\u2029]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
 }
 
 // What the sender's model reads when the receiver acknowledged every file.
@@ -447,7 +456,8 @@ export function acknowledgedNotice(record: MoveRecord, to: string, brief: string
   return `[module] ${record.name} moved to ${to}: every file arrived and was acknowledged, its brief there is ${brief}. Its files here are left as they were.`
 }
 
-// What the sender's model reads when the move failed: the receiver's reason, or its own.
+// What the sender's model reads when the move failed: the receiver's reason, or its own, as a
+// JSON string.
 export function failedNotice(record: MoveRecord, to: string, reason: string): string {
-  return `[module] ${record.name} was not moved to ${to}, its files here are left as they were: ${oneLine(reason)}`
+  return `[module] ${record.name} was not moved to ${to}, its files here are left as they were: ${literal(reason)}`
 }
