@@ -35,6 +35,7 @@ function fake(over: { learnt?: boolean; local?: boolean; refuseAddress?: boolean
   const files = new Map<string, string>()
   const sent: { to: unknown; text: string }[] = []
   const logged: string[] = []
+  const mtimes = new Map<string, number>()
   files.set(ROW, storeRow())
   if (over.learnt !== false) files.set(LEARNT, JSON.stringify({ name: 'Coord : ops', from: COORD_FROM, at: 'T' }) + '\n')
   if (over.local) files.set(RECORD, JSON.stringify({ name: 'Coord : here', tty: '/dev/ttys9' }))
@@ -59,7 +60,7 @@ function fake(over: { learnt?: boolean; local?: boolean; refuseAddress?: boolean
       list: async (dir: string) => {
         const names = [...files.keys()].filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/'))
         if (names.length === 0) throw new Error(`ENOENT: ${dir}`)
-        return names.map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false }))
+        return names.map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: mtimes.get(p) ?? 0, isLink: false }))
       },
       stat: async (p: string) => { throw new Error(`ENOENT: ${p}`) },
     },
@@ -88,7 +89,7 @@ function fake(over: { learnt?: boolean; local?: boolean; refuseAddress?: boolean
       }),
     },
   }
-  return { dollar, files, sent, logged }
+  return { dollar, files, sent, logged, mtimes }
 }
 
 function mounted(): Record<string, Function[]> {
@@ -482,4 +483,25 @@ test('twenty maximum-length pull requests: the row is cut from the end to fit th
   expect(row.prs.length).toBeLessThan(PRS_CAP)
   const sorted = Array.from({ length: PRS_CAP }, (_, i) => `acme/${'r'.repeat(130)}-${String(i).padStart(2, '0')}#${100000000 + i}`).sort()
   expect(row.prs).toEqual(sorted.slice(0, row.prs.length))
+})
+
+test('past 256 listed entries, the newest watches are still read and a base log is seen wherever it sits', async () => {
+  const fx = fake()
+  for (let i = 1; i <= 254; i++) {
+    fx.files.set(`${CI_WATCH}/acme_app-pr${i}.log`, '')
+    fx.mtimes.set(`${CI_WATCH}/acme_app-pr${i}.log`, 1000)
+  }
+  // Listed in this order: 254 older watches; pull request 1001, its owner file within the first
+  // 256 entries; its base log at entry 257, past the cut, so it is merged; then pull request
+  // 1000, still in flight, at entry 258, also past the cut.
+  fx.files.set(`${CI_WATCH}/acme_app-pr1001.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr1001.log.session`, `${ME}\n`)
+  fx.files.set(`${CI_WATCH}/acme_app-pr1001-base.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr1000.log`, '')
+  fx.files.set(`${CI_WATCH}/acme_app-pr1000.log.session`, `${ME}\n`)
+  fx.mtimes.set(`${CI_WATCH}/acme_app-pr1001.log`, 4000)
+  fx.mtimes.set(`${CI_WATCH}/acme_app-pr1000.log`, 5000)
+  await sendRow(fx.dollar, ME)
+  expect(fx.sent.length).toBe(1)
+  expect(parseRemoteRow(fx.sent[0].text)!.prs).toEqual(['acme/app#1000'])
 })

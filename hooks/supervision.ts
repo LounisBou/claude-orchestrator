@@ -727,18 +727,26 @@ async function machineOf($: any): Promise<string> {
   return machine
 }
 
-// The pull requests in flight of one session, read from the state dir's ci-watch directory
-// (its logs and their owner files, at most CI_WATCH_READ_CAP entries read). A directory that
-// cannot be read means no pull request, never a failure.
+// The pull requests in flight of one session, read from the state dir's ci-watch directory.
+// Every file name listed (at most CI_WATCH_LIST_CAP) is kept, so a base log is seen wherever it
+// sits in the listing; the owner files read are those of at most CI_WATCH_READ_CAP watches
+// still in flight, the newest first. A directory that cannot be read means no pull request,
+// never a failure.
+const CI_WATCH_LIST_CAP = 4096
 const CI_WATCH_READ_CAP = 256
 async function prsOf($: any, sessionId: string, repo: string | null): Promise<string[]> {
   const dir = `${await stateDir($)}/ci-watch`
-  const entries: { name: string; kind: string }[] = await $.fs.list(dir).catch(() => [])
-  const names = entries.slice(0, CI_WATCH_READ_CAP).filter(entry => entry?.kind === 'file').map(entry => entry.name)
+  const entries: { name: string; kind: string; mtimeMs?: number }[] = await $.fs.list(dir).catch(() => [])
+  const files = entries.slice(0, CI_WATCH_LIST_CAP).filter(entry => entry?.kind === 'file')
+  const names = files.map(entry => entry.name)
+  const listed = new Set(names)
+  const watches = files
+    .filter(entry => watchNumberOf(entry.name) !== null && !listed.has(entry.name.replace(/\.log$/, '-base.log')))
+    .sort((a, b) => (b.mtimeMs ?? 0) - (a.mtimeMs ?? 0))
+    .slice(0, CI_WATCH_READ_CAP)
   const owners = new Map<string, string>()
-  for (const name of names) {
-    if (watchNumberOf(name) === null) continue
-    owners.set(name, String(await $.fs.read(`${dir}/${name}.session`).catch(() => '')).trim())
+  for (const entry of watches) {
+    owners.set(entry.name, String(await $.fs.read(`${dir}/${entry.name}.session`).catch(() => '')).trim())
   }
   return prsInFlight(names, owners, sessionId, repo)
 }
