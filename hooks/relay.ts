@@ -9,8 +9,8 @@
 // own tab looked stopped from outside, and the coordinator spent two full turns
 // asking it why. When the operator answers that question in the orchestrator's own tab,
 // the coordinator is sent one withdrawal and the fingerprint is forgotten, so the same
-// question asked again is relayed again. Pure on purpose: the handler holds the $ (the engine fences it to
-// the file that received it) and passes its reads in here.
+// question asked again is relayed again. Pure on purpose: the handler holds the $ (the
+// engine fences it to the file that received it) and passes its reads in here.
 import { MACHINE_LINE, machineLine, chainEntries } from './stop-gate.ts'
 import type { SessionRow } from './supervision.ts'
 
