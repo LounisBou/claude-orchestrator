@@ -384,6 +384,20 @@ test('a refused withdrawal is one log line, keeps the fingerprint and is tried a
   expect(fx.sent.length).toBe(1)
 })
 
+test('a wait rewritten while the withdrawal was being sent is left as it was written', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const other = fingerprint({ kind: 'operator', blocks: 'phase 4', question: '' })
+  const send = fx.dollar.session.send
+  fx.dollar.session.send = async (args: { to: unknown; text: string }) => {
+    const sent = await send(args)
+    fx.files.set(WAIT, JSON.stringify({ ...JSON.parse(fx.files.get(WAIT)!), relayed: other }) + '\n')
+    return sent
+  }
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(fx.sent.length).toBe(1)
+  expect(JSON.parse(fx.files.get(WAIT)!).relayed).toBe(other)
+})
+
 test('after a withdrawal, the same question asked again is relayed again', async () => {
   const { chains, fx } = await relayedQuestion()
   await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
