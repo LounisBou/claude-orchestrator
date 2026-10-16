@@ -108,9 +108,13 @@ const EFFORTS: readonly unknown[] = ['', 'low', 'medium', 'high', 'xhigh', 'max'
 const MACHINE_SHAPE = /^[A-Za-z0-9_-]{1,64}$/
 
 // A remote git clones from, and a branch it checks out: a web, ssh or git address, or the
-// scp form `user@host:path`. Nothing that reads as an option, a space or another transport,
-// since a model hands both to git.
-const GIT_URL_SHAPE = /^(?:(?:https?|ssh|git):\/\/[A-Za-z0-9._~:/@%+=,-]+|[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/@%+=,-]+)$/
+// scp form `user@host:path`. The user and the host of every form start with a letter or a
+// digit, so nothing reads as an option, and no space or other transport gets through, since
+// a model hands both to git.
+const GIT_URL_SHAPE = new RegExp('^(?:'
+  + '(?:https?|ssh|git)://(?:[A-Za-z0-9][A-Za-z0-9._~%+=,:-]*@)?[A-Za-z0-9][A-Za-z0-9._-]*(?::[0-9]{1,5})?(?:/[A-Za-z0-9._~:/@%+=,-]*)?'
+  + '|[A-Za-z0-9][A-Za-z0-9._-]*@[A-Za-z0-9][A-Za-z0-9.-]*:[A-Za-z0-9._~/@%+=,-]+'
+  + ')$')
 const BRANCH_SHAPE = /^[A-Za-z0-9._+][A-Za-z0-9._/+-]{0,254}$/
 
 // A file's name: one plain base name, so it is written beside the brief and nowhere else.

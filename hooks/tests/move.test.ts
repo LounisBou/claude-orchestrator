@@ -183,6 +183,11 @@ const BAD: [string, unknown][] = [
   ['too many checkouts', manifest({ record: record({ checkouts: Array.from({ length: 51 }, (_, i) => `${MAC.home}/c${i}`) }) })],
   ['a git url that reads as an option', manifest({ record: record({ git: { url: '--upload-pack=x', branch: 'main' } }) })],
   ['a git url through a command transport', manifest({ record: record({ git: { url: 'ext::sh', branch: 'main' } }) })],
+  ['an ssh url whose host reads as an option', manifest({ record: record({ git: { url: 'ssh://-oProxyCommand=x/y', branch: 'main' } }) })],
+  ['an ssh url whose host after its user reads as an option', manifest({ record: record({ git: { url: 'ssh://git@-oProxyCommand=x/y', branch: 'main' } }) })],
+  ['a web url whose user reads as an option', manifest({ record: record({ git: { url: 'https://-u@example.com/a.git', branch: 'main' } }) })],
+  ['an scp form whose user reads as an option', manifest({ record: record({ git: { url: '-x@example.com:acme/app.git', branch: 'main' } }) })],
+  ['an scp form whose host reads as an option', manifest({ record: record({ git: { url: 'git@-example.com:acme/app.git', branch: 'main' } }) })],
   ['a git url with a space', manifest({ record: record({ git: { url: 'https://example.com/a b', branch: 'main' } }) })],
   ['a branch with a space', manifest({ record: record({ git: { url: 'https://example.com/a.git', branch: 'feat belt' } }) })],
   ['a branch that reads as an option', manifest({ record: record({ git: { url: 'https://example.com/a.git', branch: '-f' } }) })],
@@ -227,6 +232,16 @@ for (const [label, message] of BAD) {
     expect(parseMoveMessage(MOVE_MARKER + JSON.stringify(message))).toBeNull()
   })
 }
+
+test('a git url of every form a remote takes is read, a user, a token and a port included', () => {
+  const urls = [
+    'https://example.com/acme/app.git', 'https://user:tok%40en@example.com:8443/acme/app.git', 'http://10.0.0.7/acme/app',
+    'ssh://git@example.com/acme/app.git', 'ssh://git@example.com:2222/~acme/app.git', 'git://example.com/acme/app.git',
+    'git@example.com:acme/app.git', 'deploy_1@git.example.com:acme/app.git',
+  ]
+  const refused = urls.filter(url => parseMoveMessage(moveText(manifest({ record: record({ git: { url, branch: 'main' } }) }))) === null)
+  expect(refused).toEqual([])
+})
 
 // No chunk begins with the low half of a pair or ends with its high half.
 const WHOLE = /^(?:[^\uD800-\uDFFF]|[\uD800-\uDBFF][\uDC00-\uDFFF])*$/
