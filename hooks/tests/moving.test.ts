@@ -1109,3 +1109,70 @@ test('a working directory inside a git work tree whose remote or branch cannot b
   const sentOk = await h['tool.call:move_send'](plain.dollar, sendInput(plain, { dir: `${HOME_A}/dev/plain` }))
   expect(sentOk.isError).toBeUndefined()
 })
+
+// --- what a file holds never passes its announced size ------------------------------------
+
+const heldChunks = (b: Machine) => [...b.files.keys()].filter(p => /\/c-\d+-\d+$/.test(p))
+
+test('a chunk that would pass the announced size of its file is dropped with a log line and nothing written', async () => {
+  const { a, messages, manifest } = await sentMessages(500)
+  const hb = mounted()
+  const b = receiver()
+  await receive(hb, b, textOf(manifest), a)
+  const notes = manifest.files[1]
+  const chunk = (index: number, data: string): MoveMessage => ({ kind: 'chunk', move: manifest.move, file: 1, index, data })
+  const first = messages.find(m => m.kind === 'chunk' && m.file === 1 && m.index === 0) as Extract<MoveMessage, { kind: 'chunk' }>
+  // One chunk alone over the size.
+  await receive(hb, b, textOf(chunk(0, 'x'.repeat(notes.bytes + 1))), a)
+  expect(heldChunks(b)).toEqual([])
+  expect(b.logged.length).toBe(1)
+  // The announced size is held to, the chunks together: a chunk that tips it over is dropped.
+  await receive(hb, b, textOf(chunk(0, first.data)), a)
+  await receive(hb, b, textOf(chunk(1, 'y'.repeat(notes.bytes - first.data.length + 1))), a)
+  expect(heldChunks(b)).toEqual([`${b.store}/moves/${manifest.move}/c-1-0`])
+  expect(b.logged.length).toBe(2)
+  // What was dropped poisoned nothing: the genuine chunks complete the file.
+  await deliverAll(hb, b, a, messages.slice(1))
+  expect(b.files.get(`${b.briefs}/belt/notes.txt`)).toBe(NOTES_TEXT)
+  expect(b.submits.length).toBe(1)
+})
+
+test('after a reload the lengths held are rebuilt from the chunk files', async () => {
+  const { a, manifest } = await sentMessages(500)
+  const b = receiver()
+  const before = mounted()
+  await receive(before, b, textOf(manifest), a)
+  const notes = manifest.files[1]
+  const chunk = (index: number, data: string): MoveMessage => ({ kind: 'chunk', move: manifest.move, file: 1, index, data })
+  await receive(before, b, textOf(chunk(0, 'x'.repeat(notes.bytes - 10))), a)
+  const after = mounted()
+  await receive(after, b, textOf(chunk(1, 'y'.repeat(11))), a)
+  expect(heldChunks(b)).toEqual([`${b.store}/moves/${manifest.move}/c-1-0`])
+  await receive(after, b, textOf(chunk(1, 'y'.repeat(10))), a)
+  expect(heldChunks(b).length).toBe(2)
+})
+
+// --- a reload in the middle of a move -----------------------------------------------------
+
+test('the module reloads in the middle of a move: the held move is read back, the rest is received, one arrival notice', async () => {
+  const { a, messages, manifest } = await sentMessages(500)
+  const b = receiver()
+  const half = Math.floor(messages.length / 2)
+  const before = mounted()
+  await deliverAll(before, b, a, messages.slice(0, half))
+  expect(b.submits).toEqual([])
+  // A fresh module on the same machine: its memory is empty, the store is not.
+  const after = mounted()
+  await deliverAll(after, b, a, messages.slice(half))
+  const arrival = arrivalOf(manifest, TARGET_B) as any
+  expect(b.files.get(arrival.brief)).toBe(BRIEF_ARRIVED)
+  expect(b.files.get(`${arrival.briefDir}/notes.txt`)).toBe(NOTES_TEXT)
+  expect(b.submits).toEqual([{ text: arrivedNotice(manifest, arrival, 'Orch : belt', LAUNCHER) }])
+  expect(doneOf(b).length).toBeGreaterThan(0)
+  expect(doneOf(b).every(m => m.ok)).toBe(true)
+  expect(b.logged).toEqual([])
+  // A reload after the arrival notice does not notify again when the move is sent once more.
+  const later = mounted()
+  await deliverAll(later, b, a, messages)
+  expect(b.submits.length).toBe(1)
+})

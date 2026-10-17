@@ -457,6 +457,10 @@ type Held = {
   manifest: Manifest
   arrival: Arrival
   have: Set<string>
+  // The characters held for each chunk, and for each file all its chunks together: what a file
+  // holds never passes its announced size.
+  lengths: Map<string, number>
+  size: number[]
   acks: ({ ok: boolean; reason: string | null } | undefined)[]
   notified: boolean
 }
@@ -593,7 +597,7 @@ async function receiveManifest($: Dollar, receiving: Receiving, manifest: Manife
       if (!ack || ack.ok) continue
       known.acks[file] = undefined
       for (let index = 0; index < manifest.files[file].chunks; index++) {
-        known.have.delete(`${file}:${index}`)
+        forget(known, file, index)
         stale.push(`${await movesDir($)}/${manifest.move}/c-${file}-${index}`)
       }
       stale.push(`${await movesDir($)}/${manifest.move}/ack-${file}.json`)
@@ -614,7 +618,10 @@ async function receiveManifest($: Dollar, receiving: Receiving, manifest: Manife
   } catch (err) {
     return refuse($, `the manifest could not be stored here (${(err as Error).message})`, manifest.move, delivery)
   }
-  receiving.held.set(manifest.move, { from, fromName, manifest, arrival, have: new Set(), acks: manifest.files.map(() => undefined), notified: false })
+  receiving.held.set(manifest.move, {
+    from, fromName, manifest, arrival, have: new Set(), lengths: new Map(), size: manifest.files.map(() => 0),
+    acks: manifest.files.map(() => undefined), notified: false,
+  })
 }
 
 // The move as held in memory, else read back from the store (a reload forgets the memory, not
@@ -635,12 +642,20 @@ async function heldOf($: Dollar, receiving: Receiving, move: string): Promise<He
   if ('refused' in arrival) return null
   const h: Held = {
     from: kept.from, fromName: typeof kept.fromName === 'string' ? kept.fromName : '', manifest, arrival,
-    have: new Set(), acks: manifest.files.map(() => undefined), notified: false,
+    have: new Set(), lengths: new Map(), size: manifest.files.map(() => 0), acks: manifest.files.map(() => undefined), notified: false,
   }
   const entries: { name: string }[] = await $.fs.list(dir).catch(() => [])
   for (const { name } of entries) {
     const chunk = /^c-(\d+)-(\d+)$/.exec(name)
-    if (chunk) h.have.add(`${chunk[1]}:${chunk[2]}`)
+    if (chunk) {
+      // What a chunk file holds is counted again: the bound on a file outlives the memory.
+      const [file, index] = [Number(chunk[1]), Number(chunk[2])]
+      if (file < manifest.files.length && index < manifest.files[file].chunks) {
+        try {
+          remember(h, file, index, String(await $.fs.read(`${dir}/${name}`)).length)
+        } catch { /* an unreadable chunk is asked for again */ }
+      }
+    }
     const ack = /^ack-(\d+)\.json$/.exec(name)
     if (ack && Number(ack[1]) < h.acks.length) {
       try {
@@ -664,11 +679,30 @@ async function receiveChunk($: Dollar, h: Held, chunk: Extract<MoveMessage, { ki
   }
   const key = `${chunk.file}:${chunk.index}`
   if (!h.have.has(key)) {
+    if (h.size[chunk.file] + chunk.data.length > f.bytes) {
+      return logLine($, `move: a chunk would pass the announced size of its file (${chunk.file}:${chunk.index}, ${f.bytes} bytes announced), dropped`)
+    }
     await writeAtomic($, `${await movesDir($)}/${h.manifest.move}/c-${chunk.file}-${chunk.index}`, chunk.data)
-    h.have.add(key)
+    remember(h, chunk.file, chunk.index, chunk.data.length)
   }
   for (let index = 0; index < f.chunks; index++) if (!h.have.has(`${chunk.file}:${index}`)) return
   await processFile($, h, chunk.file)
+}
+
+// A chunk held, and the characters it adds to its file; and the reverse.
+function remember(h: Held, file: number, index: number, length: number): void {
+  const key = `${file}:${index}`
+  if (h.have.has(key)) return
+  h.have.add(key)
+  h.lengths.set(key, length)
+  h.size[file] += length
+}
+
+function forget(h: Held, file: number, index: number): void {
+  const key = `${file}:${index}`
+  h.have.delete(key)
+  h.size[file] -= h.lengths.get(key) ?? 0
+  h.lengths.delete(key)
 }
 
 async function sendAck($: Dollar, h: Held, file: number): Promise<void> {
