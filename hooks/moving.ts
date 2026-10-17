@@ -13,7 +13,7 @@ import { withDeadline, isDegradedPass } from './stop-gate.ts'
 import { machineLabel, deliveryOf, isPeerOrigin, type Delivery } from './remote-row.ts'
 import {
   MOVE_CHUNK_DEFAULT, MOVE_TEXT_CAP, MOVE_FILE_CAP, MOVE_MISSING_ROUNDS,
-  moveText, isMoveMarked, parseMoveMessage, chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, arrivalPairs, missingOf, arrivedNotice,
+  acknowledgedNotice, failedNotice, moveText, isMoveMarked, parseMoveMessage, chunkText, moveIdOf, checkManifestFiles, rewritePaths, arrivalOf, arrivalPairs, missingOf, arrivedNotice,
   type Arrival, type ManifestFile, type MoveMessage, type MoveRecord,
 } from './move.ts'
 
@@ -60,7 +60,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // handled at once could both find a file complete.
   const held = new Map<string, Held>()
   const chains = new Map<string, Promise<unknown>>()
-  const receiving: Receiving = { held, chains, name: null }
+  const receiving: Receiving = { held, chains, name: null, probes: new Map() }
 
   on('session.start', {}, async ($: Dollar, e: any, next: (e: any) => any) => {
     try {
@@ -140,7 +140,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     if (e.agentId) return { result: MAIN_THREAD_ONLY, isError: true }
     const refused = await roleRefusal($)
     if (refused) return { result: refused, isError: true }
-    return sendProbes($, e)
+    return sendProbes($, e, receiving)
   }).catch(async ($: Dollar, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return { result: 'the probes could not be sent', isError: true }
@@ -365,7 +365,7 @@ async function sendMove($: Dollar, e: any): Promise<{ result: string; isError?: 
 
 // What the sender keeps of a move (store/moves/<move>.json): the record, the files, the address
 // and the rounds of « missing » answered.
-export type SentMove = { move: string; to: string; chunk: number; record: MoveRecord; files: ManifestFile[]; rounds: number }
+export type SentMove = { move: string; to: string; chunk: number; record: MoveRecord; files: ManifestFile[]; rounds: number; done?: { ok: boolean } }
 
 async function keepSend($: Dollar, sent: SentMove): Promise<void> {
   const dir = await movesDir($)
@@ -408,7 +408,7 @@ async function sendAll(
 
 // --- the probes --------------------------------------------------------------------------
 
-async function sendProbes($: Dollar, e: any): Promise<{ result: string; isError?: true }> {
+async function sendProbes($: Dollar, e: any, receiving: Receiving): Promise<{ result: string; isError?: true }> {
   if (typeof e.to !== 'string' || e.to.length === 0 || e.to.length > ADDRESS_CAP || /[\u0000-\u001f\u007f]/.test(e.to)) {
     return failure('to: the receiving session\'s address or name is required')
   }
@@ -419,6 +419,7 @@ async function sendProbes($: Dollar, e: any): Promise<{ result: string; isError?
   }
   const move = `probe-${Math.floor(Math.random() * 0xffffffffffff).toString(16).padStart(12, '0')}`
   const sent: number[] = []
+  receiving.probes.set(move, e.to)
   for (const size of sizes as number[]) {
     const delivered = await $.session.send({ to: e.to, text: moveText({ kind: 'probe', move, size, data: 'x'.repeat(size) }) })
     if (!delivered?.isDelivered) {
@@ -444,7 +445,14 @@ type Held = {
   notified: boolean
 }
 
-type Receiving = { held: Map<string, Held>; chains: Map<string, Promise<unknown>>; name: { value: string | null; at: number } | null }
+// The module's memory of this session: the moves it receives, the chain each move's messages
+// run down, its name as last read, and the probes it sent (the move id of each, and to whom).
+type Receiving = {
+  held: Map<string, Held>
+  chains: Map<string, Promise<unknown>>
+  name: { value: string | null; at: number } | null
+  probes: Map<string, string>
+}
 
 // The session's name is read once in a while, not for every chunk of a file.
 const NAME_MEMO_MS = 30000
@@ -492,9 +500,29 @@ async function route($: Dollar, receiving: Receiving, message: MoveMessage, from
       if (h.from !== from) return drop($, "it is not from the move's sender", delivery)
       return message.kind === 'chunk' ? receiveChunk($, h, message) : receiveSent($, h)
     }
-    default:
-      return drop($, `a ${message.kind} is not for a receiver`, delivery)
+    case 'ack':
+    case 'missing':
+    case 'done': {
+      const s = await sentOf($, message.move)
+      if (!s) return drop($, 'a move this session did not send', delivery)
+      if (!isPeer(s.to, delivery)) return drop($, "it is not from the move's receiver", delivery)
+      if (s.done) return
+      if (message.kind === 'missing') return answerMissing($, s, message)
+      if (message.kind === 'done') return answerDone($, receiving, s, message)
+      return
+    }
+    case 'probe-ack': {
+      const to = receiving.probes.get(message.move)
+      if (to === undefined) return drop($, 'a probe this session did not send', delivery)
+      if (!isPeer(to, delivery)) return drop($, "it is not from the probe's receiver", delivery)
+      return appendProbe($, message, from)
+    }
   }
+}
+
+// Whether a delivery comes from the session a move was addressed to: its address or its name.
+function isPeer(to: string, delivery: Delivery): boolean {
+  return delivery.from === to || delivery.fromName === to
 }
 
 async function reply($: Dollar, to: string, message: MoveMessage): Promise<void> {
@@ -663,6 +691,61 @@ async function receiveSent($: Dollar, h: Held): Promise<void> {
   const missing = missingOf(h.manifest.files, h.have, h.acks.map(Boolean))
   if (missing.length > 0) return reply($, h.from, { kind: 'missing', move: h.manifest.move, chunks: missing })
   if (h.acks.every(Boolean)) await finish($, h)
+}
+
+// --- the sender's answers ----------------------------------------------------------------
+
+// The move as the sender kept it, or null when this session sent no such move.
+async function sentOf($: Dollar, move: string): Promise<SentMove | null> {
+  try {
+    const kept = JSON.parse(String(await $.fs.read(`${await movesDir($)}/${move}.json`)))
+    const ok = kept && kept.move === move && typeof kept.to === 'string' && Number.isInteger(kept.chunk) && Number.isInteger(kept.rounds)
+      && kept.record && Array.isArray(kept.files)
+    return ok ? kept as SentMove : null
+  } catch {
+    return null
+  }
+}
+
+// « Missing »: the chunks named are sent again, then « sent » once more, at most
+// MOVE_MISSING_ROUNDS answers per move; the answer after that ends the move as failed.
+async function answerMissing($: Dollar, s: SentMove, message: Extract<MoveMessage, { kind: 'missing' }>): Promise<void> {
+  if (s.rounds >= MOVE_MISSING_ROUNDS) {
+    return conclude($, s, `the receiver still misses chunks after ${MOVE_MISSING_ROUNDS} answers`)
+  }
+  s.rounds += 1
+  await keepSend($, s)
+  const asked = message.chunks.filter(([file, index]) => s.files[file] !== undefined && index < s.files[file].chunks)
+  const stopped = await sendAll($, s.to, s.move, null, s.record, s.files, s.chunk, asked)
+  if (stopped) await logLine($, `move ${s.move}: the chunks asked for again were not all sent: ${stopped}`)
+}
+
+// « Done »: the move is over, once. Acknowledged whole, the sender's model reads where the
+// brief now is, and a session that moved itself may end; otherwise it reads why not.
+async function answerDone($: Dollar, receiving: Receiving, s: SentMove, message: Extract<MoveMessage, { kind: 'done' }>): Promise<void> {
+  if (!message.ok) return conclude($, s, message.reason ?? 'refused')
+  s.done = { ok: true }
+  await keepSend($, s)
+  if (await memoName($, receiving) === s.record.name) movedAndAcknowledged.add(s.record.name)
+  $.prompt.submit({ text: acknowledgedNotice(s.record, s.to, message.brief ?? '') })
+    .catch((err: unknown) => logLine($, `move ${s.move}: the notice was not submitted: ${String((err as Error)?.message ?? err)}`))
+}
+
+async function conclude($: Dollar, s: SentMove, reason: string): Promise<void> {
+  s.done = { ok: false }
+  await keepSend($, s)
+  $.prompt.submit({ text: failedNotice(s.record, s.to, reason) })
+    .catch((err: unknown) => logLine($, `move ${s.move}: the notice was not submitted: ${String((err as Error)?.message ?? err)}`))
+}
+
+// One probe answer, one JSON line: when, which probe, the size sent, the length received, and
+// who answered.
+async function appendProbe($: Dollar, message: Extract<MoveMessage, { kind: 'probe-ack' }>, from: string): Promise<void> {
+  const dir = await movesDir($)
+  const line = JSON.stringify({ at: new Date().toISOString(), move: message.move, size: message.size, received: message.received, from })
+  await run($, ['mkdir', '-p', dir], 5000)
+  const out = await run($, ['sh', '-c', 'printf "%s\\n" "$1" >> "$2"', 'sh', line, `${dir}/probes.jsonl`], 5000)
+  if (!out || out.exitCode !== 0) await logLine($, `move: a probe answer could not be appended to ${dir}/probes.jsonl`)
 }
 
 // --- the store ---------------------------------------------------------------------------

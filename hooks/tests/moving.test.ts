@@ -654,3 +654,122 @@ test('an unmarked delivery, a person\'s prompt and a subagent\'s receive pass th
   expect(sub.passed).toBeDefined()
   expect(b.sent).toEqual([])
 })
+
+// --- the sender's side of the answers -----------------------------------------------------
+
+const missingOfMessages = (b: Machine) => b.messages().filter((m): m is Extract<MoveMessage, { kind: 'missing' }> => m?.kind === 'missing')
+
+test('« sent » with a chunk missing is answered missing, naming exactly it; the sender resends exactly it', async () => {
+  const { a, ha, messages, manifest } = await sentMessages(500)
+  const hb = mounted()
+  const b = receiver()
+  const lost = messages.findIndex(m => m.kind === 'chunk' && m.file === 1 && m.index === 2)
+  expect(lost).toBeGreaterThan(0)
+  await deliverAll(hb, b, a, messages.filter((_, i) => i !== lost))
+  expect(missingOfMessages(b).map(m => m.chunks)).toEqual([[[1, 2]]])
+  // The receiver has not acknowledged the file it lacks, and has not finished the move.
+  expect(acksOf(b).map(m => m.file)).toEqual([0])
+  expect(b.messages().some(m => m?.kind === 'done')).toBe(false)
+  const before = a.sent.length
+  await receive(ha, a, b.sent[b.sent.length - 1].text, b)
+  const resent = a.messages().slice(before) as MoveMessage[]
+  expect(resent.map(m => (m.kind === 'chunk' ? `chunk ${m.file}:${m.index}` : m.kind))).toEqual(['chunk 1:2', 'sent'])
+  expect(a.sent.slice(before).every(m => m.to === ADDRESS_B)).toBe(true)
+  // Delivered, the move completes and is acknowledged once on each side.
+  await settle(a, ha, b, hb)
+  expect(a.submits).toEqual([{ text: acknowledgedNotice(manifest.record, ADDRESS_B, (arrivalOf(manifest, TARGET_B) as any).brief) }])
+  expect(b.submits.length).toBe(1)
+})
+
+test('past MOVE_MISSING_ROUNDS answers the sender gives up and its model reads the failure', async () => {
+  const { a, ha, manifest } = await sentMessages(500)
+  const missing = textOf({ kind: 'missing', move: manifest.move, chunks: [[1, 2]] })
+  const peer = { name: 'Orch : far', address: ADDRESS_B }
+  const before = a.sent.length
+  for (let round = 1; round <= MOVE_MISSING_ROUNDS; round++) {
+    await receive(ha, a, missing, peer)
+    expect(a.sent.length).toBe(before + round * 2)
+    expect(a.submits).toEqual([])
+  }
+  const kept = JSON.parse(a.files.get(`${a.store}/moves/${manifest.move}.json`)!)
+  expect(kept.rounds).toBe(MOVE_MISSING_ROUNDS)
+  await receive(ha, a, missing, peer)
+  expect(a.sent.length).toBe(before + MOVE_MISSING_ROUNDS * 2)
+  expect(a.submits.length).toBe(1)
+  expect(a.submits[0].text).toContain(failedNotice(manifest.record, ADDRESS_B, '').split(': ')[0])
+  expect(a.submits[0].text).toContain(`${MOVE_MISSING_ROUNDS} answers`)
+  // Once failed, a later answer starts nothing.
+  await receive(ha, a, missing, peer)
+  expect(a.submits.length).toBe(1)
+})
+
+test('done ok gives the sender\'s model the acknowledgment once; done not ok, the failure', async () => {
+  const { a, ha, manifest } = await sentMessages()
+  const peer = { name: 'Orch : far', address: ADDRESS_B }
+  const brief = `${HOME_B}/.claude/claude-orchestrator/briefs/belt/${BRIEF_NAME}`
+  const ok = textOf({ kind: 'done', move: manifest.move, ok: true, brief, reason: null })
+  await receive(ha, a, textOf({ kind: 'ack', move: manifest.move, file: 0, ok: true, reason: null }), peer)
+  expect(a.submits).toEqual([])
+  await receive(ha, a, ok, peer)
+  await receive(ha, a, ok, peer)
+  expect(a.submits).toEqual([{ text: acknowledgedNotice(manifest.record, ADDRESS_B, brief) }])
+  const other = await sentMessages()
+  await receive(other.ha, other.a, textOf({ kind: 'done', move: other.manifest.move, ok: false, brief: null, reason: 'a file stands there with other content' }), peer)
+  expect(other.a.submits).toEqual([{ text: failedNotice(other.manifest.record, ADDRESS_B, 'a file stands there with other content') }])
+})
+
+test('an answer from a session that is not the move\'s peer, or for a move not sent, does nothing', async () => {
+  const { a, ha, manifest } = await sentMessages()
+  const stranger = { name: 'Orch : intruder', address: 'bridge:session_03Stranger' }
+  const peer = { name: 'Orch : far', address: ADDRESS_B }
+  const before = a.sent.length
+  const texts = [
+    textOf({ kind: 'done', move: manifest.move, ok: true, brief: `${HOME_B}/b.md`, reason: null }),
+    textOf({ kind: 'missing', move: manifest.move, chunks: [[0, 0]] }),
+  ]
+  for (const t of texts) {
+    const r = await receive(ha, a, t, stranger)
+    expect(typeof r.consumed).toBe('string')
+  }
+  const unknown = await receive(ha, a, textOf({ kind: 'done', move: 'other-0123456789ab', ok: true, brief: `${HOME_B}/b.md`, reason: null }), peer)
+  expect(typeof unknown.consumed).toBe('string')
+  expect(a.sent.length).toBe(before)
+  expect(a.submits).toEqual([])
+  // A « missing » naming chunks outside the manifest resends nothing but « sent ».
+  await receive(ha, a, textOf({ kind: 'missing', move: manifest.move, chunks: [[9, 9], [0, 99]] }), peer)
+  expect(a.messages().slice(before).map(m => m?.kind)).toEqual(['sent'])
+})
+
+test('each probe answer is appended as one JSON line to the probes file, and only a probe sent is taken', async () => {
+  const ha = mounted()
+  const a = sender()
+  await ha['tool.call:move_probe'](a.dollar, { to: ADDRESS_B, sizes: [2048, 8192] })
+  const probes = a.messages() as Extract<MoveMessage, { kind: 'probe' }>[]
+  const hb = mounted()
+  const b = receiver()
+  for (const p of probes) await receive(hb, b, textOf(p), a)
+  expect(b.sent.length).toBe(2)
+  for (const m of b.sent) await receive(ha, a, m.text, b)
+  const lines = (a.files.get(`${a.store}/moves/probes.jsonl`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
+  expect(lines.map(l => [l.size, l.received, l.move])).toEqual([[2048, 2048, probes[0].move], [8192, 8192, probes[0].move]])
+  expect(lines.every(l => typeof l.at === 'string' && l.from === ADDRESS_B)).toBe(true)
+  // An answer from another session, or for a probe never sent, adds no line.
+  await receive(ha, a, textOf({ kind: 'probe-ack', move: probes[0].move, size: 2048, received: 2048 }), { name: 'Orch : intruder', address: 'bridge:session_03Stranger' })
+  await receive(ha, a, textOf({ kind: 'probe-ack', move: 'probe-ffffffffffff', size: 2048, received: 2048 }), b)
+  expect((a.files.get(`${a.store}/moves/probes.jsonl`) ?? '').split('\n').filter(Boolean).length).toBe(2)
+})
+
+test('a whole move between two machines: the files land, each side\'s model reads one notice', async () => {
+  const ha = mounted()
+  const hb = mounted()
+  const a = sender()
+  const b = receiver()
+  await ha['tool.call:move_send'](a.dollar, sendInput(a))
+  await settle(a, ha, b, hb)
+  const manifest = a.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  const arrival = arrivalOf(manifest, TARGET_B) as any
+  expect(b.files.get(arrival.brief)).toBe(BRIEF_ARRIVED)
+  expect(b.submits).toEqual([{ text: arrivedNotice(manifest, arrival, 'Orch : belt', LAUNCHER) }])
+  expect(a.submits).toEqual([{ text: acknowledgedNotice(manifest.record, ADDRESS_B, arrival.brief) }])
+  expect(a.logged.length + b.logged.length).toBe(0)
+})
