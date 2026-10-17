@@ -19,6 +19,8 @@ import { logLineOf } from './fakes.ts'
 const at = (...parts: string[]) => '/' + parts.join('/')
 const HOME_A = at('Users', 'a')
 const HOME_B = at('home', 'b')
+// A machine's config directory, as its state directory's parent.
+const configOf = (home: string) => `${home}/.claude/claude-orchestrator`.replace(/\/claude-orchestrator$/, '')
 const ADDRESS_A = 'bridge:session_01SenderA'
 const ADDRESS_B = 'bridge:session_02ReceiverB'
 const LAUNCHER = '/plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh'
@@ -63,7 +65,7 @@ function machine(options: Options) {
   const runs: string[] = []
   const registered: any[] = []
   const commands: any[] = []
-  const config = `${options.home}/.claude`
+  const config = configOf(options.home)
   const env: Record<string, string | undefined> = {
     HOME: options.home, ORCHESTRATOR_HOST_CLI: 'hostcli', ORCHESTRATOR_SPAWNED: options.spawned ? '1' : undefined,
   }
@@ -306,7 +308,7 @@ test('move_send lists the regular files of the directory only, and hashes them w
   expect(manifest.files.every(f => f.sha256 === said)).toBe(true)
   expect(manifest.files[0].bytes).toBe(new TextEncoder().encode(BRIEF_TEXT).length)
   expect(manifest.files[1].chunks).toBe(chunkText(NOTES_TEXT, MOVE_CHUNK_DEFAULT).length)
-  expect(manifest.origin).toEqual({ machine: 'mac-a', home: HOME_A, configDir: `${HOME_A}/.claude` })
+  expect(manifest.origin).toEqual({ machine: 'mac-a', home: HOME_A, configDir: configOf(HOME_A) })
 })
 
 test('without shasum the hash comes from sha256sum', async () => {
@@ -456,7 +458,7 @@ test('move_probe sends one probe per size, each carrying that many data characte
 
 // --- the receiver -------------------------------------------------------------------------
 
-const TARGET_B = { home: HOME_B, configDir: `${HOME_B}/.claude` }
+const TARGET_B = { home: HOME_B, configDir: configOf(HOME_B) }
 const BRIEF_ARRIVED = BRIEF_TEXT.split(HOME_A).join(HOME_B)
 
 // What a sender sends for the fixture directory, captured: the messages in the order sent.
