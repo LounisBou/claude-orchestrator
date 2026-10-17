@@ -450,17 +450,20 @@ type Held = {
 type Receiving = {
   held: Map<string, Held>
   chains: Map<string, Promise<unknown>>
-  name: { value: string | null; at: number } | null
+  name: { value: string; at: number } | null
   probes: Map<string, string>
 }
 
 // The session's name is read once in a while, not for every chunk of a file.
 const NAME_MEMO_MS = 30000
 
+// A name read is kept; a walk that read nothing is not, so the next message tries again.
 async function memoName($: Dollar, receiving: Receiving): Promise<string | null> {
   const now = Date.now()
-  if (!receiving.name || now - receiving.name.at > NAME_MEMO_MS) receiving.name = { value: await nameOf($), at: now }
-  return receiving.name.value
+  if (receiving.name && now - receiving.name.at <= NAME_MEMO_MS) return receiving.name.value
+  const read = await nameOf($)
+  receiving.name = read === null ? null : { value: read, at: now }
+  return read
 }
 
 // One line of the log for a message dropped, never the message itself: the sender's address
@@ -473,7 +476,9 @@ async function drop($: Dollar, why: string, delivery: Delivery): Promise<void> {
 async function take($: Dollar, receiving: Receiving, delivery: Delivery): Promise<void> {
   const message = parseMoveMessage(delivery.body)
   if (!message) return drop($, 'it does not parse', delivery)
-  const role = roleOf(await memoName($, receiving))
+  const name = await memoName($, receiving)
+  if (name === null) return drop($, "this session's name could not be read", delivery)
+  const role = roleOf(name)
   if (role !== 'orchestrator' && role !== 'coordinator') return drop($, 'this session is neither an orchestrator nor a coordinator', delivery)
   if (!delivery.from) return drop($, 'the sender has no address', delivery)
   // The messages of one move run one at a time.
@@ -508,7 +513,7 @@ async function route($: Dollar, receiving: Receiving, message: MoveMessage, from
       if (!isPeer(s.to, delivery)) return drop($, "it is not from the move's receiver", delivery)
       if (s.done) return
       if (message.kind === 'missing') return answerMissing($, s, message)
-      if (message.kind === 'done') return answerDone($, receiving, s, message)
+      if (message.kind === 'done') return answerDone($, s, message)
       return
     }
     case 'probe-ack': {
@@ -722,11 +727,12 @@ async function answerMissing($: Dollar, s: SentMove, message: Extract<MoveMessag
 
 // « Done »: the move is over, once. Acknowledged whole, the sender's model reads where the
 // brief now is, and a session that moved itself may end; otherwise it reads why not.
-async function answerDone($: Dollar, receiving: Receiving, s: SentMove, message: Extract<MoveMessage, { kind: 'done' }>): Promise<void> {
+async function answerDone($: Dollar, s: SentMove, message: Extract<MoveMessage, { kind: 'done' }>): Promise<void> {
   if (!message.ok) return conclude($, s, message.reason ?? 'refused')
   s.done = { ok: true }
   await keepSend($, s)
-  if (await memoName($, receiving) === s.record.name) movedAndAcknowledged.add(s.record.name)
+  // The name is read afresh, not from the memo: the end is allowed on what the session is called now.
+  if (await nameOf($) === s.record.name) movedAndAcknowledged.add(s.record.name)
   $.prompt.submit({ text: acknowledgedNotice(s.record, s.to, message.brief ?? '') })
     .catch((err: unknown) => logLine($, `move ${s.move}: the notice was not submitted: ${String((err as Error)?.message ?? err)}`))
 }

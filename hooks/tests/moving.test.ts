@@ -37,7 +37,7 @@ function sha256(text: string): string {
   return out.slice(0, 64)
 }
 
-type Repo = { dirty?: boolean; ahead?: number; noUpstream?: boolean; remote?: string; branch?: string }
+type Repo = { dirty?: boolean; ahead?: number; noUpstream?: boolean; remote?: string; branch?: string; detached?: boolean; branchFails?: boolean }
 
 type Options = {
   home: string
@@ -69,12 +69,16 @@ function machine(options: Options) {
   const env: Record<string, string | undefined> = {
     HOME: options.home, ORCHESTRATOR_HOST_CLI: 'hostcli', ORCHESTRATOR_SPAWNED: options.spawned ? '1' : undefined,
   }
-  const name = options.name === undefined ? 'Orch : belt' : options.name
+  let name = options.name === undefined ? 'Orch : belt' : options.name
+  // Faults a test switches on in the middle of a move: writes whose path holds one of the strings
+  // fail, a directory cannot be made, a send throws once that many have gone.
+  const faults: { writes: string[]; mkdir: boolean; sendThrowsAfter: number | null } = { writes: [], mkdir: false, sendThrowsAfter: null }
   const dollar: any = {
     session: {
       id: async () => 's-one',
       send: async (args: { to: string; text: string }) => {
         if (options.unreachable?.includes(args.to)) return { isDelivered: false, reason: 'no such session' }
+        if (faults.sendThrowsAfter !== null && sent.length >= faults.sendThrowsAfter) throw new Error('the bridge dropped')
         sent.push(args)
         return { isDelivered: true }
       },
@@ -89,7 +93,11 @@ function machine(options: Options) {
         if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
         return files.get(p)
       },
-      write: async (p: string, text: string) => { writes.push(p); files.set(p, text) },
+      write: async (p: string, text: string) => {
+        if (faults.writes.some(part => p.includes(part))) throw new Error(`EIO: ${p}`)
+        writes.push(p)
+        files.set(p, text)
+      },
       exists: async (p: string) => files.has(p) || dirs.has(p),
       stat: async (p: string) => {
         const text = files.get(p)
@@ -133,7 +141,11 @@ function machine(options: Options) {
           const path = argv[argv.length - 1]
           return files.has(path) ? ok(`${sha256(files.get(path)!)}  ${path}\n`) : fail()
         }
-        if (argv[0] === 'mkdir') { dirs.add(argv[2]); return ok() }
+        if (argv[0] === 'mkdir') {
+          if (faults.mkdir) return fail()
+          dirs.add(argv[2])
+          return ok()
+        }
         if (argv[0] === 'mv') {
           if (!files.has(argv[2])) return fail()
           files.set(argv[3], files.get(argv[2])!)
@@ -152,15 +164,19 @@ function machine(options: Options) {
           if (verb === 'status --porcelain') return ok(repo.dirty ? ' M belt.md\n' : '')
           if (verb === 'rev-list @{u}..HEAD') return repo.noUpstream ? fail(128) : ok('abc1234\n'.repeat(repo.ahead ?? 0))
           if (verb === 'remote get-url origin') return repo.remote ? ok(`${repo.remote}\n`) : fail(2)
-          if (verb === 'rev-parse --abbrev-ref HEAD') return ok(`${repo.branch ?? 'main'}\n`)
+          if (verb === 'rev-parse --is-inside-work-tree') return ok('true\n')
+          if (verb === 'rev-parse --abbrev-ref HEAD') return repo.branchFails ? fail(128) : ok(`${repo.detached ? 'HEAD' : repo.branch ?? 'main'}\n`)
         }
         return fail()
       },
     },
   }
   return {
-    dollar, files, dirs, links, sent, submits, logged, writes, runs, registered, commands, home: options.home, config,
-    address: options.address, name,
+    dollar, files, dirs, links, sent, submits, logged, writes, runs, registered, commands, home: options.home, config, faults,
+    address: options.address,
+    get name() { return name },
+    // The session is renamed in the middle of a test.
+    rename: (to: string | null) => { name = to },
     store: `${config}/claude-orchestrator/store`,
     briefs: `${config}/claude-orchestrator/briefs`,
     messages: () => sent.map(m => parseMoveMessage(m.text)),
@@ -169,12 +185,14 @@ function machine(options: Options) {
 type Machine = ReturnType<typeof machine>
 
 // A registration is keyed by its event, and a tool call by its tool too: the file serves two.
+// Each handler's fallback (its .catch) is kept too, under « catch:<key> ».
 function mounted(register: Function = registerMoving): Record<string, Function> {
   const handlers: Record<string, Function> = {}
   register((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
     const tool = args.length === 3 ? String((args[1] as any).tool ?? '') : ''
-    handlers[tool ? `${args[0]}:${tool.replace('mcp__orchestrator__', '')}` : args[0]] = args[args.length - 1] as Function
-    return { catch: () => undefined }
+    const key = tool ? `${args[0]}:${tool.replace('mcp__orchestrator__', '')}` : args[0]
+    handlers[key] = args[args.length - 1] as Function
+    return { catch: (fallback: Function) => { handlers[`catch:${key}`] = fallback } }
   })
   return handlers
 }
@@ -827,4 +845,36 @@ test('it ends after the done ok of a move under its own name, and only then', as
   // A subagent is still refused, and the rename stays refused to a launcher-opened session.
   expect((await ok.naming[`tool.call:${END_TOOL}`](ok.fx.dollar, { agentId: 'a-1' })).isError).toBe(true)
   expect((await ok.naming['tool.call:rename_session'](ok.fx.dollar, { name: 'Orch : x' })).isError).toBe(true)
+})
+
+// --- the name of the session --------------------------------------------------------------
+
+test('a name that could not be read is not remembered: the message is dropped unanswered, the next one is judged afresh', async () => {
+  const { a, messages } = await sentMessages()
+  const hb = mounted()
+  const b = receiver({ name: null })
+  const first = await receive(hb, b, textOf(messages[0]), a)
+  expect(typeof first.consumed).toBe('string')
+  expect(b.sent).toEqual([])
+  expect(b.writes).toEqual([])
+  expect(b.logged.length).toBeGreaterThan(0)
+  // The walk reads the name now: the same chain, within the memo's lifetime, judges it.
+  b.rename('Orch : far')
+  await deliverAll(hb, b, a, messages)
+  expect(b.messages().some(m => m?.kind === 'done' && m.ok)).toBe(true)
+  expect(b.submits.length).toBe(1)
+})
+
+test('the end is allowed on the name read afresh when the done arrives, not on the one remembered', async () => {
+  const s = launcherOpened()
+  await s.moving['tool.call:move_send'](s.fx.dollar, sendInput(s.fx))
+  const manifest = s.fx.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  const peer = { name: 'Orch : far', address: ADDRESS_B }
+  // An answer first: the name is read and remembered as « Orch : belt ».
+  await receive(s.moving, s.fx, textOf({ kind: 'ack', move: manifest.move, file: 0, ok: true, reason: null }), peer)
+  s.fx.rename('Orch : other')
+  const done = { kind: 'done', move: manifest.move, ok: true, brief: `${HOME_B}/.claude/claude-orchestrator/briefs/belt/${BRIEF_NAME}`, reason: null } as const
+  await receive(s.moving, s.fx, textOf(done), peer)
+  expect(s.fx.submits.length).toBe(1)
+  expect(await s.naming[`tool.call:${END_TOOL}`](s.fx.dollar, {})).toEqual({ result: REFUSED_TODAY, isError: true })
 })
