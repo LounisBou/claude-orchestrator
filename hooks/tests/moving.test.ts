@@ -1085,3 +1085,27 @@ test('a store write that fails when the move is answered is logged, and the noti
   expect(failed.a.submits).toEqual([{ text: failedNotice(failed.manifest.record, ADDRESS_B, 'refused') }])
   expect(failed.a.logged.length).toBeGreaterThan(0)
 })
+
+// --- a checkout whose remote or branch cannot be read refuses the move --------------------
+
+test('a working directory inside a git work tree whose remote or branch cannot be read refuses the move', async () => {
+  const h = mounted()
+  const cases: [string, Repo, string][] = [
+    ['no origin remote', {}, 'origin'],
+    ['a detached HEAD', { remote: 'git@example.com:acme/app.git', detached: true }, 'branch'],
+    ['git failing on the branch', { remote: 'git@example.com:acme/app.git', branchFails: true }, 'branch'],
+  ]
+  for (const [, repo, word] of cases) {
+    const fx = sender({ repos: { [`${HOME_A}/dev/app`]: repo, [`${HOME_A}/dev/lib`]: {} } })
+    const answer = await h['tool.call:move_send'](fx.dollar, sendInput(fx))
+    expect(answer.isError).toBe(true)
+    expect(answer.result).toContain(`${HOME_A}/dev/app`)
+    expect(answer.result).toContain(word)
+    expect(fx.sent).toEqual([])
+    expect([...fx.files.keys()].some(p => p.includes('/moves/'))).toBe(false)
+  }
+  // A directory outside any work tree still gives no git, and the move goes.
+  const plain = sender()
+  const sentOk = await h['tool.call:move_send'](plain.dollar, sendInput(plain, { dir: `${HOME_A}/dev/plain` }))
+  expect(sentOk.isError).toBeUndefined()
+})

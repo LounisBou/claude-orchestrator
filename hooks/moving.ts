@@ -293,13 +293,18 @@ async function checkoutRefusal($: Dollar, path: string): Promise<string | null> 
   return null
 }
 
-// The remote and the branch of the working directory, or null when it is no checkout.
-async function gitOf($: Dollar, dir: string): Promise<{ url: string; branch: string } | null> {
+// The remote and the branch of the working directory: null when it is no git work tree; when it
+// is one, they are read or the move is refused, since the receiver rebuilds the code from them.
+async function gitOf($: Dollar, dir: string): Promise<{ git: { url: string; branch: string } | null } | { refused: string }> {
+  const inside = await run($, ['git', '-C', dir, 'rev-parse', '--is-inside-work-tree'], GIT_MS)
+  if (!inside) return { refused: `${dir}: git did not answer, so it cannot be told whether it is a checkout` }
+  if (inside.exitCode !== 0 || inside.stdout.trim() !== 'true') return { git: null }
   const url = await run($, ['git', '-C', dir, 'remote', 'get-url', 'origin'], GIT_MS)
+  if (!url || url.exitCode !== 0 || !url.stdout.trim()) return { refused: `${dir}: its origin remote cannot be read` }
   const branch = await run($, ['git', '-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], GIT_MS)
-  if (!url || url.exitCode !== 0 || !branch || branch.exitCode !== 0) return null
-  const [u, b] = [url.stdout.trim(), branch.stdout.trim()]
-  return u && b && b !== 'HEAD' ? { url: u, branch: b } : null
+  const name = branch && branch.exitCode === 0 ? branch.stdout.trim() : ''
+  if (!name || name === 'HEAD') return { refused: `${dir}: its branch cannot be read (git failed or HEAD is detached)` }
+  return { git: { url: url.stdout.trim(), branch: name } }
 }
 
 type Manifest = Extract<MoveMessage, { kind: 'manifest' }>
@@ -351,7 +356,9 @@ async function sendMove($: Dollar, e: any): Promise<{ result: string; isError?: 
     if (!hash) return failure(`move refused, nothing sent: neither shasum nor sha256sum answered for ${entry.name}`)
     files.push({ name: entry.name, bytes, sha256: hash, chunks: chunkText(text, chunk).length })
   }
-  record.git = await gitOf($, record.dir)
+  const git = await gitOf($, record.dir)
+  if ('refused' in git) return failure(`move refused, nothing sent: ${git.refused}`)
+  record.git = git.git
   const move = moveIdOf(record, files)
   const manifest: Manifest = {
     kind: 'manifest', move,
