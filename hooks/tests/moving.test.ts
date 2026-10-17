@@ -451,3 +451,206 @@ test('move_probe sends one probe per size, each carrying that many data characte
   }
   expect(fx.sent.length).toBe(3)
 })
+
+// --- the receiver -------------------------------------------------------------------------
+
+const TARGET_B = { home: HOME_B, configDir: `${HOME_B}/.claude` }
+const BRIEF_ARRIVED = BRIEF_TEXT.split(HOME_A).join(HOME_B)
+
+// What a sender sends for the fixture directory, captured: the messages in the order sent.
+async function sentMessages(chunk = 1000): Promise<{ a: Machine; ha: Record<string, Function>; messages: MoveMessage[]; manifest: Extract<MoveMessage, { kind: 'manifest' }> }> {
+  const ha = mounted()
+  const a = sender()
+  const answer = await ha['tool.call:move_send'](a.dollar, sendInput(a, { chunk }))
+  expect(answer.isError).toBeUndefined()
+  const messages = a.messages() as MoveMessage[]
+  return { a, ha, messages, manifest: messages[0] as Extract<MoveMessage, { kind: 'manifest' }> }
+}
+
+const textOf = (message: MoveMessage) => moveText(message)
+
+async function deliverAll(hb: Record<string, Function>, b: Machine, a: Machine, messages: MoveMessage[]) {
+  const results = []
+  for (const m of messages) results.push(await receive(hb, b, textOf(m), a))
+  return results
+}
+
+const acksOf = (b: Machine) => b.messages().filter((m): m is Extract<MoveMessage, { kind: 'ack' }> => m?.kind === 'ack')
+const briefsWritten = (b: Machine) => [...b.files.keys()].filter(p => p.startsWith(`${b.briefs}/`))
+
+test('a marked delivery is consumed: no model reads it, and the files land rewritten in the briefs directory', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  const results = await deliverAll(hb, b, a, messages)
+  expect(results.every(r => typeof r.consumed === 'string')).toBe(true)
+  const arrival = arrivalOf(manifest, TARGET_B) as any
+  expect(arrival.briefDir).toBe(`${b.briefs}/belt`)
+  expect(b.files.get(arrival.brief)).toBe(BRIEF_ARRIVED)
+  expect(b.files.get(`${arrival.briefDir}/notes.txt`)).toBe(NOTES_TEXT)
+  expect(b.dirs.has(arrival.briefDir)).toBe(true)
+  expect(acksOf(b).map(m => [m.file, m.ok, m.reason])).toEqual([[0, true, null], [1, true, null]])
+  expect(b.sent.every(m => m.to === ADDRESS_A)).toBe(true)
+})
+
+test('chunks that arrive out of order are joined right', async () => {
+  const { a, messages } = await sentMessages(500)
+  const hb = mounted()
+  const b = receiver()
+  const [manifest, ...rest] = messages
+  const chunks = rest.filter(m => m.kind === 'chunk').reverse()
+  await deliverAll(hb, b, a, [manifest, ...chunks, ...rest.filter(m => m.kind === 'sent')])
+  expect(b.files.get(`${b.briefs}/belt/notes.txt`)).toBe(NOTES_TEXT)
+  expect(b.files.get(`${b.briefs}/belt/${BRIEF_NAME}`)).toBe(BRIEF_ARRIVED)
+})
+
+test('a sha256 mismatch acks not ok and writes nothing in the briefs directory', async () => {
+  const { a, messages } = await sentMessages(500)
+  const hb = mounted()
+  const b = receiver()
+  let flipped = false
+  const tampered = messages.map(m => {
+    if (m.kind !== 'chunk' || m.file !== 1 || flipped) return m
+    flipped = true
+    return { ...m, data: m.data.replace('x', 'y').replace('n', 'm') }
+  })
+  await deliverAll(hb, b, a, tampered)
+  const acks = acksOf(b)
+  expect(acks.find(m => m.file === 1)).toMatchObject({ ok: false })
+  expect(acks.find(m => m.file === 1)!.reason).toContain('notes.txt')
+  expect(briefsWritten(b).some(p => p.endsWith('/notes.txt'))).toBe(false)
+  // The other file is unharmed, and the move is over, not ok.
+  expect(b.files.get(`${b.briefs}/belt/${BRIEF_NAME}`)).toBe(BRIEF_ARRIVED)
+  const done = b.messages().find(m => m?.kind === 'done') as any
+  expect(done).toMatchObject({ ok: false, brief: null })
+  expect(b.submits).toEqual([])
+})
+
+test('a target that exists with the same content is acked ok, with other content refused', async () => {
+  const { a, messages } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  b.files.set(`${b.briefs}/belt/${BRIEF_NAME}`, BRIEF_ARRIVED)
+  b.files.set(`${b.briefs}/belt/notes.txt`, 'other content, kept\n')
+  await deliverAll(hb, b, a, messages)
+  const acks = acksOf(b)
+  expect(acks.find(m => m.file === 0)).toMatchObject({ ok: true })
+  expect(acks.find(m => m.file === 1)).toMatchObject({ ok: false })
+  expect(acks.find(m => m.file === 1)!.reason).toContain('notes.txt')
+  expect(b.files.get(`${b.briefs}/belt/notes.txt`)).toBe('other content, kept\n')
+  expect(b.writes.filter(p => p === `${b.briefs}/belt/${BRIEF_NAME}`)).toEqual([])
+})
+
+test('the same move sent twice is kept as it is: acknowledged again, nothing written twice', async () => {
+  const { a, ha, messages, manifest } = await sentMessages()
+  // The same arguments give the same move.
+  const again = sender()
+  const hs = mounted()
+  await hs['tool.call:move_send'](again.dollar, sendInput(again, { chunk: 1000 }))
+  expect((again.messages()[0] as any).move).toBe(manifest.move)
+  const hb = mounted()
+  const b = receiver()
+  await deliverAll(hb, b, a, messages)
+  const writes = [...b.writes]
+  const acks = acksOf(b).length
+  await deliverAll(hb, b, a, messages)
+  expect(b.writes).toEqual(writes)
+  expect(acksOf(b).length).toBeGreaterThan(acks)
+  expect(b.messages().filter(m => m?.kind === 'done').length).toBeGreaterThanOrEqual(1)
+  expect(b.submits.length).toBe(1)
+  void ha
+})
+
+test('all files acknowledged: done ok carries the brief, and the receiver\'s model reads the arrival notice once', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  await deliverAll(hb, b, a, messages)
+  const arrival = arrivalOf(manifest, TARGET_B) as any
+  const done = b.messages().filter(m => m?.kind === 'done') as any[]
+  expect(done[0]).toEqual({ kind: 'done', move: manifest.move, ok: true, brief: arrival.brief, reason: null })
+  expect(b.submits).toEqual([{ text: arrivedNotice(manifest, arrival, 'Orch : belt', LAUNCHER) }])
+  // The arrival the notice reports is the one written.
+  expect(b.submits[0].text).toContain(arrival.brief)
+})
+
+test('a manifest the receiver refuses is answered done not ok, and nothing is written', async () => {
+  const { a, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  const forged = { ...manifest, record: { ...manifest.record, order: 'another order' } }
+  await receive(hb, b, textOf(forged), a)
+  const done = b.messages()[0] as any
+  expect(done).toMatchObject({ kind: 'done', move: manifest.move, ok: false, brief: null })
+  expect(done.reason).toContain('move id')
+  expect(b.writes).toEqual([])
+  expect(b.submits).toEqual([])
+})
+
+test('a probe is answered with the length received', async () => {
+  const hb = mounted()
+  const b = receiver()
+  const a = sender()
+  const probe = { kind: 'probe', move: 'probe-0123456789ab', size: 3000, data: 'z'.repeat(3000) } as const
+  const r = await receive(hb, b, textOf(probe), a)
+  expect(typeof r.consumed).toBe('string')
+  expect(b.messages()).toEqual([{ kind: 'probe-ack', move: probe.move, size: 3000, received: 3000 }])
+  expect(b.sent[0].to).toBe(ADDRESS_A)
+})
+
+test('a marked message that is not the module\'s to act on is consumed and does nothing', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  const stranger = { name: 'Orch : intruder', address: 'bridge:session_03Stranger' }
+  const chunk = messages.find(m => m.kind === 'chunk')!
+  await receive(hb, b, textOf(manifest), a)
+  const before = { writes: [...b.writes], sent: b.sent.length, submits: b.submits.length }
+  const cases: [string, Machine | typeof stranger, Machine?][] = [
+    ['a chunk from another session', stranger],
+    ['a sent from another session', stranger],
+    ['a chunk of a move it does not know', a],
+    ['text that does not parse', a],
+    ['a kind with an extra field', a],
+  ]
+  const texts = [
+    textOf(chunk), textOf({ kind: 'sent', move: manifest.move }),
+    textOf({ ...(chunk as any), move: 'other-0123456789ab' }),
+    '[module-move] {"kind":', textOf({ ...(chunk as any), extra: 1 } as any),
+  ]
+  for (const [i, [, from]] of cases.entries()) {
+    const r = await receive(hb, b, texts[i], from as any)
+    expect(typeof r.consumed).toBe('string')
+    expect(r.passed).toBeUndefined()
+  }
+  expect({ writes: b.writes, sent: b.sent.length, submits: b.submits.length }).toEqual({ writes: before.writes, sent: before.sent, submits: before.submits })
+  expect(b.logged.length).toBeGreaterThanOrEqual(cases.length)
+})
+
+test('a session named neither Orch nor Coord consumes a marked message and does nothing with it', async () => {
+  const { a, messages } = await sentMessages()
+  const hb = mounted()
+  const b = receiver({ name: 'Agent : x' })
+  for (const m of messages) {
+    const r = await receive(hb, b, textOf(m), a)
+    expect(typeof r.consumed).toBe('string')
+  }
+  const probe = await receive(hb, b, textOf({ kind: 'probe', move: 'probe-0123456789ab', size: 5, data: 'zzzzz' }), a)
+  expect(typeof probe.consumed).toBe('string')
+  expect(b.writes).toEqual([])
+  expect(b.sent).toEqual([])
+  expect(b.submits).toEqual([])
+})
+
+test('an unmarked delivery, a person\'s prompt and a subagent\'s receive pass through untouched', async () => {
+  const hb = mounted()
+  const b = receiver()
+  const a = sender()
+  expect(await receive(hb, b, 'hello there', a)).toEqual({ passed: envelope('hello there', 'Orch : belt', ADDRESS_A) })
+  const marked = textOf({ kind: 'sent', move: 'belt-0123456789ab' })
+  const typed = await hb['session.receive'](b.dollar, { origin: { kind: 'user' }, text: marked }, passOn)
+  expect(typed).toEqual({ passed: marked })
+  const sub = await hb['session.receive'](b.dollar, { agentId: 'a-1', origin: { kind: 'peer' }, text: envelope(marked, 'Orch : belt', ADDRESS_A) }, passOn)
+  expect(sub.passed).toBeDefined()
+  expect(b.sent).toEqual([])
+})
