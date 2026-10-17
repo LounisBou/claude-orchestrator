@@ -660,7 +660,9 @@ test('a session named neither Orch nor Coord consumes a marked message and does 
   const probe = await receive(hb, b, textOf({ kind: 'probe', move: 'probe-0123456789ab', size: 5, data: 'zzzzz' }), a)
   expect(typeof probe.consumed).toBe('string')
   expect(b.writes).toEqual([])
-  expect(b.sent).toEqual([])
+  // Only the manifest and the « sent » are answered, each done not ok, to their sender.
+  expect(b.messages().map(m => m?.kind === 'done' && !m.ok ? 'refused' : 'other')).toEqual(['refused', 'refused'])
+  expect(b.sent.every(m => m.to === ADDRESS_A)).toBe(true)
   expect(b.submits).toEqual([])
 })
 
@@ -877,4 +879,84 @@ test('the end is allowed on the name read afresh when the done arrives, not on t
   await receive(s.moving, s.fx, textOf(done), peer)
   expect(s.fx.submits.length).toBe(1)
   expect(await s.naming[`tool.call:${END_TOOL}`](s.fx.dollar, {})).toEqual({ result: REFUSED_TODAY, isError: true })
+})
+
+// --- a refusal the receiver can attribute is answered -------------------------------------
+
+const doneOf = (b: Machine) => b.messages().filter((m): m is Extract<MoveMessage, { kind: 'done' }> => m?.kind === 'done')
+
+test('a session named another role answers the manifest and the « sent » done not ok, and drops a chunk', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver({ name: 'Agent : x' })
+  await deliverAll(hb, b, a, messages)
+  const answers = doneOf(b)
+  expect(answers.map(m => [m.ok, m.brief, m.move])).toEqual([[false, null, manifest.move], [false, null, manifest.move]])
+  expect(answers[0].reason).toContain('neither an orchestrator nor a coordinator')
+  expect(b.sent.every(m => m.to === ADDRESS_A)).toBe(true)
+  expect(b.writes).toEqual([])
+  expect(b.submits).toEqual([])
+})
+
+test('the sender learns why a session named another role refused the move', async () => {
+  const ha = mounted()
+  const a = sender()
+  await ha['tool.call:move_send'](a.dollar, sendInput(a))
+  const hb = mounted()
+  const b = receiver({ name: 'Agent : x' })
+  await settle(a, ha, b, hb)
+  expect(a.submits.length).toBe(1)
+  expect(a.submits[0].text).toContain('neither an orchestrator nor a coordinator')
+})
+
+test('a manifest that cannot be stored is answered done not ok, and nothing is held', async () => {
+  for (const fault of ['write', 'mkdir'] as const) {
+    const { a, manifest } = await sentMessages()
+    const hb = mounted()
+    const b = receiver()
+    if (fault === 'write') b.faults.writes.push('manifest.json')
+    else b.faults.mkdir = true
+    await receive(hb, b, textOf(manifest), a)
+    const done = doneOf(b)
+    expect(done.length).toBe(1)
+    expect(done[0]).toMatchObject({ ok: false, brief: null, move: manifest.move })
+    expect(done[0].reason).toContain('stored')
+    expect(b.submits).toEqual([])
+    // Nothing is held: a « sent » of the move is answered as unknown.
+    b.faults.writes = []
+    b.faults.mkdir = false
+    await receive(hb, b, textOf({ kind: 'sent', move: manifest.move }), a)
+    expect(doneOf(b)[1].reason).toContain('send it again')
+  }
+})
+
+test('a manifest of a move held for another sender is answered done not ok, and the held move is kept', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  await receive(hb, b, textOf(manifest), a)
+  const stranger = { name: 'Orch : intruder', address: 'bridge:session_03Stranger' }
+  const writes = [...b.writes]
+  await receive(hb, b, textOf(manifest), stranger)
+  const answered = b.sent.filter(m => m.to === stranger.address).map(m => parseMoveMessage(m.text))
+  expect(answered).toEqual([{ kind: 'done', move: manifest.move, ok: false, brief: null, reason: expect.stringContaining('another') }])
+  expect(b.writes).toEqual(writes)
+  // The move goes on with its own sender.
+  await deliverAll(hb, b, a, messages.slice(1))
+  expect(b.submits.length).toBe(1)
+})
+
+test('a « sent » for a move not held is answered done not ok; a chunk of one stays dropped', async () => {
+  const { a, messages, manifest } = await sentMessages()
+  const hb = mounted()
+  const b = receiver()
+  await receive(hb, b, textOf(messages.find(m => m.kind === 'chunk')!), a)
+  expect(b.sent).toEqual([])
+  expect(b.logged.length).toBeGreaterThan(0)
+  await receive(hb, b, textOf({ kind: 'sent', move: manifest.move }), a)
+  expect(b.messages()).toEqual([{ kind: 'done', move: manifest.move, ok: false, brief: null, reason: 'no manifest held for this move; send it again' }])
+  expect(b.sent[0].to).toBe(ADDRESS_A)
+  // A message that does not parse stays dropped too.
+  await receive(hb, b, '[module-move] {"kind":', a)
+  expect(b.sent.length).toBe(1)
 })

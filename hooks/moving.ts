@@ -466,11 +466,19 @@ async function memoName($: Dollar, receiving: Receiving): Promise<string | null>
   return read
 }
 
-// One line of the log for a message dropped, never the message itself: the sender's address
-// and name are text a peer chose.
+// The sender's address and name are text a peer chose: one line, bounded, before a log keeps them.
+const cleanText = (v: string | null) => String(v ?? 'unknown').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 120)
+
+// One line of the log for a message dropped, never the message itself.
 async function drop($: Dollar, why: string, delivery: Delivery): Promise<void> {
-  const clean = (v: string | null) => String(v ?? 'unknown').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ').slice(0, 120)
-  await logLine($, `move: a marked message was dropped (${why}) from ${clean(delivery.from)} ${clean(delivery.fromName)}, ${delivery.body.length} characters`)
+  await logLine($, `move: a marked message was dropped (${why}) from ${cleanText(delivery.from)} ${cleanText(delivery.fromName)}, ${delivery.body.length} characters`)
+}
+
+// A refusal the sender can be told: the sender has no timer, so « done » not ok is the answer
+// that ends its wait. The log keeps one line, as for a drop.
+async function refuse($: Dollar, why: string, move: string, delivery: Delivery): Promise<void> {
+  await logLine($, `move: a marked message was refused and answered (${why}) from ${cleanText(delivery.from)} ${cleanText(delivery.fromName)}, ${delivery.body.length} characters`)
+  await reply($, delivery.from!, { kind: 'done', move, ok: false, brief: null, reason: reasonText(why) })
 }
 
 async function take($: Dollar, receiving: Receiving, delivery: Delivery): Promise<void> {
@@ -479,8 +487,12 @@ async function take($: Dollar, receiving: Receiving, delivery: Delivery): Promis
   const name = await memoName($, receiving)
   if (name === null) return drop($, "this session's name could not be read", delivery)
   const role = roleOf(name)
-  if (role !== 'orchestrator' && role !== 'coordinator') return drop($, 'this session is neither an orchestrator nor a coordinator', delivery)
   if (!delivery.from) return drop($, 'the sender has no address', delivery)
+  if (role !== 'orchestrator' && role !== 'coordinator') {
+    // The name was read: the sender can be told. A chunk or a probe is not answered one by one.
+    const why = 'this session is neither an orchestrator nor a coordinator'
+    return message.kind === 'manifest' || message.kind === 'sent' ? refuse($, why, message.move, delivery) : drop($, why, delivery)
+  }
   // The messages of one move run one at a time.
   const before = receiving.chains.get(message.move) ?? Promise.resolve()
   const turn = before.catch(() => undefined).then(() => route($, receiving, message, delivery.from!, delivery))
@@ -501,7 +513,10 @@ async function route($: Dollar, receiving: Receiving, message: MoveMessage, from
     case 'chunk':
     case 'sent': {
       const h = await heldOf($, receiving, message.move)
-      if (!h) return drop($, 'a move this session does not know', delivery)
+      if (!h) {
+        if (message.kind === 'sent') return refuse($, 'no manifest held for this move; send it again', message.move, delivery)
+        return drop($, 'a move this session does not know', delivery)
+      }
       if (h.from !== from) return drop($, "it is not from the move's sender", delivery)
       return message.kind === 'chunk' ? receiveChunk($, h, message) : receiveSent($, h)
     }
@@ -547,7 +562,7 @@ async function targetOf($: Dollar): Promise<{ home: string; configDir: string }>
 async function receiveManifest($: Dollar, receiving: Receiving, manifest: Manifest, from: string, delivery: Delivery): Promise<void> {
   const known = await heldOf($, receiving, manifest.move)
   if (known) {
-    if (known.from !== from) return drop($, "a manifest of a move held for another sender", delivery)
+    if (known.from !== from) return refuse($, 'a move with this id is already held for another session', manifest.move, delivery)
     // The same move sent again: what is held stays; a file that failed is asked for afresh.
     const stale: string[] = []
     for (const [file, ack] of known.acks.entries()) {
@@ -567,9 +582,14 @@ async function receiveManifest($: Dollar, receiving: Receiving, manifest: Manife
     return reply($, from, { kind: 'done', move: manifest.move, ok: false, brief: null, reason: reasonText(arrival.refused) })
   }
   const dir = `${await movesDir($)}/${manifest.move}`
-  await run($, ['mkdir', '-p', dir], 5000)
   const fromName = delivery.fromName ?? ''
-  await writeAtomic($, `${dir}/manifest.json`, JSON.stringify({ from, fromName, manifest }) + '\n')
+  try {
+    const made = await run($, ['mkdir', '-p', dir], 5000)
+    if (!made || made.exitCode !== 0) throw new Error('the directory cannot be made')
+    await writeAtomic($, `${dir}/manifest.json`, JSON.stringify({ from, fromName, manifest }) + '\n')
+  } catch (err) {
+    return refuse($, `the manifest could not be stored here (${(err as Error).message})`, manifest.move, delivery)
+  }
   receiving.held.set(manifest.move, { from, fromName, manifest, arrival, have: new Set(), acks: manifest.files.map(() => undefined), notified: false })
 }
 
