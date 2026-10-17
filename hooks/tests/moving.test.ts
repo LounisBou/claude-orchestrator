@@ -71,13 +71,13 @@ function machine(options: Options) {
   }
   let name = options.name === undefined ? 'Orch : belt' : options.name
   // Faults a test switches on in the middle of a move: writes whose path holds one of the strings
-  // fail, a directory cannot be made, a send throws once that many have gone.
-  const faults: { writes: string[]; mkdir: boolean; sendThrowsAfter: number | null } = { writes: [], mkdir: false, sendThrowsAfter: null }
+  // fail, a directory cannot be made, a send throws once that many have gone, an address stops answering.
+  const faults: { writes: string[]; mkdir: boolean; sendThrowsAfter: number | null; unreachable: string[] } = { writes: [], mkdir: false, sendThrowsAfter: null, unreachable: [] }
   const dollar: any = {
     session: {
       id: async () => 's-one',
       send: async (args: { to: string; text: string }) => {
-        if (options.unreachable?.includes(args.to)) return { isDelivered: false, reason: 'no such session' }
+        if (options.unreachable?.includes(args.to) || faults.unreachable.includes(args.to)) return { isDelivered: false, reason: 'no such session' }
         if (faults.sendThrowsAfter !== null && sent.length >= faults.sendThrowsAfter) throw new Error('the bridge dropped')
         sent.push(args)
         return { isDelivered: true }
@@ -1027,4 +1027,61 @@ test('the receive fallback consumes a move-marked delivery only; anything else g
   expect(await fallback(b.dollar, { origin: { kind: 'user' }, text: 'typed by a person' }, failing)).toEqual({ passed: 'typed by a person' })
   expect(await fallback(b.dollar, { origin: { kind: 'peer' } }, failing)).toEqual({ passed: undefined })
   expect(b.logged.length).toBe(4)
+})
+
+// --- every failure after the call reaches the sender's model, once ------------------------
+
+const RESUME = 'call move_send again with the same arguments to resume it'
+
+test('a resend after « missing » that stops ends the move: one notice with the cause and how to resume', async () => {
+  for (const fault of ['throws', 'undelivered'] as const) {
+    const { a, ha, manifest } = await sentMessages(500)
+    const peer = { name: 'Orch : far', address: ADDRESS_B }
+    const missing = textOf({ kind: 'missing', move: manifest.move, chunks: [[1, 2]] })
+    if (fault === 'throws') a.faults.sendThrowsAfter = a.sent.length
+    else a.faults.unreachable.push(ADDRESS_B)
+    await receive(ha, a, missing, peer)
+    expect(a.submits.length).toBe(1)
+    expect(a.submits[0].text).toContain(RESUME)
+    expect(a.submits[0].text).toContain(fault === 'throws' ? 'the bridge dropped' : 'no such session')
+    expect(JSON.parse(a.files.get(`${a.store}/moves/${manifest.move}.json`)!).done).toEqual({ ok: false })
+    // Once: a later answer starts nothing.
+    await receive(ha, a, missing, peer)
+    expect(a.submits.length).toBe(1)
+  }
+})
+
+test('a send that throws midway through move_send answers the same text as an undelivered one', async () => {
+  const h = mounted()
+  const fx = sender()
+  fx.faults.sendThrowsAfter = 2
+  const answer = await h['tool.call:move_send'](fx.dollar, sendInput(fx, { chunk: 1000 }))
+  expect(answer.isError).toBe(true)
+  expect(answer.result).toContain('not fully sent')
+  expect(answer.result).toContain(RESUME)
+  expect(answer.result).toContain('the bridge dropped')
+  expect(answer.result).not.toContain('could not be sent')
+  // Called again with the same arguments, the same move goes through.
+  fx.faults.sendThrowsAfter = null
+  const again = await h['tool.call:move_send'](fx.dollar, sendInput(fx, { chunk: 1000 }))
+  expect(again.isError).toBeUndefined()
+  expect(kinds(fx).filter(k => k === 'manifest').length).toBe(2)
+})
+
+test('a store write that fails when the move is answered is logged, and the notice is still submitted', async () => {
+  const peer = { name: 'Orch : far', address: ADDRESS_B }
+  const ok = launcherOpened()
+  await ok.moving['tool.call:move_send'](ok.fx.dollar, sendInput(ok.fx))
+  const manifest = ok.fx.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  ok.fx.faults.writes.push('.json')
+  const brief = `${HOME_B}/.claude/claude-orchestrator/briefs/belt/${BRIEF_NAME}`
+  await receive(ok.moving, ok.fx, textOf({ kind: 'done', move: manifest.move, ok: true, brief, reason: null }), peer)
+  expect(ok.fx.submits).toEqual([{ text: acknowledgedNotice(manifest.record, ADDRESS_B, brief) }])
+  expect(ok.fx.logged.length).toBeGreaterThan(0)
+  expect(await ok.naming[`tool.call:${END_TOOL}`](ok.fx.dollar, {})).toEqual({ result: 'This session ends when this turn ends.' })
+  const failed = await sentMessages()
+  failed.a.faults.writes.push('.json')
+  await receive(failed.ha, failed.a, textOf({ kind: 'done', move: failed.manifest.move, ok: false, brief: null, reason: 'refused' }), peer)
+  expect(failed.a.submits).toEqual([{ text: failedNotice(failed.manifest.record, ADDRESS_B, 'refused') }])
+  expect(failed.a.logged.length).toBeGreaterThan(0)
 })

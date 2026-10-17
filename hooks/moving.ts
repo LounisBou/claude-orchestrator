@@ -234,6 +234,9 @@ const failure = (result: string): Failure => ({ result, isError: true })
 
 type SendInput = { to: string; record: MoveRecord; chunk: number }
 
+// What the sender's model is told to do when a move stopped midway.
+const RESUME = 'call move_send again with the same arguments to resume it'
+
 const EFFORTS = ['', 'low', 'medium', 'high', 'xhigh', 'max']
 
 // The call's arguments as a record, or the reason they are refused. What the protocol bounds
@@ -359,7 +362,7 @@ async function sendMove($: Dollar, e: any): Promise<{ result: string; isError?: 
   if (refusal) return failure(`move refused, nothing sent: ${refusal}`)
   await keepSend($, { move, to, chunk, record, files, rounds: 0 })
   const failed = await sendAll($, to, move, manifest, record, files, chunk, null)
-  if (failed) return failure(`move ${move} not fully sent: ${failed}; call move_send again with the same arguments to resume it`)
+  if (failed) return failure(`move ${move} not fully sent: ${failed}; ${RESUME}`)
   const chunks = files.reduce((sum, f) => sum + f.chunks, 0)
   const bytes = files.reduce((sum, f) => sum + f.bytes, 0)
   return { result: `move ${move} sent to ${to}: ${files.length} files, ${chunks} chunks, ${bytes} bytes. The receiving module answers by itself; a notice reaches this session when the move is over.` }
@@ -382,8 +385,12 @@ async function sendAll(
 ): Promise<string | null> {
   const dir = record.brief.slice(0, record.brief.lastIndexOf('/')) || '/'
   const deliver = async (message: MoveMessage): Promise<string | null> => {
-    const sent = await $.session.send({ to, text: moveText(message) })
-    return sent?.isDelivered ? null : `not delivered to ${to}: ${sent?.reason ?? 'no answer'}`
+    try {
+      const sent = await $.session.send({ to, text: moveText(message) })
+      return sent?.isDelivered ? null : `not delivered to ${to}: ${sent?.reason ?? 'no answer'}`
+    } catch (err) {
+      return `not delivered to ${to}: ${(err as Error).message}`
+    }
   }
   if (manifest) {
     const stopped = await deliver(manifest)
@@ -749,10 +756,16 @@ async function answerMissing($: Dollar, s: SentMove, message: Extract<MoveMessag
     return conclude($, s, `the receiver still misses chunks after ${MOVE_MISSING_ROUNDS} answers`)
   }
   s.rounds += 1
-  await keepSend($, s)
-  const asked = message.chunks.filter(([file, index]) => s.files[file] !== undefined && index < s.files[file].chunks)
-  const stopped = await sendAll($, s.to, s.move, null, s.record, s.files, s.chunk, asked)
-  if (stopped) await logLine($, `move ${s.move}: the chunks asked for again were not all sent: ${stopped}`)
+  let stopped: string | null
+  try {
+    await keepSend($, s)
+    const asked = message.chunks.filter(([file, index]) => s.files[file] !== undefined && index < s.files[file].chunks)
+    stopped = await sendAll($, s.to, s.move, null, s.record, s.files, s.chunk, asked)
+  } catch (err) {
+    stopped = (err as Error).message
+  }
+  // Nothing else will tell the sender's model: the move ends here, and the send resumes it.
+  if (stopped) return conclude($, s, `the chunks asked for again were not all sent (${stopped}); ${RESUME}`)
 }
 
 // « Done »: the move is over, once. Acknowledged whole, the sender's model reads where the
@@ -760,16 +773,22 @@ async function answerMissing($: Dollar, s: SentMove, message: Extract<MoveMessag
 async function answerDone($: Dollar, s: SentMove, message: Extract<MoveMessage, { kind: 'done' }>): Promise<void> {
   if (!message.ok) return conclude($, s, message.reason ?? 'refused')
   s.done = { ok: true }
-  await keepSend($, s)
+  await keepKnown($, s)
   // The name is read afresh, not from the memo: the end is allowed on what the session is called now.
   if (await nameOf($) === s.record.name) movedAndAcknowledged.add(s.record.name)
   $.prompt.submit({ text: acknowledgedNotice(s.record, s.to, message.brief ?? '') })
     .catch((err: unknown) => logLine($, `move ${s.move}: the notice was not submitted: ${String((err as Error)?.message ?? err)}`))
 }
 
+// The record kept again where the notice must go out whatever the store says: a write that fails
+// is logged.
+async function keepKnown($: Dollar, s: SentMove): Promise<void> {
+  await keepSend($, s).catch(err => logLine($, `move ${s.move}: the record could not be kept: ${(err as Error).message}`))
+}
+
 async function conclude($: Dollar, s: SentMove, reason: string): Promise<void> {
   s.done = { ok: false }
-  await keepSend($, s)
+  await keepKnown($, s)
   $.prompt.submit({ text: failedNotice(s.record, s.to, reason) })
     .catch((err: unknown) => logLine($, `move ${s.move}: the notice was not submitted: ${String((err as Error)?.message ?? err)}`))
 }
