@@ -1010,3 +1010,21 @@ test('the answers of a probe are pinned to the address of the first, too', async
   await receive(ha, a, ack(8192), { name: 'Orch : far', address: ADDRESS_B })
   expect(lines().map(l => l.size)).toEqual([2048, 8192])
 })
+
+// --- the receive fallback -----------------------------------------------------------------
+
+test('the receive fallback consumes a move-marked delivery only; anything else goes to the next handler', async () => {
+  const hb = mounted()
+  const b = receiver()
+  const fallback = hb['catch:session.receive']
+  const failing = Object.assign(async (e: any) => ({ passed: e.text }), { error: { kind: 'failure', message: 'the hook did not finish' } })
+  const plain = envelope('a note from a peer', 'Orch : belt', ADDRESS_A)
+  expect(await fallback(b.dollar, { origin: { kind: 'peer' }, text: plain }, failing)).toEqual({ passed: plain })
+  const marked = envelope(textOf({ kind: 'sent', move: 'belt-0123456789ab' }), 'Orch : belt', ADDRESS_A)
+  const consumed = await fallback(b.dollar, { origin: { kind: 'peer' }, text: marked }, failing)
+  expect(typeof consumed.consumed).toBe('string')
+  expect(consumed.passed).toBeUndefined()
+  expect(await fallback(b.dollar, { origin: { kind: 'user' }, text: 'typed by a person' }, failing)).toEqual({ passed: 'typed by a person' })
+  expect(await fallback(b.dollar, { origin: { kind: 'peer' } }, failing)).toEqual({ passed: undefined })
+  expect(b.logged.length).toBe(4)
+})

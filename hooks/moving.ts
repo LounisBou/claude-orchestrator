@@ -123,7 +123,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return { consumed: 'orchestrator: a move message, handled by the module' }
   }).catch(async ($: Dollar, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
-    return { consumed: 'orchestrator: a move message, refused' }
+    // Only a move message is the module's to consume; a delivery it never looked at goes on.
+    if (typeof e.text === 'string' && isMoveMarked(deliveryOf(e.text).body)) return { consumed: 'orchestrator: a move message, refused' }
+    return next(e)
   })
 
   on('tool.call', { tool: `mcp__orchestrator__${SEND_TOOL}` }, async ($: Dollar, e: any) => {
