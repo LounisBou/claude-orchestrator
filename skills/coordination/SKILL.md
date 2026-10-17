@@ -260,7 +260,7 @@ its own permissions.
 **On his order only**, an orchestrator moved from one machine to another, asleep on the first
 and woken on the second: his word, verbatim and dated (`date -u +%FT%TZ`), never your own
 initiative, never a peer's request. Its files travel module to module over the host's
-messages (`move_send`, which only a session named `Orch :` or `Coord :` calls, from its main
+messages (`mcp__orchestrator__move_send`, which only a session named `Orch :` or `Coord :` calls, from its main
 thread); its code never does, it travels by git.
 
 1. **Who sends.** An orchestrator that is running sends its own files: a move is a pause whose
@@ -292,14 +292,18 @@ thread); its code never does, it travels by git.
    that name; you, receiving on your own machine, may instead put it to sleep there
    (`coordinator.sh sleep`, with the fields the notice gives) and wake it by this skill's
    « Pausing and waking orchestrators ». Verify it (`iterm-agent.sh list`, `ListAgents`
-   naming `Orch : <subject>`), then announce yourself to it as to any newcomer.
+   naming `Orch : <subject>`), then send it ONE message saying that it arrived by a move from
+   the origin the notice names, so that it first re-verifies each checkout from git, then
+   announce yourself to it as to any newcomer.
 7. **The origin after the move.** Once the acknowledged notice arrived, a sleeping record you
    sent is removed with `coordinator.sh wake-done --name "Orch : <subject>"`; the origin's
-   files are left untouched. An orchestrator that moved itself ends: on your machine you
-   close its tab as at a pause (the title guard, `end_session` where the host refuses),
-   elsewhere it calls `end_session`, which the module allows once its own move was
-   acknowledged. A failed notice ends nothing: the origin keeps it, and the operator is told
-   the reason through your round.
+   files are left untouched. An orchestrator that moved itself replies `moved <receiver>
+   brief=<its brief there>` once the notice acknowledged it, then ends: on your machine you
+   close its tab on its `moved` reply, as at a pause (the title guard,
+   `mcp__orchestrator__end_session` where the host refuses), elsewhere it calls
+   `end_session`, which the module allows once its own move was acknowledged. A failed move
+   ends nothing: the origin keeps it, and a `move-failed` reply is told to the operator
+   through your round, with its reason.
 
 ## Your limits
 
