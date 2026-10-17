@@ -62,6 +62,7 @@ function machine(options: Options) {
   const writes: string[] = []
   const runs: string[] = []
   const registered: any[] = []
+  const commands: any[] = []
   const config = `${options.home}/.claude`
   const env: Record<string, string | undefined> = {
     HOME: options.home, ORCHESTRATOR_HOST_CLI: 'hostcli', ORCHESTRATOR_SPAWNED: options.spawned ? '1' : undefined,
@@ -78,6 +79,7 @@ function machine(options: Options) {
     },
     env: { get: async (key: string) => env[key] },
     plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    command: { run: (input: any) => { commands.push(input); return Promise.resolve({ text: '' }) } },
     tool: { register: async (spec: any) => { registered.push(spec); return {} } },
     prompt: { submit: (input: { text: string }) => { submits.push(input); return Promise.resolve({ text: input.text }) } },
     fs: {
@@ -155,7 +157,7 @@ function machine(options: Options) {
     },
   }
   return {
-    dollar, files, dirs, links, sent, submits, logged, writes, runs, registered, home: options.home, config,
+    dollar, files, dirs, links, sent, submits, logged, writes, runs, registered, commands, home: options.home, config,
     address: options.address, name,
     store: `${config}/claude-orchestrator/store`,
     briefs: `${config}/claude-orchestrator/briefs`,
@@ -772,4 +774,55 @@ test('a whole move between two machines: the files land, each side\'s model read
   expect(b.submits).toEqual([{ text: arrivedNotice(manifest, arrival, 'Orch : belt', LAUNCHER) }])
   expect(a.submits).toEqual([{ text: acknowledgedNotice(manifest.record, ADDRESS_B, arrival.brief) }])
   expect(a.logged.length + b.logged.length).toBe(0)
+})
+
+// --- the end of a moved session ----------------------------------------------------------
+
+const REFUSED_TODAY = 'this session was opened by the launcher; its successor closes its tab'
+
+// A session the launcher opened, with the module and the naming mounted over one fake.
+function launcherOpened(name = 'Orch : belt') {
+  return { moving: mounted(), naming: mounted(registerNaming), fx: sender({ spawned: true, name }) }
+}
+
+async function moveAcknowledged(s: ReturnType<typeof launcherOpened>, over: { sentAs?: string; ok?: boolean } = {}) {
+  await s.moving['tool.call:move_send'](s.fx.dollar, sendInput(s.fx, { name: over.sentAs ?? 'Orch : belt' }))
+  const manifest = s.fx.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  const done = over.ok === false
+    ? { kind: 'done', move: manifest.move, ok: false, brief: null, reason: 'refused' } as const
+    : { kind: 'done', move: manifest.move, ok: true, brief: `${HOME_B}/.claude/claude-orchestrator/briefs/belt/${BRIEF_NAME}`, reason: null } as const
+  await receive(s.moving, s.fx, textOf(done), { name: 'Orch : far', address: ADDRESS_B })
+}
+
+test('a session the launcher opened is offered the end tool, not the rename tool', async () => {
+  const s = launcherOpened()
+  await s.naming['session.start'](s.fx.dollar, {}, (x: unknown) => x)
+  expect(s.fx.registered.map((spec: any) => spec.name)).toEqual([END_TOOL])
+  const plain = sender()
+  await s.naming['session.start'](plain.dollar, {}, (x: unknown) => x)
+  expect(plain.registered.map((spec: any) => spec.name)).toEqual(['rename_session', END_TOOL])
+})
+
+test('it ends after the done ok of a move under its own name, and only then', async () => {
+  const end = (s: ReturnType<typeof launcherOpened>) => s.naming[`tool.call:${END_TOOL}`](s.fx.dollar, {})
+  const none = launcherOpened()
+  expect(await end(none)).toEqual({ result: REFUSED_TODAY, isError: true })
+  // A move sent, not yet answered.
+  await none.moving['tool.call:move_send'](none.fx.dollar, sendInput(none.fx))
+  expect(await end(none)).toEqual({ result: REFUSED_TODAY, isError: true })
+  const ok = launcherOpened()
+  await moveAcknowledged(ok)
+  expect(await end(ok)).toEqual({ result: 'This session ends when this turn ends.' })
+  await ok.naming['turn.complete'](ok.fx.dollar, { isAborted: false }, (x: unknown) => x)
+  expect(ok.fx.commands).toEqual([{ command: 'exit' }])
+  // The move of another name does not count; nor does a done not ok.
+  const other = launcherOpened('Orch : other')
+  await moveAcknowledged(other, { sentAs: 'Orch : belt' })
+  expect(await end(other)).toEqual({ result: REFUSED_TODAY, isError: true })
+  const failed = launcherOpened()
+  await moveAcknowledged(failed, { ok: false })
+  expect(await end(failed)).toEqual({ result: REFUSED_TODAY, isError: true })
+  // A subagent is still refused, and the rename stays refused to a launcher-opened session.
+  expect((await ok.naming[`tool.call:${END_TOOL}`](ok.fx.dollar, { agentId: 'a-1' })).isError).toBe(true)
+  expect((await ok.naming['tool.call:rename_session'](ok.fx.dollar, { name: 'Orch : x' })).isError).toBe(true)
 })
