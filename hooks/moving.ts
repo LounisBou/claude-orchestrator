@@ -363,9 +363,9 @@ async function sendMove($: Dollar, e: any): Promise<{ result: string; isError?: 
   return { result: `move ${move} sent to ${to}: ${files.length} files, ${chunks} chunks, ${bytes} bytes. The receiving module answers by itself; a notice reaches this session when the move is over.` }
 }
 
-// What the sender keeps of a move (store/moves/<move>.json): the record, the files, the address
-// and the rounds of « missing » answered.
-export type SentMove = { move: string; to: string; chunk: number; record: MoveRecord; files: ManifestFile[]; rounds: number; done?: { ok: boolean } }
+// What the sender keeps of a move (store/moves/<move>.json): the record, the files, the address,
+// the receiver's own address once a reply gave it, and the rounds of « missing » answered.
+export type SentMove = { move: string; to: string; peer?: string; chunk: number; record: MoveRecord; files: ManifestFile[]; rounds: number; done?: { ok: boolean } }
 
 async function keepSend($: Dollar, sent: SentMove): Promise<void> {
   const dir = await movesDir($)
@@ -419,7 +419,7 @@ async function sendProbes($: Dollar, e: any, receiving: Receiving): Promise<{ re
   }
   const move = `probe-${Math.floor(Math.random() * 0xffffffffffff).toString(16).padStart(12, '0')}`
   const sent: number[] = []
-  receiving.probes.set(move, e.to)
+  receiving.probes.set(move, { to: e.to, peer: null })
   for (const size of sizes as number[]) {
     const delivered = await $.session.send({ to: e.to, text: moveText({ kind: 'probe', move, size, data: 'x'.repeat(size) }) })
     if (!delivered?.isDelivered) {
@@ -451,7 +451,7 @@ type Receiving = {
   held: Map<string, Held>
   chains: Map<string, Promise<unknown>>
   name: { value: string; at: number } | null
-  probes: Map<string, string>
+  probes: Map<string, { to: string; peer: string | null }>
 }
 
 // The session's name is read once in a while, not for every chunk of a file.
@@ -525,23 +525,31 @@ async function route($: Dollar, receiving: Receiving, message: MoveMessage, from
     case 'done': {
       const s = await sentOf($, message.move)
       if (!s) return drop($, 'a move this session did not send', delivery)
-      if (!isPeer(s.to, delivery)) return drop($, "it is not from the move's receiver", delivery)
+      if (!isPeer(s.to, s.peer, delivery)) return drop($, "it is not from the move's receiver", delivery)
       if (s.done) return
+      if (!s.peer) {
+        // The first reply matched by name gives the address every later one must come from.
+        s.peer = from
+        await keepSend($, s).catch(err => logLine($, `move ${s.move}: the receiver's address could not be kept: ${(err as Error).message}`))
+      }
       if (message.kind === 'missing') return answerMissing($, s, message)
       if (message.kind === 'done') return answerDone($, s, message)
       return
     }
     case 'probe-ack': {
-      const to = receiving.probes.get(message.move)
-      if (to === undefined) return drop($, 'a probe this session did not send', delivery)
-      if (!isPeer(to, delivery)) return drop($, "it is not from the probe's receiver", delivery)
+      const probe = receiving.probes.get(message.move)
+      if (probe === undefined) return drop($, 'a probe this session did not send', delivery)
+      if (!isPeer(probe.to, probe.peer ?? undefined, delivery)) return drop($, "it is not from the probe's receiver", delivery)
+      probe.peer ??= from
       return appendProbe($, message, from)
     }
   }
 }
 
-// Whether a delivery comes from the session a move was addressed to: its address or its name.
-function isPeer(to: string, delivery: Delivery): boolean {
+// Whether a delivery comes from the session a move was addressed to: its address or its name
+// while no address is pinned, then that address alone — a name is text any session can claim.
+function isPeer(to: string, pinned: string | undefined, delivery: Delivery): boolean {
+  if (pinned) return delivery.from === pinned
   return delivery.from === to || delivery.fromName === to
 }
 
@@ -725,7 +733,7 @@ async function sentOf($: Dollar, move: string): Promise<SentMove | null> {
   try {
     const kept = JSON.parse(String(await $.fs.read(`${await movesDir($)}/${move}.json`)))
     const ok = kept && kept.move === move && typeof kept.to === 'string' && Number.isInteger(kept.chunk) && Number.isInteger(kept.rounds)
-      && kept.record && Array.isArray(kept.files)
+      && kept.record && Array.isArray(kept.files) && (kept.peer === undefined || typeof kept.peer === 'string')
     return ok ? kept as SentMove : null
   } catch {
     return null

@@ -960,3 +960,53 @@ test('a « sent » for a move not held is answered done not ok; a chunk of one s
   await receive(hb, b, '[module-move] {"kind":', a)
   expect(b.sent.length).toBe(1)
 })
+
+// --- the sender pins the receiver's address -----------------------------------------------
+
+test('a reply matched by name is accepted while the move holds no address; the first one pins its address', async () => {
+  const ha = mounted()
+  const a = sender()
+  await ha['tool.call:move_send'](a.dollar, sendInput(a, { to: 'Orch : far' }))
+  const manifest = a.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  const real = { name: 'Orch : far', address: ADDRESS_B }
+  const twin = { name: 'Orch : far', address: 'bridge:session_04Twin' }
+  const done = textOf({ kind: 'done', move: manifest.move, ok: true, brief: `${HOME_B}/b.md`, reason: null })
+  await receive(ha, a, textOf({ kind: 'ack', move: manifest.move, file: 0, ok: true, reason: null }), real)
+  expect(JSON.parse(a.files.get(`${a.store}/moves/${manifest.move}.json`)!).peer).toBe(ADDRESS_B)
+  // The same name from another address no longer counts.
+  const before = a.sent.length
+  const dropped = await receive(ha, a, done, twin)
+  expect(typeof dropped.consumed).toBe('string')
+  expect(a.submits).toEqual([])
+  expect(a.sent.length).toBe(before)
+  // The pinned address goes on being heard, and ends the move.
+  await receive(ha, a, done, real)
+  expect(a.submits.length).toBe(1)
+})
+
+test('a missing answered from another address than the pinned one resends nothing', async () => {
+  const ha = mounted()
+  const a = sender()
+  await ha['tool.call:move_send'](a.dollar, sendInput(a, { to: 'Orch : far' }))
+  const manifest = a.messages()[0] as Extract<MoveMessage, { kind: 'manifest' }>
+  const missing = textOf({ kind: 'missing', move: manifest.move, chunks: [[0, 0]] })
+  await receive(ha, a, missing, { name: 'Orch : far', address: ADDRESS_B })
+  const before = a.sent.length
+  await receive(ha, a, missing, { name: 'Orch : far', address: 'bridge:session_04Twin' })
+  expect(a.sent.length).toBe(before)
+  expect(JSON.parse(a.files.get(`${a.store}/moves/${manifest.move}.json`)!).rounds).toBe(1)
+})
+
+test('the answers of a probe are pinned to the address of the first, too', async () => {
+  const ha = mounted()
+  const a = sender()
+  await ha['tool.call:move_probe'](a.dollar, { to: 'Orch : far', sizes: [2048, 8192] })
+  const move = (a.messages()[0] as Extract<MoveMessage, { kind: 'probe' }>).move
+  const ack = (size: number) => textOf({ kind: 'probe-ack', move, size, received: size })
+  await receive(ha, a, ack(2048), { name: 'Orch : far', address: ADDRESS_B })
+  await receive(ha, a, ack(8192), { name: 'Orch : far', address: 'bridge:session_04Twin' })
+  const lines = () => (a.files.get(`${a.store}/moves/probes.jsonl`) ?? '').split('\n').filter(Boolean).map(l => JSON.parse(l))
+  expect(lines().map(l => [l.size, l.from])).toEqual([[2048, ADDRESS_B]])
+  await receive(ha, a, ack(8192), { name: 'Orch : far', address: ADDRESS_B })
+  expect(lines().map(l => l.size)).toEqual([2048, 8192])
+})
