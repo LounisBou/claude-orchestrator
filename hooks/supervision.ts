@@ -669,7 +669,8 @@ const RELAY_BOUND_MS = 5000
 // walk named it), else from a walk of its own. An orchestrator's machine line goes to the
 // registered coordinator; an agent's status line to its orchestrator, found in the
 // launcher's chains (orchestratorOn), never in the turn's text; any other role, nothing.
-// No line: a wait the session carried is cleared, nothing is sent. A line: written to the
+// No line: a wait the session carried is cleared; an orchestrator sends nothing, an agent's
+// orchestrator is sent one report, unless it was already (key `no-status`). A line: written to the
 // session's wait file, then reported unless this very one was already — the fingerprint
 // is kept only once the send is delivered. Nobody to send to: nothing is sent. A send
 // refused is one log line; the turn's end is never held on it. The row itself is never
