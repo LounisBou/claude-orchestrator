@@ -1937,10 +1937,14 @@ def cmd_spawn(argv):
     args, unknown = p.parse_known_args(argv)
     if unknown:
         die("spawn: unknown option %s" % unknown[0])
+    # A name is read without its surrounding whitespace: padded, it would match no tool of the
+    # host and be kept or dropped as another name, without a word.
+    args.keep_tool = [name.strip() for name in args.keep_tool]
+    args.drop_tool = [name.strip() for name in args.drop_tool]
     # First of the refusals, before anything is read or made: a name that is empty would be
     # passed to the host as an empty argument, and the same name on both sides has no answer.
     for flag, names in (("--keep-tool", args.keep_tool), ("--drop-tool", args.drop_tool)):
-        if any(not name.strip() for name in names):
+        if any(not name for name in names):
             die("spawn: refused: %s needs a tool name, and got an empty one" % flag)
     both = [name for name in args.keep_tool if name in args.drop_tool]
     if both:

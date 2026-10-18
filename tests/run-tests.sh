@@ -7505,6 +7505,10 @@ check "an empty name is refused for either option, before any tab exists" "1|1|1
   "$(lean --title 'Agent : x' --keep-tool '' >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --drop-tool '  ' >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --keep-tool '' | grep -c -- '--keep-tool needs a tool name')|$(lean --title 'Agent : x' --drop-tool '' | grep -c -- '--drop-tool needs a tool name')"
 check "the same name on both options is refused, and the refusal names it" "1|1" \
   "$(lean --title 'Agent : x' --keep-tool Artifact --drop-tool Artifact >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --keep-tool Artifact --drop-tool Artifact | grep -c "'Artifact' is given to both --keep-tool and --drop-tool")"
+check "a name with surrounding whitespace is read without it, for either option, and a padded repeat is one name" "SendFeedback Workflow ScheduleWakeup ReportFindings $LEANMOVE|$LEANBASE $LEANMOVE WebSearch|$LEANBASE $LEANMOVE WebSearch" \
+  "$(leanl --title 'Agent : x' --keep-tool 'Artifact ' | leanset)|$(leanl --title 'Agent : x' --drop-tool $'\tWebSearch ' | leanset)|$(leanl --title 'Agent : x' --drop-tool 'WebSearch ' --drop-tool ' WebSearch' | leanset)"
+check "the same name on both options is refused whatever its padding" "1|1" \
+  "$(lean --title 'Agent : x' --keep-tool 'Artifact ' --drop-tool Artifact >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --keep-tool Artifact --drop-tool ' Artifact' | grep -c "'Artifact' is given to both --keep-tool and --drop-tool")"
 check "every launch path honours them: successor, wake, open, auditor, coordinator-successor" "1|1|1|1|1" \
   "$(succ "$PSTAB" --successor --keep-tool Artifact | sed -n 's/^launch=//p' | leanset | grep -c '^SendFeedback Workflow ScheduleWakeup ReportFindings$')|$(crdl --wake --title 'Orch : alpha' --model a-model --keep-tool Artifact | leanset | grep -c '^SendFeedback ')|$(opn 'Coord : ops' --open --title 'Orch : sync logs' --keep-tool Artifact | sed -n 's/^launch=//p' | leanset | grep -c '^SendFeedback ')|$(audl --auditor --title 'Audit : tm' --keep-tool Artifact | leanset | grep -c '^SendFeedback ')|$(crdl --coordinator-successor --title 'Coord : ops' --keep-tool Artifact --drop-tool WebSearch | leanset | grep -c '^SendFeedback Workflow ScheduleWakeup ReportFindings WebSearch$')"
 LEANPS="$WORK/ps-lean.txt"
@@ -7515,6 +7519,8 @@ check "rotate passes both options to the replacement it launches" "1|1" \
   "$(leanrot --old-tty /dev/ttys901 --keep-tool Artifact --drop-tool WebSearch | sed -n 's/^launch=//p' | leanset | grep -c '^SendFeedback Workflow ScheduleWakeup ReportFindings .* WebSearch$')|$(leanrot --old-tty /dev/ttys901 --keep-tool Artifact | sed -n 's/^launch=//p' | grep -c -- '--name .Agent : rotated.')"
 check "rotate refuses an empty name and the same name on both, before it spawns anything" "1|1" \
   "$(leanrot --old-tty /dev/ttys901 --keep-tool '' >/dev/null 2>&1; echo $?)|$(leanrot --old-tty /dev/ttys901 --keep-tool X --drop-tool X >/dev/null 2>&1; echo $?)"
+check "rotate reads a padded name without its padding" "SendFeedback Workflow ScheduleWakeup ReportFindings $LEANMOVE" \
+  "$(leanrot --old-tty /dev/ttys901 --keep-tool 'Artifact ' | sed -n 's/^launch=//p' | leanset)"
 
 # The host cuts, in the one --settings the launch carries. A cut a probe did not prove is not
 # listed here (§65).
