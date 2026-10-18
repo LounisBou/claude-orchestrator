@@ -26,7 +26,7 @@ import { withDeadline, isDegradedPass, chainEntries, watchNumberOf } from './sto
 import { typedByOperator } from './models-guard.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 import {
-  parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, coordinatorOf, chainOwnerTty, waitLabel,
+  parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel,
   type WaitKind,
 } from './relay.ts'
 import {
@@ -693,13 +693,15 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const before = await readWait($, sessionId)
   const relayed = before?.relayed ?? null
   const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
-  if (!wait) {
+  if (!wait && role === 'orchestrator') {
     if (before?.waiting) await writeWait($, sessionId, { ...clearedWait(before), name, pid })
     return
   }
-  const patch = waitPatch(before, wait, new Date().toISOString())
-  await writeWait($, sessionId, { ...patch, relayed, name, pid })
-  const key = fingerprint(wait)
+  const patch = wait
+    ? waitPatch(before, wait, new Date().toISOString())
+    : before?.waiting ? clearedWait(before) : null
+  if (patch) await writeWait($, sessionId, { ...patch, relayed, name, pid })
+  const key = wait ? fingerprint(wait) : NO_STATUS_KEY
   if (relayed === key) return
   const to = role === 'orchestrator'
     ? (await coordinatorAddress($))?.to ?? null
@@ -709,9 +711,10 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
     return
   }
   const context = row && row.context_tokens > 0 ? `${row.context_tokens.toLocaleString('en-US')} (${row.context_percent}%)` : null
-  const sent = await $.session.send({ to, text: relayText(name, wait, patch.waiting_since!, context) })
+  const text = wait ? relayText(name, wait, patch!.waiting_since!, context) : noStatusText(name, context)
+  const sent = await $.session.send({ to, text })
   if (sent?.isDelivered) {
-    await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
+    await writeWait($, sessionId, { ...(patch ?? before ?? {}), relayed: key, name, pid })
   } else {
     await logLine($, `relay: not delivered to ${to}: ${sent?.reason ?? 'no answer'}`)
   }
