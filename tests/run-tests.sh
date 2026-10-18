@@ -7493,6 +7493,8 @@ check "--keep-tool Artifact takes it out of the removed set" "SendFeedback Workf
   "$(leanl --title 'Agent : x' --keep-tool Artifact | leanset)"
 check "--drop-tool adds any name, once, after the defaults" "$LEANBASE $LEANMOVE 'Bash(git push:*)'" \
   "$(leanl --title 'Agent : x' --drop-tool 'Bash(git push:*)' --drop-tool Artifact | leanset)"
+check "--drop-tool given the same name twice removes it once, on the launch line and in the dry run" "$LEANBASE $LEANMOVE WebSearch|1" \
+  "$(leanl --title 'Agent : x' --drop-tool WebSearch --drop-tool WebSearch | leanset)|$(lean --title 'Agent : x' --drop-tool WebSearch --drop-tool WebSearch | sed -n 's/^tools_removed=//p' | tr ',' '\n' | grep -c '^WebSearch$')"
 check "--keep-tool of a name the default keeps is harmless, and the options repeat" "SendFeedback Workflow ScheduleWakeup ReportFindings $LEANMOVE WebSearch" \
   "$(leanl --title 'Agent : x' --keep-tool Artifact --keep-tool Bash --drop-tool WebSearch | leanset)"
 check "--drop-tool on a name the role keeps removes it" "$LEANBASE mcp__orchestrator__end_session" \

@@ -1691,7 +1691,9 @@ def removed_tools(title, keep=(), drop=()):
     """The default set for this title's role, less what the spawn keeps, plus what it drops;
     each name once, in the order they were first given."""
     names = [n for n in default_removed(title_role(title)) if n not in keep]
-    names += [n for n in drop if n not in names]
+    for name in drop:
+        if name not in names:
+            names.append(name)
     return names
 
 
