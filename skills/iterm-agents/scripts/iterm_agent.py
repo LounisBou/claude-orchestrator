@@ -131,7 +131,7 @@ MOVE_ROLES = ("Orch", "Coord")
 TOTAL_TOKENS_ENV = "CLAUDE_CODE_TOTAL_TOKENS_REMINDER"
 SILENT_TURN_ENV = "CLAUDE_CODE_SILENT_TURN_REMINDER"
 # The skills the account syncs from the web app are listed under this prefix, thirteen of
-# them on this machine, about 2.6 thousand tokens on every call, and no session has invoked
+# them on this machine, about 2.1 thousand tokens on every call, and no session has invoked
 # one. The host's `syncClaudeAiSkills: false`, passed in a launch's own --settings, hides
 # them for that invocation only and moves nothing: the same key in the operator's user
 # settings would move the synced directory to the trash.
