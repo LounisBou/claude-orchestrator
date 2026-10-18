@@ -56,7 +56,7 @@ So **always name an anchor**, and name the one you actually know:
 Every session the launcher opens loses the tools no session has called, because the host sends each loaded tool's schema on every call: `Artifact`, `SendFeedback`, `Workflow`, `ScheduleWakeup` and `ReportFindings`, and, for every title but `Orch :` and `Coord :`, the three the module registers to move an orchestrator between machines. The set is removed at launch; the dry run prints it as `tools_removed=`.
 
 - `--keep-tool <name>` gives one back for this spawn: a brief that asks for a page keeps `Artifact` (`--keep-tool Artifact`).
-- `--drop-tool <name>` removes any other tool or permission pattern for this spawn. Both repeat; an empty name, or one name given to both, is refused before a tab exists; `rotate` forwards them.
+- `--drop-tool <name>` removes any other tool or permission pattern for this spawn. Both repeat; an empty name, or one name given to both, is refused before a tab exists; `rotate` forwards them, so a replacement keeps a tool only when `rotate` is given the option again.
 - `--keep-synced-skills` leaves the account's synced skills (`anthropic-skills:*`, hidden from every launched session by default) in the session, for a brief that invokes one.
 - `tools` lists what a session on this machine is given and what each item costs per call, read from a transcript (yours by default, `--transcript <path>` for another), with the roles whose default removes it.
 

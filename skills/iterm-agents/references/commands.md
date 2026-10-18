@@ -171,9 +171,10 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier>] [--expe
     # One of --prompt, --prompt-file or --brief is required here too — a promptless
     # rotation is refused the same way a promptless spawn is, before the replacement's
     # tab exists and with the old session untouched. --no-verify is refused: the old tab
-    # is closed only on a replacement verified running. --keep-tool and --drop-tool are
-    # forwarded like --mcp, and so is --keep-synced-skills: the replacement gets the tools
-    # and skills the original was given.
+    # is closed only on a replacement verified running. --keep-tool, --drop-tool and
+    # --keep-synced-skills are forwarded like --mcp, and only those given to `rotate`: the
+    # replacement is opened with the default set, not the original's, so a rotation of an
+    # agent that was given Artifact or the synced skills gives them again.
 
 $SCRIPT trust prune [--apply]      # entries of the trust record whose directory is gone; --apply removes them
 
