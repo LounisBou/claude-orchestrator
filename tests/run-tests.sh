@@ -7529,8 +7529,10 @@ check "--account-connectors still merges into the same JSON, before the cuts" '{
 
 check "--keep-synced-skills leaves the synced skills in, for any role, and the dry run says which" '{"remoteControlAtStartup":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}|{"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|kept|removed' \
   "$(leanl --title 'Agent : x' --keep-synced-skills | leansettings)|$(audl --auditor --title 'Audit : tm' --keep-synced-skills | leansettings)|$(lean --title 'Agent : x' --keep-synced-skills | sed -n 's/^synced_skills=//p')|$(lean --title 'Agent : x' | sed -n 's/^synced_skills=//p')"
-check "rotate forwards --keep-synced-skills to the replacement" "0" \
-  "$(leanrot --old-tty /dev/ttys901 --keep-synced-skills | sed -n 's/^launch=//p' | grep -c syncClaudeAiSkills)"
+# The launch line first: a rotation that refused the option prints none, and a count of
+# zero on an empty output would pass.
+check "rotate forwards --keep-synced-skills to the replacement" "1|0" \
+  "$(leanrot --old-tty /dev/ttys901 --keep-synced-skills | grep -c '^launch=')|$(leanrot --old-tty /dev/ttys901 --keep-synced-skills | sed -n 's/^launch=//p' | grep -c syncClaudeAiSkills)"
 
 # The synced-skills key hides them for ONE invocation when it travels in that session's own
 # --settings; in the operator's user settings the same key makes the host move the synced
