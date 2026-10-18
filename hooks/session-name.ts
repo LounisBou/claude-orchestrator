@@ -158,11 +158,12 @@ export type HostProcess = { pid: string; command: string; record: ReturnType<typ
 // session when its pid has a host record, or when its argv[0] goes by one of
 // the host's basenames. A record outranks a name — a wrapper that execs the
 // binary, a session typed as a bare name, and one launched by its full path
-// are all recorded — and the basenames are asked for only when no record
-// answers. Asked for a session's own host, only the process whose record
-// carries that id answers, never another recorded one: a tty whose records all
-// carry other ids is `foreign`, another session's — the tty a run started from
-// that session's shell climbs to, having none of its own. Asked for no id
+// are all recorded — and the basenames are asked for only when the tty has no
+// record at all. Asked for a session's own host, the process whose record
+// carries that id answers, else the first record that carries no id (a host
+// that writes none), never a record carrying another id: a tty whose records
+// all carry other ids is `foreign`, another session's — the tty a run started
+// from that session's shell climbs to, having none of its own. Asked for no id
 // (another session's tty, read for its own sake), the first recorded process.
 async function findHost(
   run: Run, readRecord: ReadRecord, hostNames: HostNames, tty: string, sessionId: string,
@@ -176,7 +177,8 @@ async function findHost(
   }
   if (recorded.length > 0) {
     if (!sessionId) return { host: recorded[0], foreign: false }
-    const own = recorded.find(p => p.record?.sessionId === sessionId) ?? null
+    const own = recorded.find(p => p.record?.sessionId === sessionId)
+      ?? recorded.find(p => p.record?.sessionId === null) ?? null
     return { host: own, foreign: own === null }
   }
   const names = await hostNames()
@@ -242,9 +244,10 @@ export async function lastCustomTitle(sizeOf: SizeOf, readBlock: ReadBlock, path
 // a host that keeps no record, by the transcript's last rename. A run started
 // from another session's shell has no tty and climbs to that session's: the
 // tty is foreign, and the run is headless — no tty, no name, no pid. `pid` is
-// the host process's; `known` is false when a read failed or the bounded walk
-// did not finish — the name is then unknown, never a session found unnamed,
-// and a caller that keeps a name does not overwrite it with this null.
+// the host process's; `known` is false when the tty is foreign, when a read
+// failed or when the bounded walk did not finish — the name is then unknown,
+// never a session found unnamed, and a caller that keeps a name does not
+// overwrite it with this null.
 export async function walkName(
   run: Run, sizeOf: SizeOf, readBlock: ReadBlock, transcriptPath: string,
   readRecord: ReadRecord, hostNames: HostNames, sessionId = '',
