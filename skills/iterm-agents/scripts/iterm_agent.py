@@ -112,7 +112,7 @@ AUDIT_ROLE = "Audit :"
 COORD_TITLE_SHAPE = re.compile(r"^Coord : \S(.{0,23}\S)?\Z")
 COORD_ROLE = "Coord :"
 # The four roles a title names, in the order a listing shows them. A title that reads none
-# of them (a probe's, a hand-named tab) has no role and gets the narrowest of everything.
+# of them (a probe's, a hand-named tab) has no role and gets the narrowest tool set.
 ROLE_WORDS = ("Orch", "Coord", "Audit", "Agent")
 ROLE_PREFIX = re.compile(r"^(%s) :" % "|".join(ROLE_WORDS))
 # What a session is not given, whatever its role: tools no session has ever called, each
@@ -2903,10 +2903,12 @@ def read_offered(path):
 
 def tool_rows(offered, catalogue):
     """The listing, one `kind | name | characters | tokens | roles` row per item. A `?` is a
-    figure this transcript cannot give: a name the default removes from every session the
-    launcher opens is listed even when the reader's own session lacks it (a lean caller
-    never received it), and a catalogue server has no size unless this session loaded it.
-    The last field names the roles whose default removes the item, `-` when none does."""
+    figure this transcript cannot give: a name the default removes from at least one role
+    (the five unused tools from every role, the three that move an orchestrator from every
+    role but `Orch` and `Coord`) is listed even when the reader's own session lacks it (a
+    lean caller never received it), and a catalogue server has no size unless this session
+    loaded it. The last field names the roles whose default removes the item, `-` when none
+    does."""
     removed = {role: set(default_removed(role)) for role in ROLE_WORDS}
 
     def roles(name):
