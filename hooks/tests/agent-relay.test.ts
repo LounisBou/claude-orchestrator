@@ -177,15 +177,17 @@ test('each state is sent once to the orchestrator, a repeat sends nothing, a new
   expect(JSON.parse(fx.files.get(WAIT)!).waiting).toBe('delivered')
 })
 
-test('a turn with no status line sends nothing and clears the state', async () => {
+test('a turn with no status line reports it once and clears the state', async () => {
   const chains = mounted()
   const fx = fake()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on the second task.'))
-  expect(fx.sent.length).toBe(0)
+  expect(fx.sent.length).toBe(1)
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(QUESTION))
   await drive(chains, 'turn.complete', fx.dollar, turnEnd('Back at it.'))
   expect(JSON.parse(fx.files.get(WAIT)!).waiting).toBeNull()
-  expect(fx.sent.length).toBe(1)
+  expect(fx.sent.length).toBe(3)
+  expect(fx.sent[0].text).toBe(NO_STATUS)
+  expect(fx.sent[2].text).toBe(NO_STATUS)
 })
 
 test('the orchestrator comes from the chain, never from the text', async () => {
