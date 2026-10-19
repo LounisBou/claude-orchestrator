@@ -834,7 +834,7 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
   const coordinator = await coordinatorAddress($)
   if (!coordinator) return
   if (coordinator.local) {
-    await withdrawEntry($, sessionId, held)
+    await withdrawEntry($, sessionId, name, held)
   } else {
     const sent = await $.session.send({ to: coordinator.to, text: withdrawalText(name, held.blocks, held.since) })
     if (!sent?.isDelivered) {
@@ -848,21 +848,32 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
 
 // The held question's entry in the round: that session's open operator question with the same
 // start and the same blocks, marked withdrawn, answered in its own tab. None found, nothing is
-// written; one that cannot be written throws, and the next typed prompt tries again.
-async function withdrawEntry($: any, sessionId: string, held: { blocks: string; since: string | null }): Promise<void> {
+// written and the log says so; one that cannot be written throws, and the next typed prompt tries again.
+async function withdrawEntry($: any, sessionId: string, name: string, held: { blocks: string; since: string | null }): Promise<void> {
+  let matched = 0
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.kind !== 'operator' || entry.status !== 'open') continue
     if (entry.since !== held.since || entry.blocks !== held.blocks) continue
+    matched++
     const answer = { text: "answered in the sender's own tab", by: 'tab' as const, at: new Date().toISOString() }
     await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
   }
+  if (matched === 0) await logLine($, `round: no open entry matched for ${name} since ${held.since ?? '?'}`)
 }
 
 // Every entry of the round on this machine, each with the file it was read from. A file that
-// does not parse to an entry is skipped, never repaired; a temporary file is no entry yet.
+// does not parse to an entry is skipped, never repaired; a temporary file is no entry yet. A
+// directory that exists and cannot be listed is said in the log and read as empty; one never
+// written is no failure — nothing was ever asked.
 export async function readRound($: any): Promise<{ path: string; entry: RoundEntry }[]> {
   const dir = `${await stateDir($)}/round`
-  const listed: readonly { name: string; kind: string }[] = await $.fs.list(dir).catch(() => [])
+  let listed: readonly { name: string; kind: string }[]
+  try {
+    listed = await $.fs.list(dir)
+  } catch (err) {
+    if (await $.fs.exists(dir).catch(() => true)) await logLine($, `round: cannot list ${dir}: ${(err as Error).message}`)
+    return []
+  }
   const read: { path: string; entry: RoundEntry }[] = []
   for (const file of listed) {
     if (!file || file.kind !== 'file' || !file.name.endsWith('.json') || file.name.includes('.tmp-')) continue

@@ -9,7 +9,7 @@
 // measure's side reads bounded so a walk that cannot answer in time costs the row
 // its name, never the measure.
 import { expect, test } from 'claude-code/testing'
-import { agentPaneRows, paneRows, roundLines, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, paneRows, readRound, roundLines, register as registerSupervision, type SessionRow } from '../supervision.ts'
 import type { RoundEntry } from '../round.ts'
 import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
@@ -515,6 +515,16 @@ test('a question whose sender has ended is not drawn, nor counted: only the live
   // Every sender ended: nothing is drawn below the rows.
   fx.files.delete(`${SESSIONS}/live`)
   expect((await coordinatorRender(fx)).props.children.length).toBe(1)
+})
+
+test('a round directory that cannot be listed is one log line and no entry; one never written is no failure', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  expect(await readRound(fx.dollar)).toEqual([])
+  expect(fx.written).toEqual([])
+  fx.files.set(ROUND, '')
+  fx.dollar.fs.list = async () => { throw new Error('EACCES: permission denied') }
+  expect(await readRound(fx.dollar)).toEqual([])
+  expect(fx.written.filter(l => l.includes(`round: cannot list ${ROUND}: EACCES: permission denied`)).length).toBe(1)
 })
 
 // --- the pane opens by itself with the coordinator ----------------------------------------------

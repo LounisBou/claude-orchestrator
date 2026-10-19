@@ -356,6 +356,19 @@ for (const kind of ['composer', 'bridge']) {
   })
 }
 
+test('a withdrawal that finds no open entry says so in the log and still forgets the fingerprint', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const since = fx.row().waiting_since
+  const matched = await relayedQuestion()
+  await drive(matched.chains, 'prompt.submit', matched.fx.dollar, typed('composer'))
+  expect(matched.fx.logged.filter(l => l.includes('round: no open entry matched')).length).toBe(0)
+  for (const path of [...fx.files.keys()].filter(p => p.startsWith(`${ROUND}/`))) fx.files.delete(path)
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(fx.logged.filter(l => l.includes(`round: no open entry matched for Orch : belt since ${since}`)).length).toBe(1)
+  expect(entries(fx)).toEqual([])
+  expect(fx.row().relayed ?? null).toBeNull()
+})
+
 test('the withdrawal holds when a turn start cleared the wait first', async () => {
   const { chains, fx } = await relayedQuestion()
   await drive(chains, 'turn.start', fx.dollar, { text: 'yes' })
