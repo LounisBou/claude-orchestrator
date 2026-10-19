@@ -463,17 +463,28 @@ async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchest
 }
 
 // A coordinator's pane opens by itself, the operator's ruling of 2026-10-18: at the end of the
-// first turn its row reads `coordinator` while the coordinator's record names one. Once per
+// first turn its role reads `coordinator` while the coordinator's record names one. Once per
 // session — the flag is the host's, so neither a reload nor a later turn opens it again, and a
-// pane he closed with the command stays closed.
+// pane he closed with the command stays closed. The role is the row's; a first turn can end
+// before the first measure writes the row, and then the name is walked, bounded.
 async function openOnFirstTurn($: any, pane: PaneMemory): Promise<void> {
-  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(await $.session.id())}`).catch(() => '')))
-  if (row?.role !== 'coordinator') return
+  const sessionId = await $.session.id()
+  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
+  let role = row?.role ?? null
+  let tty = row?.tty ?? null
+  if (!row) {
+    const walked = await walkWithinBound($, sessionId)
+    if (walked.known) {
+      role = roleOf(walked.name)
+      tty = walked.tty
+    }
+  }
+  if (role !== 'coordinator') return
   if (!coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))) return
   if ((await $.state.get(PANE_OPENED)).value) return
   await $.state.set(PANE_OPENED, true)
   const panes: readonly { id: string }[] = await $.ui.panes()
-  if (!panes.some(open => open.id === PANE_ID)) await openPane($, pane, 'coordinator', row.tty ?? null)
+  if (!panes.some(open => open.id === PANE_ID)) await openPane($, pane, 'coordinator', tty)
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {

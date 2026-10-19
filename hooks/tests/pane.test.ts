@@ -509,7 +509,7 @@ const firstTurn = { answer: 'Registered.', reason: 'answer', isAborted: false, d
 
 function coordinatorSession(over: { role?: SessionRow['role']; record?: boolean } = {}): Fx {
   const fx = fakeDollar({ launchName: 'Coord : main' })
-  fx.files.set(`${SESSIONS}/s-one`, JSON.stringify(row({ role: over.role ?? 'coordinator', name: 'Coord : main' })) + '\n')
+  fx.files.set(`${SESSIONS}/s-one`, JSON.stringify(row({ role: 'role' in over ? over.role : 'coordinator', name: 'Coord : main' })) + '\n')
   if (over.record !== false) fx.files.set(RECORD, JSON.stringify({ name: 'Coord : main [abc]', tty: '/dev/ttys001' }))
   return fx
 }
@@ -563,6 +563,19 @@ for (const [label, fx, e] of [
     expect([...session.state.values()]).toEqual([])
   })
 }
+
+test('a first turn that ends before the first measure wrote the row: the name is walked, and the pane opens', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  fx.files.delete(`${SESSIONS}/s-one`)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened).toEqual([{ id: 'supervision', title: 'Orchestrators' }])
+  // A row that names no role is read as it is: the session is no coordinator, nothing opens.
+  const { handlers: other } = mounted(registerSupervision)
+  const plain = coordinatorSession({ role: null })
+  await other['turn.complete'](plain.dollar, firstTurn, (x: unknown) => x)
+  expect(plain.opened).toEqual([])
+})
 
 test('a coordinator recorded after the first turn: the pane opens at the first turn end that finds it', async () => {
   const { handlers } = mounted(registerSupervision)
