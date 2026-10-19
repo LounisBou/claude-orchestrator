@@ -2502,11 +2502,15 @@ def cmd_screen(argv):
 def cmd_verify(argv):
     p = argparse.ArgumentParser(prog="verify", add_help=False)
     p.add_argument("--tty", dest="tty")
+    p.add_argument("--pid", dest="pid")
     args, _ = p.parse_known_args(argv)
     if not args.tty:
         die("verify: --tty is required")
     pid = cli_pid_on_tty(args.tty)
     if not pid:
+        sys.exit(1)
+    # With --pid, only that process counts: another host CLI on a reused tty is « not running ».
+    if args.pid and str(pid) != args.pid:
         sys.exit(1)
     print("%s running on %s (pid %s)" % (HOST_CLI, args.tty, pid))
 
