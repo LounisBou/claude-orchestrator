@@ -30,8 +30,10 @@ export type RoundEntry = {
 // of that shape lettered past E is read too, so a sixth choice spoils the list instead of
 // leaving the first five looking whole.
 const CHOICE = /^\s*[-*]\s+\*\*([A-Z])\*\*\s*(?:[:.)]|—|–|-)\s*(.+?)\s*$/
-// The recommendation's line, `_Recommendation_ : A`, the word in English or in French.
-const RECOMMENDATION = /^\s*_?(?:recommandation|recommendation)\.?_?\s*(?::\s*)?\**([A-E])\b/i
+// The recommendation's line, read by its shape: one italic word, `_Recommendation_ : A`, then a
+// lone choice letter that ends the line or is followed by punctuation. The label's word is the
+// operator's language.
+const RECOMMENDATION = /^\s*_[^_\s]+\.?_\s*(?::\s*)?\**([A-E])\**\s*(?:$|[.,;:—–-](?:\s|$))/
 const LETTERS = 'ABCDE'
 
 // The lettered choices of a question and its recommendation. The choices are kept only

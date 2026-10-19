@@ -29,14 +29,14 @@ test('a question in the decide shape gives its lettered choices and its recommen
   })
 })
 
-test('every separator the shape allows is read, and the recommendation in the operator\'s language', () => {
+test('every separator the shape allows is read, and the recommendation by its shape', () => {
   const question = [
     '* **A**. first',
     '- **B**) second',
     '  - **C** — third',
     '- **D** – fourth',
     '- **E** - fifth  ',
-    '_Recommandation_ : C',
+    '_Recommendation_ : C',
   ].join('\n')
   expect(parseChoices(question)).toEqual({
     choices: [
@@ -48,8 +48,16 @@ test('every separator the shape allows is read, and the recommendation in the op
     ],
     recommendation: 'C',
   })
-  expect(parseChoices('- **A**: one\n- **B**: two\nRecommendation: **B** because').recommendation).toBe('B')
-  expect(parseChoices('- **A**: one\n- **B**: two\n_Recommendation._ B').recommendation).toBe('B')
+  expect(parseChoices('- **A**: one\n- **B**: two\n_Recommended._ B').recommendation).toBe('B')
+  expect(parseChoices('- **A**: one\n- **B**: two\n_Recommendation_ : B. one more review').recommendation).toBe('B')
+  expect(parseChoices('- **A**: one\n- **B**: two\n_Recommendation_: **A** — it ships today').recommendation).toBe('A')
+})
+
+test('a line of another shape names no recommendation', () => {
+  const choices = '- **A** : one\n- **B** : two\n'
+  expect(parseChoices(`${choices}_Context._ A new pane`).recommendation).toBeNull()
+  expect(parseChoices(`${choices}Recommendation: B`).recommendation).toBeNull()
+  expect(parseChoices(`${choices}_Context._ A new pane\n_Recommendation_ : B`).recommendation).toBe('B')
 })
 
 for (const [label, question] of [
@@ -72,8 +80,8 @@ test('a recommendation naming an absent letter is none, and only the first recom
   })
   expect(parseChoices('- **A** : one\n- **B** : two\n_Recommendation_ : D\n_Recommendation_ : B').recommendation).toBeNull()
   expect(parseChoices('- **A** : one\n- **B** : two').recommendation).toBeNull()
-  // A lowercase word after the label is no letter of the choices.
-  expect(parseChoices('- **A** : one\n- **B** : two\nRecommendation: a cheap one').recommendation).toBeNull()
+  // A lowercase word after the label is no choice letter.
+  expect(parseChoices('- **A** : one\n- **B** : two\n_Recommendation_ : a cheap one').recommendation).toBeNull()
 })
 
 // --- the entry ------------------------------------------------------------------------------
