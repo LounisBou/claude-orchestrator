@@ -83,10 +83,10 @@ const AT = '2026-10-18T18:46:00.000Z'
 
 test('an operator wait becomes an open entry: its sender, its question, its choices', () => {
   const wait: Wait = { kind: 'operator', blocks: 'phase 3', question: DECIDE }
-  const entry = roundEntry('s-one', 'Orch : belt [abc123]', wait, SINCE, AT)
+  const entry = roundEntry('s-one', 'Orch : belt [a1b2c3]', wait, SINCE, AT)
   expect(entry).toEqual({
     id: `s-one-${fingerprint(wait)}`,
-    from: 'Orch : belt [abc123]',
+    from: 'Orch : belt [a1b2c3]',
     session: 's-one',
     kind: 'operator',
     since: SINCE,
