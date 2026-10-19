@@ -29,7 +29,7 @@ import { withDeadline, isDegradedPass, chainEntries, watchNumberOf } from './sto
 import { typedByOperator } from './models-guard.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 import {
-  parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel,
+  parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
 import { roundEntry, roundPath, openEntries, type RoundEntry } from './round.ts'
@@ -130,6 +130,10 @@ const PANE_REFRESH_MS = 20000
 // The width of the column a choice's letter sits in: the letter and a gap, so the choice text
 // starts where it did when the letter and the text were one line.
 const ROUND_LETTER_COLUMN = 3
+
+// The width of the label column a wait's lines sit in (« Status: », « Blocks: »): the longer
+// label and a gap, so what a long blocks text wraps under is its own first character.
+const WAIT_LABEL_COLUMN = 8
 
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
@@ -308,14 +312,19 @@ function ageLabel(updated_at: string, now: number): string | null {
 export type PaneRow = {
   label: string
   urgency: number
+  // The store key of the row's session, what a round entry's session is matched to.
+  key: string
   // The label's pieces, for the block the coordinator's pane draws: the name, what comes
-  // before the fill, the fill with its gate words, the age and the wait.
+  // before the fill, the fill with its gate words, the age and the wait, the wait split into
+  // its status words and what it blocks.
   name: string
   head: string
   fill: string
   past: boolean
   age: string | null
   wait: string | null
+  status: string | null
+  blocked: string | null
   waiting: WaitKind | null
 }
 // The pane's rows, the store read end to end and sorted by rotation urgency:
@@ -326,20 +335,22 @@ export type PaneRow = {
 // alone on a wide window is marked past it here too.
 export function paneRows(rows: Record<string, SessionRow>): PaneRow[] {
   const now = Date.now()
-  return Object.values(rows)
-    .map(row => {
+  return Object.entries(rows)
+    .map(([key, row]) => {
       const past = tripGate(row.context_percent, row.context_tokens, row.window).tripped
       const name = row.name ?? 'unnamed'
       const head = [row.role ?? 'no role', ...(row.machine ? [`remote ${row.machine}`] : [])].join(' · ')
       const fill = `${row.context_percent}%${past ? ' past the gate' : ''}`
       const age = ageLabel(row.updated_at, now)
       const wait = waitLabel(row)
+      const split = waitParts(row)
       const parts = [name, head, fill]
       if (age !== null) parts.push(age)
       if (wait !== null) parts.push(wait)
       return {
         label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + row.context_percent,
-        name, head, fill, past, age, wait, waiting: wait !== null ? row.waiting ?? null : null,
+        key, name, head, fill, past, age, wait, status: split?.status ?? null, blocked: split?.blocks ?? null,
+        waiting: wait !== null ? row.waiting ?? null : null,
       }
     })
     .sort((a, b) => b.urgency - a.urgency)
@@ -722,6 +733,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       let rows: { label: string; urgency: number }[] = []
       let blocks: PaneRow[] = []
       let round: RoundLine[] = []
+      let speaker: string | null = null
       let none = 'type /orchestrator:supervision to open the pane again'
       const coordinator = pane.opened?.role === 'coordinator'
       if (coordinator) {
@@ -731,7 +743,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         none = 'no live orchestrator'
         // A question whose sender has ended has no one left to answer: only the entries of a
         // session with a live row are drawn, and counted.
-        round = roundLines((await readRound($)).map(read => read.entry).filter(entry => sessionKey(entry.session) in local))
+        const drawn = (await readRound($)).map(read => read.entry).filter(entry => sessionKey(entry.session) in local)
+        round = roundLines(drawn)
+        // The orchestrator whose question is drawn, by its session: two may share a name.
+        const first = openEntries(drawn).find(entry => entry.kind === 'operator')
+        speaker = first ? sessionKey(first.session) : null
       } else if (pane.opened?.role === 'orchestrator') {
         // Bounded like every side read: an agent list that cannot be read in
         // time draws as none, never a held render.
@@ -748,23 +764,36 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
             : rows.map(row => el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })),
         })
       }
-      // Each orchestrator is a block coloured by its state: a dot and its bold name, its
-      // figures indented, and only when it waits the wait's words.
-      const piece = (color: string, text: string) => el.Text({ color, children: text })
-      const block = (row: PaneRow, index: number) => {
+      // Each orchestrator is a block: one line, a dot in its state's colour, its bold name and
+      // its figures in the normal colour; the speaker's whole line bold in `suggestion`. A wait
+      // adds a Status line and, on the operator, a Blocks line in a label column of its own.
+      const block = (row: PaneRow) => {
         const state = row.waiting === 'operator' ? 'warning' : row.waiting === 'done' ? 'success' : 'suggestion'
-        const figures = [
-          piece('subtle', `${row.head} · `),
-          row.past ? piece('error', row.fill) : piece('subtle', row.fill),
-          ...(row.age !== null ? [piece('subtle', ` · ${row.age}`)] : []),
-        ]
+        const speaks = row.key === speaker
+        const style = (over: object = {}) => (speaks ? { bold: true, color: 'suggestion', ...over } : over)
+        const line = el.Text({
+          children: [
+            el.Text({ color: state, children: '●' }),
+            el.Text({ children: ' ' }),
+            el.Text(speaks ? style({ children: row.name }) : { bold: true, children: row.name }),
+            el.Text(style({ children: ` · ${row.head} · ` })),
+            el.Text(row.past ? { ...style(), color: 'error', children: row.fill } : style({ children: row.fill })),
+            ...(row.age !== null ? [el.Text(style({ children: ` · ${row.age}` }))] : []),
+          ],
+        })
         return el.Box({
           flexDirection: 'column',
-          ...(index > 0 ? { marginTop: 1 } : {}),
           children: [
-            el.Box({ flexDirection: 'row', children: [el.Text({ color: state, children: '●' }), el.Box({ marginLeft: 1, children: [el.Text({ bold: true, children: row.name })] })] }),
-            el.Box({ paddingLeft: 2, children: [el.Text({ children: figures })] }),
-            ...(row.wait !== null ? [el.Box({ paddingLeft: 2, children: [el.Text({ color: state, children: row.wait })] })] : []),
+            line,
+            ...(row.status !== null ? [el.Box({ paddingLeft: 2, children: [el.Text({ children: [el.Text({ children: 'Status: ' }), el.Text({ color: state, children: row.status })] })] })] : []),
+            ...(row.blocked !== null ? [el.Box({
+              flexDirection: 'row',
+              paddingLeft: 2,
+              children: [
+                el.Box({ width: WAIT_LABEL_COLUMN, flexShrink: 0, children: [el.Text({ children: 'Blocks:' })] }),
+                el.Box({ flexGrow: 1, flexShrink: 1, children: [el.Text({ children: row.blocked })] }),
+              ],
+            })] : []),
           ],
         })
       }
