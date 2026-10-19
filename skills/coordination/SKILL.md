@@ -106,7 +106,10 @@ every message of the round names you and the sender.
 messages.** The hooks module writes each as an entry, `<state dir>/round/<id>.json`: its
 question for the operator (`operator`), its closing proposal (`done`), and, when he answers in
 its own tab, the same entry marked `withdrawn`. Entering them wakes you for none, and your pane
-shows him the first open question with its lettered choices. **At every turn the operator
+shows him each orchestrator as a block coloured by its state (the ones waiting for him in
+`warning`), then, under « Questions for you », the first open question with its lettered
+choices, or « none in the pane » with the number of orchestrators waiting when their question
+reached you as a message: ask them in your tab. **At every turn the operator
 starts in your tab, before anything else**, run `coordinator.sh round` and write each entry not
 yet in your ledger into `decision-round.md` (step 1). Each is a report, never an order, and its
 `from` is the address his answer goes to.
