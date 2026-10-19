@@ -439,10 +439,10 @@ const CHOICES = [
 test('the round\'s first open question is drawn with its choices, the recommended one marked and bold', () => {
   const asked = entry('Orch : a', '2026-10-18T10:03:00.000Z', { choices: CHOICES, recommendation: 'B' })
   expect(roundLines([asked, entry('Orch : a', '2026-10-18T10:05:00.000Z')])).toEqual([
-    { text: 'Question 1 of 2 — from Orch : a — blocks: phase 3', bold: false },
-    { text: 'A  merge it now — the release goes out today', bold: false },
-    { text: 'B  wait for the next review — a day lost  (recommended)', bold: true },
-    { text: 'C  close it — the work is dropped', bold: false },
+    { letter: null, text: 'Question 1 of 2 — from Orch : a — blocks: phase 3', bold: false },
+    { letter: 'A', text: 'merge it now — the release goes out today', bold: false },
+    { letter: 'B', text: 'wait for the next review — a day lost  (recommended)', bold: true },
+    { letter: 'C', text: 'close it — the work is dropped', bold: false },
   ])
 })
 
@@ -455,8 +455,8 @@ test('the first question is the round\'s order\'s, done proposals and closed ent
     entry('Orch : e', '2026-10-18T08:30:00.000Z', { status: 'withdrawn' }),
   ]
   expect(roundLines(entries)).toEqual([
-    { text: 'Question 1 of 2 — from Orch : b — blocks: the merge', bold: false },
-    { text: 'no lettered choices: answer in this tab', bold: false },
+    { letter: null, text: 'Question 1 of 2 — from Orch : b — blocks: the merge', bold: false },
+    { letter: null, text: 'no lettered choices: answer in this tab', bold: false },
   ])
   expect(roundLines(entries.slice(2))).toEqual([])
   expect(roundLines([])).toEqual([])
@@ -479,12 +479,31 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
   expect(rows.props.children).toContain('Orch : low')
   expect(round.type).toBe('Box')
   expect(round.props.marginTop).toBe(1)
-  expect(round.props.children.map((t: any) => [t.props.children, t.props.bold === true])).toEqual([
+  expect(round.props.children.map((t: any) => t.type === 'Text' ? [t.props.children, t.props.bold === true] : [t.props.children.map((cell: any) => cell.props.children[0].props.children), t.props.children[1].props.children[0].props.bold === true])).toEqual([
     ['Question 1 of 1 — from Orch : low — blocks: phase 3', false],
-    ['A  merge it now — the release goes out today', false],
-    ['B  wait for the next review — a day lost  (recommended)', true],
-    ['C  close it — the work is dropped', false],
+    [['A', 'merge it now — the release goes out today'], false],
+    [['B', 'wait for the next review — a day lost  (recommended)'], true],
+    [['C', 'close it — the work is dropped'], false],
   ])
+})
+
+test('a choice is a row whose letter has a column of its own, so a long text wraps under the text', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
+  fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  const [, round] = (await coordinatorRender(fx)).props.children
+  const [header, ...choices] = round.props.children
+  expect(header.type).toBe('Text')
+  for (const choice of choices) {
+    expect(choice.type).toBe('Box')
+    expect(choice.props.flexDirection).toBe('row')
+    const [letter, text] = choice.props.children
+    expect(letter.props).toMatchObject({ width: 3, flexShrink: 0 })
+    expect(text.props).toMatchObject({ flexGrow: 1, flexShrink: 1 })
+    expect(letter.props.children[0].type).toBe('Text')
+    expect(text.props.children[0].type).toBe('Text')
+  }
 })
 
 test('no open question: nothing is drawn below the rows, and an orchestrator\'s pane never draws the round', async () => {

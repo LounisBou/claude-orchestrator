@@ -127,6 +127,10 @@ const PANE_OPENED = { plugin: 'orchestrator', key: 'paneOpened' } as const
 // others' fills, their ages — froze at its own last turn.
 const PANE_REFRESH_MS = 20000
 
+// The width of the column a choice's letter sits in: the letter and a gap, so the choice text
+// starts where it did when the letter and the text were one line.
+const ROUND_LETTER_COLUMN = 3
+
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
 async function configDir($: any): Promise<string> {
@@ -330,16 +334,19 @@ export function paneRows(rows: Record<string, SessionRow>): { label: string; urg
 // The round's first open question as a coordinator's pane draws it, under the orchestrator
 // rows: a header with its rank among the open questions, its sender and what it blocks, then
 // one line per lettered choice, the recommended one marked and drawn bold, or the line that
-// says it is answered in words. A done proposal is no question. Nothing open: no line.
-export function roundLines(entries: readonly RoundEntry[]): { text: string; bold: boolean }[] {
+// says it is answered in words. A choice line carries its letter apart from its text, so the
+// pane gives the letter a column of its own and a text that wraps continues under the text.
+// A done proposal is no question. Nothing open: no line.
+export type RoundLine = { letter: string | null; text: string; bold: boolean }
+export function roundLines(entries: readonly RoundEntry[]): RoundLine[] {
   const questions = openEntries(entries).filter(entry => entry.kind === 'operator')
   if (questions.length === 0) return []
   const first = questions[0]
-  const header = { text: `Question 1 of ${questions.length} — from ${first.from} — blocks: ${first.blocks}`, bold: false }
-  if (first.choices.length === 0) return [header, { text: 'no lettered choices: answer in this tab', bold: false }]
+  const header = { letter: null, text: `Question 1 of ${questions.length} — from ${first.from} — blocks: ${first.blocks}`, bold: false }
+  if (first.choices.length === 0) return [header, { letter: null, text: 'no lettered choices: answer in this tab', bold: false }]
   return [header, ...first.choices.map(choice => {
     const recommended = choice.letter === first.recommendation
-    return { text: `${choice.letter}  ${choice.text}${recommended ? '  (recommended)' : ''}`, bold: recommended }
+    return { letter: choice.letter, text: `${choice.text}${recommended ? '  (recommended)' : ''}`, bold: recommended }
   })]
 }
 
@@ -699,7 +706,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
       let rows: { label: string; urgency: number }[] = []
-      let round: { text: string; bold: boolean }[] = []
+      let round: RoundLine[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
       if (pane.opened?.role === 'coordinator') {
         const local = await readSessions($)
@@ -723,10 +730,19 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
         )
       // The round's first question, a line apart under the rows; nothing open, nothing drawn.
+      const text = (line: RoundLine) => el.Text(line.bold ? { bold: true, children: line.text } : { children: line.text })
       const asked = round.length === 0 ? [] : [el.Box({
         flexDirection: 'column',
         marginTop: 1,
-        children: round.map(line => el.Text(line.bold ? { bold: true, children: line.text } : { children: line.text })),
+        // A choice is a row: its letter in a column of its own, its text in the rest, so a long
+        // text wraps under the text, not under the letter.
+        children: round.map(line => line.letter === null ? text(line) : el.Box({
+          flexDirection: 'row',
+          children: [
+            el.Box({ width: ROUND_LETTER_COLUMN, flexShrink: 0, children: [el.Text(line.bold ? { bold: true, children: line.letter } : { children: line.letter })] }),
+            el.Box({ flexGrow: 1, flexShrink: 1, children: [text(line)] }),
+          ],
+        })),
       })]
       return el.Box({ flexDirection: 'column', children: [...listed, ...asked] })
     } catch (err) {
