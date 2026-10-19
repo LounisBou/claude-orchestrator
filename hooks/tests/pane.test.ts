@@ -674,7 +674,7 @@ test('the coordinator\'s pane opens with a bold title above the orchestrator blo
   expect(pieces(tree.props.children[0])).toEqual([{ text: 'Orchestrators', bold: true }])
   const empty = await paneTree({})
   expect(pieces(empty.props.children[0])).toEqual([{ text: 'Orchestrators', bold: true }])
-  expect(pieces(empty.props.children[1])).toEqual([{ text: 'no live orchestrator', color: 'subtle', bold: false }])
+  expect(pieces(empty.props.children[1])).toEqual([{ text: 'no live orchestrator', bold: false }])
 })
 
 const text = (nodes: { text: string }[]) => nodes.map(p => p.text).join('')
@@ -710,7 +710,7 @@ test('an orchestrator waiting for the operator draws a warning dot, a Status lin
 })
 
 test('a long blocks text stays in a column of its own, wrapping under its first character and not under the label', async () => {
-  const long = 'sortie du brouillon et squash merge de geonative-api#1749, geonative-api#1751 et front-office#1545 (G2/G5 avec #1751, G6 avec #1749 + #1545)'
+  const long = 'release out of draft and squash merge of geonative-api#1749, geonative-api#1751 and front-office#1545 (G2/G5 with #1751, G6 with #1749 + #1545)'
   const tree = await paneTree({ w: orch('Orch : w', { waiting: 'operator', waiting_since: SINCE, blocks: long }) })
   const line = tree.props.children[1].props.children[2]
   const [labelColumn, textColumn] = line.props.children
@@ -815,11 +815,11 @@ test('no question: the section says none, or counts the orchestrators waiting wh
   const none = await paneTree({ low: orch('Orch : low') })
   expect(pieces(none.props.children[2])).toEqual([
     { text: 'Questions for you', color: 'suggestion', bold: true },
-    { text: 'none', color: 'subtle', bold: false },
+    { text: 'none', bold: false },
   ])
   const waits = { w1: orch('Orch : w1', { waiting: 'operator', waiting_since: SINCE }), w2: orch('Orch : w2', { waiting: 'operator', waiting_since: SINCE }), d: orch('Orch : d', { waiting: 'done', waiting_since: SINCE }) }
   const two = await paneTree(waits)
-  expect(pieces(two.props.children[4])[1]).toEqual({ text: 'none in the pane — 2 orchestrators wait for you: ask the coordinator', color: 'subtle', bold: false })
+  expect(pieces(two.props.children[4])[1]).toEqual({ text: 'none in the pane — 2 orchestrators wait for you: ask the coordinator', bold: false })
   const one = await paneTree({ w1: waits.w1 })
   expect(pieces(one.props.children[2])[1].text).toBe('none in the pane — 1 orchestrator waits for you: ask the coordinator')
 })

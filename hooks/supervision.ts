@@ -797,7 +797,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           ],
         })
       }
-      const listed = blocks.length === 0 ? [el.Text({ color: 'subtle', children: none })] : blocks.map(block)
+      const listed = blocks.length === 0 ? [el.Text({ children: none })] : blocks.map(block)
       // The round's first question under its own title, a line apart; a choice is a row: its
       // letter in a column of its own, its text in the rest, so a long text wraps under the text.
       const waiting = blocks.filter(row => row.waiting === 'operator').length
@@ -820,7 +820,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         marginTop: 1,
         children: [
           el.Text({ bold: true, color: 'suggestion', children: 'Questions for you' }),
-          ...(round.length === 0 ? [el.Text({ color: 'subtle', children: says })] : round.map(question)),
+          ...(round.length === 0 ? [el.Text({ children: says })] : round.map(question)),
         ],
       })
       return el.Box({ flexDirection: 'column', children: [el.Text({ bold: true, children: 'Orchestrators' }), ...listed, asked] })
