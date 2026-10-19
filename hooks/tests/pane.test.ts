@@ -4,11 +4,13 @@
 // fill against the gate, the reading's age) the commands print, and the wiring
 // over a faked $ — no pane opened on any start, the pane opened by the
 // command in a coordinator session (the orchestrators) or an orchestrator
-// session (its own agents) alone, the measure's side reads
-// bounded so a walk that cannot answer in time costs the row its name, never
-// the measure.
+// session (its own agents) alone, a coordinator's opened by itself once at the
+// end of its first turn and its round's first question drawn under its rows, the
+// measure's side reads bounded so a walk that cannot answer in time costs the row
+// its name, never the measure.
 import { expect, test } from 'claude-code/testing'
-import { agentPaneRows, paneRows, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, paneRows, roundLines, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import type { RoundEntry } from '../round.ts'
 import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
 import { logLineOf, blockOf } from './fakes.ts'
@@ -128,6 +130,7 @@ type Fx = {
   env: Record<string, string>
   timers: { ms: number; fn: () => void; cancelled: boolean }[]
   invalidated: string[]
+  state: Map<string, unknown>
 }
 
 function fakeDollar(over: {
@@ -144,7 +147,16 @@ function fakeDollar(over: {
   const env: Record<string, string> = { HOME, ORCHESTRATOR_HOST_CLI: 'hostcli' }
   const timers: { ms: number; fn: () => void; cancelled: boolean }[] = []
   const invalidated: string[] = []
+  // The host's $.state for the session: it outlives the module's own variables.
+  const state = new Map<string, unknown>()
   const dollar = {
+    state: {
+      get: async (ref: { plugin: string; key: string }) => ({ value: state.get(`${ref.plugin}/${ref.key}`), version: 0 }),
+      set: async (ref: { plugin: string; key: string }, value: unknown) => {
+        state.set(`${ref.plugin}/${ref.key}`, value)
+        return { isSet: true, version: 1 }
+      },
+    },
     session: {
       id: async () => 's-one',
       usage: async () => ({ context: { tokens: 30000, window: 100000, percent: 30 } }),
@@ -232,11 +244,11 @@ function fakeDollar(over: {
       invalidate: (what: string) => { invalidated.push(what) },
       resolve: (_e: unknown) => ({
         Box: (props: { flexDirection?: string; children?: unknown[] }) => ({ type: 'Box', props }),
-        Text: (props: { color?: string; children?: string }) => ({ type: 'Text', props }),
+        Text: (props: { color?: string; bold?: boolean; children?: string }) => ({ type: 'Text', props }),
       }),
     },
   }
-  return { dollar, files, ran, written, opened, closed, env, timers, invalidated }
+  return { dollar, files, ran, written, opened, closed, env, timers, invalidated, state }
 }
 
 function mounted(register: (on: any) => void): {
@@ -404,4 +416,160 @@ test('an open pane redraws on its own clock while its session waits, and the clo
   const e = { id: 'supervision', origin: { kind: 'person' } }
   expect(await handlers['ui.close'](fx.dollar, e, (x: unknown) => x)).toBe(e)
   expect(fx.timers[1].cancelled).toBe(true)
+})
+
+// --- the coordinator's round ------------------------------------------------------------------
+
+const ROUND = `${HOME}/.claude/claude-orchestrator/round`
+const RECORD = `${HOME}/.claude/claude-orchestrator/coordinator.json`
+
+function entry(from: string, since: string, over: Partial<RoundEntry> = {}): RoundEntry {
+  return {
+    id: `${from.replace(/\W/g, '')}-${since.slice(11, 13)}${since.slice(14, 16)}`, from, session: `s-${from}`, kind: 'operator', since,
+    blocks: 'phase 3', question: 'Merge it?', choices: [], recommendation: null, status: 'open', at: since, answer: null, ...over,
+  }
+}
+
+const CHOICES = [
+  { letter: 'A', text: 'merge it now — the release goes out today' },
+  { letter: 'B', text: 'wait for the next review — a day lost' },
+  { letter: 'C', text: 'close it — the work is dropped' },
+]
+
+test('the round\'s first open question is drawn with its choices, the recommended one marked and bold', () => {
+  const asked = entry('Orch : a', '2026-10-18T10:03:00.000Z', { choices: CHOICES, recommendation: 'B' })
+  expect(roundLines([asked, entry('Orch : a', '2026-10-18T10:05:00.000Z')])).toEqual([
+    { text: 'Question 1 of 2 — from Orch : a — blocks: phase 3', bold: false },
+    { text: 'A  merge it now — the release goes out today', bold: false },
+    { text: 'B  wait for the next review — a day lost  (recommended)', bold: true },
+    { text: 'C  close it — the work is dropped', bold: false },
+  ])
+})
+
+test('the first question is the round\'s order\'s, done proposals and closed entries left out of it and of the count', () => {
+  const entries = [
+    entry('Orch : a', '2026-10-18T10:03:00.000Z', { choices: CHOICES, recommendation: 'B' }),
+    entry('Orch : b', '2026-10-18T10:01:00.000Z', { blocks: 'the merge' }),
+    entry('Orch : c', '2026-10-18T09:00:00.000Z', { kind: 'done', blocks: null }),
+    entry('Orch : d', '2026-10-18T08:00:00.000Z', { status: 'closed' }),
+    entry('Orch : e', '2026-10-18T08:30:00.000Z', { status: 'withdrawn' }),
+  ]
+  expect(roundLines(entries)).toEqual([
+    { text: 'Question 1 of 2 — from Orch : b — blocks: the merge', bold: false },
+    { text: 'no lettered choices: answer in this tab', bold: false },
+  ])
+  expect(roundLines(entries.slice(2))).toEqual([])
+  expect(roundLines([])).toEqual([])
+})
+
+async function coordinatorRender(fx: Fx, handlers = mounted(registerSupervision).handlers) {
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  return handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
+}
+
+test('a coordinator\'s pane draws the round\'s first question under the orchestrator rows', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { choices: CHOICES, recommendation: 'B' })
+  fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  fx.files.set(`${ROUND}/broken.json`, '{"id": "broken", "status": "op')
+  fx.files.set(`${ROUND}/${asked.id}.json.tmp-1-abc`, JSON.stringify({ ...asked, from: 'Orch : half' }))
+  const tree = await coordinatorRender(fx)
+  const [rows, round] = tree.props.children
+  expect(rows.props.children).toContain('Orch : low')
+  expect(round.type).toBe('Box')
+  expect(round.props.marginTop).toBe(1)
+  expect(round.props.children.map((t: any) => [t.props.children, t.props.bold === true])).toEqual([
+    ['Question 1 of 1 — from Orch : low — blocks: phase 3', false],
+    ['A  merge it now — the release goes out today', false],
+    ['B  wait for the next review — a day lost  (recommended)', true],
+    ['C  close it — the work is dropped', false],
+  ])
+})
+
+test('no open question: nothing is drawn below the rows, and an orchestrator\'s pane never draws the round', async () => {
+  const bare = fakeDollar({ launchName: 'Coord : main' })
+  const settled = fakeDollar({ launchName: 'Coord : main' })
+  for (const fx of [bare, settled]) fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30, updated_at: '2026-10-18T10:00:00.000Z' })) + '\n')
+  for (const done of [entry('Orch : low', '2026-10-18T10:03:00.000Z', { status: 'closed' }), entry('Orch : low', '2026-10-18T10:04:00.000Z', { kind: 'done', blocks: null })]) {
+    settled.files.set(`${ROUND}/${done.id}.json`, JSON.stringify(done) + '\n')
+  }
+  expect(JSON.stringify(await coordinatorRender(settled))).toBe(JSON.stringify(await coordinatorRender(bare)))
+  expect((await coordinatorRender(settled)).props.children.length).toBe(1)
+
+  const orch = fakeDollar({ launchName: 'Orch : phase-3' })
+  const asked = entry('Orch : phase-3', '2026-10-18T10:03:00.000Z')
+  orch.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  expect(JSON.stringify(await coordinatorRender(orch))).not.toContain('Question 1 of')
+})
+
+// --- the pane opens by itself with the coordinator ----------------------------------------------
+
+const firstTurn = { answer: 'Registered.', reason: 'answer', isAborted: false, durationMs: 1, turnId: 't' }
+
+function coordinatorSession(over: { role?: SessionRow['role']; record?: boolean } = {}): Fx {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/s-one`, JSON.stringify(row({ role: over.role ?? 'coordinator', name: 'Coord : main' })) + '\n')
+  if (over.record !== false) fx.files.set(RECORD, JSON.stringify({ name: 'Coord : main [abc]', tty: '/dev/ttys001' }))
+  return fx
+}
+
+test('a coordinator\'s pane opens by itself at the end of its first turn, as the command opens it, once', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  expect(await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)).toBe(firstTurn)
+  expect(fx.opened).toEqual([{ id: 'supervision', title: 'Orchestrators' }])
+  expect(fx.timers.map(t => t.ms)).toEqual([20000])
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened.length).toBe(1)
+  expect(fx.timers.length).toBe(1)
+  // Opened by the module, the pane lists what the command's pane lists.
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
+  expect(JSON.stringify(await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x })))).toContain('Orch : low')
+})
+
+test('a pane the operator closed with the command stays closed, the module reloaded or not', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(await handlers['command.run'](fx.dollar, supervisionRun)).toEqual({ text: 'Supervision pane closed.' })
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  // A reload starts the module's variables over; the host's $.state keeps the flag.
+  const { handlers: reloaded } = mounted(registerSupervision)
+  await reloaded['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened.length).toBe(1)
+  expect(fx.closed).toEqual([{ id: 'supervision' }])
+})
+
+test('a pane the command opened and closed before the first turn ended is not opened again', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened.length).toBe(1)
+})
+
+for (const [label, fx, e] of [
+  ['an orchestrator', () => coordinatorSession({ role: 'orchestrator' }), firstTurn],
+  ['no coordinator recorded', () => coordinatorSession({ record: false }), firstTurn],
+  ['a subagent\'s turn', () => coordinatorSession(), { ...firstTurn, agentId: 'a1' }],
+] as const) {
+  test(`the pane does not open by itself for ${label}`, async () => {
+    const { handlers } = mounted(registerSupervision)
+    const session = fx()
+    await handlers['turn.complete'](session.dollar, e, (x: unknown) => x)
+    expect(session.opened).toEqual([])
+    expect([...session.state.values()]).toEqual([])
+  })
+}
+
+test('a coordinator recorded after the first turn: the pane opens at the first turn end that finds it', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession({ record: false })
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened).toEqual([])
+  fx.files.set(RECORD, JSON.stringify({ name: 'Coord : main [abc]', tty: '/dev/ttys001' }))
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened).toEqual([{ id: 'supervision', title: 'Orchestrators' }])
 })

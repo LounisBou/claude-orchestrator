@@ -3,9 +3,12 @@
 // the name the walk read, the repository of the working directory — written by
 // this file's own session.measure handler and removed by its session.end, one
 // file per key under the module's state root. The supervision pane below reads
-// the same rows, opened only when the person types /orchestrator:supervision —
-// never on a start: the operator wants nothing placed on screen unasked. In a
-// coordinator session it lists the orchestrators; in an orchestrator session,
+// the same rows, opened when the person types /orchestrator:supervision — never
+// on a start: the operator wants nothing placed on screen unasked — and in a
+// coordinator, by the module itself once, at the end of its first turn while the
+// coordinator's record names one: his ruling of 2026-10-18. In a coordinator
+// session it lists the orchestrators, and under them the first question of its
+// round (round.ts); in an orchestrator session,
 // that orchestrator's own agents, read from the launcher's chain and the host's
 // session records; in any other role it opens nothing. The commands hold no $ of
 // the writing side and read the same files through their own $.fs calls plus
@@ -29,7 +32,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel,
   type WaitKind,
 } from './relay.ts'
-import { roundEntry, roundPath, type RoundEntry } from './round.ts'
+import { roundEntry, roundPath, openEntries, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -114,6 +117,10 @@ const PANE_TITLES = { coordinator: 'Orchestrators', orchestrator: 'Agents' } as 
 // is any number no honest fill reaches, added to the fill so the order stays
 // one comparison.
 const GATE_URGENCY_FLOOR = 1000
+
+// The pane opened once in this session, by the module or by the command: kept by the host in
+// $.state (types/index.d.ts), so a reload of the module does not open it again.
+const PANE_OPENED = { plugin: 'orchestrator', key: 'paneOpened' } as const
 
 // How often an open pane redraws on its own. A render is raised by a measure of
 // this session, and a supervisor mostly waits: without a clock its rows — the
@@ -320,6 +327,22 @@ export function paneRows(rows: Record<string, SessionRow>): { label: string; urg
     .sort((a, b) => b.urgency - a.urgency)
 }
 
+// The round's first open question as a coordinator's pane draws it, under the orchestrator
+// rows: a header with its rank among the open questions, its sender and what it blocks, then
+// one line per lettered choice, the recommended one marked and drawn bold, or the line that
+// says it is answered in words. A done proposal is no question. Nothing open: no line.
+export function roundLines(entries: readonly RoundEntry[]): { text: string; bold: boolean }[] {
+  const questions = openEntries(entries).filter(entry => entry.kind === 'operator')
+  if (questions.length === 0) return []
+  const first = questions[0]
+  const header = { text: `Question 1 of ${questions.length} — from ${first.from} — blocks: ${first.blocks}`, bold: false }
+  if (first.choices.length === 0) return [header, { text: 'no lettered choices: answer in this tab', bold: false }]
+  return [header, ...first.choices.map(choice => {
+    const recommended = choice.letter === first.recommendation
+    return { text: `${choice.letter}  ${choice.text}${recommended ? '  (recommended)' : ''}`, bold: recommended }
+  })]
+}
+
 // One agent of this orchestrator as the pane reads it: the host's own record of
 // the session on the agent's tty — its name, its status — and the store's row
 // of that session for the figures, null while no measure has written one.
@@ -424,16 +447,43 @@ Promise<{ tty: string | null; name: string | null; pid: string | null; known: bo
   return isDegradedPass(walked) ? { tty: null, name: null, pid: null, known: false } : walked
 }
 
+// The pane as the module remembers it: what it was opened to list, and its clock, started by
+// the open and cancelled by any close.
+type PaneMemory = {
+  opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null
+  ticker: { cancel(): void } | null
+}
+
+// The pane opened, by the command or by the module: the role it lists, its title, its clock.
+async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchestrator', tty: string | null): Promise<void> {
+  pane.opened = { role, tty }
+  await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role] })
+  pane.ticker?.cancel()
+  pane.ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
+}
+
+// A coordinator's pane opens by itself, the operator's ruling of 2026-10-18: at the end of the
+// first turn its row reads `coordinator` while the coordinator's record names one. Once per
+// session — the flag is the host's, so neither a reload nor a later turn opens it again, and a
+// pane he closed with the command stays closed.
+async function openOnFirstTurn($: any, pane: PaneMemory): Promise<void> {
+  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(await $.session.id())}`).catch(() => '')))
+  if (row?.role !== 'coordinator') return
+  if (!coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))) return
+  if ((await $.state.get(PANE_OPENED)).value) return
+  await $.state.set(PANE_OPENED, true)
+  const panes: readonly { id: string }[] = await $.ui.panes()
+  if (!panes.some(open => open.id === PANE_ID)) await openPane($, pane, 'coordinator', row.tty ?? null)
+}
+
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
-  // Module memory: the role the pane was opened in, and the tty its agents are
-  // read from — the render lists what the open asked for. A reload forgets it,
-  // and the pane then asks to be opened again.
-  let opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null = null
-  // The open pane's clock: started by the open, cancelled by any close.
-  let ticker: { cancel(): void } | null = null
+  // Module memory: the role the pane was opened in, the tty its agents are read
+  // from — the render lists what the open asked for — and the open pane's clock.
+  // A reload forgets it, and the pane then asks to be opened again.
+  const pane: PaneMemory = { opened: null, ticker: null }
   const stopTicker = () => {
-    ticker?.cancel()
-    ticker = null
+    pane.ticker?.cancel()
+    pane.ticker = null
   }
 
   // The engine allows one no-matcher registration per event, and the gauge
@@ -527,6 +577,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     } catch (err) {
       await logLine($, `relay: ${(err as Error).message}`)
     }
+    try {
+      if (!e.agentId) {
+        const done = await withDeadline(openOnFirstTurn($, pane), RELAY_BOUND_MS)
+        if (isDegradedPass(done)) await logLine($, `pane: did not finish within ${RELAY_BOUND_MS} ms`)
+      }
+    } catch (err) {
+      await logLine($, `pane: ${(err as Error).message}`)
+    }
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -596,17 +654,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       return { text: 'The supervision pane opens in a coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session (« Orch : … »), listing its agents; /orchestrator:status lists the sessions here.' }
     }
     // A toggle: the same command closes the pane it opened (Escape does not —
-    // the pane holds no focus), beside the pane's own ✕.
+    // the pane holds no focus), beside the pane's own ✕. Either way the pane is his
+    // from now on: the module no longer opens it on its own.
+    await $.state.set(PANE_OPENED, true)
     const panes: readonly { id: string }[] = await $.ui.panes()
     if (panes.some(pane => pane.id === PANE_ID)) {
       stopTicker()
       await $.ui.close({ id: PANE_ID })
       return { text: 'Supervision pane closed.' }
     }
-    opened = { role, tty }
-    await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role] })
-    stopTicker()
-    ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
+    await openPane($, pane, role, tty)
     return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -630,27 +687,33 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
       let rows: { label: string; urgency: number }[] = []
+      let round: { text: string; bold: boolean }[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
-      if (opened?.role === 'coordinator') {
+      if (pane.opened?.role === 'coordinator') {
         const merged = withRemote(await readSessions($), await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
         rows = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
         none = 'no live orchestrator'
-      } else if (opened?.role === 'orchestrator') {
+        round = roundLines((await readRound($)).map(read => read.entry))
+      } else if (pane.opened?.role === 'orchestrator') {
         // Bounded like every side read: an agent list that cannot be read in
         // time draws as none, never a held render.
-        const views = opened.tty ? await withDeadline(agentViews($, opened.tty), await sideReadBoundMs($)) : []
+        const views = pane.opened.tty ? await withDeadline(agentViews($, pane.opened.tty), await sideReadBoundMs($)) : []
         rows = isDegradedPass(views) ? [] : agentPaneRows(views)
         none = isDegradedPass(views) ? 'the agents could not be read in time' : 'no agent running'
       }
       const el = $.ui.resolve(e)
-      return el.Box({
+      const listed = rows.length === 0
+        ? [el.Text({ color: 'subtle', children: none })]
+        : rows.map(row =>
+          el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
+        )
+      // The round's first question, a line apart under the rows; nothing open, nothing drawn.
+      const asked = round.length === 0 ? [] : [el.Box({
         flexDirection: 'column',
-        children: rows.length === 0
-          ? [el.Text({ color: 'subtle', children: none })]
-          : rows.map(row =>
-            el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
-          ),
-      })
+        marginTop: 1,
+        children: round.map(line => el.Text(line.bold ? { bold: true, children: line.text } : { children: line.text })),
+      })]
+      return el.Box({ flexDirection: 'column', children: [...listed, ...asked] })
     } catch (err) {
       // A pane that fails to draw never blocks the render: the engine draws its own.
       await logLine($, (err as Error).message)

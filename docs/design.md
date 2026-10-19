@@ -47,6 +47,7 @@ release left in front of it.
 ```
 .claude-plugin/plugin.json           name orchestrator, semver, MIT
 .claude-plugin/marketplace.json      name claude-orchestrator, single-plugin marketplace, source "./"
+types/index.d.ts                     the hooks module's state contract: the values the host keeps for it in a session, the supervision pane's once-opened flag
 skills/orchestrator/SKILL.md         the rulebook
 skills/orchestrator/references/briefs.md     the agent prompt recipe, the standing rules, the lint, the tier
 skills/orchestrator/references/review.md     review on evidence, disposable review sessions, the cost of a round, the rebase
