@@ -29,6 +29,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel,
   type WaitKind,
 } from './relay.ts'
+import { roundEntry, roundPath, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -704,8 +705,17 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   if (patch) await writeWait($, sessionId, { ...patch, relayed, name, pid })
   const key = wait ? fingerprint(wait) : NO_STATUS_KEY
   if (relayed === key) return
+  const coordinator = role === 'orchestrator' ? await coordinatorAddress($) : null
+  // A coordinator on this machine reads its round: the wait is entered there, and its model
+  // is not woken for it. The fingerprint is kept once the entry is in place, as a delivery's.
+  if (coordinator?.local && wait && patch) {
+    const entry = roundEntry(sessionId, name, wait, patch.waiting_since!, new Date().toISOString())
+    await writeAtomic($, roundPath(await stateDir($), entry.id), JSON.stringify(entry) + '\n')
+    await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
+    return
+  }
   const to = role === 'orchestrator'
-    ? (await coordinatorAddress($))?.to ?? null
+    ? coordinator?.to ?? null
     : tty ? await orchestratorOn($, tty) : null
   if (!to) {
     if (role === 'agent') await logLine($, `relay: no orchestrator found for ${name} on ${tty ?? 'an unknown tty'}`)
@@ -722,10 +732,11 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 }
 
 // The operator typed a prompt (composer or bridge) in an orchestrator whose relayed question
-// is still on him: it is answered in its own tab, so the coordinator is sent the withdrawal and
-// the fingerprint is forgotten — the same question asked again is relayed again. Anything
-// else sends nothing, a slash command included: it starts no turn, so nothing would relay the
-// question again. Delivered: the wait file is re-read and written back with `relayed`
+// is still on him: it is answered in its own tab, so its entry in the round of a coordinator on
+// this machine is marked withdrawn — a coordinator elsewhere is sent the withdrawal — and the
+// fingerprint is forgotten: the same question asked again is relayed again. Anything
+// else does nothing, a slash command included: it starts no turn, so nothing would relay the
+// question again. Marked or delivered: the wait file is re-read and written back with `relayed`
 // null only when it still holds the held fingerprint (a turn's start may have written it).
 // Refused: one log line, the file untouched, so the next typed prompt tries again.
 export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
@@ -741,15 +752,62 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
   const prior = await readWait($, sessionId)
   const held = heldQuestion(prior)
   if (!held) return
-  const to = (await coordinatorAddress($))?.to ?? null
-  if (!to) return
-  const sent = await $.session.send({ to, text: withdrawalText(name, held.blocks, held.since) })
-  if (!sent?.isDelivered) {
-    await logLine($, `withdraw: not delivered to ${to}: ${sent?.reason ?? 'no answer'}`)
-    return
+  const coordinator = await coordinatorAddress($)
+  if (!coordinator) return
+  if (coordinator.local) {
+    await withdrawEntry($, sessionId, held)
+  } else {
+    const sent = await $.session.send({ to: coordinator.to, text: withdrawalText(name, held.blocks, held.since) })
+    if (!sent?.isDelivered) {
+      await logLine($, `withdraw: not delivered to ${coordinator.to}: ${sent?.reason ?? 'no answer'}`)
+      return
+    }
   }
   const now = await readWait($, sessionId)
   if (now && now.relayed === prior!.relayed) await writeWait($, sessionId, { ...now, relayed: null })
+}
+
+// The held question's entry in the round: that session's open operator question with the same
+// start and the same blocks, marked withdrawn, answered in its own tab. None found, nothing is
+// written; one that cannot be written throws, and the next typed prompt tries again.
+async function withdrawEntry($: any, sessionId: string, held: { blocks: string; since: string | null }): Promise<void> {
+  for (const { path, entry } of await readRound($)) {
+    if (entry.session !== sessionId || entry.kind !== 'operator' || entry.status !== 'open') continue
+    if (entry.since !== held.since || entry.blocks !== held.blocks) continue
+    const answer = { text: "answered in the sender's own tab", by: 'tab' as const, at: new Date().toISOString() }
+    await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+  }
+}
+
+// Every entry of the round on this machine, each with the file it was read from. A file that
+// does not parse to an entry is skipped, never repaired; a temporary file is no entry yet.
+export async function readRound($: any): Promise<{ path: string; entry: RoundEntry }[]> {
+  const dir = `${await stateDir($)}/round`
+  const listed: readonly { name: string; kind: string }[] = await $.fs.list(dir).catch(() => [])
+  const read: { path: string; entry: RoundEntry }[] = []
+  for (const file of listed) {
+    if (!file || file.kind !== 'file' || !file.name.endsWith('.json') || file.name.includes('.tmp-')) continue
+    const entry = parseRoundEntry(String(await $.fs.read(`${dir}/${file.name}`).catch(() => '')))
+    if (entry) read.push({ path: `${dir}/${file.name}`, entry })
+  }
+  return read
+}
+
+const ROUND_STATUSES: readonly string[] = ['open', 'answered', 'withdrawn', 'closed']
+
+// An entry file read back: the JSON of one entry, each field of its type, or nothing.
+function parseRoundEntry(text: string): RoundEntry | null {
+  try {
+    const e = JSON.parse(text)
+    if (!e || typeof e !== 'object') return null
+    const texts = [e.id, e.from, e.session, e.since, e.question, e.at].every(field => typeof field === 'string')
+    const choices = Array.isArray(e.choices) && e.choices.every((c: any) => typeof c?.letter === 'string' && typeof c?.text === 'string')
+    const nullable = [e.blocks, e.recommendation].every(field => field === null || typeof field === 'string')
+    const known = (e.kind === 'operator' || e.kind === 'done') && ROUND_STATUSES.includes(e.status)
+    return texts && choices && nullable && known ? e as RoundEntry : null
+  } catch {
+    return null
+  }
 }
 
 // Where an orchestrator's reports go: the coordinator registered on this machine first
