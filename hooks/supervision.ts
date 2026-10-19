@@ -311,22 +311,36 @@ function ageLabel(updated_at: string, now: number): string | null {
 // names — the name, the role, the fill against the gate, the reading's age —
 // with the gate the gauge's own double gate, so a session past it by tokens
 // alone on a wide window is marked past it here too.
-export function paneRows(rows: Record<string, SessionRow>): { label: string; urgency: number }[] {
+export type PaneRow = {
+  label: string
+  urgency: number
+  // The label's pieces, for the block the coordinator's pane draws: the name, what comes
+  // before the fill, the fill with its gate words, the age and the wait.
+  name: string
+  head: string
+  fill: string
+  past: boolean
+  age: string | null
+  wait: string | null
+  waiting: WaitKind | null
+}
+export function paneRows(rows: Record<string, SessionRow>): PaneRow[] {
   const now = Date.now()
   return Object.values(rows)
     .map(row => {
       const past = tripGate(row.context_percent, row.context_tokens, row.window).tripped
-      const parts = [
-        row.name ?? 'unnamed',
-        row.role ?? 'no role',
-        ...(row.machine ? [`remote ${row.machine}`] : []),
-        `${row.context_percent}%${past ? ' past the gate' : ''}`,
-      ]
+      const name = row.name ?? 'unnamed'
+      const head = [row.role ?? 'no role', ...(row.machine ? [`remote ${row.machine}`] : [])].join(' · ')
+      const fill = `${row.context_percent}%${past ? ' past the gate' : ''}`
       const age = ageLabel(row.updated_at, now)
-      if (age !== null) parts.push(age)
       const wait = waitLabel(row)
+      const parts = [name, head, fill]
+      if (age !== null) parts.push(age)
       if (wait !== null) parts.push(wait)
-      return { label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + row.context_percent }
+      return {
+        label: parts.join(' · '), urgency: (past ? GATE_URGENCY_FLOOR : 0) + row.context_percent,
+        name, head, fill, past, age, wait, waiting: wait !== null ? row.waiting ?? null : null,
+      }
     })
     .sort((a, b) => b.urgency - a.urgency)
 }
@@ -706,12 +720,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
       let rows: { label: string; urgency: number }[] = []
+      let blocks: PaneRow[] = []
       let round: RoundLine[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
-      if (pane.opened?.role === 'coordinator') {
+      const coordinator = pane.opened?.role === 'coordinator'
+      if (coordinator) {
         const local = await readSessions($)
         const merged = withRemote(local, await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
-        rows = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
+        blocks = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
         none = 'no live orchestrator'
         // A question whose sender has ended has no one left to answer: only the entries of a
         // session with a live row are drawn, and counted.
@@ -724,27 +740,61 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         none = isDegradedPass(views) ? 'the agents could not be read in time' : 'no agent running'
       }
       const el = $.ui.resolve(e)
-      const listed = rows.length === 0
-        ? [el.Text({ color: 'subtle', children: none })]
-        : rows.map(row =>
-          el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })
-        )
-      // The round's first question, a line apart under the rows; nothing open, nothing drawn.
-      const text = (line: RoundLine) => el.Text(line.bold ? { bold: true, children: line.text } : { children: line.text })
-      const asked = round.length === 0 ? [] : [el.Box({
-        flexDirection: 'column',
-        marginTop: 1,
-        // A choice is a row: its letter in a column of its own, its text in the rest, so a long
-        // text wraps under the text, not under the letter.
-        children: round.map(line => line.letter === null ? text(line) : el.Box({
+      if (!coordinator) {
+        return el.Box({
+          flexDirection: 'column',
+          children: rows.length === 0
+            ? [el.Text({ color: 'subtle', children: none })]
+            : rows.map(row => el.Text({ color: row.urgency >= GATE_URGENCY_FLOOR ? 'warning' : 'subtle', children: row.label })),
+        })
+      }
+      // Each orchestrator is a block coloured by its state: a dot and its bold name, its
+      // figures indented, and only when it waits the wait's words.
+      const piece = (color: string, text: string) => el.Text({ color, children: text })
+      const block = (row: PaneRow, index: number) => {
+        const state = row.waiting === 'operator' ? 'warning' : row.waiting === 'done' ? 'success' : 'suggestion'
+        const figures = [
+          piece('subtle', `${row.head} · `),
+          row.past ? piece('error', row.fill) : piece('subtle', row.fill),
+          ...(row.age !== null ? [piece('subtle', ` · ${row.age}`)] : []),
+        ]
+        return el.Box({
+          flexDirection: 'column',
+          ...(index > 0 ? { marginTop: 1 } : {}),
+          children: [
+            el.Box({ flexDirection: 'row', children: [el.Text({ color: state, children: '●' }), el.Box({ marginLeft: 1, children: [el.Text({ bold: true, children: row.name })] })] }),
+            el.Box({ paddingLeft: 2, children: [el.Text({ children: figures })] }),
+            ...(row.wait !== null ? [el.Box({ paddingLeft: 2, children: [el.Text({ color: state, children: row.wait })] })] : []),
+          ],
+        })
+      }
+      const listed = blocks.length === 0 ? [el.Text({ color: 'subtle', children: none })] : blocks.map(block)
+      // The round's first question under its own title, a line apart; a choice is a row: its
+      // letter in a column of its own, its text in the rest, so a long text wraps under the text.
+      const waiting = blocks.filter(row => row.waiting === 'operator').length
+      const says = waiting === 0
+        ? 'none'
+        : `none in the pane — ${waiting} orchestrator${waiting === 1 ? ' waits' : 's wait'} for you: ask the coordinator`
+      const question = (line: RoundLine, index: number) => {
+        if (line.letter === null) return el.Text(index === 0 ? { bold: true, children: line.text } : { children: line.text })
+        const style = line.bold ? { bold: true, color: 'success' } : {}
+        return el.Box({
           flexDirection: 'row',
           children: [
-            el.Box({ width: ROUND_LETTER_COLUMN, flexShrink: 0, children: [el.Text(line.bold ? { bold: true, children: line.letter } : { children: line.letter })] }),
-            el.Box({ flexGrow: 1, flexShrink: 1, children: [text(line)] }),
+            el.Box({ width: ROUND_LETTER_COLUMN, flexShrink: 0, children: [el.Text(line.bold ? { bold: true, color: 'success', children: line.letter } : { bold: true, color: 'suggestion', children: line.letter })] }),
+            el.Box({ flexGrow: 1, flexShrink: 1, children: [el.Text({ ...style, children: line.text })] }),
           ],
-        })),
-      })]
-      return el.Box({ flexDirection: 'column', children: [...listed, ...asked] })
+        })
+      }
+      const asked = el.Box({
+        flexDirection: 'column',
+        marginTop: 1,
+        children: [
+          el.Text({ bold: true, color: 'suggestion', children: 'Questions for you' }),
+          ...(round.length === 0 ? [el.Text({ color: 'subtle', children: says })] : round.map(question)),
+        ],
+      })
+      return el.Box({ flexDirection: 'column', children: [el.Text({ bold: true, children: 'Orchestrators' }), ...listed, asked] })
     } catch (err) {
       // A pane that fails to draw never blocks the render: the engine draws its own.
       await logLine($, (err as Error).message)
