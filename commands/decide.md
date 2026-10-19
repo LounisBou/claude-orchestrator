@@ -61,8 +61,8 @@ a settled item is never asked.
 - _The choices._ Two to four, one per line as `- **A** : <text>`, each with its COST and
   GAIN, each a materially different piece of work — never shades of one option.
 - _Recommendation._ Exactly one, as a line `_Recommendation_ : A` (or in the user's
-  language), its reason in one sentence; listed first only if your tool needs it. A
-  coordinator's pane shows both.
+  language), its reason in one sentence; listed first only if your tool needs it. The
+  supervision pane shows both.
 - Close with « You decide: A or B? » (the letters offered), then the machine line, plain
   text, as the message's last line: `waiting: operator — blocks: <the question>` — the
   stop gate refuses a turn that ends on a bare question. END THE TURN. Nothing else in
