@@ -695,15 +695,29 @@ round_entries() {
     done
 }
 
+# live_sessions: the sessions files of the hooks module's store (under the config dir, as
+# waiting_rows resolves it), as a JSON array of file names. The module names a file after the
+# session id with every character outside A-Za-z0-9._- replaced by an underscore.
+live_sessions() {
+    local store="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator/store/sessions"
+    [ -d "$store" ] || { echo '[]'; return 0; }
+    find "$store" -type f -exec basename {} \; 2>/dev/null | jq -R -s -c 'split("\n") | map(select(. != ""))'
+}
+
 cmd_round() {
     [ $# -eq 0 ] || die "round: unexpected argument $1"
-    round_entries | jq -s -r '
+    # An entry whose sender's sessions file is absent keeps its place, and its header says the
+    # sender is gone: the session ended with its question still open.
+    round_entries | jq -s -r --argjson live "$(live_sessions)" '
         # The round order (hooks/round.ts openEntries): grouped by sender, the groups by their
         # earliest wait, each in the order its waits began.
         def ordered: (sort_by(.since) | reduce .[] as $e ({}; if has($e.from) then . else .[$e.from] = $e.since end)) as $first
             | sort_by([$first[.from], .from, .since, .id]);
+        # The sender is gone when its sessions file is absent; an entry naming no session is not judged.
+        def gone: .session | if type == "string" and . != "" then gsub("[^A-Za-z0-9._-]"; "_") as $key | $live | any(. == $key) | not else false end;
         ((map(select(.status == "open")) | ordered) + (map(select(.status == "withdrawn")) | ordered))[]
-        | "round \(.id) | \(.kind) | from \(.from) | since \(.since) | blocks: \(.blocks // "-") | \(.status)",
+        | (if gone then " | sender gone" else "" end) as $gone
+        | "round \(.id) | \(.kind) | from \(.from) | since \(.since) | blocks: \(.blocks // "-") | \(.status)\($gone)",
           (.question | select(. != "") | split("\n")[] | "    " + .)'
 }
 

@@ -6202,10 +6202,17 @@ check "a remote pull request absent from its repository's open list is not print
 # parse is skipped, never repaired.
 CROUND="$CS/round"
 mkdir -p "$CROUND"
+# The sender's sessions file is read under the config dir, as the waits are: the entries below
+# have live senders, one file each, so a line carries no « sender gone ». The config dir is this
+# section's own, put back as it was after it.
+RCFG_HAD="${CLAUDE_CONFIG_DIR+set}"; RCFG_WAS="${CLAUDE_CONFIG_DIR-}"
+export CLAUDE_CONFIG_DIR="$WORK/coord-config"
+mkdir -p "$CLAUDE_CONFIG_DIR/claude-orchestrator/store/sessions"
 round_entry() {  # <id> <from> <since> <status> <kind> <question>
   jq -n --arg id "$1" --arg from "$2" --arg since "$3" --arg status "$4" --arg kind "$5" --arg q "$6" \
     '{id:$id, from:$from, session:("s-" + $id), kind:$kind, since:$since, blocks:(if $kind == "operator" then "phase 3" else null end),
       question:$q, choices:[], recommendation:null, status:$status, at:$since, answer:null}' > "$CROUND/$1.json"
+  : > "$CLAUDE_CONFIG_DIR/claude-orchestrator/store/sessions/s-$1"
 }
 round_entry b-late "Orch : b" 2026-10-18T10:05:00.000Z open operator 'Merge #12 now?
 - **A** : merge it
@@ -6247,6 +6254,27 @@ check "round-close refuses an unknown id, a path, an unreadable entry and a miss
   "$(coord_status round-close nobody --answer x)|$(coord_status round-close ../coordinator --answer x)|$(coord_status round-close broken --answer x)|$(coord_status round-close a-one)|$(coord_status round-close)|$(cat "$CROUND/broken.json")"
 check "the refusal of an unknown id names it" "coordinator: round-close: no entry nobody in $CROUND" \
   "$(coord round-close nobody --answer x 2>&1 >/dev/null)"
+
+# A sender that has ended leaves its question in the round: it is still printed, and its header
+# says the sender is gone, so the coordinator does not relay a question nobody can answer.
+GSTATE="$WORK/coord-gone"; GCFG="$WORK/coord-gone-config"
+mkdir -p "$GSTATE/round" "$GCFG/claude-orchestrator/store/sessions"
+for gone in "live:s-live" "ended:s-ended" "odd:s odd/1"; do
+  jq -n --arg id "${gone%%:*}" --arg session "${gone#*:}" \
+    '{id:$id, from:("Orch : " + $id), session:$session, kind:"operator", since:"2026-10-18T10:0\(if $id == "live" then 1 elif $id == "ended" then 2 else 3 end):00.000Z",
+      blocks:"phase 3", question:"Ship it?", choices:[], recommendation:null, status:"open", at:"T", answer:null}' > "$GSTATE/round/${gone%%:*}.json"
+done
+: > "$GCFG/claude-orchestrator/store/sessions/s-live"
+: > "$GCFG/claude-orchestrator/store/sessions/s_odd_1"
+check "round says the sender is gone on the header of an entry whose sessions file is absent, and still prints the entry" \
+  "round live | operator | from Orch : live | since 2026-10-18T10:01:00.000Z | blocks: phase 3 | open
+    Ship it?
+round ended | operator | from Orch : ended | since 2026-10-18T10:02:00.000Z | blocks: phase 3 | open | sender gone
+    Ship it?
+round odd | operator | from Orch : odd | since 2026-10-18T10:03:00.000Z | blocks: phase 3 | open
+    Ship it?" \
+  "$(ORCHESTRATOR_STATE_DIR="$GSTATE" CLAUDE_CONFIG_DIR="$GCFG" bash "$COORD" round 2>&1)"
+if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
 echo "== routing: cost =="
 
