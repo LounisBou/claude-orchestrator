@@ -305,12 +305,6 @@ function ageLabel(updated_at: string, now: number): string | null {
   return `${Math.floor(minutes / 60)}h`
 }
 
-// The pane's rows, the store read end to end and sorted by rotation urgency:
-// the sessions past the gate first (they are the rotation's next moves), then
-// the rest, each side by fill descending. The label carries what the design
-// names — the name, the role, the fill against the gate, the reading's age —
-// with the gate the gauge's own double gate, so a session past it by tokens
-// alone on a wide window is marked past it here too.
 export type PaneRow = {
   label: string
   urgency: number
@@ -324,6 +318,12 @@ export type PaneRow = {
   wait: string | null
   waiting: WaitKind | null
 }
+// The pane's rows, the store read end to end and sorted by rotation urgency:
+// the sessions past the gate first (they are the rotation's next moves), then
+// the rest, each side by fill descending. The label carries what the design
+// names — the name, the role, the fill against the gate, the reading's age —
+// with the gate the gauge's own double gate, so a session past it by tokens
+// alone on a wide window is marked past it here too.
 export function paneRows(rows: Record<string, SessionRow>): PaneRow[] {
   const now = Date.now()
   return Object.values(rows)

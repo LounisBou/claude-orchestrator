@@ -762,3 +762,25 @@ test('an orchestrator\'s own pane keeps its flat subtle rows, with no title', as
   const tree = await coordinatorRender(fx)
   expect(tree.props.children.map((kid: any) => [kid.props.color, kid.props.children])).toEqual([['subtle', 'no agent running']])
 })
+
+test('an orchestrator\'s own pane draws an agent past the gate in warning and the other in subtle, with no title', async () => {
+  const fx = fakeDollar({ launchName: 'Orch : phase-3' })
+  fx.env.ITERM_SESSION_ID = 'w0t1p0:OWNER-1'
+  fx.files.set(`${HOME}/.claude/claude-orchestrator/chains/ttys001.jsonl`, [
+    JSON.stringify({ tab_id: 't-9', tty: '/dev/ttys009', owner: 'OWNER-1' }),
+    JSON.stringify({ tab_id: 't-10', tty: '/dev/ttys010', owner: 'OWNER-1' }),
+  ].join('\n') + '\n')
+  // The fake's ps answers one pid for every agent's tty: each tab gets a pid of its own.
+  const run = fx.dollar.process.run
+  fx.dollar.process.run = async (argv: readonly string[]) =>
+    argv[0] === 'ps' && argv[2] === 'ttys010' ? { exitCode: 0, stdout: '  778 hostcli\n', stderr: '' } : run(argv)
+  fx.files.set(`${HOME}/.claude/sessions/777.json`, JSON.stringify({ sessionId: 's-past', name: 'Agent : past', status: 'busy' }))
+  fx.files.set(`${HOME}/.claude/sessions/778.json`, JSON.stringify({ sessionId: 's-under', name: 'Agent : under', status: 'busy' }))
+  fx.files.set(`${SESSIONS}/s-past`, JSON.stringify(row({ role: 'agent', name: 'Agent : past', context_percent: 35, context_tokens: 350000, window: 1000000 })) + '\n')
+  fx.files.set(`${SESSIONS}/s-under`, JSON.stringify(row({ role: 'agent', name: 'Agent : under', context_percent: 20 })) + '\n')
+  const tree = await coordinatorRender(fx)
+  expect(tree.props.children.map((kid: any) => [kid.props.color, kid.props.children])).toEqual([
+    ['warning', expect.stringMatching(/^Agent : past · busy · 35% past the gate · /)],
+    ['subtle', expect.stringMatching(/^Agent : under · busy · 20% · /)],
+  ])
+})
