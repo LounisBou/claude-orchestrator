@@ -470,7 +470,7 @@ async function coordinatorRender(fx: Fx, handlers = mounted(registerSupervision)
 test('a coordinator\'s pane draws the round\'s first question under the orchestrator rows', async () => {
   const fx = fakeDollar({ launchName: 'Coord : main' })
   fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
-  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { choices: CHOICES, recommendation: 'B' })
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
   fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
   fx.files.set(`${ROUND}/broken.json`, '{"id": "broken", "status": "op')
   fx.files.set(`${ROUND}/${asked.id}.json.tmp-1-abc`, JSON.stringify({ ...asked, from: 'Orch : half' }))
@@ -501,6 +501,20 @@ test('no open question: nothing is drawn below the rows, and an orchestrator\'s 
   const asked = entry('Orch : phase-3', '2026-10-18T10:03:00.000Z')
   orch.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
   expect(JSON.stringify(await coordinatorRender(orch))).not.toContain('Question 1 of')
+})
+
+test('a question whose sender has ended is not drawn, nor counted: only the live sessions\' questions are', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/live`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : live', context_percent: 30 })) + '\n')
+  const gone = entry('Orch : gone', '2026-10-18T10:01:00.000Z', { session: 'ended', blocks: 'the old merge' })
+  const asked = entry('Orch : live', '2026-10-18T10:03:00.000Z', { session: 'live', choices: CHOICES, recommendation: 'B' })
+  for (const e of [gone, asked]) fx.files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
+  const [, round] = (await coordinatorRender(fx)).props.children
+  expect(round.props.children[0].props.children).toBe('Question 1 of 1 — from Orch : live — blocks: phase 3')
+  expect(JSON.stringify(round)).not.toContain('Orch : gone')
+  // Every sender ended: nothing is drawn below the rows.
+  fx.files.delete(`${SESSIONS}/live`)
+  expect((await coordinatorRender(fx)).props.children.length).toBe(1)
 })
 
 // --- the pane opens by itself with the coordinator ----------------------------------------------

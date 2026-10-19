@@ -702,10 +702,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       let round: { text: string; bold: boolean }[] = []
       let none = 'type /orchestrator:supervision to open the pane again'
       if (pane.opened?.role === 'coordinator') {
-        const merged = withRemote(await readSessions($), await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
+        const local = await readSessions($)
+        const merged = withRemote(local, await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
         rows = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
         none = 'no live orchestrator'
-        round = roundLines((await readRound($)).map(read => read.entry))
+        // A question whose sender has ended has no one left to answer: only the entries of a
+        // session with a live row are drawn, and counted.
+        round = roundLines((await readRound($)).map(read => read.entry).filter(entry => sessionKey(entry.session) in local))
       } else if (pane.opened?.role === 'orchestrator') {
         // Bounded like every side read: an agent list that cannot be read in
         // time draws as none, never a held render.
