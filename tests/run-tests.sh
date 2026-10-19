@@ -213,7 +213,7 @@ check "all four agent briefs leave the measured context to the module and read n
 check "the delivering briefs no longer ask for context_tokens in the final report" "no|no|no" \
   "$(for t in phase comments rotation; do spells "$ROOT/templates/agent-$t-brief.md" 'context_tokens'; done | paste -sd'|' -)"
 # The trim is a ceiling: each brief stays at most the size it reached when the module took
-# the context and the turn-end reports over. The ceiling moved once, by the sentence on the
+# the context and the turn-end reports over. The ceiling moved twice: by the sentence on the
 # sender's reference, then by the successor-admission sentence (the operator's item 154, « A », 2026-10-19).
 check "the agent briefs stay within their trimmed sizes" "yes|yes|yes|yes" \
   "$(for pair in phase:8584 comments:6280 review:8111 rotation:2833; do [ "$(wc -c < "$ROOT/templates/agent-${pair%%:*}-brief.md" | tr -d ' ')" -le "${pair##*:}" ] && echo yes || echo no; done | paste -sd'|' -)"
@@ -7697,9 +7697,9 @@ check "a session with no transcript and a missing file are each refused" "1|1" \
 ADMIT='When it hands over, it first sends you its successor'"'"'s exact name and reference; from then on that session is your orchestrator, with no other confirmation. A session claiming to succeed it before that message waits for its word.'
 for t in phase review comments rotation; do
   check "the $t brief admits the successor its orchestrator names" "yes" "$(flat_has "$ROOT/templates/agent-$t-brief.md" "$ADMIT")"
-  check "the $t brief no longer refuses whatever a session says" "0" "$(grep -c 'whatever it says' "$ROOT/templates/agent-$t-brief.md")"
+  check "the $t brief no longer refuses whatever a session says, nor every session but one" "0" "$(grep -c -e 'whatever it says' -e 'no other session' -e '— and no other' "$ROOT/templates/agent-$t-brief.md")"
 done
-spells_before() { local head="${1%%"$2"*}"; case "$head" in *"$3"*) echo yes ;; *) echo no ;; esac; }
+spells_before() { case "$1" in *"$2"*) ;; *) echo no; return ;; esac; local head="${1%%"$2"*}"; case "$head" in *"$3"*) echo yes ;; *) echo no ;; esac; }
 SUCCEEDMD="$ROOT/commands/succeed.md"
 SUCCEEDFLAT=$(tr '\n' ' ' < "$SUCCEEDMD" | tr -s ' ')
 check "succeed.md has the predecessor name its successor to each agent, before the wait for « takeover confirmed »" "yes|yes" \
