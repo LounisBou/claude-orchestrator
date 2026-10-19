@@ -473,7 +473,7 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
   fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
   fx.files.set(`${ROUND}/broken.json`, '{"id": "broken", "status": "op')
-  fx.files.set(`${ROUND}/${asked.id}.json.tmp-1-abc`, JSON.stringify({ ...asked, from: 'Orch : half' }))
+  fx.files.set(`${ROUND}/x.tmp-1.json`, JSON.stringify({ ...asked, from: 'Orch : half' }))
   const tree = await coordinatorRender(fx)
   const [rows, round] = tree.props.children
   expect(rows.props.children).toContain('Orch : low')
@@ -599,6 +599,17 @@ test('a first turn that ends before the first measure wrote the row: the name is
   const plain = coordinatorSession({ role: null })
   await other['turn.complete'](plain.dollar, firstTurn, (x: unknown) => x)
   expect(plain.opened).toEqual([])
+})
+
+test('a first turn that ends with no row in the store: the lookup names the coordinator, and the pane opens once', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  fx.files.delete(`${SESSIONS}/s-one`)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.ran.some(run => run.startsWith('ps -t ttys001'))).toBe(true)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.opened).toEqual([{ id: 'supervision', title: 'Orchestrators' }])
+  expect(fx.timers.length).toBe(1)
 })
 
 test('a coordinator recorded after the first turn: the pane opens at the first turn end that finds it', async () => {
