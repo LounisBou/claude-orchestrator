@@ -98,9 +98,13 @@ export function relayText(name: string, wait: Wait, since: string, context: stri
     : `[module] ${name} ${wait.kind === 'blocked' ? 'is blocked' : 'asks'}`
   const said = 'blocks' in wait && wait.kind !== 'operator' && wait.blocks ? ` — ${wait.blocks}` : ''
   if (!wait.question) return `${header}${said}\n${reply}`
-  const cut = wait.question.length > RELAY_CAP
-  const question = cut ? `${wait.question.slice(0, RELAY_CAP)}\n[cut at ${RELAY_CAP} of ${wait.question.length} characters]` : wait.question
-  return `${header}${said}\n${reply}\n\n${question}`
+  return `${header}${said}\n${reply}\n\n${cutQuestion(wait.question)}`
+}
+
+// The question as a report carries it, the coordinator's round entry included: cut past
+// the cap, and the cut said.
+export function cutQuestion(question: string): string {
+  return question.length > RELAY_CAP ? `${question.slice(0, RELAY_CAP)}\n[cut at ${RELAY_CAP} of ${question.length} characters]` : question
 }
 
 // The wait file as the withdrawal reads it: the wait, and the fingerprint last delivered.
