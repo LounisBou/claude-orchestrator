@@ -559,8 +559,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   // The end of a main-loop turn that answered: an orchestrator's wait written to its
-  // row and, once per wait, reported to a running coordinator — an agent's state to its
-  // orchestrator (relayTurnEnd). Here
+  // row and, once per wait, entered in the round of a coordinator on this machine or
+  // reported to one elsewhere — an agent's state to its orchestrator (relayTurnEnd). Here
   // rather than at classic.Stop: a stop the gate refuses goes on in the same turn, so
   // the message a stop carries is not always the turn's last word, and the gate's own
   // deadline is not this report's to spend; turn.complete fires once the turn is over,
@@ -607,7 +607,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   // The operator types in an orchestrator whose question the coordinator holds: he answered it
-  // in this tab, so the coordinator is told to withdraw it (withdrawOnTyped). prompt.submit runs
+  // in this tab, so the question is withdrawn — its round entry marked, or a coordinator elsewhere
+  // told (withdrawOnTyped). prompt.submit runs
   // before turn.start, so the wait is usually still on. Never adds context, never holds the prompt.
   on('prompt.submit', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
@@ -731,14 +732,15 @@ const RELAY_BOUND_MS = 5000
 
 // A turn's end, read and reported. The role comes from the session's row (the measure's
 // walk named it), else from a walk of its own. An orchestrator's machine line goes to the
-// registered coordinator; an agent's status line to its orchestrator, found in the
+// coordinator: an entry of its round when it runs on this machine, a message when it runs
+// on another; an agent's status line to its orchestrator, found in the
 // launcher's chains (orchestratorOn), never in the turn's text; any other role, nothing.
 // No line: a wait the session carried is cleared; an orchestrator sends nothing, an agent's
 // orchestrator is sent one report, unless it was already (key `no-status`). A line: written to the
 // session's wait file, then reported unless this very one was already — the fingerprint
-// is kept only once the send is delivered. Nobody to send to: nothing is sent. A send
-// refused is one log line; the turn's end is never held on it. The row itself is never
-// written here: the measure is its one writer.
+// is kept only once the entry is in place or the send is delivered. Nobody to send to: nothing
+// is sent. A write that fails or a send refused is one log line; the turn's end is never held
+// on it. The row itself is never written here: the measure is its one writer.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))

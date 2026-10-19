@@ -3,14 +3,16 @@
 // gate already requires says whether the turn waits on the operator or reports its
 // work done. An agent's turn ends the same way on its status line, reported to its
 // orchestrator instead, and its gate crossing too (supervision.ts). The wait lands in the session's store row (supervision.ts), where the
-// pane, /orchestrator:status and the coordinator's facts read it, and a running
-// coordinator is sent one report of it: the question as the answer carried it, or
+// pane, /orchestrator:status and the coordinator's facts read it, and once in the
+// coordinator's hands: an entry of its round when it runs on this machine (round.ts), one
+// report sent when it runs on another — the question as the answer carried it, or
 // the closing proposal. Without this, an orchestrator that asked the operator in its
 // own tab looked stopped from outside, and the coordinator spent two full turns
 // asking it why. When the operator answers that question in the orchestrator's own tab,
-// the coordinator is sent one withdrawal and the fingerprint is forgotten, so the same
-// question asked again is relayed again. Pure on purpose: the handler holds the $ (the
-// engine fences it to the file that received it) and passes its reads in here.
+// its entry is marked withdrawn, or the coordinator elsewhere is sent one withdrawal, and
+// the fingerprint is forgotten, so the same question asked again is relayed again. Pure on
+// purpose: the handler holds the $ (the engine fences it to the file that received it) and
+// passes its reads in here.
 import { MACHINE_LINE, machineLine, chainEntries } from './stop-gate.ts'
 import type { SessionRow } from './supervision.ts'
 
