@@ -175,10 +175,15 @@ verify() {
 alive() { verify "$1" "${2:-}"; }
 
 # tty_pid <tty>: the pid of the host CLI on that tty, read from the check's « (pid N) »;
-# empty when nothing runs there or the check names no pid.
+# empty when nothing runs there or the check names no pid. A tty that runs a host CLI whose
+# check names no pid is said on stderr, in one line, since the record written from it is
+# read by its tty alone.
 tty_pid() {
+    local pid
     verify "$1" || return 0
-    printf '%s' "$VERIFIED" | sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p' | head -1
+    pid=$(printf '%s' "$VERIFIED" | sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p' | head -1)
+    [ -n "$pid" ] || say "no process id found on $1: the record is written without one"
+    printf '%s' "$pid"
 }
 
 # lock <operation>: take the lock directory or refuse after five seconds. mkdir is the one

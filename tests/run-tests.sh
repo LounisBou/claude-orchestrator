@@ -5817,11 +5817,12 @@ echo "running on $tty (pid $line)"
 EOF
 chmod +x "$WORK/coord-verify-pid"
 cpid() { ORCHESTRATOR_STATE_DIR="$CS" COORD_PIDS="$CPIDS" COORDINATOR_VERIFY="$WORK/coord-verify-pid" bash "$COORD" "$@"; }
+cpid_status() { cpid "$@" >/dev/null 2>&1; echo "exit $?"; }
 printf '/dev/ttys120 4001\n' > "$CPIDS"
 cpid register --name "Coord : pid [p00001]" --tty /dev/ttys120 >/dev/null 2>&1
 check "register records the pid of the host CLI on the tty" "4001" "$(jq -r .pid "$CREC")"
 check "the same pid still running keeps the record alive" "Coord : pid [p00001]|exit 1" \
-  "$(cpid lookup 2>/dev/null)|$(cpid register --name "Coord : two [p00002]" --tty /dev/ttys121 >/dev/null 2>&1; echo "exit $?")"
+  "$(cpid lookup 2>/dev/null)|$(cpid_status register --name "Coord : two [p00002]" --tty /dev/ttys121)"
 printf '/dev/ttys120 4002\n' > "$CPIDS"
 check "another pid on the recorded tty reads as a stale record" \
   "|coordinator: stale record: Coord : pid [p00001] on /dev/ttys120" \
@@ -5837,6 +5838,25 @@ check "a record with no pid keeps the tty-only reading" "Coord : old [p00004]" "
 printf '' > "$CPIDS"
 check "and is stale once nothing runs on its tty" "|coordinator: stale record: Coord : old [p00004] on /dev/ttys122" \
   "$(cpid lookup 2>/dev/null)|$(cpid lookup 2>&1 >/dev/null)"
+coord clear
+# A tty that runs a host CLI but gives no pid is recorded without one, and the register says so.
+live /dev/ttys123
+out=$(coord register --name "Coord : nopid [p00005]" --tty /dev/ttys123 2>"$WORK/coord.err")
+check "a register that finds no pid on the tty records none and says so in one line" \
+  "registered Coord : nopid [p00005]|null|coordinator: no process id found on /dev/ttys123: the record is written without one" \
+  "$out|$(jq -r '.pid' "$CREC")|$(cat "$WORK/coord.err")"
+coord clear
+# Against the real launcher: the « (pid N) » that register parses is the text verify prints.
+creal() { ORCHESTRATOR_STATE_DIR="$CS" ORCHESTRATOR_HOST_CLI=a-host ORCHESTRATOR_PS_TABLE="$WORK/ps-two.txt" \
+  CLAUDE_CONFIG_DIR="$WORK/hostcfg" bash "$COORD" "$@"; }
+creal register --name "Coord : real [p00006]" --tty /dev/ttys901 >/dev/null 2>&1
+check "register records the pid the real launcher's verify prints" "5100" "$(jq -r .pid "$CREC")"
+check "and the record is alive for that pid" "Coord : real [p00006]" "$(creal lookup 2>/dev/null)"
+jq '.pid = 5101' "$CREC" > "$WORK/coord-rec2" && cp "$WORK/coord-rec2" "$CREC"
+check "a recorded pid that is the tty's second host CLI is alive" "Coord : real [p00006]" "$(creal lookup 2>/dev/null)"
+jq '.pid = 9999' "$CREC" > "$WORK/coord-rec2" && cp "$WORK/coord-rec2" "$CREC"
+check "a recorded pid the real launcher does not find on the tty is stale" \
+  "|coordinator: stale record: Coord : real [p00006] on /dev/ttys901" "$(creal lookup 2>/dev/null)|$(creal lookup 2>&1 >/dev/null)"
 coord clear
 
 # Liveness: an error of the check is no « dead ». Its own « not running », exit 1 and
