@@ -4911,6 +4911,21 @@ check "a pid the host registered is the host, whatever its argv" "host" "$(hostp
 check "a shell on the tty is not the host" "none" "$(hostp /opt/homebrew/bin/claude "$WORK/ps-shell.txt")"
 check "verify reads a bare host row under an absolute HOST_CLI" "0" \
   "$(ORCHESTRATOR_HOST_CLI=/opt/homebrew/bin/claude ORCHESTRATOR_PS_TABLE="$WORK/ps-bare.txt" bash "$AGENT" verify --tty /dev/ttys901 >/dev/null 2>&1; echo $?)"
+# --pid narrows verify to one process, and counts EVERY host CLI on the tty: a session that
+# runs a nested host CLI shows two, and the recorded one is not always the first.
+printf '/dev/ttys901 5100 a-host --name outer\n/dev/ttys901 5101 a-host --nested\n' > "$WORK/ps-two.txt"
+vpid() { ORCHESTRATOR_HOST_CLI=a-host ORCHESTRATOR_PS_TABLE="$WORK/ps-two.txt" CLAUDE_CONFIG_DIR="$WORK/hostcfg" \
+  bash "$AGENT" verify --tty /dev/ttys901 "$@"; }
+vpid_status() { vpid "$@" >/dev/null 2>&1; echo "exit $?"; }
+check "verify --pid answers for the first host CLI on the tty" "a-host running on /dev/ttys901 (pid 5100)|exit 0" \
+  "$(vpid --pid 5100 2>&1)|$(vpid_status --pid 5100)"
+check "verify --pid answers for a host CLI that is not the first" "a-host running on /dev/ttys901 (pid 5101)|exit 0" \
+  "$(vpid --pid 5101 2>&1)|$(vpid_status --pid 5101)"
+check "verify --pid of a pid the tty does not run is not running, and silent" "|exit 1" \
+  "$(vpid --pid 9999 2>&1)|$(vpid_status --pid 9999)"
+check "verify without --pid names the first host CLI" "a-host running on /dev/ttys901 (pid 5100)" "$(vpid 2>&1)"
+check "a --pid that is no number is a usage error, not « not running »" "exit 2|1" \
+  "$(vpid_status --pid abc)|$(vpid --pid abc 2>&1 >/dev/null | grep -c 'invalid int value')"
 check "the close note claims no more than the table showed" "1|0" \
   "$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'no process matching claude was found on /dev/ttys901')|$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'was running')"
 
