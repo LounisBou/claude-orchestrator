@@ -3457,11 +3457,16 @@ check "a relative brief path resolves absolute in the prompt" "1" \
 
 # `--gate-tokens <N>` sets ONE session's context gate at launch: the launch exports the
 # variable beside ORCHESTRATOR_SPAWNED, so the hooks and the status line the host starts
-# inherit it. Without the option nothing is exported and the 300,000 default holds.
+# inherit it. Without the option an agent's launch exports 240,000; any other role exports
+# nothing and the 300,000 default holds.
 gspawn() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title "Agent : gate" "$@" 2>&1; }
 out=$(gspawn --prompt p --gate-tokens 200000)
 check "--gate-tokens exports the gate in the launch" "1" "$(printf '%s\n' "$out" | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE_TOKENS=200000 && ')"
-check "without --gate-tokens nothing is exported" "0" "$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')"
+check "without --gate-tokens an agent's launch exports the 240000 gate" "1" "$(gspawn --prompt p | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE_TOKENS=240000 && ')"
+check "--gate-tokens on an agent wins over the 240000 default" "1|0" \
+  "$(gspawn --prompt p --gate-tokens 150000 | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE_TOKENS=150000 && ')|$(gspawn --prompt p --gate-tokens 150000 | grep -c 'GATE_TOKENS=240000')"
+check "an orchestrator's, an auditor's and a coordinator's launch export no gate" "0|0|0" \
+  "$(gspawn --title 'Orch : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Coord : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')"
 for bad in 0 -5 abc 1.5 ""; do
   badout=$(gspawn --prompt p --gate-tokens "$bad"); badcode=$?
   check "--gate-tokens '$bad' is refused, nothing launched" "1|0|1" \

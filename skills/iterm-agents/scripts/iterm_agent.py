@@ -131,10 +131,13 @@ MOVE_ROLES = ("Orch", "Coord")
 TOTAL_TOKENS_ENV = "CLAUDE_CODE_TOTAL_TOKENS_REMINDER"
 SILENT_TURN_ENV = "CLAUDE_CODE_SILENT_TURN_REMINDER"
 # The window an agent compacts at. The host shows it as the session's window and compacts
-# 33 thousand tokens short of it, so the module's gate on a window under one million
-# is a percentage and trips at 240 thousand, before the compaction near 267 thousand.
+# 33 thousand tokens short of it, near 267 thousand.
 AGENT_COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
 AGENT_COMPACT_WINDOW = "300000"
+# The gate an agent runs under. The module reads the session's window as one million whatever
+# the compaction window says, so its default gate is 300 thousand and the host, which compacts
+# near 267 thousand, would always act first: the launch sets the gate below that instead.
+AGENT_GATE_TOKENS = 240000
 # The skills the account syncs from the web app are listed under this prefix, thirteen of
 # them on this machine, about 2.1 thousand tokens on every call, and no session has invoked
 # one. The host's `syncClaudeAiSkills: false`, passed in a launch's own --settings, hides
@@ -1742,9 +1745,12 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
              "export ORCHESTRATOR_SPAWNED=1",
              "printf '\\033]0;%%s\\007' %s" % shq(title),
              None]
+    if not gate_tokens and title_role(title) == "Agent":
+        gate_tokens = AGENT_GATE_TOKENS
     if gate_tokens:
         # The session's own context gate, read from the environment by the module's context
-        # gate and its band. Exported only when asked for: absent, the default holds.
+        # gate and its band. Exported when asked for, and for an agent by default: absent,
+        # the module's own default holds.
         parts.insert(2, "export ORCHESTRATOR_CONTEXT_GATE_TOKENS=%d" % gate_tokens)
     cli = [shq(cli_path)]
     if model:
