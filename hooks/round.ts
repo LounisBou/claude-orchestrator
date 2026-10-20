@@ -4,9 +4,9 @@
 // whole and renamed into place by the relay (supervision.ts) in place of a message, so a
 // question waits in the round without costing the coordinator's model a turn. The pane of
 // the coordinator draws the first open question whole, with its lettered choices the operator
-// answers from (the entry then `answered`, by the pane); the coordinator reads the round with
-// `coordinator.sh round` when the operator speaks to it, and closes an entry with
-// `coordinator.sh round-close`. A file that does not parse is skipped by every
+// answers from (the entry then `answered` by the pane, his choice sent); the coordinator
+// reads the round with `coordinator.sh round` when the operator speaks to it, and closes an
+// entry with `coordinator.sh round-close`. A file that does not parse is skipped by every
 // reader, never repaired. Pure on purpose, like relay.ts: the handler holds the $.
 import { fingerprint, type Wait } from './relay.ts'
 

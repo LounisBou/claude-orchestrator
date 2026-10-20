@@ -44,19 +44,17 @@
 # sleeping prints, one per sleeping orchestrator, in the order they went to sleep:
 #   sleeping <name> | since <UTC time> | <directory> | prs <repository>#<n> <branch>, ... or none
 #     | checkouts <path>, ... or none | brief <path> | model <id> | effort <level or default>
-# round prints, for each entry whose status is open, then for each answered one (the operator
-# chose in the coordinator's pane, and the asking orchestrator was sent his choice), then for
-# each withdrawn one, a line
+# round prints, for each entry whose status is open, then for each answered one (chosen in the
+# coordinator's pane and sent to the asking orchestrator), then for each withdrawn one, a line
 #   round <id> | <operator or done> | from <sender> | since <UTC time> | blocks: <what it blocks, or -> | <status>
-# followed by the question's lines, each indented by four spaces, then for an answered entry
-#     answered from the pane at <UTC time>: <letter> : <choice text>
-# and for an entry its sender withdrew (a later turn of its own ended on another wait)
-#     withdrawn by the sender at <UTC time>: its later turn waits on something else
-# The entries are read from
+# followed by the question's lines, each indented by four spaces. The entries are read from
 # <state>/round/<id>.json, one JSON entry per file, written whole by the hooks module at the end
 # of a turn of an orchestrator on this machine (hooks/round.ts); a file that does not parse is
 # skipped. Each set is in the round's order: grouped by sender, the groups by their earliest
-# wait, each in the order its waits began.
+# wait, each in the order its waits began. An answered entry's lines end on
+#     answered from the pane at <UTC time>: <letter> : <choice text>
+# and those of an entry its sender withdrew (its later turn ended on another machine line) on
+#     withdrawn by the sender at <UTC time>: its later turn waits on something else
 # round-close rewrites the entry with status closed and the answer {text, by "coordinator", at},
 # in one rename, and refuses an id with no entry.
 # drop prints "dropped <name>", then "brief moved to <path>" (or "brief <path> was already
