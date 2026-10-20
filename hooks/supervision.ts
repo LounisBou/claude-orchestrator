@@ -32,7 +32,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { roundEntry, roundEntryId, roundPath, openEntries, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, openEntries, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -485,13 +485,15 @@ Promise<{ tty: string | null; name: string | null; pid: string | null; known: bo
 
 // The pane as the module remembers it: what it was opened to list, and its clock, started by
 // the open and cancelled by any close. A coordinator's pane also keeps the questions whose
-// « other answer » was pressed (their ids: the hint is drawn under them) and the answers chosen
-// in it that were not delivered, said on their question until its sender is gone.
-type PaneMemory = {
+// « other answer » was pressed (their ids: the hint is drawn under them), the answers chosen
+// in it that were not delivered, said on their question until its sender is gone, and the
+// entries whose answer is in flight, so a second press on one does nothing.
+export type PaneMemory = {
   opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null
   ticker: { cancel(): void } | null
   other: Set<string>
   undelivered: Map<string, { entry: RoundEntry; reason: string }>
+  answering: Set<string>
 }
 
 // The pane opened, by the command or by the module: the role it lists, its title, its clock.
@@ -531,7 +533,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // Module memory: the role the pane was opened in, the tty its agents are read
   // from — the render lists what the open asked for — and the open pane's clock.
   // A reload forgets it, and the pane then asks to be opened again.
-  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), undelivered: new Map() }
+  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), undelivered: new Map(), answering: new Set() }
   const stopTicker = () => {
     pane.ticker?.cancel()
     pane.ticker = null
@@ -913,10 +915,11 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   }
   const role = roleOf(name)
   if (!name || (role !== 'orchestrator' && role !== 'agent')) return
+  const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
+  // Withdrawn before the wait is read: a fingerprint the withdrawal forgot stays forgotten.
+  if (role === 'orchestrator' && wait) await withdrawStale($, sessionId, roundEntryId(sessionId, wait))
   const before = await readWait($, sessionId)
   const relayed = before?.relayed ?? null
-  const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
-  if (role === 'orchestrator') await withdrawStale($, sessionId, wait ? roundEntryId(sessionId, wait) : null)
   if (!wait && role === 'orchestrator') {
     if (before?.waiting) await writeWait($, sessionId, { ...clearedWait(before), name, pid })
     return
@@ -1006,10 +1009,14 @@ async function withdrawEntry($: any, sessionId: string, name: string, held: { bl
 
 // A choice pressed in the coordinator's pane: the entry, read again so a question settled
 // meanwhile is left as it is, becomes answered by the pane, written whole and renamed into
-// place, and the asking orchestrator is sent the operator's choice. A send not delivered keeps
-// the entry answered, is one log line, and the pane says it on that question until its sender
-// is gone. The pane is drawn again: the next open question comes up.
+// place, and the asking orchestrator is sent the operator's choice. Its fingerprint is
+// forgotten, so the same question asked again is entered again. A send not delivered, or one
+// that throws, keeps the entry answered, is one log line, and the pane says it on that
+// question until its sender is gone. A press on an entry whose answer is in flight does
+// nothing. The pane is drawn again: the next open question comes up.
 export async function answerFromPane($: any, pane: PaneMemory, asked: RoundEntry, choice: RoundChoice): Promise<void> {
+  if (pane.answering.has(asked.id)) return
+  pane.answering.add(asked.id)
   try {
     const path = roundPath(await stateDir($), asked.id)
     const entry = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
@@ -1018,17 +1025,32 @@ export async function answerFromPane($: any, pane: PaneMemory, asked: RoundEntry
     const text = `${choice.letter} : ${choice.text}`
     await writeAtomic($, path, JSON.stringify({ ...entry, status: 'answered', answer: { text, by: 'pane', at } }) + '\n')
     pane.other.delete(entry.id)
-    const sent = await $.session.send({ to: entry.from, text: paneAnswerText(entry, text, at) })
-    if (!sent?.isDelivered) {
-      const reason = sent?.reason ?? 'no answer'
+    await forgetRelayed($, entry)
+    let reason: string | null = null
+    try {
+      const sent = await $.session.send({ to: entry.from, text: paneAnswerText(entry, text, at) })
+      if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
+    } catch (err) {
+      reason = (err as Error).message
+    }
+    if (reason !== null) {
       pane.undelivered.set(entry.id, { entry, reason })
       await logLine($, `round: the pane's answer was not delivered to ${entry.from}: ${reason}`)
     }
   } catch (err) {
     await logLine($, `round: ${(err as Error).message}`)
   } finally {
+    pane.answering.delete(asked.id)
     $.ui.invalidate('ui.render')
   }
+}
+
+// A settled entry's fingerprint forgotten in its sender's wait file, so the same question asked
+// again is entered again: the file is re-read and written back with `relayed` null only when it
+// still holds that entry's own fingerprint (a later wait may have replaced it).
+async function forgetRelayed($: any, entry: RoundEntry): Promise<void> {
+  const now = await readWait($, entry.session)
+  if (now && now.relayed === entryFingerprint(entry)) await writeWait($, entry.session, { ...now, relayed: null })
 }
 
 // The message the asking orchestrator receives: a report of the operator's choice, never more.
@@ -1036,14 +1058,22 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
   return `[module] The operator answered from the coordinator's pane at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
 }
 
-// An orchestrator's turn ended on a wait other than the one an open entry of its own holds, or
-// on none: that entry is no longer what it waits on, so it is withdrawn by the sender and leaves
-// the pane and its count. `current` is the id of the entry this turn's wait has, null for none.
-async function withdrawStale($: any, sessionId: string, current: string | null): Promise<void> {
+// An orchestrator's turn ended on a machine line other than the wait an open entry of its own
+// holds: that entry is no longer what it waits on, so it is withdrawn by the sender, leaves the
+// pane and its count, and its fingerprint is forgotten. A turn with no machine line says nothing
+// of its wait and withdraws nothing. `current` is the id of the entry this turn's wait has. Each
+// withdrawal is one log line; one that cannot be written is one too, and the relay goes on.
+async function withdrawStale($: any, sessionId: string, current: string): Promise<void> {
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current) continue
-    const answer = { text: '', by: 'sender' as const, at: new Date().toISOString() }
-    await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+    try {
+      const answer = { text: '', by: 'sender' as const, at: new Date().toISOString() }
+      await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+      await logLine($, `round: withdrawn by the sender: ${entry.id}`)
+      await forgetRelayed($, entry)
+    } catch (err) {
+      await logLine($, `round: ${(err as Error).message}`)
+    }
   }
 }
 

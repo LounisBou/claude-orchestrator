@@ -63,6 +63,13 @@ export function questionBody(entry: Pick<RoundEntry, 'question' | 'choices'>): s
   return entry.question.split('\n').filter(line => !CHOICE.test(line) && !RECOMMENDATION.test(line)).join('\n').trim()
 }
 
+// The fingerprint of the wait an entry was written for, as the sender's wait file keeps it.
+export function entryFingerprint(entry: Pick<RoundEntry, 'kind' | 'blocks' | 'question'>): string {
+  return fingerprint(entry.kind === 'operator'
+    ? { kind: 'operator', blocks: entry.blocks ?? '', question: entry.question }
+    : { kind: 'done', question: entry.question })
+}
+
 // The id of a wait's entry: the session's and the wait's own fingerprint, so the same wait
 // entered again lands on the same file. The store's own sanitising (supervision.ts
 // sessionKey): an id is never trusted as a path.

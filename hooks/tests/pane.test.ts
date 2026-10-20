@@ -881,13 +881,14 @@ const button = (tree: any, key: string) => findAll(tree, n => n.type === 'Button
 const texts = (tree: any) => findAll(tree, n => n.type === 'Text' && typeof n.props.children === 'string').map(n => n.props.children as string)
 
 // A coordinator with one live orchestrator asking, its send recorded (or refused), its pane drawn.
-async function askingPane(asked: RoundEntry[], over: { refuse?: string } = {}) {
+async function askingPane(asked: RoundEntry[], over: { refuse?: string; throws?: string } = {}) {
   const fx = fakeDollar({ launchName: 'Coord : main' })
   fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low', context_percent: 30 })) + '\n')
   for (const e of asked) fx.files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
   const sent: { to: string; text: string }[] = []
   fx.dollar.session.send = async (args: { to: string; text: string }) => {
     sent.push(args)
+    if (over.throws) throw new Error(over.throws)
     return over.refuse ? { isDelivered: false, reason: over.refuse } : { isDelivered: true }
   }
   const { handlers } = mounted(registerSupervision)
@@ -999,4 +1000,34 @@ test('an entry its sender withdrew is out of the pane and of its count', async (
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', blocks: 'phase 4' })
   const { render } = await askingPane([stale, asked])
   expect(texts(await render())).toContain('Question 1 of 1 — from Orch : low — blocks: phase 4')
+})
+
+test('a send that throws is said in the pane as an answer not delivered, its reason the error\'s, and logged', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
+  const { fx, render, stored } = await askingPane([asked], { throws: 'the bridge is down' })
+  await button(await render(), 'choice:A').props.onPress()
+  expect(stored(asked.id).status).toBe('answered')
+  expect(fx.written.filter(l => l.includes("round: the pane's answer was not delivered to Orch : low: the bridge is down")).length).toBe(1)
+  expect(texts(await render()).some(t => t.startsWith('not delivered: the bridge is down'))).toBe(true)
+})
+
+test('every letter\'s Button answers with its own letter', async () => {
+  const asked = ['phase 3', 'phase 4', 'phase 5'].map((blocks, i) =>
+    entry('Orch : low', `2026-10-18T10:0${i + 3}:00.000Z`, { session: 'low', blocks, choices: CHOICES }))
+  const { sent, render, stored } = await askingPane(asked)
+  for (const letter of ['A', 'B', 'C']) await button(await render(), `choice:${letter}`).props.onPress()
+  expect(asked.map(e => stored(e.id).answer!.text)).toEqual(CHOICES.map(c => `${c.letter} : ${c.text}`))
+  expect(sent.length).toBe(3)
+})
+
+test('a second press while the answer is in flight, or after it, writes and sends nothing more', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
+  const { fx, sent, render, stored } = await askingPane([asked])
+  const drawn = await render()
+  const writes = () => fx.ran.filter(r => r.startsWith('mv -f') && r.endsWith(`${ROUND}/${asked.id}.json`)).length
+  await Promise.all([button(drawn, 'choice:A').props.onPress(), button(drawn, 'choice:A').props.onPress()])
+  await button(drawn, 'choice:A').props.onPress()
+  expect(stored(asked.id).status).toBe('answered')
+  expect(writes()).toBe(1)
+  expect(sent.length).toBe(1)
 })
