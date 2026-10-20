@@ -498,7 +498,7 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
   expect(kids.slice(6).map((t: any) => t.type === 'Box' ? t.props.children.map((b: any) => `${b.type} ${b.props.label}`) : `${t.type} ${t.props.label ?? t.props.children}`)).toEqual([
     ['Button A', 'Button B', 'Button C'],
     'Button Other answer: in the session',
-    'Text click a letter, or ctrl+x tab then the letter · Esc: back to the prompt',
+    'Text click an option, or ctrl+x tab then its key · Esc: back to the prompt',
   ])
 })
 
@@ -933,7 +933,7 @@ test('under the choice lines, each choice is a Button of its letter, hotkey its 
   expect(kids.slice(row - CHOICES.length, row).map((kid: any) => kid.props.flexDirection)).toEqual(['row', 'row', 'row'])
   expect(kids[row].props).toMatchObject({ flexDirection: 'row', flexWrap: 'wrap' })
   expect(kids[row + 1]).toBe(button(tree, 'other'))
-  expect(kids[kids.length - 1].props).toMatchObject({ dimColor: true, children: 'click a letter, or ctrl+x tab then the letter · Esc: back to the prompt' })
+  expect(kids[kids.length - 1].props).toMatchObject({ dimColor: true, children: 'click an option, or ctrl+x tab then its key · Esc: back to the prompt' })
 })
 
 test('a press on a choice answers the entry from the pane, sends the asking orchestrator the choice once, and draws the next question', async () => {

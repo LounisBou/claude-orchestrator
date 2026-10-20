@@ -858,7 +858,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           },
         }),
         ...(pane.other.has(asking.id) ? [el.Text({ color: 'suggestion', children: `type your answer in this tab, or in ${asking.from}'s tab` })] : []),
-        el.Text({ dimColor: true, children: 'click a letter, or ctrl+x tab then the letter · Esc: back to the prompt' }),
+        el.Text({ dimColor: true, children: 'click an option, or ctrl+x tab then its key · Esc: back to the prompt' }),
       ]
       const notices = failed.map(notice => el.Text({ color: 'error', children: `not delivered: ${notice.reason} — the answer to ${notice.entry.from} (blocks: ${notice.entry.blocks})` }))
       const asked = el.Box({
