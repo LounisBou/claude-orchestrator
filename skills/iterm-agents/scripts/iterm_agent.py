@@ -130,6 +130,11 @@ MOVE_ROLES = ("Orch", "Coord")
 # ships with a change to this list, and a launcher test keeps the keys passed.
 TOTAL_TOKENS_ENV = "CLAUDE_CODE_TOTAL_TOKENS_REMINDER"
 SILENT_TURN_ENV = "CLAUDE_CODE_SILENT_TURN_REMINDER"
+# The window an agent compacts at. The host shows it as the session's window and compacts
+# 33 thousand tokens short of it, so the module's gate on a window under one million
+# is a percentage and trips at 240 thousand, before the compaction near 267 thousand.
+AGENT_COMPACT_WINDOW_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW"
+AGENT_COMPACT_WINDOW = "300000"
 # The skills the account syncs from the web app are listed under this prefix, thirteen of
 # them on this machine, about 2.1 thousand tokens on every call, and no session has invoked
 # one. The host's `syncClaudeAiSkills: false`, passed in a launch's own --settings, hides
@@ -1711,6 +1716,7 @@ def host_cuts(role):
     if role == "Agent":
         cuts["awaySummaryEnabled"] = False
         env[SILENT_TURN_ENV] = "0"
+        env[AGENT_COMPACT_WINDOW_ENV] = AGENT_COMPACT_WINDOW
     cuts["env"] = env
     return cuts
 
