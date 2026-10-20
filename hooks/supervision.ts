@@ -32,7 +32,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { entryFingerprint, roundEntry, roundEntryId, roundPath, openEntries, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, openEntries, plainText, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -844,7 +844,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           onPress: () => answerFromPane($, pane, entry, pick),
         })),
       })
-      const body = asking ? questionBody(asking) : ''
+      const body = asking ? plainText(questionBody(asking)) : ''
       const shown = asking === null ? [] : [
         el.Text({ bold: true, children: round[0].text }),
         ...(body !== '' ? [el.Text({ children: body })] : []),

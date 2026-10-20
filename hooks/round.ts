@@ -63,6 +63,18 @@ export function questionBody(entry: Pick<RoundEntry, 'question' | 'choices'>): s
   return entry.question.split('\n').filter(line => !CHOICE.test(line) && !RECOMMENDATION.test(line)).join('\n').trim()
 }
 
+// The question's text as the pane draws it: the emphasis markers around a span — `**x**`,
+// `__x__`, `*x*`, `_x_` and backticks — dropped, the words kept; a marker inside a word
+// (snake_case) or before a space (a `* ` list item) is no emphasis. Each span stays on its
+// line. The entry itself keeps the text verbatim.
+export function plainText(text: string): string {
+  return text
+    .replace(/`([^`\n]+)`/g, '$1')
+    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '$2')
+    .replace(/(^|[^\w*])\*(?=[^\s*])([^\n*]*?[^\s*])\*(?![\w*])/gm, '$1$2')
+    .replace(/(^|[^\w])_(?=[^\s_])([^\n_]*?[^\s_])_(?!\w)/gm, '$1$2')
+}
+
 // The fingerprint of the wait an entry was written for, as the sender's wait file keeps it.
 export function entryFingerprint(entry: Pick<RoundEntry, 'kind' | 'blocks' | 'question'>): string {
   return fingerprint(entry.kind === 'operator'

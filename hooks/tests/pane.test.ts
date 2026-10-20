@@ -1031,3 +1031,11 @@ test('a second press while the answer is in flight, or after it, writes and send
   expect(writes()).toBe(1)
   expect(sent.length).toBe(1)
 })
+
+test('the question\'s body is drawn without its emphasis markers, its stored text verbatim', async () => {
+  const question = 'Question 1 of 1 — **merge** it?\n_Context._ The __review__ is *green*, see `pr-219` and snake_case_name.\n* a list item'
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', question })
+  const { render, stored } = await askingPane([asked])
+  expect(texts(await render())).toContain('Question 1 of 1 — merge it?\nContext. The review is green, see pr-219 and snake_case_name.\n* a list item')
+  expect(stored(asked.id).question).toBe(question)
+})
