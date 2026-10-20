@@ -540,3 +540,38 @@ test('the withdrawal marks only the open question of that sender with the same s
   expect(fx.files.get(`${ROUND}/broken.json`)).toBe('{"id": "broken", "status": "op')
   expect(fx.sent.length).toBe(0)
 })
+
+// --- an entry its sender no longer waits on ---------------------------------------------------
+
+test('a later turn on another wait withdraws the sender\'s own open entry; the same wait keeps it open', async () => {
+  const chains = mounted()
+  const fx = fake()
+  const first = turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3'))
+  await drive(chains, 'turn.complete', fx.dollar, first)
+  const [asked] = entries(fx)
+  const other: RoundEntry = { ...asked, id: 'other-session', session: 's-two', from: 'Orch : other' }
+  const settled: RoundEntry = { ...asked, id: 'already-closed', status: 'closed' }
+  for (const kept of [other, settled]) fx.files.set(`${ROUND}/${kept.id}.json`, JSON.stringify(kept) + '\n')
+  // The same wait again: still what it waits on.
+  await drive(chains, 'turn.complete', fx.dollar, first)
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
+  const after = new Map(entries(fx).map(e => [e.id, e]))
+  const stale = after.get(asked.id)!
+  expect(stale.status).toBe('withdrawn')
+  expect(stale.answer!.text).toBe('')
+  expect(stale.answer!.by).toBe('sender')
+  expect(Number.isFinite(Date.parse(stale.answer!.at))).toBe(true)
+  expect(after.get(other.id)).toEqual(other)
+  expect(after.get(settled.id)).toEqual(settled)
+  expect(entries(fx).filter(e => e.session === 's-one' && e.status === 'open').map(e => e.blocks)).toEqual(['phase 4'])
+  expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
+})
+
+test('a later turn that waits on nothing withdraws the sender\'s open entries', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on phase 3.'))
+  expect(entries(fx).map(e => [e.status, e.answer?.by])).toEqual([['withdrawn', 'sender']])
+})

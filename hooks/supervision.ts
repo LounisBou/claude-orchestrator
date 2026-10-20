@@ -32,7 +32,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { roundEntry, roundPath, openEntries, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
+import { roundEntry, roundEntryId, roundPath, openEntries, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -916,6 +916,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const before = await readWait($, sessionId)
   const relayed = before?.relayed ?? null
   const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
+  if (role === 'orchestrator') await withdrawStale($, sessionId, wait ? roundEntryId(sessionId, wait) : null)
   if (!wait && role === 'orchestrator') {
     if (before?.waiting) await writeWait($, sessionId, { ...clearedWait(before), name, pid })
     return
@@ -1033,6 +1034,17 @@ export async function answerFromPane($: any, pane: PaneMemory, asked: RoundEntry
 // The message the asking orchestrator receives: a report of the operator's choice, never more.
 export function paneAnswerText(entry: RoundEntry, answer: string, at: string): string {
   return `[module] The operator answered from the coordinator's pane at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
+}
+
+// An orchestrator's turn ended on a wait other than the one an open entry of its own holds, or
+// on none: that entry is no longer what it waits on, so it is withdrawn by the sender and leaves
+// the pane and its count. `current` is the id of the entry this turn's wait has, null for none.
+async function withdrawStale($: any, sessionId: string, current: string | null): Promise<void> {
+  for (const { path, entry } of await readRound($)) {
+    if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current) continue
+    const answer = { text: '', by: 'sender' as const, at: new Date().toISOString() }
+    await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+  }
 }
 
 // Every entry of the round on this machine, each with the file it was read from. A file that
