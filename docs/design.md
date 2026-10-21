@@ -78,6 +78,7 @@ templates/orchestrator-succession-brief.md
 templates/agent-audit-brief.md       one audit of the method: the stock, the net balance, proposals, then stop or, with work the operator gave it after the report still in hand, succeed
 templates/coordinator-succession-brief.md  the coordinator's successor: close the predecessor, then register
 templates/auditor-succession-brief.md  the auditor's successor, for an auditor kept on past its report: close the predecessor
+agents/lens.md                       read-only reader for one review lens: findings only, tools limited to Read, Grep, Glob, Bash
 commands/install.md                  unwires the tap, creates the state directory
 commands/uninstall.md                restores the previous status line, removes the state directory
 commands/status.md                   live sessions and their measured context fill
