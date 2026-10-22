@@ -113,8 +113,8 @@ wait leaves the entry open. Entering them wakes you for none, and your pane
 shows him each orchestrator on one line, its dot coloured by its state (the ones waiting for
 him in `warning`), with `Status:` and `Blocks:` lines under a waiting one, and the one whose
 question is drawn bold in `suggestion`, then, under « Questions for you », the first open
-question whole with its lettered choices, or « none in the pane » with the number of
-orchestrators waiting when their question reached you as a message: ask them in your tab. **An
+question that carries choices, whole with its lettered choices (the ones without come after),
+or « none in the pane » with the number of orchestrators waiting when their question reached you as a message: ask them in your tab. **An
 answer he chooses in the pane reaches the orchestrator directly**: the module marks the entry
 `answered` and sends the sender his choice, so `round` lists it with that answer, and you send
 nothing for it: write it in your ledger as answered from the pane, and close it with
