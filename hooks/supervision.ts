@@ -632,6 +632,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         // The wait just written is what the pane shows: the row follows it, when it is news.
         const sent = await withDeadline(sendRow($, await $.session.id()), RELAY_BOUND_MS)
         if (isDegradedPass(sent)) await logLine($, `row: did not finish within ${RELAY_BOUND_MS} ms`)
+      } else if (!e.agentId) {
+        // A turn that ended without an answer (interrupted, failed) still ends the mark's turn.
+        await dropMark($)
       }
     } catch (err) {
       await logLine($, `relay: ${(err as Error).message}`)
@@ -903,6 +906,14 @@ const RELAY_BOUND_MS = 5000
 function withoutMark(record: WaitRecord): WaitRecord {
   const { typed: _mark, ...rest } = record
   return rest
+}
+
+// The mark cleared at the end of a turn that gave no answer: prompt.submit runs before turn.start,
+// so the turn's start cannot clear it without erasing the mark of its own prompt.
+async function dropMark($: any): Promise<void> {
+  const sessionId = await $.session.id()
+  const now = await readWait($, sessionId)
+  if (now?.typed) await writeWait($, sessionId, withoutMark(now))
 }
 
 // A turn's end, read and reported. The role comes from the session's row (the measure's

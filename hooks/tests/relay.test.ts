@@ -721,6 +721,18 @@ for (const [label, line] of [['another operator wait', 'waiting: operator — bl
   })
 }
 
+test('a mark left by a turn that ended without an answer does not make a later untyped turn withdraw', async () => {
+  const { chains, fx } = await relayedQuestion()
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer', 'what is the status of the build?'))
+  await drive(chains, 'turn.start', fx.dollar, { text: 'what is the status of the build?' })
+  await drive(chains, 'turn.complete', fx.dollar, { ...turnEnd(''), reason: 'interrupt', isAborted: true })
+  expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+  await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Done.', 'waiting: done')))
+  expect(entries(fx).map(e => [e.blocks, e.status])).toEqual([['phase 3', 'open'], [null, 'open']])
+})
+
+
 test('a coordinator on another machine is sent the withdrawal at the turn\'s end, not at the prompt', async () => {
   const { chains, fx } = await relayedQuestion({ remote: true })
   const since = fx.row().waiting_since
