@@ -1131,7 +1131,7 @@ export async function answerFromPane($: any, pane: PaneMemory, asked: RoundEntry
 // still holds that entry's own fingerprint (a later wait may have replaced it).
 async function forgetRelayed($: any, entry: RoundEntry): Promise<void> {
   const now = await readWait($, entry.session)
-  if (now && now.relayed === entryFingerprint(entry)) await writeWait($, entry.session, { ...now, relayed: null })
+  if (now && now.relayed === entryFingerprint(entry)) await writeWait($, entry.session, { ...withoutMark(now), relayed: null })
 }
 
 // The message the asking orchestrator receives: a report of the operator's choice, never more.

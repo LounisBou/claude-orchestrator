@@ -672,6 +672,17 @@ test('after an answer from the pane, the same question asked again is entered ag
   expect(entries(fx).map(e => [e.id, e.status])).toEqual([[asked.id, 'open']])
 })
 
+test('an answer from the pane drops the mark of a typed prompt from the wait file', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer', 'what is the status of the build?'))
+  expect(JSON.parse(fx.files.get(WAIT)!).typed).toBeTruthy()
+  const pane = { opened: null, ticker: null, other: new Set<string>(), undelivered: new Map(), answering: new Set<string>() }
+  await answerFromPane({ ...fx.dollar, ui: { invalidate: () => undefined } }, pane, asked, { letter: 'A', text: 'merge it' })
+  expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+})
+
+
 test('an answer from the pane leaves a wait file that holds another fingerprint as it is', async () => {
   const { fx } = await relayedQuestion()
   const [asked] = entries(fx)
