@@ -1009,7 +1009,9 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 // something else — and only the turn's end tells (relayTurnEnd): here the question is only
 // marked in the session's wait file as held while he typed. Anything else does nothing, a slash
 // command included: it starts no turn, so nothing would read the mark. Without a coordinator
-// nothing is marked. The wait is re-read before it is written back, a turn's start may have
+// nothing is marked. A wait file that holds no question (the last turn ended on done) leaves the
+// round's own open entry of the session to be marked, the earliest when several, when the
+// coordinator runs on this machine. The wait is re-read before it is written back, a turn's start may have
 // written it.
 export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
   if (!typedByOperator(kind) || text.trimStart().startsWith('/')) return
@@ -1021,11 +1023,22 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
     if (walked.known) name = walked.name
   }
   if (!name || roleOf(name) !== 'orchestrator') return
-  const held = heldQuestion(await readWait($, sessionId))
+  const coordinator = await coordinatorAddress($)
+  if (!coordinator) return
+  const held = heldQuestion(await readWait($, sessionId)) ?? (coordinator.local ? await openQuestion($, sessionId) : null)
   if (!held) return
-  if (!(await coordinatorAddress($))) return
   const now = await readWait($, sessionId)
   if (now) await writeWait($, sessionId, { ...now, typed: held })
+}
+
+// The session's open operator entry in the round, the earliest when several: the question a
+// later turn's wait left open and the wait file no longer names (it ended on done, say).
+async function openQuestion($: any, sessionId: string): Promise<{ blocks: string; since: string | null } | null> {
+  const open = (await readRound($))
+    .map(({ entry }) => entry)
+    .filter(entry => entry.session === sessionId && entry.kind === 'operator' && entry.status === 'open' && !!entry.blocks)
+    .sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0))
+  return open.length > 0 ? { blocks: open[0].blocks!, since: open[0].since } : null
 }
 
 // The held question withdrawn at the end of the turn the operator typed in: answered in the

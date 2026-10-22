@@ -733,6 +733,19 @@ test('a mark left by a turn that ended without an answer does not make a later u
 })
 
 
+test('a question left open after an untyped turn ended on done is withdrawn by the tab once the operator types in', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const since = fx.row().waiting_since
+  await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Done.', 'waiting: done')))
+  expect(entries(fx).find(e => e.blocks === 'phase 3')!.status).toBe('open')
+  await typedTurn(chains, fx, answerOf('Done.', 'waiting: done'))
+  const held = entries(fx).find(e => e.blocks === 'phase 3')!
+  expect([held.status, held.since, held.answer?.text, held.answer?.by]).toEqual(['withdrawn', since, "answered in the sender's own tab", 'tab'])
+  expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+})
+
+
 test('a coordinator on another machine is sent the withdrawal at the turn\'s end, not at the prompt', async () => {
   const { chains, fx } = await relayedQuestion({ remote: true })
   const since = fx.row().waiting_since
