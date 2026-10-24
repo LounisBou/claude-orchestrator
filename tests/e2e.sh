@@ -210,7 +210,7 @@ if [ -n "$me" ]; then
   aud_out=$(bash "$AGENT" spawn --dir "$SANDBOX/repo" --auditor --title "Audit : e2e probe" --trust \
         --prompt "Do nothing." 2>&1)
   AUD=$(printf '%s' "$aud_out" | grep -oE '^/dev/ttys[0-9]+$' | tail -1)
-  if [ -z "$AUD" ] && printf '%s' "$aud_out" | grep -q 'orchestrator:install'; then
+  if [ -z "$AUD" ] && printf '%s' "$aud_out" | grep -q '/orchestrator-install'; then
     echo "  skip the auditor: no model on record for this session"
   else
     check "an auditor spawn returns a tty" "yes" \
