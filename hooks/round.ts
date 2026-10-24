@@ -65,7 +65,8 @@ export function questionBody(entry: Pick<RoundEntry, 'question' | 'choices'>): s
 }
 
 // A field of a question in the decide shape, `_<label>_ : <text>`, the label in the operator's
-// language and read by its shape alone; the separator kept as written, « : » or « : » with no space before it drawn as « : ».
+// language and read by its shape alone. The colon may have spaces around it or none: one with a
+// space before it is drawn « label : text », one without « label: text ».
 const FIELD = /^\s*_([^_\n]*[^_\s])_(\s*:\s*)(.*?)\s*$/
 // The sender's own numbering: a line wholly bold holding two numbers, `**Question 5 of 6**`.
 const NUMBER = /^\s*\*\*([^*\n]*\d+\D+\d+[^*\n]*)\*\*\s*$/
