@@ -1163,7 +1163,13 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   // is not woken for it. The fingerprint is kept once the entry is in place, as a delivery's.
   if (coordinator?.local && wait && patch) {
     const entry = roundEntry(sessionId, name, wait, patch.waiting_since!, new Date().toISOString())
-    if (entry.choices.length === 0 && await keepsChoices($, entry)) {
+    const kept = entry.choices.length === 0 ? await keptChoices($, entry) : null
+    if (kept) {
+      // Marked urgent or unmarked, the entry is rewritten with its choices: urgent, it is due at once.
+      if (Boolean(kept.entry.urgent) !== Boolean(entry.urgent)) {
+        const { urgent: _, ...plain } = kept.entry
+        await writeAtomic($, kept.path, JSON.stringify(entry.urgent ? { ...plain, urgent: true } : plain) + '\n')
+      }
       await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
       return
     }
@@ -1249,12 +1255,12 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   }
 }
 
-// True when the session's open entry for the same wait already carries choices, the text of
-// this turn offering none: a progress note written under the same machine line is no new question.
-async function keepsChoices($: any, entry: RoundEntry): Promise<boolean> {
-  return (await readRound($)).some(({ entry: open }) =>
+// The session's open entry for the same wait when it already carries choices, the text of this
+// turn offering none: a progress note written under the same machine line is no new question.
+async function keptChoices($: any, entry: RoundEntry): Promise<{ path: string; entry: RoundEntry } | null> {
+  return (await readRound($)).find(({ entry: open }) =>
     open.session === entry.session && open.kind === 'operator' && open.status === 'open'
-    && open.blocks === entry.blocks && open.since === entry.since && open.choices.length > 0)
+    && open.blocks === entry.blocks && open.since === entry.since && open.choices.length > 0) ?? null
 }
 
 // The held question's entry in the round: that session's open operator question with the same

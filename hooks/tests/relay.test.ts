@@ -243,6 +243,24 @@ test('a wait marked urgent is entered in the round urgent, what it blocks read w
   expect([entry.urgent, entry.blocks]).toEqual([true, 'the production fault'])
 })
 
+test('a plain wait asked again urgent rewrites its entry urgent, on the same id, and back again', async () => {
+  const chains = mounted()
+  const fx = fake()
+  const choices = 'Merge #12 now?\n- **A** : merge it\n- **B** : wait'
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(choices, 'waiting: operator — blocks: phase 3')))
+  const [plain] = entries(fx)
+  expect(plain.urgent).toBeUndefined()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(choices, 'waiting: operator (urgent) — blocks: phase 3')))
+  expect(entries(fx).map(e => [e.id, e.urgent])).toEqual([[plain.id, true]])
+  // Asked urgent again with no choice, the entry keeps the choices it has and stays urgent.
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator — blocks: phase 3')))
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator (urgent) — blocks: phase 3')))
+  expect(entries(fx).map(e => [e.id, e.urgent, e.choices.length])).toEqual([[plain.id, true, 2]])
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(choices, 'waiting: operator — blocks: phase 3')))
+  expect(entries(fx).map(e => [e.id, e.urgent])).toEqual([[plain.id, undefined]])
+  expect(fx.sent.length).toBe(0)
+})
+
 test('the same wait is never sent twice, whatever progress the turns between report; a new line is', async () => {
   const chains = mounted()
   const fx = fake()

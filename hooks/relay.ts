@@ -24,7 +24,8 @@ export const RELAY_CAP = 4000
 // An orchestrator waits on the operator or is done; an agent of one (parseStatus) has
 // delivered, is blocked or asks, `blocks` then its status line's own words.
 // A wait on the operator its sender marked `(urgent)` carries `urgent: true`; the plain
-// form carries no such field. Never in the fingerprint: marking a wait urgent is no new wait.
+// form carries no such field. In the fingerprint, so a wait marked urgent or unmarked is
+// entered again, but never in the round entry's id (round.ts roundEntryId): the same entry.
 export type Wait =
   | { kind: 'operator'; blocks: string; question: string; urgent?: true }
   | { kind: 'done'; question: string }
@@ -80,12 +81,13 @@ export function clearedWait<T extends PriorWait>(prior: T): T & { waiting: null;
 
 // The deduplication key: a wait is its kind and its line, reported once however the turns
 // it spans read above that line; a new line is a new wait. A delivery, or a line saying
-// nothing, keeps the turn's text in the key: a second delivery is news. FNV-1a over the
-// text, enough to tell two waits apart.
+// nothing, keeps the turn's text in the key: a second delivery is news. A wait marked urgent
+// keys apart from the plain one. FNV-1a over the text, enough to tell two waits apart.
 export function fingerprint(wait: Wait): string {
   const blocks = 'blocks' in wait ? wait.blocks : ''
   const said = wait.kind === 'delivered' || !blocks ? wait.question : ''
-  const text = `${wait.kind}\n${blocks}\n${said}`
+  const urgent = wait.kind === 'operator' && wait.urgent ? '\nurgent' : ''
+  const text = `${wait.kind}\n${blocks}\n${said}${urgent}`
   let hash = 0x811c9dc5
   for (let i = 0; i < text.length; i++) {
     hash ^= text.charCodeAt(i)
@@ -119,13 +121,14 @@ export function cutQuestion(question: string): string {
 export type RelayedWait = PriorWait & { relayed?: string | null }
 
 // The question the coordinator holds, if any: an operator wait (the current one, or the
-// one a turn's start cleared) whose own fingerprint was delivered. Its blocks and start
-// are what the coordinator's round file carries in the question's header.
+// one a turn's start cleared) whose own fingerprint, plain or urgent, was delivered. Its blocks
+// and start are what the coordinator's round file carries in the question's header.
 export function heldQuestion(prior: RelayedWait | null): { blocks: string; since: string | null } | null {
   const kind = prior?.waiting ?? prior?.last_waiting ?? null
   const blocks = prior?.blocks
   if (kind !== 'operator' || typeof blocks !== 'string' || blocks === '') return null
-  if (prior!.relayed !== fingerprint({ kind: 'operator', blocks, question: '' })) return null
+  const plain: Wait = { kind: 'operator', blocks, question: '' }
+  if (prior!.relayed !== fingerprint(plain) && prior!.relayed !== fingerprint({ ...plain, urgent: true })) return null
   return { blocks, since: prior!.waiting_since ?? null }
 }
 

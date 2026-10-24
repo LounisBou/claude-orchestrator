@@ -16,7 +16,7 @@ export type RoundChoice = { letter: string; text: string }   // letter: one of '
 // waiting on something else (`withdrawn`).
 export type RoundAnswer = { text: string; by: 'pane' | 'coordinator' | 'tab' | 'sender'; at: string }
 export type RoundEntry = {
-  id: string                    // `${sanitised session id}-${fingerprint(wait)}`, sanitised as supervision.ts sanitises store ids
+  id: string                    // `${sanitised session id}-${fingerprint(wait)}`, its wait unmarked, sanitised as supervision.ts sanitises store ids
   from: string                  // the sender's name, the address its answer goes back to (what relayText puts after « reply with SendMessage to: »)
   session: string               // the sender's session id
   kind: 'operator' | 'done'
@@ -77,17 +77,18 @@ export function plainText(text: string): string {
 }
 
 // The fingerprint of the wait an entry was written for, as the sender's wait file keeps it.
-export function entryFingerprint(entry: Pick<RoundEntry, 'kind' | 'blocks' | 'question'>): string {
+export function entryFingerprint(entry: Pick<RoundEntry, 'kind' | 'blocks' | 'question' | 'urgent'>): string {
   return fingerprint(entry.kind === 'operator'
-    ? { kind: 'operator', blocks: entry.blocks ?? '', question: entry.question }
+    ? { kind: 'operator', blocks: entry.blocks ?? '', question: entry.question, ...(entry.urgent ? { urgent: true as const } : {}) }
     : { kind: 'done', question: entry.question })
 }
 
 // The id of a wait's entry: the session's and the wait's own fingerprint, so the same wait
-// entered again lands on the same file. The store's own sanitising (supervision.ts
-// sessionKey): an id is never trusted as a path.
+// entered again lands on the same file, marked urgent or not. The store's own sanitising
+// (supervision.ts sessionKey): an id is never trusted as a path.
 export function roundEntryId(sessionId: string, wait: Wait): string {
-  return `${sessionId.replace(/[^A-Za-z0-9._-]/g, '_')}-${fingerprint(wait)}`
+  const plain = wait.kind === 'operator' ? { kind: wait.kind, blocks: wait.blocks, question: wait.question } : wait
+  return `${sessionId.replace(/[^A-Za-z0-9._-]/g, '_')}-${fingerprint(plain)}`
 }
 
 // The entry of an orchestrator's wait, open and unanswered, its question whole.
