@@ -43,7 +43,9 @@ check() {
   else printf '  FAIL %s\n       expected: %s\n       actual:   %s\n' "$1" "$2" "$3"; fail=$((fail+1)); fi
 }
 
-SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+# Resolved to its real path: under a TMPDIR behind a symlink (/var is /private/var), the host
+# keys its trust on the real path, misses the one the fixture accepted, and asks again.
+SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX") && SANDBOX=$(cd "$SANDBOX" && pwd -P)
 [ -d "${SANDBOX}" ] || { echo "cannot create a working directory under ${TMPDIR:-/tmp}" >&2; exit 1; }
 cleanup() {
   tmux kill-session -t "$SESSION" 2>/dev/null
