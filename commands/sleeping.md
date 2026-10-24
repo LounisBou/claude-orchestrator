@@ -9,7 +9,7 @@ The operator's command. An orchestrator is sleeping when the coordinator paused 
 its tab closed, its succession brief kept, its record in `<state dir>/sleeping.json`
 (`orchestrator:coordination`, « Pausing and waking orchestrators »).
 
-Usage: `/orchestrator:sleeping` lists them; `/orchestrator:sleeping drop <name>` abandons one
+Usage: `/orchestrator-sleeping` lists them; `/orchestrator-sleeping drop <name>` abandons one
 for good.
 
 **The list.** The hooks module answers it on the spot, with no model turn: each

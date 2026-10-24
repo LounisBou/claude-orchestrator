@@ -122,7 +122,7 @@ These bind where no reference is loaded — a message sent, a report read, a rep
 - **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something already broke the "status lives once" rule.
 - **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read the artifacts — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw, not what is; most often the operator acted between your turns. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, its agents stood down, their tabs closed like any finished delivery. A round on a merged head is paid in full and reads nothing.
 - **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
-- **Measure, never estimate, your own context**: the module measures every turn; read `/orchestrator:status` — your row and every agent's — before dispatching any phase.
+- **Measure, never estimate, your own context**: the module measures every turn; read `/orchestrator-status` — your row and every agent's — before dispatching any phase.
 - **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends, except the CI watch above, which wakes you.
 - **Before ending a turn, launch everything that can advance; stop only when nothing can advance without the operator's answer.** With no agent of yours busy, the turn ends on its machine line, written as plain text, as the message's last line, no markup (waiting: operator — blocks: <what it blocks>, or waiting: done: every goal in `goals.md` met or ruled out by him), or the stop gate hook refuses the stop.
@@ -138,7 +138,7 @@ They hold at every step of the loop, whatever a reference adds.
 
 **The gate is 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window.** The module enforces it and reports an agent past it (« Where the rest lives »); others point here. A launch compacts an agent at 300,000 (gate 240,000), an orchestrator at 400,000; `--gate-tokens` sets a session's own.
 
-The fill is the module's measurement, never an estimate — `/orchestrator:status` answers it. Two gates on it:
+The fill is the module's measurement, never an estimate — `/orchestrator-status` answers it. Two gates on it:
 
 - **Pre-dispatch gate**: never assign a new phase to an agent already past the gate: it must have room to FINISH the phase without saturating mid-work. Rotate first. **Read the number when it arrives** — such an agent with a phase done gets its N-bis and nothing after it.
 - **Mid-work gate**: an agent crossing the gate finishes the in-progress unit, then stops.
@@ -173,7 +173,7 @@ configuration change the tooling needs is no chore of his: it goes to the sessio
 owning it, as a request with its measurement; its protocol decides if he hears of it.
 
 **While a coordinator runs, every question for the operator goes to it** — his order —
-and the hooks module carries it: ask here, in the shape of `/orchestrator:decide` step 2, and
+and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
 Only such a question ends on that line; a report asking nothing, on its other machine line.
 Its fields, in his language: `**Question i of N**`, `_Subject_ :`, `_Context_ :`,
@@ -190,7 +190,7 @@ permission laundering; asking the operator is the same thing with a better excus
 
 ## Where the rest lives
 
-- The hooks module (`docs/design.md` §3): it owns the measured facts — every session measured on every turn, the fill band above the prompt, the gate's line past it, `/orchestrator:status`'s rows — and the measure file, one JSON line per session under `claude-orchestrator/measure/` in the host's configuration directory: the one channel an outside process reads.
+- The hooks module (`docs/design.md` §3): it owns the measured facts — every session measured on every turn, the fill band above the prompt, the gate's line past it, `/orchestrator-status`'s rows — and the measure file, one JSON line per session under `claude-orchestrator/measure/` in the host's configuration directory: the one channel an outside process reads.
 - `references/briefs.md`: « Prerequisites and phase rules »; the directives rule (see « Carried at every step »), with its guard over your own directives.
 - `references/lifecycle.md`: « Boundaries that stay yours » (environment preparation, pipelining) and the tab-close rationalization.
 - `references/review.md`: « Depth vs scope, and the rationalizations observed ».

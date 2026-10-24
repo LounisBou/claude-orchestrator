@@ -8,7 +8,7 @@ Run a DECISION ROUND as the COORDINATOR described in `orchestrator:coordination`
 open questions of every orchestrator in its round. Load that skill first. This runs only in
 the coordinator's session: anywhere else, say so in one line and stop.
 
-The round's shape is `/orchestrator:decide`'s, read from `commands/decide.md` and followed as
+The round's shape is `/orchestrator-decide`'s, read from `commands/decide.md` and followed as
 written: one question per message, in its step 2 shape, with its context, its choices and
 one recommendation; nothing on silence; a question re-presented in full after any
 interruption; a ruling never reopened. The coordination skill's rules for relayed questions

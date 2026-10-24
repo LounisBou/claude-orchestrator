@@ -3208,7 +3208,7 @@ check "the successor's announcement keeps operator questions coming to it" "yes"
 # opened by that orchestrator's own account of its work, every message naming the sender and
 # the coordinator, since he runs several coordinators.
 check "the coordinator runs every relayed question as a decision round by default, with its file and end line" "yes|yes|yes|yes" \
-  "$(spells "$COORDSKILL" 'goes through a decision round, by default**: the whole method of `/orchestrator:decide`, run')|$(spells "$COORDSKILL" 'without his asking and without his typing that command, even for a single question')|$(spells "$COORDSKILL" '`decision-round.md` in your scratch directory: number, the sender'"'"'s exact `ListAgents`')|$(spells "$COORDSKILL" '« The round is complete: N/N. »')"
+  "$(spells "$COORDSKILL" 'goes through a decision round, by default**: the whole method of `/orchestrator-decide`, run')|$(spells "$COORDSKILL" 'without his asking and without his typing that command, even for a single question')|$(spells "$COORDSKILL" '`decision-round.md` in your scratch directory: number, the sender'"'"'s exact `ListAgents`')|$(spells "$COORDSKILL" '« The round is complete: N/N. »')"
 check "every relayed question reaches the operator: in the ledger first, none dropped or merged" "yes|yes|yes" \
   "$(spells "$COORDSKILL" 'A question received is written, before anything else is done, to')|$(spells "$COORDSKILL" 'The round file is the ledger: nothing received is dropped, merged or')|$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender, and only its')"
 check "the round groups its questions by the orchestrator that sent them" "yes|yes|yes" \
@@ -3220,7 +3220,7 @@ check "the round is mirrored in the successor's brief, the design and the decisi
 # The module carries the question since the turn-end relay: the orchestrator asks in its tab and
 # ends on the machine line; the lookup and the send it once ran itself are gone from its rulebook.
 check "the orchestrator asks in its tab and the module carries the question to a running coordinator" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**While a coordinator runs, every question for the operator goes to it** — his order —')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here, in the shape of `/orchestrator:decide` step 2, and')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**While a coordinator runs, every question for the operator goes to it** — his order —')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
 # A report that asks nothing, ended on the operator's wait, was drawn in the pane as a question.
 check "the orchestrator ends on the operator's wait only for a question in the decide shape, and the coordinator still records one that asks nothing" "yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only such a question ends on that line; a report asking nothing, on its other machine line.')|$(spells "$COORDSKILL" 'row alone showing the wait: record it all the same, and present it once due.')"
@@ -3242,7 +3242,7 @@ check "the rulebooks say a question the pane shows is not asked twice, when it f
 CDECIDE="$ROOT/commands/coordinator-decide.md"
 check "coordinator-decide reads round --by-urgency, follows decide.md's shape, relays each ruling verbatim, and is listed" \
   "yes|yes|yes|yes|1|yes" \
-  "$(spells "$CDECIDE" '--by-urgency`: its open `operator` entries are the round')|$(spells "$CDECIDE" "The round's shape is \`/orchestrator:decide\`'s, read from \`commands/decide.md\`")|$(spells "$CDECIDE" 'verbatim and dated (`date -u +%FT%TZ`, pasted) to the sender')|$(spells "$CDECIDE" 'the urgent first, then by `since`, the')|$(sed -n '1,5p' "$CDECIDE" | grep -c '^allowed-tools: .*coordinator\.sh.*SendMessage')|$(spells "$ROOT/README.md" '| `/orchestrator:coordinator-decide` |')"
+  "$(spells "$CDECIDE" '--by-urgency`: its open `operator` entries are the round')|$(spells "$CDECIDE" "The round's shape is \`/orchestrator-decide\`'s, read from \`commands/decide.md\`")|$(spells "$CDECIDE" 'verbatim and dated (`date -u +%FT%TZ`, pasted) to the sender')|$(spells "$CDECIDE" 'the urgent first, then by `since`, the')|$(sed -n '1,5p' "$CDECIDE" | grep -c '^allowed-tools: .*coordinator\.sh.*SendMessage')|$(spells "$ROOT/README.md" '| `/coordinator-decide` |')"
 COORDSPAWN=$(grep -m1 -o 'iterm-agent.sh spawn --coordinator-successor.*' "$COORDSKILL" 2>/dev/null | sed -e 's/^iterm-agent.sh spawn //' \
   -e 's#<subject>#ops#' -e "s#<your working directory>#$WORK#" -e 's#<brief path>#/tmp/coord-brief.md#')
 coordspawn() { eval "set -- $COORDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
@@ -3295,7 +3295,7 @@ fi
 check "the coordinator's succession brief, filled with a real predecessor's values, lints clean" "yes|0" \
   "$([ -s "$COORDFILLED" ] && echo yes || echo no)|$(bash "$ROOT/skills/orchestrator/scripts/brief-lint.sh" "$COORDFILLED" >/dev/null 2>&1; echo $?)"
 
-# `/orchestrator:audit` (§52): the brief instantiated and linted, the auditor spawned with
+# `/orchestrator-audit` (§52): the brief instantiated and linted, the auditor spawned with
 # the launcher's own flag and verified on the artifact. The spawn line is not only spelled:
 # it is taken out of the command and run dry through the launcher, so a command that drifts
 # from the launcher's flags falls here.
@@ -3329,7 +3329,7 @@ check "the audit brief still forbids every other file, a commit, a push and any 
   "$(grep -c '^(no method file, no register, no script), no commit, no push' "$AUDBRIEF")|$(grep -c 'You order nothing and apply nothing' "$AUDBRIEF")|$(grep -c 'message no session other than your own' "$AUDBRIEF")"
 check "and carries the succession: the template, the spawn line in full, the operator told" "1|1|1" \
   "$(grep -c 'SUCCESSION_TEMPLATE}}. beside the report' "$AUDBRIEF")|$(grep -c -- '--successor --inherit-model --permission-mode auto --prompt "Read and execute ' "$AUDBRIEF")|$(grep -c 'He closes this tab' "$AUDBRIEF")"
-# The predecessor tells the operator BEFORE it hands over, as /orchestrator:succeed orders it:
+# The predecessor tells the operator BEFORE it hands over, as /orchestrator-succeed orders it:
 # « handed over » is its last message, nothing follows it.
 check "the audit brief has the predecessor tell the operator, then wait, then hand over as its last message" "1|1|0" \
   "$(grep -c 'Tell the operator in one line that you are handing over' "$AUDBRIEF")|$(grep -c 'handed over » as your last message' "$AUDBRIEF")|$(grep -c 'Then tell the operator' "$AUDBRIEF")"
@@ -6270,7 +6270,7 @@ check "the sleeping command lists, asks one confirmation before a drop, and leav
   "$(flat_has "$SLCMD" "The hooks module answers it on the spot, with no model turn")|$(flat_has "$SLCMD" "**Ask one confirmation**, naming what is left behind")|$(flat_has "$SLCMD" "It does NOT touch the pull requests, their branches or the checkouts: closing those is the operator's.")|$(flat_has "$SLCMD" "moved, never deleted, so a slip loses nothing")"
 check "the drop runs only on his yes, after the turn ends" "1" \
   "$([ "$(grep -n 'END THE TURN' "$SLCMD" | head -1 | cut -d: -f1)" -lt "$(grep -n 'coordinator.sh drop --name' "$SLCMD" | head -1 | cut -d: -f1)" ] 2>/dev/null && echo 1 || echo 0)"
-check "the README lists the sleeping command" "yes" "$(spells "$ROOT/README.md" '| `/orchestrator:sleeping` |')"
+check "the README lists the sleeping command" "yes" "$(spells "$ROOT/README.md" '| `/orchestrator-sleeping` |')"
 
 # Moving an orchestrator between machines, on the operator's word: the coordination section, its
 # trust anchor, the lifecycle bullet, the succession note and the design paragraph.
@@ -7831,7 +7831,7 @@ check "the calibrate command stops at the first failure and checks the judge's t
 check "the calibrate command runs neither generalize nor export, and leaves them to the operator" "0|yes" \
   "$(grep -cE 'routing\.py (generalize|export)' "$CALCMD")|$(spells "$CALCMD" '**`generalize` and `export` are not run by this command.**')"
 check "the README, the routing skill and the calibration reference name the calibrate command" "yes|yes|yes" \
-  "$(spells "$ROOT/README.md" '| `/orchestrator:calibrate` |')|$(spells "$MR" '`/orchestrator:calibrate <checkout> --max-usd <cap> --class <class> --pr <n>...` does it')|$(spells "$MRC" '`/orchestrator:calibrate` runs sections 1 to 5')"
+  "$(spells "$ROOT/README.md" '| `/orchestrator-calibrate` |')|$(spells "$MR" '`/orchestrator-calibrate <checkout> --max-usd <cap> --class <class> --pr <n>...` does it')|$(spells "$MRC" '`/orchestrator-calibrate` runs sections 1 to 5')"
 check "the routing skill no longer says no command does the calibration" "no" \
   "$(spells "$MR" 'No command or wrapper does it')"
 check "the rulebook no longer orders a routine idle-notice subscription after each message" "0|yes" \

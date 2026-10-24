@@ -8,7 +8,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agen
 Run on the operator's word only: he types this command, in the session whose tab the
 auditor should sit beside. Nothing of the audit stays with this session once it is launched.
 
-Usage: `/orchestrator:audit <subject> [--since <date>]`. The subject is at most 25
+Usage: `/orchestrator-audit <subject> [--since <date>]`. The subject is at most 25
 characters: it becomes the title `Audit : <subject>`.
 
 1. **Fill the brief.** Copy `${CLAUDE_PLUGIN_ROOT}/templates/agent-audit-brief.md` into the

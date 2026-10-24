@@ -10,7 +10,7 @@ agent starts a coordinator.
 
 Start the COORDINATOR described in `orchestrator:coordination`. Load that skill first.
 
-Usage: `/orchestrator:coordinator <subject>`.
+Usage: `/coordinator <subject>`.
 
 Preconditions, verify each before acting:
 
