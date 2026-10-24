@@ -286,6 +286,11 @@ start 50 report
 record "drawn"
 check "the report is no question: not drawn under the questions, not counted" "1|0|0" "$(pane | grep -c '^Questions for you — 2 pending')|$(pane | grep -c 'Takeover done')|$(pane | grep -c 'speculoos#54')"
 check "its sender's row still shows what it waits on and blocks" "1|1" "$(pane | grep -c 'Status: waiting for the operator')|$(pane | grep -c 'Blocks: *line 239 (merge of speculoos#53)')"
+press Enter
+check "Enter answers the question with choices, its sender reached by no session" "answered" "$(jq -r .status "$SANDBOX/state/round/s-gamma-q1.json")"
+check "the labelled question without choices is drawn as a question, the report still out" "Orch : beta — Question 1 of 1|1|1|1|0" "$(pane | grep -m1 '^Orch : beta')|$(pane | grep -c '^Questions for you — 1 pending')|$(pane | grep -c '^Question : which page goes first')|$(pane | grep -c '^Other answer')|$(pane | grep -c 'Takeover done')"
+notice=$(line_of 'not delivered:')
+check "the notice is one line at the section's foot, below the question, above the orchestrators" "1|1|1" "$(pane | grep -c 'not delivered:')|$([ -n "$notice" ] && [ "$notice" -gt "$(line_of 'Question : which page')" ] && echo 1)|$([ -n "$notice" ] && [ "$notice" -lt "$(line_of 'Orchestrators')" ] && echo 1)"
 
 echo "pane-e2e: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
