@@ -6514,7 +6514,8 @@ check "round refuses a pinned clock that is no UTC time" "exit 1|coordinator: ro
 USTATE="$WORK/coord-urgency"; UCFG="$WORK/coord-urgency-config"
 mkdir -p "$USTATE/round" "$UCFG/claude-orchestrator/store/sessions"
 for spec in "a0:a:open:10:00:false" "b1:b:open:10:01:true" "b2:b:open:10:02:false" "a3:a:open:10:03:true" \
-    "a4:a:answered:10:04:true" "b5:b:answered:10:05:false"; do
+    "a4:a:answered:10:04:true" "b5:b:answered:10:05:false" "b6:b:open:10:06:false" "a7:a:open:10:06:false" \
+    "a8:a:withdrawn:10:08:true"; do
   IFS=: read -r uid ufrom ustatus uh um uurgent <<< "$spec"
   jq -n --arg id "$uid" --arg from "Orch : $ufrom" --arg status "$ustatus" --arg since "2026-10-24T$uh:$um:00.000Z" --argjson urgent "$uurgent" \
     '{id:$id, from:$from, session:("s-" + ($from | ascii_downcase | gsub("[^a-z]"; ""))), kind:"operator", since:$since,
@@ -6530,11 +6531,27 @@ check "round --by-urgency orders each set urgent first, then by start, across se
 round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
 round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open
 round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
+round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
+round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
 round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
-round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered" \
+round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
+round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
   "$(uround --by-urgency | grep '^round ')"
+# Two entries started at the same instant (a7, b6) are ordered by id, whoever wrote first; a
+# withdrawn entry is listed last and never due.
+check "round --by-urgency with no pane open reads the same order, every open entry due" \
+  "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
+round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
+round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open | due
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open | due
+round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
+round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
+round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
+round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
+round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
+  "$(mv "$USTATE/pane.json" "$WORK/coord-urgency-pane"; uround --by-urgency | grep '^round '; mv "$WORK/coord-urgency-pane" "$USTATE/pane.json")"
 check "round without the flag keeps the round's order, its lines those of --by-urgency, and refuses another argument" \
-  "a0 a3 b1 b2 a4 b5|same lines|exit 1|coordinator: round: unexpected argument --soon" \
+  "a0 a3 a7 b1 b2 b6 a4 b5 a8|same lines|exit 1|coordinator: round: unexpected argument --soon" \
   "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround | sort)" = "$(uround --by-urgency | sort)" ] && echo 'same lines')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
