@@ -27,7 +27,7 @@ verbatim, and you add nothing of your own. Only what follows differs.
    `<sender>` (1). »
 3. **The sender in each question.** Its first line names who asks: « Question i of N — from
    `<sender's exact name>` ». The first question of each sender carries that sender's context
-   block, three to five sentences in its own words, as the skill's step 4 says.
+   block, three to five sentences in its own words, as the coordination skill's step 4 says.
 4. **Re-verify before presenting.** Run `round --by-urgency` again just before each question:
    an entry answered in the pane or withdrawn by its sender meanwhile is not asked; write it
    back in the ledger and present the next one instead, the count moving with it.

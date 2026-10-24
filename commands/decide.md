@@ -34,9 +34,8 @@ review that need an owner. Then verify each item STILL OPEN on its own artifact 
 request's state and merge, the branch head, the file, the agent's last message — and the
 premise its question assumes: how the project ships, which branch or environment is the
 target, what that target already holds. A state file or a register says what was true when
-written; the user's own merge or close most often settles a question behind it. Collect wide: add the questions the next steps will need from him in
-any case — a choice the next phase's brief must name, a premise its plan assumes — so that
-he answers them now, while he is there. Every goal
+written; the user's own merge or close most often settles a question behind it. Collect wide: add the questions the next steps will need from him — a choice the next phase's brief must name, a premise its plan assumes — so that
+he answers them now. Every goal
 `dispatch-record.sh goals <record> status` lists as `unplanned=` is a question of the wave:
 plan it, or rule it out? Write the list to `decision-round.md` in the session's scratch
 directory — number, title, where it comes from, status — so the round survives a
@@ -98,7 +97,7 @@ question before it is presented.
 ## 5. Re-present after any interruption
 
 If ANYTHING else was shown to the user between a question and its answer — a status line
-you had to write, a notice the host printed — re-present the question IN FULL, never « as above » or a pointer. A question the user must scroll back to find is a question answered
+you had to write, a notice the host printed — re-present the question IN FULL, in step 2's whole shape, never « as above » or a pointer. A question the user must scroll back to find is a question answered
 wrong.
 
 ## 6. A ruling is not reopened
