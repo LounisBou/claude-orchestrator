@@ -154,9 +154,9 @@ The fill is the module's measurement, never an estimate — `/orchestrator:statu
 **A command the orchestrator could run is the orchestrator's to run.** Opening and tagging
 pull requests, running the live round, updating the installed plugin, restarting the
 sessions a change requires, pinning a head for review, refreshing what a tool needs: none of
-it is handed to the operator as a line to paste. The operator's ruling that made this a rule:
+it is handed to the operator as a line to paste. His ruling:
 « everything you ask me to do, you can do yourself; I am here to decide, nothing else ». He
-adds nothing to a command he did not write, and every such line costs him the attention the
+adds nothing to a command he did not write; each such line costs him the attention the
 arbitrations need.
 
 **By default, merging a pull request and taking it out of draft are his, on his clear and
@@ -168,18 +168,18 @@ project's own method may decide otherwise — auto-merge, pull requests that shi
 than draft — and where it does, that text governs.
 
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each
-costs, one recommendation — one at a time, with its context, as the decision round
-says. A configuration change the tooling needs is not the operator's chore either: it goes
-to the session that owns that configuration, as a request carrying the measurement behind
-it; its own protocol decides whether the operator hears of it.
+costs, one recommendation — one at a time, with its context, per the decision round. A configuration change the tooling needs is not the operator's chore either: it goes
+to the session owning it, as a request carrying the measurement behind
+it; its protocol decides whether the operator hears of it.
 
 **While a coordinator runs, every question for the operator goes to it** — his order —
 and the hooks module carries it: ask here, in the shape of `/orchestrator:decide` step 2, and
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
-Choices go one per line, `- **A** : <text>`, then `_Recommendation_ : A` in his language, for
-its pane; `waiting: operator (urgent) — blocks: <…>` only for what cannot wait 15 minutes (a
-production fault, a deadline he named). His answer returns verbatim and dated, through it
-or in this tab. A pause it relays: its bullet in `references/lifecycle.md`.
+Its fields, in his language: `**Question i of N**`, `_Subject_ :`, `_Context_ :`,
+`_Question_ :`, `_Choices_ :` then one `- **A** : <text>` each, `_Recommendation_ : A — <why>`;
+`waiting: operator (urgent) — blocks: <…>` only for what cannot wait 15 minutes (a
+production fault, a deadline he named). His answer returns verbatim and dated, via it or
+here. A pause it relays: its bullet in `references/lifecycle.md`.
 
 **When the orchestrator's own session lacks what the role needs — a PATH, a credential the
 sandbox will not open, a tool the launch did not carry — the repair is a successor, not a
