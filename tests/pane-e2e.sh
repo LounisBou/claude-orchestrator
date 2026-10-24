@@ -166,6 +166,9 @@ record "after a redraw of the pane's clock"
 check "a redraw never moves the highlight" "C  close it — the work is dropped" "$(focused)"
 press x y
 check "a letter typed on a choice answers nothing" "open,open" "$(statuses)"
+press c
+check "nor does a choice's own letter" "open,open" "$(statuses)"
+check "which leaves a choice highlighted and types nothing in the field" "C  close it — the work is dropped|0" "$(focused)|$(pane | grep -c '^Other answer: .*c')"
 press Enter
 check "Enter answers the highlighted choice" "C : close it — the work is dropped" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
 check "the next question is drawn, its first choice highlighted" "1|A  the design" "$(pane | grep -c 'Which docs first?')|$(focused)"
@@ -180,6 +183,15 @@ press Down Down
 check "the arrows reach the free answer" "Other answer: type it below" "$(focused)"
 press Enter
 check "Enter on it moves the keys to the text field" "1" "$(pane | grep -c '^Other answer: .*⏎ send')"
+press Up
+check "Up returns the keys to the picker, the field gone with them" "1|0" "$(pane | grep -c '^Answer: .*▴')|$(pane | grep -c '^Other answer: ')"
+press Enter
+press Escape
+check "Esc from the text field gives the keys back to the prompt" "0|0" "$(pane | grep -c '^Answer: .*▴')|$(pane | grep -c '>>')"
+press C-x Tab
+check "ctrl+x tab reopens the picker on the free answer, the field gone" "Other answer: type it below|0" "$(focused)|$(pane | grep -c '^Other answer: ')"
+press Enter
+check "and Enter on it gives the field the keys again" "1" "$(pane | grep -c '^Other answer: >>')"
 tmux send-keys -t "$SESSION" -l 'start with the README'
 sleep 0.6
 record "after typing in the field"
@@ -204,6 +216,8 @@ check "the wheel still scrolls the pane" "1" "$(pane | grep -c '^Questions for y
 wheel down 10
 check "and back down" "0" "$(pane | grep -c '^Questions for you')"
 check "nothing was answered by the walk" "open,open" "$(statuses)"
+press Enter
+check "Enter answers the highlighted choice in the short pane" "A : $LONG" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
 
 echo "pane-e2e: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
