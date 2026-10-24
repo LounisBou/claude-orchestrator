@@ -1101,6 +1101,9 @@ test('where the pane has no picker (mobile) each choice is one Button carrying i
     ['choice:B', 'B  wait for the next review — a day lost  (recommended)', 'b'],
     ['choice:C', 'C  close it — the work is dropped', 'c'],
   ])
+  expect(findAll(tree, n => n.type === 'Box' && n.props.flexWrap === 'wrap')).toEqual([])
+  expect(findAll(tree, n => n.type === 'Button' && n.props.label === 'B').length).toBe(0)
+  // The recommended choice keeps its look inside its Button.
   expect(findAll(button(tree, 'choice:B'), n => n.type === 'Text').map(n => [n.props.bold, n.props.color])).toEqual([[true, 'success']])
   await button(tree, 'choice:B').props.onPress()
   expect(stored(asked.id).answer!.text).toBe('B : wait for the next review — a day lost')
