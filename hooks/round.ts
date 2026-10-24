@@ -184,9 +184,12 @@ export function openEntries(entries: readonly RoundEntry[]): RoundEntry[] {
 
 // The open operator questions in the order the pane draws them: those that carry choices
 // first, in the round's order among themselves, then those without. A question the operator can
-// only answer in its session never hides one he can answer from the pane.
+// only answer in its session never hides one he can answer from the pane. A wait that asks
+// nothing, with no lettered choice and no labelled field, is no question: its sender's row
+// shows what it blocks, and the operator answers it in that tab.
 export function paneQuestions(entries: readonly RoundEntry[]): RoundEntry[] {
-  const questions = openEntries(entries).filter(entry => entry.kind === 'operator')
+  const questions = openEntries(entries)
+    .filter(entry => entry.kind === 'operator' && (entry.choices.length > 0 || questionShape(entry.question, entry.choices) !== null))
   return [...questions.filter(entry => entry.choices.length > 0), ...questions.filter(entry => entry.choices.length === 0)]
 }
 

@@ -1080,6 +1080,39 @@ test('a question without choices never hides one that has them, and the count is
   expect(roundLines(entries.filter(e => e.choices.length === 0))[0].text).toContain('Orch : a')
 })
 
+// A takeover report that asks nothing, ended on a wait for the operator: no labelled field, no choice.
+const REPORT = 'Takeover done.\n\n| PR | state |\n|---|---|\n| speculoos#53 | ready |\n| speculoos#54 | ready |'
+const BLOCKS = 'line 239 (merge of speculoos#53) and the next ready PRs'
+
+test('a wait that asks nothing, no field and no choice, is no question: neither drawn under the questions nor counted, its row still shows what it blocks', async () => {
+  const report = entry('Orch : w', '2026-10-18T10:03:00.000Z', { session: 'w', question: REPORT, blocks: BLOCKS })
+  expect(roundLines([report])).toEqual([])
+  const tree = await paneTree({ w: orch('Orch : w', { waiting: 'operator', waiting_since: SINCE, blocks: BLOCKS }) }, [report])
+  const [section, , block] = tree.props.children
+  expect(texts(section)).toEqual(['Questions for you', 'none in the pane — 1 orchestrator waits for you: ask the coordinator'])
+  expect(JSON.stringify(tree)).not.toContain('Takeover done')
+  expect(JSON.stringify(tree)).not.toContain('pending')
+  const [, status, blocks] = block.props.children
+  expect(pieces(status)[1].text).toMatch(/^waiting for the operator since \d\d:\d\d$/)
+  expect(pieces(blocks)).toEqual([{ text: 'Blocks:', bold: false }, { text: BLOCKS, bold: false }])
+})
+
+test('a question in the old shape with lettered choices is still drawn and counted', async () => {
+  const asked = entry('Orch : w', '2026-10-18T10:03:00.000Z', { session: 'w', question: 'Merge it?', choices: CHOICES, recommendation: 'B' })
+  const tree = await paneTree({ w: orch('Orch : w') }, [asked])
+  const drawn = texts(tree.props.children[0])
+  expect(drawn.slice(0, 3)).toEqual(['Questions for you — 1 pending', 'Orch : w', 'Merge it?'])
+})
+
+test('a labelled question without choices is still drawn and counted, beside a wait that asks nothing', async () => {
+  const open = entry('Orch : w', '2026-10-18T10:03:00.000Z', { session: 'w', question: '_Question_ : Rename it?' })
+  const report = entry('Orch : w', '2026-10-18T10:05:00.000Z', { session: 'w', question: REPORT, blocks: BLOCKS })
+  expect(roundLines([report, open])).toEqual([{ letter: null, text: 'Orch : w', bold: false }])
+  const drawn = texts((await paneTree({ w: orch('Orch : w') }, [open, report])).props.children[0])
+  expect(drawn.slice(0, 3)).toEqual(['Questions for you — 1 pending', 'Orch : w', 'Question : Rename it?'])
+  expect(drawn.join('\n')).not.toContain('Takeover done')
+})
+
 // --- the selector ---------------------------------------------------------------------------
 
 const input = (tree: any) => findAll(tree, n => n.type === 'Input')[0]

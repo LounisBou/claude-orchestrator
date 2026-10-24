@@ -61,11 +61,13 @@ trap cleanup EXIT
 
 LONG='merge it now — the release goes out today, the changelog is written, the tag is pushed and every reader of the notes sees the new pane at once'
 
-# A fresh host on a fresh fixture: two orchestrator rows kept alive by a process of the
-# script's, a round of two questions (the first with a long choice and a recommendation, the
-# second with none), and the pane opened by its command.
+# A fresh host on a fresh fixture: orchestrator rows kept alive by a process of the script's,
+# a round, and the pane opened by its command. The `questions` round holds two questions (the
+# first with a long choice and a recommendation, the second with none); the `report` round
+# holds a question with choices, a labelled one without, and a report that asks nothing, its
+# sender's row waiting on the operator.
 start() {
-  local rows="$1"
+  local rows="$1" round="${2:-questions}"
   tmux kill-session -t "$SESSION" 2>/dev/null
   rm -rf "$SANDBOX/config" "$SANDBOX/state" "$SANDBOX/work"
   mkdir -p "$SANDBOX/config/claude-orchestrator/store/sessions" "$SANDBOX/state/round" "$SANDBOX/work"
@@ -81,12 +83,31 @@ start() {
   ALIVE=$!
   local now
   now=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
-  for who in alpha beta; do
+  local who
+  for who in alpha beta $([ "$round" = report ] && echo gamma); do
     jq -n --arg name "Orch : $who" --arg pid "$ALIVE" --arg now "$now" '{
       role: "orchestrator", name: $name, pid: $pid, tty: null, repo: "e2e", context_percent: 12,
       context_tokens: 24000, window: 200000, model: "a-model", busy: false, updated_at: $now
     }' > "$SANDBOX/config/claude-orchestrator/store/sessions/s-$who"
   done
+  if [ "$round" = report ]; then
+    report_round "$now"
+  else
+    questions_round "$now"
+  fi
+  env -i HOME="$HOME" PATH="$PATH" TERM=xterm-256color \
+    tmux new-session -d -s "$SESSION" -x 160 -y "$rows" -c "$SANDBOX/work" \
+    env CLAUDE_CONFIG_DIR="$SANDBOX/config" ORCHESTRATOR_STATE_DIR="$SANDBOX/state" \
+    "$HOST" --name "Coord : e2e" --settings "$SANDBOX/settings.json" --plugin-dir "$ROOT"
+  wait_for 'Coord : e2e' 30
+  tmux send-keys -t "$SESSION" '/orchestrator:supervision'
+  sleep 1
+  tmux send-keys -t "$SESSION" Enter
+  wait_for 'Questions for you' 15
+}
+
+questions_round() {
+  local now="$1"
   jq -n --arg now "$now" --arg long "$LONG" '{
     id: "s-alpha-q1", from: "Orch : alpha", session: "s-alpha", kind: "operator", since: $now,
     blocks: "phase 3",
@@ -101,15 +122,32 @@ start() {
     choices: [{letter:"A",text:"the design"},{letter:"B",text:"the README"}],
     recommendation: null, status: "open", at: $now, answer: null
   }' > "$SANDBOX/state/round/s-beta-q2.json"
-  env -i HOME="$HOME" PATH="$PATH" TERM=xterm-256color \
-    tmux new-session -d -s "$SESSION" -x 160 -y "$rows" -c "$SANDBOX/work" \
-    env CLAUDE_CONFIG_DIR="$SANDBOX/config" ORCHESTRATOR_STATE_DIR="$SANDBOX/state" \
-    "$HOST" --name "Coord : e2e" --settings "$SANDBOX/settings.json" --plugin-dir "$ROOT"
-  wait_for 'Coord : e2e' 30
-  tmux send-keys -t "$SESSION" '/orchestrator:supervision'
-  sleep 1
-  tmux send-keys -t "$SESSION" Enter
-  wait_for 'Questions for you' 15
+}
+
+# The operator's case: a takeover report with no field and no choice, ended on a wait for him;
+# its sender's row carries the wait. Beside it a question with choices, whose answer no live
+# session receives, and a labelled question without choices.
+REPORT_BLOCKS='line 239 (merge of speculoos#53) and the next ready PRs'
+report_round() {
+  local now="$1"
+  jq --arg now "$now" --arg blocks "$REPORT_BLOCKS" '. + { waiting: "operator", waiting_since: $now, blocks: $blocks }' \
+    "$SANDBOX/config/claude-orchestrator/store/sessions/s-alpha" > "$SANDBOX/alpha.json" \
+    && mv "$SANDBOX/alpha.json" "$SANDBOX/config/claude-orchestrator/store/sessions/s-alpha"
+  jq -n --arg now "$now" --arg blocks "$REPORT_BLOCKS" '{
+    id: "s-alpha-r1", from: "Orch : alpha", session: "s-alpha", kind: "operator", since: $now, blocks: $blocks,
+    question: "Takeover done.\n\n| PR | state |\n|---|---|\n| speculoos#53 | ready |\n| speculoos#54 | ready |",
+    choices: [], recommendation: null, status: "open", at: $now, answer: null
+  }' > "$SANDBOX/state/round/s-alpha-r1.json"
+  jq -n --arg now "$now" '{
+    id: "s-gamma-q1", from: "Orch : gamma", session: "s-gamma", kind: "operator", since: $now, blocks: "the tag",
+    question: "_Question_ : tag the release?\n- **A** : tag it\n- **B** : wait",
+    choices: [{letter:"A",text:"tag it"},{letter:"B",text:"wait"}], recommendation: null, status: "open", at: $now, answer: null
+  }' > "$SANDBOX/state/round/s-gamma-q1.json"
+  jq -n --arg now "$now" '{
+    id: "s-beta-q3", from: "Orch : beta", session: "s-beta", kind: "operator", since: $now, blocks: "the docs",
+    question: "**Question 1 of 1**\n_Subject_ : the docs\n_Question_ : which page goes first, and why?",
+    choices: [], recommendation: null, status: "open", at: $now, answer: null
+  }' > "$SANDBOX/state/round/s-beta-q3.json"
 }
 
 # The whole screen, and the pane's column alone with the focused cells (inverse video) marked >>.
@@ -242,6 +280,12 @@ check "the window's end shows the last row, the thumb at the track's end: the co
 check "nothing was answered by the walk" "open,open" "$(statuses)"
 press Enter
 check "Enter answers the highlighted choice in the short pane" "A : $LONG" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
+
+echo "== a wait that asks nothing, beside two questions (160x50)"
+start 50 report
+record "drawn"
+check "the report is no question: not drawn under the questions, not counted" "1|0|0" "$(pane | grep -c '^Questions for you — 2 pending')|$(pane | grep -c 'Takeover done')|$(pane | grep -c 'speculoos#54')"
+check "its sender's row still shows what it waits on and blocks" "1|1" "$(pane | grep -c 'Status: waiting for the operator')|$(pane | grep -c 'Blocks: *line 239 (merge of speculoos#53)')"
 
 echo "pane-e2e: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
