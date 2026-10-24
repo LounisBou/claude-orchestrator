@@ -1648,6 +1648,13 @@ check_status "a slash command is not a path" 0 bash "$LINT" "$B/slash.md"
 check "a slash command raises no path finding" "0" "$(bash "$LINT" "$B/slash.md" 2>&1 | grep -c 'path does not exist')"
 ok_brief "$B/slashpath.md"; printf 'Run `/orchestrator:status`, read `/nowhere/at/all:x/spec.md`.\n' >> "$B/slashpath.md"
 check "a path with a colon is still a path" "1" "$(bash "$LINT" "$B/slashpath.md" 2>&1 | grep -c 'path does not exist: /nowhere/at/all:x/spec.md')"
+# The plugin's own commands are reached by their short names too, `/orchestrator-<name>` and
+# `/coordinator[-<name>]`: no path either. A path under such a word is still a path.
+ok_brief "$B/short.md"; printf 'Run `/orchestrator-status`, then `/coordinator`, `/coordinator-end` and `/orchestrator-sleeping drop Orch : x`.\n' >> "$B/short.md"
+check_status "the plugin's short command names are not paths" 0 bash "$LINT" "$B/short.md"
+check "they raise no path finding" "0" "$(bash "$LINT" "$B/short.md" 2>&1 | grep -c 'path does not exist')"
+ok_brief "$B/shortpath.md"; printf 'Read `/orchestrator-x/y`.\n' >> "$B/shortpath.md"
+check "a path that starts like a short name is still a path" "1" "$(bash "$LINT" "$B/shortpath.md" 2>&1 | grep -c 'path does not exist: /orchestrator-x/y')"
 
 ok_brief "$B/twoaddr.md"; printf 'For example `other-12 [9f9f9f]`.\n' >> "$B/twoaddr.md"
 check_status "a second session reference is a finding" 1 bash "$LINT" "$B/twoaddr.md"
