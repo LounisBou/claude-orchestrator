@@ -32,7 +32,7 @@ import {
   parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, plainText, questionBody, type RoundChoice, type RoundEntry } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, plainText, questionBody, isDue, dueText, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -121,6 +121,15 @@ const GATE_URGENCY_FLOOR = 1000
 // The pane opened once in this session, by the module or by the command: kept by the host in
 // $.state (types/index.d.ts), so a reload of the module does not open it again.
 const PANE_OPENED = { plugin: 'orchestrator', key: 'paneOpened' } as const
+
+// The entries the coordinator was woken for, kept by the host like the flag above, so a reload
+// of the module never wakes it twice for one entry.
+const ROUND_WOKEN = { plugin: 'orchestrator', key: 'roundWoken' } as const
+
+// How often a coordinator's session reads its round for questions just due: the operator's
+// order of 2026-10-24 that one left unanswered in the pane be asked in the tab, not at his
+// next word. A one-shot clock, armed again by each reading.
+const ROUND_WAKE_MS = 30000
 
 // How often an open pane redraws on its own. A render is raised by a measure of
 // this session, and a supervisor mostly waits: without a clock its rows — the
@@ -515,12 +524,83 @@ export type PaneMemory = {
   answering: Set<string>
 }
 
-// The pane opened, by the command or by the module: the role it lists, its title, its clock.
-async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchestrator', tty: string | null): Promise<void> {
+// The pane opened, by the command or by the module: the role it lists, its title, its clock,
+// and, for a coordinator's, its record.
+async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchestrator', tty: string | null, pid: string | null): Promise<void> {
   pane.opened = { role, tty }
   await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role] })
   pane.ticker?.cancel()
   pane.ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
+  if (role === 'coordinator') await recordPaneOpen($, pid).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
+}
+
+// The coordinator's pane as `coordinator.sh round` reads it, `<state>/pane.json`: the session
+// whose pane is open and its host pid, the script holding the pane open while that pid lives.
+// Without it every question is due in the tab at once, there being no pane to answer it in.
+export type PaneRecord = { session: string; pid: string | null; at: string }
+
+async function panePath($: any): Promise<string> {
+  return `${await stateDir($)}/pane.json`
+}
+
+async function recordPaneOpen($: any, pid: string | null): Promise<void> {
+  const record: PaneRecord = { session: await $.session.id(), pid, at: new Date().toISOString() }
+  await writeAtomic($, await panePath($), JSON.stringify(record) + '\n')
+}
+
+// The record of this session's pane, when it is this session's: another coordinator's is left.
+async function readPaneRecord($: any): Promise<PaneRecord | null> {
+  try {
+    const record = JSON.parse(String(await $.fs.read(await panePath($)))) as PaneRecord
+    return record && typeof record === 'object' && record.session === await $.session.id() ? record : null
+  } catch {
+    return null
+  }
+}
+
+async function recordPaneClosed($: any): Promise<void> {
+  if (!(await readPaneRecord($))) return
+  const done = await $.process.run(['rm', '-f', await panePath($)], { timeoutMs: 5000 }).catch(() => null)
+  if (!done || done.exitCode !== 0) await logLine($, `pane: the record ${await panePath($)} could not be removed`)
+}
+
+export type WakeMemory = { armed: boolean }
+
+// The round's reading armed once more, ROUND_WAKE_MS from now: a failure is one log line, and
+// the next reading still comes.
+function armWake($: any, wake: WakeMemory): void {
+  wake.armed = true
+  $.clock.after(ROUND_WAKE_MS, () => wakeTick($, wake))
+}
+
+async function wakeTick($: any, wake: WakeMemory): Promise<void> {
+  try {
+    await wakeForDue($)
+  } catch (err) {
+    await logLine($, `round wake: ${(err as Error).message}`)
+  }
+  armWake($, wake)
+}
+
+// The questions just due, read in the coordinator's own session: one wake submitted to it for
+// those it was not woken for yet, the pane's open state its own record's. A question whose
+// sender has ended has no one left to answer, as in the pane. The ids kept are those the round
+// still holds, so the list never outgrows it.
+async function wakeForDue($: any): Promise<void> {
+  const local = await readSessions($)
+  const read = (await readRound($)).map(found => found.entry)
+  const paneOpen = (await readPaneRecord($)) !== null
+  const kept = ((await $.state.get(ROUND_WOKEN)).value ?? []) as string[]
+  const present = new Set(read.map(entry => entry.id))
+  const woken = new Set(kept.filter(id => present.has(id)))
+  const now = Date.now()
+  const due = read.filter(entry => sessionKey(entry.session) in local && !woken.has(entry.id) && isDue(entry, now, paneOpen))
+  if (due.length === 0) {
+    if (woken.size !== kept.length) await $.state.set(ROUND_WOKEN, [...woken])
+    return
+  }
+  await $.state.set(ROUND_WOKEN, [...woken, ...due.map(entry => entry.id)])
+  await $.prompt.submit({ text: dueText(due) })
 }
 
 // A coordinator's pane opens by itself, the operator's ruling of 2026-10-18: at the end of the
@@ -528,24 +608,28 @@ async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchest
 // session — the flag is the host's, so neither a reload nor a later turn opens it again, and a
 // pane he closed with the command stays closed. The role is the row's; a first turn can end
 // before the first measure writes the row, and then the name is walked, bounded.
-async function openOnFirstTurn($: any, pane: PaneMemory): Promise<void> {
+// True when the session is the recorded coordinator's, which arms its round's wake.
+async function openOnFirstTurn($: any, pane: PaneMemory): Promise<boolean> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
   let role = row?.role ?? null
   let tty = row?.tty ?? null
+  let pid = row?.pid ?? null
   if (!row) {
     const walked = await walkWithinBound($, sessionId)
     if (walked.known) {
       role = roleOf(walked.name)
       tty = walked.tty
+      pid = walked.pid
     }
   }
-  if (role !== 'coordinator') return
-  if (!coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))) return
-  if ((await $.state.get(PANE_OPENED)).value) return
+  if (role !== 'coordinator') return false
+  if (!coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))) return false
+  if ((await $.state.get(PANE_OPENED)).value) return true
   await $.state.set(PANE_OPENED, true)
   const panes: readonly { id: string }[] = await $.ui.panes()
-  if (!panes.some(open => open.id === PANE_ID)) await openPane($, pane, 'coordinator', tty)
+  if (!panes.some(open => open.id === PANE_ID)) await openPane($, pane, 'coordinator', tty, pid)
+  return true
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
@@ -559,6 +643,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     pane.ticker?.cancel()
     pane.ticker = null
   }
+  // The coordinator's round read for questions just due, armed by its first turn end that finds
+  // it the recorded coordinator; a reload forgets it, and the next turn end arms it again.
+  const wake: WakeMemory = { armed: false }
 
   // The engine allows one no-matcher registration per event, and the gauge
   // owns session.measure's and session.end's: this domain observes the same
@@ -622,6 +709,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   on('session.end', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
       await deleteSession($, e.sessionId ?? await $.session.id())
+      await recordPaneClosed($)
     } catch (err) {
       // The end is never held on the store's own failure; it is said.
       await logLine($, (err as Error).message)
@@ -658,6 +746,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (!e.agentId) {
         const done = await withDeadline(openOnFirstTurn($, pane), RELAY_BOUND_MS)
         if (isDegradedPass(done)) await logLine($, `pane: did not finish within ${RELAY_BOUND_MS} ms`)
+        else if (done && !wake.armed) armWake($, wake)
       }
     } catch (err) {
       await logLine($, `pane: ${(err as Error).message}`)
@@ -726,7 +815,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // coordinator's lists the orchestrators, an orchestrator's its own agents.
   // Anywhere else the command says so and opens nothing.
   on('command.run', { command: 'orchestrator:supervision' }, async ($: any) => {
-    const { tty, name } = await walkWithinBound($, await $.session.id())
+    const { tty, name, pid } = await walkWithinBound($, await $.session.id())
     const role = roleOf(name)
     if (role !== 'coordinator' && role !== 'orchestrator') {
       return { text: 'The supervision pane opens in a coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session (« Orch : … »), listing its agents; /orchestrator:status lists the sessions here.' }
@@ -739,9 +828,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     if (panes.some(pane => pane.id === PANE_ID)) {
       stopTicker()
       await $.ui.close({ id: PANE_ID })
+      await recordPaneClosed($).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
       return { text: 'Supervision pane closed.' }
     }
-    await openPane($, pane, role, tty)
+    await openPane($, pane, role, tty, pid)
     return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -751,6 +841,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // The pane closed by its ✕ or its key: its clock stops with it.
   on('ui.close', { id: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
     stopTicker()
+    await recordPaneClosed($).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)

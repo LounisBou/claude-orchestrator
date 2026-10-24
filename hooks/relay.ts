@@ -14,7 +14,7 @@
 // relayed again. Pure on
 // purpose: the handler holds the $ (the engine fences it to the file that received it) and
 // passes its reads in here.
-import { MACHINE_LINE, machineLine, chainEntries } from './stop-gate.ts'
+import { MACHINE_LINE, URGENT_LINE, machineLine, chainEntries } from './stop-gate.ts'
 import type { SessionRow } from './supervision.ts'
 
 // The question a report carries is cut past this many characters, and the cut is said:
@@ -23,8 +23,10 @@ export const RELAY_CAP = 4000
 
 // An orchestrator waits on the operator or is done; an agent of one (parseStatus) has
 // delivered, is blocked or asks, `blocks` then its status line's own words.
+// A wait on the operator its sender marked `(urgent)` carries `urgent: true`; the plain
+// form carries no such field. Never in the fingerprint: marking a wait urgent is no new wait.
 export type Wait =
-  | { kind: 'operator'; blocks: string; question: string }
+  | { kind: 'operator'; blocks: string; question: string; urgent?: true }
   | { kind: 'done'; question: string }
   | { kind: 'delivered' | 'blocked' | 'question'; blocks: string; question: string }
 export type WaitKind = Wait['kind']
@@ -33,11 +35,14 @@ export type WaitKind = Wait['kind']
 // gate's own normalisation: a wait on the operator with what it blocks, or done. The
 // question is the answer minus that line. No machine line: no wait.
 export function parseWait(answer: string): Wait | null {
-  const matched = MACHINE_LINE.exec(machineLine(answer))
+  const line = machineLine(answer)
+  const matched = MACHINE_LINE.exec(line)
   if (!matched) return null
   const lines = answer.replace(/\s+$/, '').split('\n')
   const question = lines.slice(0, -1).join('\n').trim()
-  return matched[1] ? { kind: 'operator', blocks: matched[1].trim(), question } : { kind: 'done', question }
+  if (!matched[1]) return { kind: 'done', question }
+  const wait: Wait = { kind: 'operator', blocks: matched[1].trim(), question }
+  return URGENT_LINE.test(line) ? { ...wait, urgent: true } : wait
 }
 
 // An agent's last line, its brief's own: `status: done|blocked|question — <one line>`,

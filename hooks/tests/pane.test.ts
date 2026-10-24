@@ -132,8 +132,9 @@ type Fx = {
   invalidated: string[]
   focused: { requestId: string; key: string }[]
   scrolled: { to: unknown; in?: string }[]
-  later: { ms: number; fn: () => void }[]
+  later: { ms: number; fn: () => unknown }[]
   state: Map<string, unknown>
+  submitted: string[]
 }
 
 function fakeDollar(over: {
@@ -152,7 +153,9 @@ function fakeDollar(over: {
   const invalidated: string[] = []
   const focused: { requestId: string; key: string }[] = []
   const scrolled: { to: unknown; in?: string }[] = []
-  const later: { ms: number; fn: () => void }[] = []
+  const later: { ms: number; fn: () => unknown }[] = []
+  // What the module submitted to its own session: the wake of a coordinator.
+  const submitted: string[] = []
   // The host's $.state for the session: it outlives the module's own variables.
   const state = new Map<string, unknown>()
   const dollar = {
@@ -171,6 +174,7 @@ function fakeDollar(over: {
     },
     env: { get: async (name: string) => env[name] },
     plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    prompt: { submit: async (args: { text: string }) => { submitted.push(args.text) } },
     fs: {
       read: async (p: string) => {
         if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
@@ -216,6 +220,10 @@ function fakeDollar(over: {
           files.delete(argv[2])
           return { exitCode: 0, stdout: '', stderr: '' }
         }
+        if (argv[0] === 'rm' && argv[1] === '-f') {
+          for (const p of argv.slice(2)) files.delete(p)
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         if (argv[0] === 'sh') {
           if (over.hangWalk) return new Promise(() => undefined)
           return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
@@ -240,7 +248,7 @@ function fakeDollar(over: {
         timers.push(timer)
         return timer
       },
-      after: (ms: number, fn: () => void) => {
+      after: (ms: number, fn: () => unknown) => {
         later.push({ ms, fn })
         return { cancel: () => undefined }
       },
@@ -279,7 +287,7 @@ function fakeDollar(over: {
       }),
     },
   }
-  return { dollar, files, ran, written, opened, closed, env, timers, invalidated, focused, scrolled, later, state }
+  return { dollar, files, ran, written, opened, closed, env, timers, invalidated, focused, scrolled, later, state, submitted }
 }
 
 function mounted(register: (on: any) => void): {
@@ -1286,4 +1294,121 @@ test('where the pane has no field (mobile) the in-session Button and its line st
   expect(sent).toEqual([])
   expect(fx.invalidated).toContain('ui.render')
   expect(texts(await render())).toContain("type your answer in this tab, or in Orch : low's tab")
+})
+
+// --- the pane as the coordinator's round reads it, and the wake of a due question ------------
+
+const PANE_FILE = `${HOME}/.claude/claude-orchestrator/pane.json`
+const endEvent = { sessionId: 's-one', reason: 'exit' }
+
+test('the coordinator\'s pane, once open, is recorded for coordinator.sh round, and every close removes the record', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  const record = JSON.parse(String(fx.files.get(PANE_FILE)))
+  expect([record.session, record.pid, Number.isFinite(Date.parse(record.at))]).toEqual(['s-one', '501', true])
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.files.has(PANE_FILE)).toBe(false)
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.files.has(PANE_FILE)).toBe(true)
+  await handlers['ui.close'](fx.dollar, { id: 'supervision', origin: { kind: 'person' } }, (x: unknown) => x)
+  expect(fx.files.has(PANE_FILE)).toBe(false)
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  await handlers['session.end'](fx.dollar, endEvent, (x: unknown) => x)
+  expect(fx.files.has(PANE_FILE)).toBe(false)
+  expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
+})
+
+test('the pane opened by itself at the first turn is recorded too; an orchestrator\'s pane and another session\'s record are left alone', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(JSON.parse(String(fx.files.get(PANE_FILE))).session).toBe('s-one')
+  const other = JSON.stringify({ session: 's-two', pid: '777', at: '2026-10-24T10:00:00.000Z' }) + '\n'
+  fx.files.set(PANE_FILE, other)
+  await handlers['session.end'](fx.dollar, endEvent, (x: unknown) => x)
+  expect(fx.files.get(PANE_FILE)).toBe(other)
+  const orch = fakeDollar({ launchName: 'Orch : belt' })
+  await mounted(registerSupervision).handlers['command.run'](orch.dollar, supervisionRun)
+  expect(orch.files.has(PANE_FILE)).toBe(false)
+})
+
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60000).toISOString()
+
+// A coordinator whose round holds `asked`, each sender live, its pane open by its first turn,
+// or closed by the command before it: the wake's clock is armed by the turn's end.
+async function wakingCoordinator(asked: RoundEntry[], over: { paneClosed?: boolean } = {}) {
+  const fx = coordinatorSession()
+  for (const e of asked) {
+    fx.files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
+    fx.files.set(`${SESSIONS}/${e.session}`, JSON.stringify(row({ role: 'orchestrator', name: e.from })) + '\n')
+  }
+  const { handlers } = mounted(registerSupervision)
+  if (over.paneClosed) {
+    await handlers['command.run'](fx.dollar, supervisionRun)
+    await handlers['command.run'](fx.dollar, supervisionRun)
+  }
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  const tick = async () => {
+    const armed = fx.later.filter(t => t.ms === 30000)
+    await armed[armed.length - 1].fn()
+  }
+  return { fx, handlers, tick }
+}
+
+test('a due question wakes the coordinator once: urgent at once, otherwise at 15 minutes in the pane, never one answered', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const old = entry('Orch : b', minutesAgo(16), { session: 'sb' })
+  const young = entry('Orch : c', minutesAgo(14), { session: 'sc' })
+  const answered = entry('Orch : d', minutesAgo(30), { session: 'sd', status: 'answered', urgent: true })
+  const done = entry('Orch : e', minutesAgo(30), { session: 'se', kind: 'done', blocks: null })
+  const { fx, handlers, tick } = await wakingCoordinator([urgent, old, young, answered, done])
+  expect(fx.opened.length).toBe(1)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(fx.later.filter(t => t.ms === 30000).length).toBe(1)
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  for (const asked of [urgent, old]) expect(fx.submitted[0]).toContain(asked.from)
+  for (const quiet of [young, answered, done]) expect(fx.submitted[0]).not.toContain(quiet.from)
+  expect(fx.submitted[0]).toContain('coordinator.sh round')
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  fx.files.set(`${ROUND}/${young.id}.json`, JSON.stringify({ ...young, since: minutesAgo(15) }) + '\n')
+  await tick()
+  expect(fx.submitted.length).toBe(2)
+  expect(fx.submitted[1]).toContain(young.from)
+  expect(fx.submitted[1]).not.toContain(old.from)
+  // The host keeps the entries woken for: a reload of the module wakes for none of them again.
+  const reloaded = mounted(registerSupervision).handlers
+  await reloaded['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  await tick()
+  expect(fx.submitted.length).toBe(2)
+})
+
+test('with the pane closed every open question is due at once; one answered in the pane before it is due wakes nothing', async () => {
+  const fresh = entry('Orch : a', minutesAgo(1), { session: 'sa' })
+  const { fx, tick } = await wakingCoordinator([fresh], { paneClosed: true })
+  expect(fx.files.has(PANE_FILE)).toBe(false)
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  expect(fx.submitted[0]).toContain(fresh.from)
+  const quiet = await wakingCoordinator([entry('Orch : b', minutesAgo(1), { session: 'sb' })])
+  const settled = entry('Orch : b', minutesAgo(1), { session: 'sb' })
+  quiet.fx.files.set(`${ROUND}/${settled.id}.json`, JSON.stringify({ ...settled, since: minutesAgo(20), status: 'answered' }) + '\n')
+  await quiet.tick()
+  expect(quiet.fx.submitted).toEqual([])
+})
+
+test('a question whose sender has ended wakes nothing, and a session that is no coordinator arms no wake', async () => {
+  const fx = coordinatorSession()
+  const gone = entry('Orch : gone', minutesAgo(30), { session: 'sg', urgent: true })
+  fx.files.set(`${ROUND}/${gone.id}.json`, JSON.stringify(gone) + '\n')
+  const { handlers } = mounted(registerSupervision)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  await fx.later.filter(t => t.ms === 30000)[0].fn()
+  expect(fx.submitted).toEqual([])
+  const orch = fakeDollar({ launchName: 'Orch : belt' })
+  orch.files.set(`${SESSIONS}/s-one`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : belt' })) + '\n')
+  await mounted(registerSupervision).handlers['turn.complete'](orch.dollar, firstTurn, (x: unknown) => x)
+  expect(orch.later.filter(t => t.ms === 30000)).toEqual([])
 })

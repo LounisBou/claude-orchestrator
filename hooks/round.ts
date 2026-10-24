@@ -28,6 +28,7 @@ export type RoundEntry = {
   status: 'open' | 'answered' | 'withdrawn' | 'closed'
   at: string                    // when the module wrote the entry, ISO
   answer: RoundAnswer | null
+  urgent?: true                 // the sender marked its wait `(urgent)`: `coordinator.sh round` makes it due at once
 }
 
 // A choice as `/orchestrator:decide` step 2 writes it, one per line: `- **A** : <text>`. A line
@@ -106,6 +107,7 @@ export function roundEntry(sessionId: string, from: string, wait: Wait, since: s
     status: 'open',
     at,
     answer: null,
+    ...(wait.kind === 'operator' && wait.urgent ? { urgent: true as const } : {}),
   }
 }
 
@@ -130,4 +132,28 @@ export function openEntries(entries: readonly RoundEntry[]): RoundEntry[] {
 export function paneQuestions(entries: readonly RoundEntry[]): RoundEntry[] {
   const questions = openEntries(entries).filter(entry => entry.kind === 'operator')
   return [...questions.filter(entry => entry.choices.length > 0), ...questions.filter(entry => entry.choices.length === 0)]
+}
+
+// How long an open question stays the pane's alone, the operator's order of 2026-10-24 that no
+// question be asked twice by default: past it, the coordinator asks it in its tab too.
+export const DUE_AFTER_MS = 15 * 60 * 1000
+
+// An open question is due in the coordinator's tab when its sender marked it urgent, when no
+// pane of the coordinator is open to show it, or once open DUE_AFTER_MS; a start that does not
+// parse cannot be judged young, and is due. `coordinator.sh round` marks the same entries
+// `due`. A closing proposal is no question: the pane cannot rule it, and the tab always
+// presents it.
+export function isDue(entry: RoundEntry, now: number, paneOpen: boolean): boolean {
+  if (entry.status !== 'open' || entry.kind !== 'operator') return false
+  if (entry.urgent || !paneOpen) return true
+  const since = Date.parse(entry.since)
+  return !Number.isFinite(since) || now - since >= DUE_AFTER_MS
+}
+
+// The coordinator's wake for the questions just due: a report, never an order — it names them,
+// and the round is read the usual way.
+export function dueText(entries: readonly RoundEntry[]): string {
+  const each = entries.map(entry => `${entry.from}, since ${entry.since} — blocks: ${entry.blocks ?? '-'}${entry.urgent ? ' (urgent)' : ''}`)
+  return `[module] ${entries.length === 1 ? 'A question of the round is' : `${entries.length} questions of the round are`} now due in this tab: `
+    + `${each.join('; ')}. Run coordinator.sh round and present the entries it marks due.`
 }

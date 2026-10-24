@@ -33,6 +33,13 @@ test('the machine line parses into a wait: the operator with what it blocks, or 
   expect(parseWait('')).toBeNull()
 })
 
+test('a wait its sender marked urgent parses as urgent; the plain form is not', () => {
+  expect(parseWait(answerOf(QUESTION, 'waiting: operator (urgent) — blocks: x')))
+    .toEqual({ kind: 'operator', blocks: 'x', question: QUESTION, urgent: true })
+  expect(parseWait('waiting: operator (Urgent) - blocks: the deadline')).toEqual({ kind: 'operator', blocks: 'the deadline', question: '', urgent: true })
+  expect(parseWait(answerOf(QUESTION, 'waiting: operator — blocks: x'))!.urgent).toBeUndefined()
+})
+
 test('the row fields: the wait since now, kept while the same wait lasts', () => {
   const wait = parseWait(answerOf(QUESTION, 'waiting: operator — blocks: phase 3'))!
   const first = waitPatch(null, wait, '2026-10-14T10:00:00.000Z')
@@ -224,6 +231,16 @@ test('an operator wait lands in the row and is entered once in the round of the 
   expect(fx.files.has(`${ROUND}/${entry.id}.json`)).toBe(true)
   expect(Number.isFinite(Date.parse(entry.at))).toBe(true)
   expect(row.relayed).toBe(fingerprint(wait))
+})
+
+test('a wait marked urgent is entered in the round urgent, what it blocks read without the mark', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator (urgent) — blocks: the production fault')))
+  expect(fx.row()!.blocks).toBe('the production fault')
+  const [entry] = entries(fx)
+  expect(entries(fx).length).toBe(1)
+  expect([entry.urgent, entry.blocks]).toEqual([true, 'the production fault'])
 })
 
 test('the same wait is never sent twice, whatever progress the turns between report; a new line is', async () => {

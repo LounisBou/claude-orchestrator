@@ -6322,6 +6322,10 @@ mkdir -p "$CROUND"
 RCFG_HAD="${CLAUDE_CONFIG_DIR+set}"; RCFG_WAS="${CLAUDE_CONFIG_DIR-}"
 export CLAUDE_CONFIG_DIR="$WORK/coord-config"
 mkdir -p "$CLAUDE_CONFIG_DIR/claude-orchestrator/store/sessions"
+# The round's clock pinned minutes after these entries, and the coordinator's pane open (its
+# record naming this shell's pid, which lives), so that no entry below is due in the tab.
+export COORDINATOR_NOW=2026-10-18T10:06:00Z
+printf '{"session":"s-coord","pid":"%s","at":"2026-10-18T10:00:00.000Z"}\n' "$$" > "$CS/pane.json"
 round_entry() {  # <id> <from> <since> <status> <kind> <question>
   jq -n --arg id "$1" --arg from "$2" --arg since "$3" --arg status "$4" --arg kind "$5" --arg q "$6" \
     '{id:$id, from:$from, session:("s-" + $id), kind:$kind, since:$since, blocks:(if $kind == "operator" then "phase 3" else null end),
@@ -6407,6 +6411,7 @@ for gone in "live:s-live" "ended:s-ended" "odd:s odd/1"; do
       blocks:"phase 3", question:"Ship it?", choices:[], recommendation:null, status:"open", at:"T", answer:null}' > "$GSTATE/round/${gone%%:*}.json"
 done
 : > "$GCFG/claude-orchestrator/store/sessions/s-live"
+cp "$CS/pane.json" "$GSTATE/pane.json"
 : > "$GCFG/claude-orchestrator/store/sessions/s_odd_1"
 check "round says the sender is gone on the header of an entry whose sessions file is absent, and still prints the entry" \
   "round live | operator | from Orch : live | since 2026-10-18T10:01:00.000Z | blocks: phase 3 | open
@@ -6429,6 +6434,8 @@ for spec in "w1:withdrawn:1" "x1:answered:2" "o1:open:3" "x2:answered:4" "o2:ope
               elif $status == "withdrawn" then {text:"", by:"sender", at:"2026-10-20T10:09:00.000Z"} else null end)}' > "$ASTATE/round/$aid.json"
 done
 : > "$ACFG/claude-orchestrator/store/sessions/s-a"
+cp "$CS/pane.json" "$ASTATE/pane.json"
+export COORDINATOR_NOW=2026-10-20T10:06:00Z
 check "round prints the open entries, then the answered ones with their answer, then the withdrawn ones, a sender's own withdrawal said" \
   "round o1 | operator | from Orch : a | since 2026-10-20T10:03:00.000Z | blocks: phase 3 | open
     Ask o1?
@@ -6444,7 +6451,47 @@ round w1 | operator | from Orch : a | since 2026-10-20T10:01:00.000Z | blocks: p
     Ask w1?
     withdrawn by the sender at 2026-10-20T10:09:00.000Z: a later turn the operator typed in waits on something else" \
   "$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" bash "$COORD" round 2>&1)"
+# An open question the pane can show is the pane's: `round` marks it due, for the coordinator to
+# present in its tab, only when its sender marked it urgent, once it has stayed open 15
+# minutes, read against COORDINATOR_NOW (the clock a test pins), never against the real clock
+# here, or when no pane of the coordinator is open: its record, <state>/pane.json, names a pid
+# the process table (COORDINATOR_PS_TABLE here) holds. Answered and withdrawn entries, and a
+# closing proposal, which the pane cannot rule, are never due.
+DSTATE="$WORK/coord-due"; DCFG="$WORK/coord-due-config"
+mkdir -p "$DSTATE/round" "$DCFG/claude-orchestrator/store/sessions"
+for spec in "u1:open:2026-10-24T11:59:00.000Z:true" "p15:open:2026-10-24T11:45:00.000Z:false" \
+    "p14:open:2026-10-24T11:45:01.000Z:false" "pold:open:2026-10-24T09:00:00.000Z:false" \
+    "xu:answered:2026-10-24T11:58:00.000Z:true" "wold:withdrawn:2026-10-24T09:00:00.000Z:false" \
+    "zdone:open:2026-10-24T09:30:00.000Z:false"; do
+  IFS=: read -r did dstatus dh dm drest durgent <<< "$spec"
+  jq -n --arg id "$did" --arg status "$dstatus" --arg since "$dh:$dm:$drest" --argjson urgent "$durgent" \
+    '{id:$id, from:"Orch : d", session:"s-d", kind:(if $id == "zdone" then "done" else "operator" end), since:$since,
+      blocks:(if $id == "zdone" then null else "phase 3" end), question:("Ask " + $id + "?"),
+      choices:[], recommendation:null, status:$status, at:$since,
+      answer:(if $status == "answered" then {text:"A : ship it", by:"pane", at:"2026-10-24T11:59:00.000Z"}
+              elif $status == "withdrawn" then {text:"", by:"sender", at:"2026-10-24T11:59:00.000Z"} else null end)}
+     + (if $urgent then {urgent:true} else {} end)' > "$DSTATE/round/$did.json"
+done
+: > "$DCFG/claude-orchestrator/store/sessions/s-d"
+printf '4242 1 ttys004 hostcli\n' > "$WORK/coord-due-ps"
+printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$DSTATE/pane.json"
+dround() { ORCHESTRATOR_STATE_DIR="$DSTATE" CLAUDE_CONFIG_DIR="$DCFG" COORDINATOR_NOW=2026-10-24T12:00:00Z COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round 2>&1; }
+check "round marks due an urgent entry and one open 15 minutes or more, and no other" \
+  "round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open | due
+round zdone | done | from Orch : d | since 2026-10-24T09:30:00.000Z | blocks: - | open
+round p15 | operator | from Orch : d | since 2026-10-24T11:45:00.000Z | blocks: phase 3 | open | due
+round p14 | operator | from Orch : d | since 2026-10-24T11:45:01.000Z | blocks: phase 3 | open
+round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
+round xu | operator | from Orch : d | since 2026-10-24T11:58:00.000Z | blocks: phase 3 | answered
+round wold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | withdrawn" \
+  "$(dround | grep '^round ')"
+check "with no pane open every open question is due, a closing proposal still not: no record, a dead pid, a record with no pid" \
+  "4|0|4|4" \
+  "$(mv "$DSTATE/pane.json" "$WORK/coord-due-pane"; dround | grep -c ' | open | due$')|$(dround | grep -c '^round zdone .* | due')|$(printf '{"session":"s-coord","pid":"4243"}\n' > "$DSTATE/pane.json"; dround | grep -c ' | open | due$')|$(printf '{"session":"s-coord"}\n' > "$DSTATE/pane.json"; dround | grep -c ' | open | due$')"
+check "round refuses a pinned clock that is no UTC time" "exit 1|coordinator: round: COORDINATOR_NOW is no UTC time: soon" \
+  "$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round >/dev/null 2>&1; echo "exit $?")|$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round 2>&1)"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
+unset COORDINATOR_NOW
 
 echo "== routing: cost =="
 
