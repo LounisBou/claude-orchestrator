@@ -3155,6 +3155,30 @@ check "no skill and no command of the plugin share a name" "" "$(name_collisions
 NCCMDS="$WORK/collision-commands"; mkdir -p "$NCCMDS"; cp "$ROOT"/commands/*.md "$NCCMDS"/; cp "$COORDCMD" "$NCCMDS/coordination.md"
 check "a command planted under a skill's name falls the check, and names it" "collision:coordination" \
   "$(name_collisions "$ROOT/skills" "$NCCMDS")"
+# The short names (the operator's ruling of 2026-10-24): every command answers to `/<name>`
+# by the `name:` of its frontmatter, the coordinator's `coordinator-…`, the others
+# `orchestrator-…`. The host hands a hook `orchestrator:<name>` whichever form was typed, so a
+# name lost silences the hook that matches it; and a command file the table does not know is
+# one whose short name nobody chose. The pane answers to both roles' names, one body twice.
+COMMAND_NAMES='agents:orchestrator-agents audit:orchestrator-audit calibrate:orchestrator-calibrate coordinator:coordinator coordinator-decide:coordinator-decide coordinator-end:coordinator-end coordinator-supervision:coordinator-supervision decide:orchestrator-decide install:orchestrator-install progress:orchestrator-progress sleeping:orchestrator-sleeping status:orchestrator-status succeed:orchestrator-succeed supervision:orchestrator-supervision uninstall:orchestrator-uninstall'
+short_names_missing() {  # <commands dir>: one line per command without its short name, or unknown
+  local pair f stem
+  for pair in $COMMAND_NAMES; do
+    f="$1/${pair%%:*}.md"
+    [ "$(awk 'NR == 1 { next } /^---$/ { exit } { print }' "$f" 2>/dev/null | sed -n 's/^name: //p')" = "${pair#*:}" ] || echo "missing:${pair%%:*}"
+  done
+  for f in "$1"/*.md; do
+    stem=$(basename "$f" .md)
+    case " $COMMAND_NAMES " in *" $stem:"*) ;; *) echo "unknown:$stem" ;; esac
+  done
+}
+check "every command carries its short name" "" "$(short_names_missing "$ROOT/commands")"
+SNCMDS="$WORK/short-name-commands"; mkdir -p "$SNCMDS"; cp "$ROOT"/commands/*.md "$SNCMDS"/
+sed -i.bak '/^name: /d' "$SNCMDS/status.md"; rm -f "$SNCMDS"/*.bak; cp "$ROOT/commands/status.md" "$SNCMDS/stray.md"
+check "a command without its name, and one the table does not know, fail the check" "missing:status|unknown:stray" \
+  "$(short_names_missing "$SNCMDS" | paste -sd'|' -)"
+check "both supervision commands carry one body" "" \
+  "$(diff <(sed '/^name: /d' "$ROOT/commands/supervision.md") <(sed '/^name: /d' "$ROOT/commands/coordinator-supervision.md"))"
 check "both coordinator commands and the successor's brief load the coordination skill" "yes|yes|yes" \
   "$(spells "$COORDCMD" 'described in `orchestrator:coordination`')|$(spells "$COORDEND" 'described in `orchestrator:coordination`')|$(spells "$COORDTPL" '`orchestrator:coordination` FIRST')"
 check "each coordinator command carries its description and its allowed tools" "1|1|1|1" \

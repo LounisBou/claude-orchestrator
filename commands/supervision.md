@@ -1,4 +1,5 @@
 ---
+name: orchestrator-supervision
 description: Open the supervision pane (the orchestrators for a coordinator, its agents for an orchestrator)
 ---
 

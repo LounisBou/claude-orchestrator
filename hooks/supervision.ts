@@ -3,8 +3,8 @@
 // the name the walk read, the repository of the working directory — written by
 // this file's own session.measure handler and removed by its session.end, one
 // file per key under the module's state root. The supervision pane below reads
-// the same rows, opened when the person types /orchestrator:supervision — never
-// on a start: the operator wants nothing placed on screen unasked — and in a
+// the same rows, opened when the person types /coordinator-supervision or
+// /orchestrator-supervision — never on a start: the operator wants nothing placed on screen unasked — and in a
 // coordinator, by the module itself once, at the end of its first turn while the
 // coordinator's record names one: his ruling of 2026-10-18. In a coordinator
 // session it lists the orchestrators, and under them the first question of its
@@ -111,6 +111,9 @@ export function livePids(result: unknown): Set<string> | null {
 // own contract — letters, digits, `_` and `-`.
 const PANE_ID = 'supervision'
 const PANE_TITLES = { coordinator: 'Orchestrators', orchestrator: 'Agents' } as const
+
+// The two commands that toggle the pane, as the host hands them to command.run.
+export const SUPERVISION_COMMANDS = ['orchestrator:orchestrator-supervision', 'orchestrator:coordinator-supervision'] as const
 
 // The sort's one law: a row past the rotation gate outranks every row below
 // it, however full each side is; within a side, the fill descends. The floor
@@ -948,12 +951,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // The pane opens on the person's own command alone — the shipped types' «
   // asked » open, placed at any width — in the two supervising roles: a
   // coordinator's lists the orchestrators, an orchestrator's its own agents.
-  // Anywhere else the command says so and opens nothing.
-  on('command.run', { command: 'orchestrator:supervision' }, async ($: any) => {
+  // Anywhere else the command says so and opens nothing. Two commands answer, one per
+  // role's short name, the same toggle on the same pane: the host hands each as
+  // `orchestrator:<short>`, whichever form was typed (measured live).
+  for (const command of SUPERVISION_COMMANDS) on('command.run', { command }, async ($: any) => {
     const { tty, name, pid } = await walkWithinBound($, await $.session.id())
     const role = roleOf(name)
     if (role !== 'coordinator' && role !== 'orchestrator') {
-      return { text: 'The supervision pane opens in a coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session (« Orch : … »), listing its agents; /orchestrator:status lists the sessions here.' }
+      return { text: 'The supervision pane opens in a coordinator session (« Coord : … »), listing the orchestrators, or in an orchestrator session (« Orch : … »), listing its agents; /orchestrator-status lists the sessions here.' }
     }
     // A toggle: the same command closes the pane it opened (Escape does not —
     // the pane holds no focus), beside the pane's own ✕. Either way the pane is his
@@ -967,7 +972,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       return { text: 'Supervision pane closed.' }
     }
     await openPane($, pane, role, tty, pid)
-    return { text: 'Supervision pane opened; type /orchestrator:supervision again, or click its ✕, to close it.' }
+    return { text: `Supervision pane opened; type /${role}-supervision again, or click its ✕, to close it.` }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
@@ -1021,7 +1026,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       let asking: RoundEntry | null = null
       let failed: { entry: RoundEntry; reason: string }[] = []
       let pending = 0
-      let none = 'type /orchestrator:supervision to open the pane again'
+      let none = 'type /coordinator-supervision or /orchestrator-supervision to open the pane again'
       const coordinator = pane.opened?.role === 'coordinator'
       if (coordinator) {
         const local = await readSessions($)

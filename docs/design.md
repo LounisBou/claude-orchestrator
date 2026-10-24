@@ -83,6 +83,7 @@ commands/install.md                  unwires the tap, creates the state director
 commands/uninstall.md                restores the previous status line, removes the state directory
 commands/status.md                   live sessions and their measured context fill
 commands/supervision.md              opens or closes the supervision pane on the person's command: the orchestrators in a coordinator session, its own agents in an orchestrator session
+commands/coordinator-supervision.md  the same body as supervision.md, under the coordinator's short name: both toggle one pane
 commands/succeed.md                  runs the orchestrator succession
 commands/agents.md                   each running implementer's progress
 commands/progress.md                 where the build stands
