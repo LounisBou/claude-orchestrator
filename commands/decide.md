@@ -22,7 +22,7 @@ blocks>`, and the module forwards it; never send it yourself. The first says in 
 sentences what you work on, for its
 round of its own where your questions come together. Its pane shows each one, its tab asking
 again only when urgent, unanswered there 15 minutes, or no pane is open (his order of
-2026-10-24: no question asked twice); end on `waiting: operator (urgent) — blocks: …` only for what cannot wait.
+2026-10-24: no question asked twice); end on `waiting: operator (urgent) — blocks: …` only for what cannot wait that long.
 Its answer, verbatim and dated, is his ruling, recorded as step 4 says.
 
 ## 1. Collect first, then announce the count
@@ -56,7 +56,7 @@ One field per line, its label italic before a colon, in the user's language: the
 operator's pane draws these fields alone.
 
 - `**Question i of N**`, alone on its line: the only numbering shown.
-- `_Subject_ :` the thing on the screen or in the data, in words.
+- `_Subject_ :` the thing on the screen or in the data.
 - `_Context_ :` two to six sentences: what the thing is, where the user meets it, what
   happens today, what the plan or the agent says, why this is the user's to decide, which
   goal of `goals.md` it serves, what stays open after it. Plain words: an identifier only
