@@ -5,11 +5,8 @@
 // turn end or by /orchestrator:supervision: the module never opens it again on its own.
 export type PaneOpened = boolean
 
-// The round entries the coordinator's session was woken for once they fell due: never twice.
-export type RoundWoken = string[]
-
 declare module 'claude-code' {
   interface PluginState {
-    orchestrator: { paneOpened: PaneOpened; roundWoken: RoundWoken }
+    orchestrator: { paneOpened: PaneOpened }
   }
 }

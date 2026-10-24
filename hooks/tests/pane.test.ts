@@ -9,7 +9,7 @@
 // measure's side reads bounded so a walk that cannot answer in time costs the row
 // its name, never the measure.
 import { expect, test } from 'claude-code/testing'
-import { agentPaneRows, paneRows, readRound, roundLines, register as registerSupervision, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, paneRows, readRound, roundLines, register as registerSupervision, registerWake, type SessionRow } from '../supervision.ts'
 import type { RoundEntry } from '../round.ts'
 import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
@@ -132,7 +132,7 @@ type Fx = {
   invalidated: string[]
   focused: { requestId: string; key: string }[]
   scrolled: { to: unknown; in?: string }[]
-  later: { ms: number; fn: () => unknown }[]
+  later: { ms: number; fn: () => unknown; cancelled: boolean }[]
   state: Map<string, unknown>
   submitted: string[]
 }
@@ -153,7 +153,7 @@ function fakeDollar(over: {
   const invalidated: string[] = []
   const focused: { requestId: string; key: string }[] = []
   const scrolled: { to: unknown; in?: string }[] = []
-  const later: { ms: number; fn: () => unknown }[] = []
+  const later: { ms: number; fn: () => unknown; cancelled: boolean }[] = []
   // What the module submitted to its own session: the wake of a coordinator.
   const submitted: string[] = []
   // The host's $.state for the session: it outlives the module's own variables.
@@ -228,6 +228,10 @@ function fakeDollar(over: {
           if (over.hangWalk) return new Promise(() => undefined)
           return { exitCode: 0, stdout: '123 ttys001\n', stderr: '' }
         }
+        if (argv[0] === 'ps' && argv[1] === '-A') {
+          // The machine's live pids: this session's host process and an agent's.
+          return { exitCode: 0, stdout: '  501\n  777\n', stderr: '' }
+        }
         if (argv[0] === 'ps' && argv[1] === '-t' && argv[2] !== 'ttys001') {
           // Another tab's host process: an agent's, pid 777.
           return { exitCode: 0, stdout: '  777 hostcli\n', stderr: '' }
@@ -249,8 +253,9 @@ function fakeDollar(over: {
         return timer
       },
       after: (ms: number, fn: () => unknown) => {
-        later.push({ ms, fn })
-        return { cancel: () => undefined }
+        const timer = { ms, fn, cancelled: false }
+        later.push(timer)
+        return { cancel: () => { timer.cancelled = true } }
       },
     },
     ui: {
@@ -1413,4 +1418,101 @@ test('a question whose sender has ended wakes nothing, and a session that is no 
   orch.files.set(`${SESSIONS}/s-one`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : belt' })) + '\n')
   await mounted(registerSupervision).handlers['turn.complete'](orch.dollar, firstTurn, (x: unknown) => x)
   expect(orch.later.filter(t => t.ms === 30000)).toEqual([])
+})
+
+test('the pane opened at the first turn by a row that carries no pid records the pid its walk reads, never none', async () => {
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  expect(JSON.parse(String(fx.files.get(PANE_FILE))).pid).toBe('501')
+})
+
+test('a wake the host refuses or that fails is not recorded, and the next reading wakes for it', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const { fx, tick } = await wakingCoordinator([urgent])
+  const submit = fx.dollar.prompt.submit
+  fx.dollar.prompt.submit = async () => { throw new Error('the session is busy') }
+  await tick()
+  fx.dollar.prompt.submit = async () => ({ drop: 'refused' })
+  await tick()
+  expect(fx.submitted).toEqual([])
+  fx.dollar.prompt.submit = submit
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+})
+
+const WOKEN_FILE = `${HOME}/.claude/claude-orchestrator/round-woken.json`
+
+test('a successor over the same state directory, its host state its own, wakes for nothing its predecessor was woken for', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const { fx, tick } = await wakingCoordinator([urgent])
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  const next = coordinatorSession()
+  for (const [path, text] of fx.files) next.files.set(path, text)
+  await mounted(registerSupervision).handlers['turn.complete'](next.dollar, firstTurn, (x: unknown) => x)
+  await next.later.filter(t => t.ms === 30000)[0].fn()
+  expect(next.submitted).toEqual([])
+})
+
+test('an entry another session was woken for between the reading and the wake is not woken for again', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const { fx, tick } = await wakingCoordinator([urgent])
+  const read = fx.dollar.fs.read
+  let reads = 0
+  fx.dollar.fs.read = async (p: string) => {
+    // The first reading finds no entry woken for; another session records this one before the second.
+    if (p === WOKEN_FILE && ++reads === 1) {
+      fx.files.set(WOKEN_FILE, JSON.stringify([urgent.id]) + '\n')
+      throw new Error(`ENOENT: ${p}`)
+    }
+    return read(p)
+  }
+  await tick()
+  expect(reads).toBe(2)
+  expect(fx.submitted).toEqual([])
+})
+
+test('a reload arms the wake with no turn after it; a second arm starts no second chain; the session\'s end stops it', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const fx = coordinatorSession()
+  fx.files.set(`${ROUND}/${urgent.id}.json`, JSON.stringify(urgent) + '\n')
+  fx.files.set(`${SESSIONS}/sa`, JSON.stringify(row({ role: 'orchestrator', name: urgent.from })) + '\n')
+  const { handlers } = mounted(registerSupervision)
+  const start = mounted(registerWake).handlers
+  const wakes = () => fx.later.filter(t => t.ms === 30000)
+  expect(await start['session.start'](fx.dollar, startEvent, (x: unknown) => x)).toBe(startEvent)
+  expect(wakes().length).toBe(1)
+  await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  await start['session.start'](fx.dollar, startEvent, (x: unknown) => x)
+  expect(wakes().length).toBe(1)
+  await wakes()[0].fn()
+  expect([fx.submitted.length, wakes().length]).toEqual([1, 2])
+  // A reading already fired, run again, is no chain of its own: it arms nothing.
+  await wakes()[0].fn()
+  expect(wakes().length).toBe(2)
+  await handlers['session.end'](fx.dollar, endEvent, (x: unknown) => x)
+  expect(wakes()[1].cancelled).toBe(true)
+  await wakes()[1].fn()
+  expect(wakes().length).toBe(2)
+  // No coordinator, no wake at the start.
+  const orch = fakeDollar({ launchName: 'Orch : belt' })
+  await mounted(registerWake).handlers['session.start'](orch.dollar, startEvent, (x: unknown) => x)
+  expect(orch.later.filter(t => t.ms === 30000)).toEqual([])
+})
+
+test('a pane record whose pid is not running, or that names none, is no pane; another session\'s live one is', async () => {
+  const young = entry('Orch : a', minutesAgo(1), { session: 'sa' })
+  for (const record of [{ session: 's-one', pid: '999' }, { session: 's-one' }, { session: 's-one', pid: null }]) {
+    const { fx, tick } = await wakingCoordinator([young])
+    fx.files.set(PANE_FILE, JSON.stringify({ ...record, at: '2026-10-24T10:00:00.000Z' }) + '\n')
+    await tick()
+    expect(fx.submitted.length).toBe(1)
+  }
+  const { fx, tick } = await wakingCoordinator([young])
+  fx.files.set(PANE_FILE, JSON.stringify({ session: 's-two', pid: '777', at: '2026-10-24T10:00:00.000Z' }) + '\n')
+  await tick()
+  expect(fx.submitted).toEqual([])
 })
