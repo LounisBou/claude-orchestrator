@@ -21,8 +21,8 @@ question, in the shape of step 2, ends its turn on `waiting: operator — blocks
 blocks>`, and the module forwards it; never send it yourself. The first says in three to five
 sentences what you work on, for its
 round of its own where your questions come together. Its pane shows each one, its tab asking
-again only when urgent or unanswered there 15 minutes (his order of 2026-10-24: no question
-asked twice); end on `waiting: operator (urgent) — blocks: …` only for what cannot wait that long.
+again only when urgent, unanswered there 15 minutes, or no pane is open (his order of
+2026-10-24: no question asked twice); end on `waiting: operator (urgent) — blocks: …` only for what cannot wait that long.
 Its answer, verbatim and dated, is his ruling, recorded as step 4 says.
 
 ## 1. Collect first, then announce the count
@@ -36,7 +36,7 @@ premise its question assumes: how the project ships, which branch or environment
 target, what that target already holds. A state file or a register says what was true when
 written; the user's own merge or close most often settles a question behind it. Collect wide: add the questions the next steps will need from him in
 any case — a choice the next phase's brief must name, a premise its plan assumes — so that
-he answers them now, while he is there, not in a later interruption. Every goal
+he answers them now, while he is there. Every goal
 `dispatch-record.sh goals <record> status` lists as `unplanned=` is a question of the wave:
 plan it, or rule it out? Write the list to `decision-round.md` in the session's scratch
 directory — number, title, where it comes from, status — so the round survives a
@@ -49,13 +49,13 @@ taken in order; the count in the header moves with it.
 
 Re-verify the item and its premise on the artifact in the same turn, immediately before
 presenting it: the collection may be an hour old. Found settled, it is written back as
-« already done: <evidence> », dropped from the count, reported in one line, and the next
-question is presented instead.
+« already done: <evidence> », dropped from the count (N in the header drops with it),
+reported in one line, and the next question is presented instead: a settled item is never asked.
 
 - **Question i of N — the question as a sentence, naming the thing on the screen or in
   the data**, never a bare identifier.
 - _Context._ Two to six sentences: what the thing is, where the user meets it, what
-  happens today, what the plan or the agent says, and why this is the user's to decide, and which goal of `goals.md` it serves, and what
+  happens today, what the plan or the agent says, why this is the user's to decide, which goal of `goals.md` it serves, and what
   stays open after it.
   Plain words. An identifier appears only beside the words that explain it — a bare
   « R63 » in a question is its defect.
@@ -117,13 +117,13 @@ context, appended to the round. Never re-argue a ruled question inside another o
 3. Collect again (step 1): the questions the consequences raise, the STOPs the held agents'
    messages carried, a premise a launch found false. If any is open and he is still there,
    announce « Wave 2: M questions, back to back. » and present its first question in this
-   same turn — a second wave chained at once costs him far less than one asked later.
+   same turn — chained at once, it costs him far less than later.
 4. When no question is left: in one short list, where each ruling was written (file, entry),
    which agent was told, what was launched — and the round ends.
 
 Rules that hold throughout: one question per message, the next one presented the moment
 the last is answered; nothing relayed, launched or reported inside a wave; explanation
-before options; a recommendation always; the cost inside the choice, not after the decision; never a bare
+before options; a recommendation always; the cost inside the choice; never a bare
 identifier; the user's language; nothing decided on their behalf.
 
 $ARGUMENTS
