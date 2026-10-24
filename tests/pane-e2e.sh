@@ -89,7 +89,9 @@ start() {
   done
   jq -n --arg now "$now" --arg long "$LONG" '{
     id: "s-alpha-q1", from: "Orch : alpha", session: "s-alpha", kind: "operator", since: $now,
-    blocks: "phase 3", question: "Merge the release branch now?",
+    blocks: "phase 3",
+    question: ("Recorded: the docs first.\n\n**Question 1 of 2**\n_Subject_ : the release\n_Question_ : merge the release branch now?\n- **A** : " + $long
+      + "\n- **B** : wait for the next review — a day lost\n- **C** : close it — the work is dropped\n_Recommendation_ : B — one more pair of eyes\n\nYou decide: A, B or C?"),
     choices: [{letter:"A",text:$long},{letter:"B",text:"wait for the next review — a day lost"},{letter:"C",text:"close it — the work is dropped"}],
     recommendation: "B", status: "open", at: $now, answer: null
   }' > "$SANDBOX/state/round/s-alpha-q1.json"
@@ -146,48 +148,61 @@ wheel() {
   record "after: the wheel $1 x$2"
 }
 statuses() { jq -r '.status' "$SANDBOX/state/round/s-alpha-q1.json" "$SANDBOX/state/round/s-beta-q2.json" | paste -sd, -; }
-focused() { pane | grep -o '^>>.*' | sed 's/^>> *//' | head -1; }
+focused() { pane | grep -o '^>>.*' | sed -E 's/^>> *//; s/[[:space:]]*█?[[:space:]]*$//' | head -1; }
+# The pane's column with its blank rows kept, and the screen rows holding the track's thumb.
+rawpane() { tmux capture-pane -p -t "$SESSION" | awk -F'│' 'NF > 1 { print $2 }' | sed -E 's/[[:space:]]+$//'; }
+thumb() { screen | grep -n '█$' | cut -d: -f1 | paste -sd, -; }
+line_of() { pane | grep -nF -- "$1" | head -1 | cut -d: -f1; }
 
 echo "== a pane tall enough for its tree (160x50)"
 start 50
 record "drawn"
 check "every choice's whole text is drawn above the picker" "1" "$(pane | grep -c 'sees the new pane at')"
-click 'C  close it'
-check "a click on a choice answers nothing" "open,open" "$(statuses)"
-check "and gives the pane the keys, the picker open" "1" "$(pane | grep -c '^Answer: .*▴')"
+check "each choice's text is drawn once, the picker's options their letter" "1|1" "$(pane | grep -c 'close it — the work is dropped')|$(pane | grep -c '^  C *$')"
+check "the questions are drawn above the orchestrators, counted once in their title" "1|1" "$([ "$(line_of 'Questions for you — 2 pending')" -lt "$(line_of 'Orchestrators')" ] && echo 1)|$(pane | grep -c 'pending')"
+check "one numbering, the sender's, and nothing of its turn outside its fields" "Orch : alpha — Question 1 of 2|1|0|0" "$(pane | grep -m1 '^Orch : alpha')|$(pane | grep -c ' of [0-9]')|$(pane | grep -c 'Recorded')|$(pane | grep -c 'You decide')"
+check "the fields as the sender labelled them, the recommendation below the choices" "1|1|1" "$(pane | grep -c '^Subject : the release')|$(pane | grep -c '^Question : merge the release')|$(pane | grep -c '^Recommendation : B — one more')"
+check "a blank line between two choices, and before the picker" "||" "$(rawpane | grep -A1 '^B) wait' | sed -n 2p)|$(rawpane | grep -B1 '^B) wait' | sed -n 1p)|$(rawpane | grep -B1 '^Choose: ' | sed -n 1p)"
+check "the key line is drawn in the default colour, visible" "1|0" "$(pane | grep -c 'Enter: choose')|$(tmux capture-pane -e -p -t "$SESSION" | grep 'Enter: choose' | grep -c $'\x1b\\[2m')"
+check "the pane opens with the keys, the recommended choice highlighted in the open picker" "1|B (recommended)" "$(pane | grep -c '^Choose: .*▴')|$(focused)"
 press Escape
-check "Esc gives the keys back to the prompt" "0" "$(pane | grep -c '^Answer: .*▴')"
+check "Esc gives the keys back to the prompt" "0" "$(pane | grep -c '^Choose: .*▴')"
+click 'C) close it'
+check "a click on a choice answers nothing" "open,open" "$(statuses)"
+check "and gives the pane the keys, the picker open" "1" "$(pane | grep -c '^Choose: .*▴')"
+press Escape
+check "Esc gives the keys back again" "0" "$(pane | grep -c '^Choose: .*▴')"
 press C-x Tab
-check "ctrl+x tab: the recommended choice is highlighted first" "B  wait for the next review — a day lost  (recommended)" "$(focused)"
+check "ctrl+x tab: the recommended choice is highlighted first" "B (recommended)" "$(focused)"
 press Down
-check "Down moves the highlight to the next choice" "C  close it — the work is dropped" "$(focused)"
+check "Down moves the highlight to the next choice" "C" "$(focused)"
 sleep 21
 record "after a redraw of the pane's clock"
-check "a redraw never moves the highlight" "C  close it — the work is dropped" "$(focused)"
+check "a redraw never moves the highlight" "C" "$(focused)"
 press x y
 check "a letter typed on a choice answers nothing" "open,open" "$(statuses)"
 press c
 check "nor does a choice's own letter" "open,open" "$(statuses)"
-check "which leaves a choice highlighted and types nothing in the field" "C  close it — the work is dropped|0" "$(focused)|$(pane | grep -c '^Other answer: .*c')"
+check "which leaves a choice highlighted and types nothing in the field" "C|0" "$(focused)|$(pane | grep -c '^Other answer: .*c')"
 press Enter
 check "Enter answers the highlighted choice" "C : close it — the work is dropped" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
-check "the next question is drawn, its first choice highlighted" "1|A  the design" "$(pane | grep -c 'Which docs first?')|$(focused)"
+check "the next question is drawn, its first choice highlighted" "1|A" "$(pane | grep -c 'Which docs first?')|$(focused)"
 press Tab
 tmux send-keys -t "$SESSION" -l 'typed on a choice'
 sleep 0.6
 record "after typing on a choice"
 check "Tab then text on a choice: no field reached, nothing typed, nothing answered" "0|0|answered,open" "$(pane | grep -c '^Other answer: ')|$(pane | grep -c 'typed on a choice')|$(statuses)"
 press Escape C-x Tab
-check "Esc then ctrl+x tab bring the ring back to the picker" "1|A  the design" "$(pane | grep -c '^Answer: .*▴')|$(focused)"
+check "Esc then ctrl+x tab bring the ring back to the picker" "1|A" "$(pane | grep -c '^Choose: .*▴')|$(focused)"
 press Down Down
 check "the arrows reach the free answer" "Other answer: type it below" "$(focused)"
 press Enter
 check "Enter on it moves the keys to the text field" "1" "$(pane | grep -c '^Other answer: .*⏎ send')"
 press Up
-check "Up returns the keys to the picker, the field gone with them" "1|0" "$(pane | grep -c '^Answer: .*▴')|$(pane | grep -c '^Other answer: ')"
+check "Up returns the keys to the picker, the field gone with them" "1|0" "$(pane | grep -c '^Choose: .*▴')|$(pane | grep -c '^Other answer: ')"
 press Enter
 press Escape
-check "Esc from the text field gives the keys back to the prompt" "0|0" "$(pane | grep -c '^Answer: .*▴')|$(pane | grep -c '>>')"
+check "Esc from the text field gives the keys back to the prompt" "0|0" "$(pane | grep -c '^Choose: .*▴')|$(pane | grep -c '>>')"
 press C-x Tab
 check "ctrl+x tab reopens the picker on the free answer, the field gone" "Other answer: type it below|0" "$(focused)|$(pane | grep -c '^Other answer: ')"
 press Enter
@@ -202,19 +217,28 @@ check "Enter sends the typed answer" "start with the README" "$(jq -r .answer.te
 echo "== a pane shorter than its tree (160x14)"
 start 14
 record "drawn"
-check "the first draw shows the picker" "1" "$(pane | grep -c '^Answer: ')"
-press C-x Tab
-check "ctrl+x tab: the recommended choice is highlighted first" "B  wait for the next review — a day lost  (recommended)" "$(focused)"
+check "the first draw shows the picker" "1" "$(pane | grep -c '^Choose: ')"
+check "the pane opens with the keys, the recommended choice highlighted" "B (recommended)" "$(focused)"
+check "the key line is pinned at the window's top, the track on its right edge" "1|1" "$(pane | head -2 | grep -c 'Enter: choose')|$([ -n "$(thumb)" ] && echo 1)"
+press Escape C-x Tab
+check "ctrl+x tab: the recommended choice is highlighted first" "B (recommended)" "$(focused)"
 press Down
-check "Down moves the highlight rather than scrolling" "C  close it — the work is dropped" "$(focused)"
+check "Down moves the highlight rather than scrolling" "C" "$(focused)"
 press Down
 check "and again, to the free answer, still in view" "Other answer: type it below" "$(focused)"
 press Up Up Up
-check "Up walks back to the first choice" "A  merge it now — the release goes out today, the changelog is writt…" "$(focused)"
-wheel up 10
+check "Up walks back to the first choice" "A" "$(focused)"
+counted=$(thumb | tr ',' '\n' | wc -l | tr -d ' ')
+wheel up 20
+top=$(thumb)
 check "the wheel still scrolls the pane" "1" "$(pane | grep -c '^Questions for you')"
-wheel down 10
+check "the counted height is the host's: the thumb keeps its length once the host measured" "$counted" "$(thumb | tr ',' '\n' | wc -l | tr -d ' ')"
+check "at the top the key line stays pinned above the title, nothing hidden under it" "1|1" "$(pane | head -2 | grep -c 'Enter: choose')|$(pane | grep -c '^Questions for you — 2 pending')"
+wheel down 20
 check "and back down" "0" "$(pane | grep -c '^Questions for you')"
+check "the thumb moved down with the window, the key line still in view" "1|1" "$([ "${top%%,*}" -lt "$(thumb | cut -d, -f1)" ] && echo 1)|$(pane | head -2 | grep -c 'Enter: choose')"
+wheel down 4
+check "the window's end shows the last row, the thumb at the track's end: the content did not grow" "1|1" "$(pane | tail -1 | grep -c 'Orch : beta')|$([ "$(thumb | tr ',' '\n' | tail -1)" = "$(screen | grep -n '│$\|█$' | cut -d: -f1 | tail -1)" ] && echo 1)"
 check "nothing was answered by the walk" "open,open" "$(statuses)"
 press Enter
 check "Enter answers the highlighted choice in the short pane" "A : $LONG" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
