@@ -169,6 +169,13 @@ check "a letter typed on a choice answers nothing" "open,open" "$(statuses)"
 press Enter
 check "Enter answers the highlighted choice" "C : close it — the work is dropped" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")"
 check "the next question is drawn, its first choice highlighted" "1|A  the design" "$(pane | grep -c 'Which docs first?')|$(focused)"
+press Tab
+tmux send-keys -t "$SESSION" -l 'typed on a choice'
+sleep 0.6
+record "after typing on a choice"
+check "Tab then text on a choice: no field reached, nothing typed, nothing answered" "0|0|answered,open" "$(pane | grep -c '^Other answer: ')|$(pane | grep -c 'typed on a choice')|$(statuses)"
+press Escape C-x Tab
+check "Esc then ctrl+x tab bring the ring back to the picker" "1|A  the design" "$(pane | grep -c '^Answer: .*▴')|$(focused)"
 press Down Down
 check "the arrows reach the free answer" "Other answer: type it below" "$(focused)"
 press Enter
@@ -176,6 +183,7 @@ check "Enter on it moves the keys to the text field" "1" "$(pane | grep -c '^Oth
 tmux send-keys -t "$SESSION" -l 'start with the README'
 sleep 0.6
 record "after typing in the field"
+check "the text lands in the field and answers nothing before Enter" "1|answered,open" "$(pane | grep -c '^Other answer: start with the README')|$(statuses)"
 press Enter
 check "Enter sends the typed answer" "start with the README" "$(jq -r .answer.text "$SANDBOX/state/round/s-beta-q2.json")"
 

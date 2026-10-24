@@ -144,6 +144,9 @@ const SCROLL_AFTER_DRAW_MS = 150
 // text field, so the arrows reach the free answer as they reach a choice. No letter is A to E.
 const OTHER_VALUE = 'other'
 
+// The address of an entry's text field, which the ring is sent to and watched leaving.
+const answerKey = (id: string) => `answer:${id}`
+
 // The width of the label column a wait's lines sit in (« Status: », « Blocks: »): the longer
 // label and a gap, so what a long blocks text wraps under is its own first character.
 const WAIT_LABEL_COLUMN = 8
@@ -500,12 +503,14 @@ Promise<{ tty: string | null; name: string | null; pid: string | null; known: bo
 // The pane as the module remembers it: what it was opened to list, and its clock, started by
 // the open and cancelled by any close. A coordinator's pane also keeps the questions whose
 // « other answer » was pressed (their ids: the hint is drawn under them), the answers chosen
-// in it that were not delivered, said on their question until its sender is gone, and the
-// entries whose answer is in flight, so a second press on one does nothing.
+// in it that were not delivered, said on their question until its sender is gone, the
+// entries whose answer is in flight, so a second press on one does nothing, and the entry
+// whose « Other answer » was picked, its text field drawn until the ring leaves it.
 export type PaneMemory = {
   opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null
   ticker: { cancel(): void } | null
   other: Set<string>
+  writing: string | null
   undelivered: Map<string, { entry: RoundEntry; reason: string }>
   answering: Set<string>
 }
@@ -547,7 +552,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // Module memory: the role the pane was opened in, the tty its agents are read
   // from — the render lists what the open asked for — and the open pane's clock.
   // A reload forgets it, and the pane then asks to be opened again.
-  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), undelivered: new Map(), answering: new Set() }
+  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, undelivered: new Map(), answering: new Set() }
   // The entry whose recommended choice was last asked the focus: once per entry, never at a redraw.
   let focusedFor: string | null = null
   const stopTicker = () => {
@@ -752,6 +757,20 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return next(e)
   })
 
+  // The pane's ring leaving the text field, for the picker or off the pane: the field goes
+  // with it, so that Tab from a choice never reaches it, until « Other answer » is picked again.
+  on('ui.focus', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
+    const result = await next(e)
+    if (pane.writing !== null && !result?.deny && e.element !== answerKey(pane.writing)) {
+      pane.writing = null
+      $.ui.invalidate('ui.render')
+    }
+    return result
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
   // The pane's own render: the matcher names the render envelope's component
   // and requestId — the pane's id — so the rows are drawn in this plugin's pane
   // alone and never in another plugin's.
@@ -887,7 +906,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         autoFocus: true,
         onSelect: (value: string) => {
           if (value !== OTHER_VALUE) return answerFromPane($, pane, entry, { letter: value, text: entry.choices.find(c => c.letter === value)!.text })
-          return Promise.resolve($.ui.focus({ requestId: PANE_ID, key: `answer:${entry.id}` })).catch(() => undefined)
+          // The field is drawn from the next draw on, which the focus call waits for.
+          pane.writing = entry.id
+          $.ui.invalidate('ui.render')
+          return Promise.resolve($.ui.focus({ requestId: PANE_ID, key: answerKey(entry.id) })).catch(() => undefined)
         },
       })
       const body = asking ? plainText(questionBody(asking)) : ''
@@ -916,14 +938,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           // A host without a clock: the window stays where it is.
         }
       }
+      // Beside a picker the field is drawn only once « Other answer » is picked: drawn sooner,
+      // it is a stop of the ring that Tab reaches from a choice, and text typed there lands.
       const otherAnswer = (entry: RoundEntry) => typeof el.Input === 'function'
-        ? [el.Input({
-          key: `answer:${entry.id}`,
+        ? (picker && entry.choices.length > 0 && pane.writing !== entry.id ? [] : [el.Input({
+          key: answerKey(entry.id),
           label: OTHER_LABEL,
           placeholder: 'type another answer',
           submitLabel: 'send',
           onSubmit: (value: string) => answerFromPaneText($, pane, entry, value),
-        })]
+        })])
         : [
           el.Button({
             key: OTHER_KEY,
@@ -1188,6 +1212,7 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
     const at = new Date().toISOString()
     await writeAtomic($, path, JSON.stringify({ ...entry, status: 'answered', answer: { text, by: 'pane', at } }) + '\n')
     pane.other.delete(entry.id)
+    if (pane.writing === entry.id) pane.writing = null
     await forgetRelayed($, entry)
     let reason: string | null = null
     try {

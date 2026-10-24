@@ -511,7 +511,12 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
   fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
   fx.files.set(`${ROUND}/broken.json`, '{"id": "broken", "status": "op')
   fx.files.set(`${ROUND}/x.tmp-1.json`, JSON.stringify({ ...asked, from: 'Orch : half' }))
-  const tree = await coordinatorRender(fx)
+  const { handlers } = mounted(registerSupervision)
+  const first = await coordinatorRender(fx, handlers)
+  // The field is drawn once « Other answer » is picked.
+  expect(findAll(first, n => n.type === 'Input')).toEqual([])
+  await findAll(first, n => n.type === 'Select')[0].props.onSelect('other')
+  const tree = await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
   const [, rows, round] = tree.props.children
   expect(JSON.stringify(rows)).toContain('Orch : low')
   expect(round.type).toBe('Box')
@@ -927,7 +932,11 @@ async function askingPane(asked: RoundEntry[], over: { refuse?: string; throws?:
   await handlers['command.run'](fx.dollar, supervisionRun)
   const render = () => handlers['ui.render'](fx.dollar, { ...renderEvent, surface: over.surface ?? 'terminal' }, (x: unknown) => ({ passed: x }))
   const stored = (id: string) => JSON.parse(String(fx.files.get(`${ROUND}/${id}.json`))) as RoundEntry
-  return { fx, sent, render, stored }
+  // The pane's ring moved onto `element`, or off its elements when absent, by the operator.
+  const ring = (element?: string) => handlers['ui.focus'](fx.dollar,
+    { component: 'Pane', requestId: 'supervision', ...(element ? { plugin: 'orchestrator', element } : {}), origin: { kind: 'person' } },
+    () => ({}))
+  return { fx, sent, render, stored, ring }
 }
 
 const LONG = `Question 1 of 1 — ${'every word of the context the operator needs to decide. '.repeat(45)}`.slice(0, 2499).trimEnd().padEnd(2500, '.')
@@ -1116,9 +1125,38 @@ test('picking Other answer moves the ring to the text field and answers nothing'
   const tree = await render()
   fx.focused.length = 0
   await pick(tree, 'other')
-  expect(fx.focused).toEqual([{ requestId: 'supervision', key: input(tree).props.key }])
+  expect(fx.focused).toEqual([{ requestId: 'supervision', key: input(await render()).props.key }])
   expect(stored(asked.id).status).toBe('open')
   expect(sent).toEqual([])
+})
+
+test('where the surface draws a picker the text field is drawn only once Other answer is picked, so Tab reaches no field before', async () => {
+  // The operator's order: text is typed only once the free-text row is selected. A field drawn
+  // beside the picker is a stop of the pane's ring, which Tab reaches from a choice.
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
+  const { fx, render } = await askingPane([asked])
+  const tree = await render()
+  expect(input(tree)).toBeUndefined()
+  fx.invalidated.length = 0
+  await pick(tree, 'other')
+  expect(fx.invalidated).toContain('ui.render')
+  expect(input(await render()).props).toMatchObject({ key: `answer:${asked.id}`, label: 'Other answer' })
+})
+
+test('the ring leaving the text field, back to the picker or off the pane, takes the field away until Other answer is picked again', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
+  const { fx, render, ring } = await askingPane([asked])
+  await pick(await render(), 'other')
+  await ring(`answer:${asked.id}`)
+  expect(input(await render())).toBeDefined()
+  fx.invalidated.length = 0
+  await ring(`choices:${asked.id}`)
+  expect(fx.invalidated).toContain('ui.render')
+  expect(input(await render())).toBeUndefined()
+  await pick(await render(), 'other')
+  expect(input(await render())).toBeDefined()
+  await ring()
+  expect(input(await render())).toBeUndefined()
 })
 
 test('the first draw of an entry requests the focus on its picker and brings it into view once drawn, a redraw nothing more', async () => {
@@ -1163,6 +1201,7 @@ test('a refused or failing focus or scroll request never blocks the draw', async
 test('the Other answer field comes last, labelled, and replaces the in-session Button', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
   const { render } = await askingPane([asked])
+  await pick(await render(), 'other')
   const tree = await render()
   expect(input(tree).props).toMatchObject({ label: 'Other answer' })
   expect(typeof input(tree).props.submitLabel).toBe('string')
@@ -1188,6 +1227,7 @@ test('a submitted text answers the entry from the pane and is sent to its sender
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
   const next = entry('Orch : low', '2026-10-18T10:05:00.000Z', { session: 'low', blocks: 'phase 4', question: 'Rename it?' })
   const { fx, sent, render, stored } = await askingPane([asked, next])
+  await pick(await render(), 'other')
   await input(await render()).props.onSubmit('  some text  ')
   const answered = stored(asked.id)
   expect(answered.status).toBe('answered')
@@ -1204,6 +1244,7 @@ test('an empty or blank submit writes and sends nothing', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, sent, render, stored } = await askingPane([asked])
   const before = fx.files.get(`${ROUND}/${asked.id}.json`)
+  await pick(await render(), 'other')
   const field = input(await render())
   await field.props.onSubmit('')
   await field.props.onSubmit('  \n ')
@@ -1215,6 +1256,7 @@ test('an empty or blank submit writes and sends nothing', async () => {
 test('a submitted text not delivered keeps the entry answered and leaves its notice', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, render, stored } = await askingPane([asked], { refuse: 'nobody by that name' })
+  await pick(await render(), 'other')
   await input(await render()).props.onSubmit('some text')
   expect(stored(asked.id).status).toBe('answered')
   expect(fx.written.filter(l => l.includes("round: the pane's answer was not delivered to Orch : low: nobody by that name")).length).toBe(1)
@@ -1224,6 +1266,7 @@ test('a submitted text not delivered keeps the entry answered and leaves its not
 test('a submit on an entry settled meanwhile writes and sends nothing', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, sent, render, stored } = await askingPane([asked])
+  await pick(await render(), 'other')
   const drawn = await render()
   fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify({ ...asked, status: 'closed' }) + '\n')
   await input(drawn).props.onSubmit('some text')
