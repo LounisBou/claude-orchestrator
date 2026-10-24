@@ -136,6 +136,14 @@ const OTHER_HOTKEY = 'o'
 // Where the surface draws a text field, the last option is that field: its text answers the entry.
 const OTHER_LABEL = 'Other answer'
 
+// How long after a question's first draw its picker is brought into view: the scroll names the
+// picker by its key, which the engine knows only once the draw has landed.
+const SCROLL_AFTER_DRAW_MS = 150
+
+// The picker's own last option where the surface draws one: picking it moves the ring to the
+// text field, so the arrows reach the free answer as they reach a choice. No letter is A to E.
+const OTHER_VALUE = 'other'
+
 // The width of the label column a wait's lines sit in (« Status: », « Blocks: »): the longer
 // label and a gap, so what a long blocks text wraps under is its own first character.
 const WAIT_LABEL_COLUMN = 8
@@ -835,13 +843,20 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const says = waiting === 0
         ? 'none'
         : `none in the pane — ${waiting} orchestrator${waiting === 1 ? ' waits' : 's wait'} for you: ask the coordinator`
-      // The question whole under its header, then one Button per choice — its letter and whole
-      // text as the label, so a long text wraps inside it, the letter its hotkey — then the
-      // « other answer » (a text field, or on a surface with none a Button saying to type it in
-      // a tab) and the footer that says how keys reach the selector.
+      // The question whole under its header, then its choices, the « other answer » and the
+      // footer that says how keys reach them. Where the surface draws a picker, the choices are
+      // one Select: it holds the arrows while it has the ring, where a focused pane taller than
+      // its body scrolls on them, and a click only gives it the ring — a stray click answers
+      // nothing. Its last option leads to the text field. A picker's option is one line, cut at
+      // the pane's width, so each choice's whole text is drawn above it. Elsewhere (mobile, a tap
+      // the only way) one Button per choice.
+      const picker = typeof el.Select === 'function'
+      const pickKey = (entry: RoundEntry) => `choices:${entry.id}`
+      const firstPick = (entry: RoundEntry) => (entry.choices.find(c => c.letter === entry.recommendation) ?? entry.choices[0])?.letter ?? null
       const focusKey = (entry: RoundEntry) => {
-        const pick = entry.choices.find(c => c.letter === entry.recommendation) ?? entry.choices[0]
-        return pick ? `choice:${pick.letter}` : null
+        const pick = firstPick(entry)
+        if (pick === null) return null
+        return picker ? pickKey(entry) : `choice:${pick}`
       }
       const choice = (entry: RoundEntry, line: RoundLine, focus: string | null) => {
         const label = `${line.letter}  ${line.text}`
@@ -856,16 +871,49 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           onPress: () => answerFromPane($, pane, entry, { letter: line.letter!, text: entry.choices.find(c => c.letter === line.letter)!.text }),
         })
       }
+      const choiceText = (line: RoundLine) => el.Text({
+        ...(line.bold ? { bold: true, color: 'success' } : {}),
+        children: `${line.letter}  ${line.text}`,
+      })
+      const choices = (entry: RoundEntry) => el.Select({
+        key: pickKey(entry),
+        label: 'Answer',
+        options: [
+          ...round.slice(1).map(line => ({ value: line.letter!, label: `${line.letter}  ${line.text}` })),
+          { value: OTHER_VALUE, label: `${OTHER_LABEL}: type it below` },
+        ],
+        value: firstPick(entry)!,
+        // The ring starts on the picker when the pane takes the keys.
+        autoFocus: true,
+        onSelect: (value: string) => {
+          if (value !== OTHER_VALUE) return answerFromPane($, pane, entry, { letter: value, text: entry.choices.find(c => c.letter === value)!.text })
+          return Promise.resolve($.ui.focus({ requestId: PANE_ID, key: `answer:${entry.id}` })).catch(() => undefined)
+        },
+      })
       const body = asking ? plainText(questionBody(asking)) : ''
       const focus = asking === null ? null : focusKey(asking)
       if (asking !== null && focus !== null && focusedFor !== asking.id) {
-        // Once per entry, for a pane already holding the keys; never awaited, so the draw never
-        // waits on itself, and a refusal (the pane holds no keys yet) is not an error.
+        // Once per entry: the ring to its first choice for a pane already holding the keys, and
+        // the window to it, so a question drawn below the rows shows its choice. Never awaited,
+        // so the draw never waits on itself, and a refusal (the pane holds no keys yet) is not
+        // an error.
         focusedFor = asking.id
         try {
           Promise.resolve($.ui.focus({ requestId: PANE_ID, key: focus })).catch(() => undefined)
         } catch {
           // A host without the call: the autoFocus mark still starts the ring.
+        }
+        // The window is moved once the picker is drawn: before, the key names nothing.
+        try {
+          $.clock.after(SCROLL_AFTER_DRAW_MS, () => {
+            try {
+              Promise.resolve($.ui.scroll({ to: { key: focus }, in: PANE_ID })).catch(() => undefined)
+            } catch {
+              // A host without the call: the window stays where it is.
+            }
+          })
+        } catch {
+          // A host without a clock: the window stays where it is.
         }
       }
       const otherAnswer = (entry: RoundEntry) => typeof el.Input === 'function'
@@ -891,9 +939,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const shown = asking === null ? [] : [
         el.Text({ bold: true, children: round[0].text }),
         ...(body !== '' ? [el.Text({ children: body })] : []),
-        ...round.slice(1).map(line => choice(asking!, line, focus)),
+        ...(asking.choices.length === 0 ? [] : picker ? [...round.slice(1).map(choiceText), choices(asking)] : round.slice(1).map(line => choice(asking!, line, focus))),
         ...otherAnswer(asking),
-        el.Text({ dimColor: true, children: 'ctrl+x tab: give the pane the keys · arrows or Tab: move · Enter: choose · a letter: pick it · Esc: back to the prompt' }),
+        el.Text({ dimColor: true, children: picker
+          ? 'ctrl+x tab or a click: give the pane the keys · arrows: move · Enter: choose · Esc: back to the prompt'
+          : 'ctrl+x tab: give the pane the keys · arrows or Tab: move · Enter: choose · a letter: pick it · Esc: back to the prompt' }),
       ]
       const notices = failed.map(notice => el.Text({ color: 'error', children: `not delivered: ${notice.reason} — the answer to ${notice.entry.from} (blocks: ${notice.entry.blocks})` }))
       const asked = el.Box({
