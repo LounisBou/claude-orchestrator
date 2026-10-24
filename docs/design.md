@@ -135,6 +135,7 @@ hooks/tests/fakes.ts                 what every faked $ answers the same way: th
 install.sh, uninstall.sh
 tests/run-tests.sh
 tests/e2e.sh                         one real round: a tab, a session, a close
+tests/pane-e2e.sh                    the coordinator's pane answered from the keyboard in a live host, under tmux
 tests/fixtures/tap-settings.json     a settings.json wired the way the tap installer wired it, for the unwrap
 tests/fixtures/transcript-renamed.jsonl  a transcript whose last custom-title entry is a rename
 tests/fixtures/rhythm-repo.sh        builds the dated repository rhythm.sh is tested on
