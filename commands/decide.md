@@ -18,9 +18,12 @@ is over.
 
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
 question, in the shape of step 2, ends its turn on `waiting: operator — blocks: <what it
-blocks>`, and the module forwards it; never send it yourself. The first carries three to five
-sentences on what you are working on, for its
-round of its own where your questions come together. The answer it sends back, verbatim and dated, is his ruling, recorded as step 4 says.
+blocks>`, and the module forwards it; never send it yourself. The first says in three to five
+sentences what you work on, for its
+round of its own where your questions come together. Its pane shows each one, its tab asking
+again only when urgent or unanswered there 15 minutes (his order of 2026-10-24: no question
+asked twice); end on `waiting: operator (urgent) — blocks: …` only for what cannot wait that long.
+Its answer, verbatim and dated, is his ruling, recorded as step 4 says.
 
 ## 1. Collect first, then announce the count
 
@@ -30,11 +33,10 @@ or to ratify in the project's state file, register and plan, the findings of the
 review that need an owner. Then verify each item STILL OPEN on its own artifact — the pull
 request's state and merge, the branch head, the file, the agent's last message — and the
 premise its question assumes: how the project ships, which branch or environment is the
-target, what that target already holds. A state file or a register describes what was true
-when it was written, and the user's own merge or close is what most often settles a
-question behind it. Collect wide: add the questions the next steps will need from him in
+target, what that target already holds. A state file or a register says what was true when
+written; the user's own merge or close most often settles a question behind it. Collect wide: add the questions the next steps will need from him in
 any case — a choice the next phase's brief must name, a premise its plan assumes — so that
-he answers them now, while he is there, instead of in an interruption later. Every goal
+he answers them now, while he is there, not in a later interruption. Every goal
 `dispatch-record.sh goals <record> status` lists as `unplanned=` is a question of the wave:
 plan it, or rule it out? Write the list to `decision-round.md` in the session's scratch
 directory — number, title, where it comes from, status — so the round survives a
@@ -47,9 +49,8 @@ taken in order; the count in the header moves with it.
 
 Re-verify the item and its premise on the artifact in the same turn, immediately before
 presenting it: the collection may be an hour old. Found settled, it is written back as
-« already done: <evidence> », dropped from the count (N in the header drops with it),
-reported in one line, and the next question is presented instead —
-a settled item is never asked.
+« already done: <evidence> », dropped from the count, reported in one line, and the next
+question is presented instead.
 
 - **Question i of N — the question as a sentence, naming the thing on the screen or in
   the data**, never a bare identifier.
@@ -57,7 +58,7 @@ a settled item is never asked.
   happens today, what the plan or the agent says, and why this is the user's to decide, and which goal of `goals.md` it serves, and what
   stays open after it.
   Plain words. An identifier appears only beside the words that explain it — a bare
-  « R63 » or « B-312 » in a question is a defect of the question.
+  « R63 » in a question is its defect.
 - _The choices._ Two to four, one per line as `- **A** : <text>`, each with its COST and
   GAIN, each a materially different piece of work — never shades of one option.
 - _Recommendation._ Exactly one, a line holding one italic word and the choice letter,
@@ -83,20 +84,20 @@ question before it is presented.
 
 1. « Recorded: <the ruling in one line> » — the user sees their decision written back.
 2. Write the ruling where it lives: the project's state file or memory, the register
-   entry, the plan — the durable place, never only the chat. A ruling that exists only in
-   a conversation is a ruling the next session relitigates. Only the user's ruling is written
+   entry, the plan — the durable place, never only the chat, or the next session
+   relitigates it. Only the user's ruling is written
    there; a proposal never is. A ruling that rules out a goal is written with
    `dispatch-record.sh goals <record> rule-out <G> --ruling "<his words>"`, so the stop gate
    reads it. Mark it « to relay » in `decision-round.md`.
 3. Present the next question IN FULL (step 2), in this same message, right under the
-   « Recorded » line. Nothing else: no relay to an agent, no launch, no status — they all
-   wait for the end of the wave (step 7), where they cost him nothing.
+   « Recorded » line. Nothing else: no relay to an agent, no launch, no status — all wait
+   for the wave's end (step 7), where they cost him nothing.
 
 ## 5. Re-present after any interruption
 
 If ANYTHING else was shown to the user between a question and its answer — a status line
-you had to write, a notice the host printed — re-present the question IN FULL when you return to it: the whole shape of step 2, never « as above »,
-never a pointer. A question the user must scroll back to find is a question answered
+you had to write, a notice the host printed — re-present the question IN FULL, in step 2's
+whole shape, never « as above » or a pointer. A question the user must scroll back to find is a question answered
 wrong.
 
 ## 6. A ruling is not reopened
