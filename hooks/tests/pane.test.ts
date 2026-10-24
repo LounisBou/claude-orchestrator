@@ -1445,6 +1445,11 @@ test('questions recorded while no pane is open, one already presented in the tab
   expect(tree.props.children[0].props.children[0].props.children).toBe('Questions for you — 2 pending')
   expect(JSON.stringify(tree)).toContain('Ship the first?')
   expect(JSON.parse(String(fx.files.get(`${ROUND}/${presented.id}.json`))).status).toBe('open')
+  // The pane draws one question at a time: answering the first brings the never-presented one.
+  await pick(tree, 'A')
+  const next = await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
+  expect(JSON.stringify(next)).toContain('Questions for you — 1 pending')
+  expect(JSON.stringify(next)).toContain('Ship the second?')
 })
 
 test('with the pane closed every open question is due at once; one answered in the pane before it is due wakes nothing', async () => {
