@@ -474,7 +474,7 @@ const RECORD = `${HOME}/.claude/claude-orchestrator/coordinator.json`
 function entry(from: string, since: string, over: Partial<RoundEntry> = {}): RoundEntry {
   return {
     id: `${from.replace(/\W/g, '')}-${since.slice(11, 13)}${since.slice(14, 16)}`, from, session: `s-${from}`, kind: 'operator', since,
-    blocks: 'phase 3', question: 'Merge it?', choices: [], recommendation: null, status: 'open', at: since, answer: null, ...over,
+    blocks: 'phase 3', question: '_Question_ : Merge it?', choices: [], recommendation: null, status: 'open', at: since, answer: null, ...over,
   }
 }
 
@@ -537,7 +537,7 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
   const kids = round.props.children
   expect(kids.slice(1, 3).map((t: any) => [t.props.children, t.props.bold === true])).toEqual([
     ['Orch : low', true],
-    ['Merge it?', false],
+    ['Question : Merge it?', false],
   ])
   const drawn = (t: any): string => t.type === 'Text' ? `Text ${t.props.children}` : t.type === 'Box' ? t.props.children.map(drawn).join(' | ') : `${t.type} ${t.props.label}`
   expect(kids.slice(3).map(drawn)).toEqual([
@@ -860,7 +860,7 @@ test('the questions section is titled in bold suggestion, with an open question 
   expect(section.props.marginBottom).toBe(1)
   const [title, header, body, list] = section.props.children
   const [a, b, c] = list.props.children
-  expect(pieces(body)).toEqual([{ text: 'Merge it?', bold: false }])
+  expect(pieces(body)).toEqual([{ text: 'Question : Merge it?', bold: false }])
   expect(pieces(title)).toEqual([{ text: 'Questions for you — 1 pending', color: 'suggestion', bold: true }])
   expect(pieces(header)).toEqual([{ text: 'Orch : low', bold: true }])
   expect([a, b, c].map(choice => [choice.type, choice.props.children])).toEqual([
@@ -966,10 +966,10 @@ test('a 2,500-character question is drawn whole in the pane, above its choices',
 })
 
 test('a message without lettered choices shows its text and the Other answer field, no choice Button, never a bare blocks line', async () => {
-  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', question: LONG })
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', question: `_Question_ : ${LONG}` })
   const { render } = await askingPane([asked])
   const tree = await render()
-  expect(texts(tree)).toContain(LONG)
+  expect(texts(tree)).toContain(`Question : ${LONG}`)
   expect(input(tree).props).toMatchObject({ label: 'Other answer' })
   expect(findAll(tree, n => n.type === 'Button').length).toBe(0)
   expect(JSON.stringify(tree)).not.toContain('no lettered choices')
@@ -977,7 +977,7 @@ test('a message without lettered choices shows its text and the Other answer fie
 
 test('a pick of a choice answers the entry from the pane, sends the asking orchestrator the choice once, and draws the next question', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
-  const next = entry('Orch : low', '2026-10-18T10:05:00.000Z', { session: 'low', blocks: 'phase 4', question: 'Rename it?' })
+  const next = entry('Orch : low', '2026-10-18T10:05:00.000Z', { session: 'low', blocks: 'phase 4', question: '_Question_ : Rename it?' })
   const { fx, sent, render, stored } = await askingPane([asked, next])
   await pick(await render(), 'B')
   const answered = stored(asked.id)
@@ -992,7 +992,7 @@ test('a pick of a choice answers the entry from the pane, sends the asking orche
   expect(fx.invalidated).toContain('ui.render')
   const after = await render()
   expect(texts(after)).toContain('Questions for you — 1 pending')
-  expect(texts(after)).toContain('Rename it?')
+  expect(texts(after)).toContain('Question : Rename it?')
 })
 
 test('a pick on a drawing whose entry was settled meanwhile writes and sends nothing', async () => {
@@ -1058,10 +1058,12 @@ test('a second pick while the answer is in flight, or after it, writes and sends
 })
 
 test('the question\'s body is drawn without its emphasis markers, its stored text verbatim', async () => {
-  const question = 'Question 1 of 1 — **merge** it?\n_Context._ The __review__ is *green*, see `pr-219` and snake_case_name.\n* a list item'
+  const question = '_Question_ : **merge** it?\n_Context_ : The __review__ is *green*, _really_, see `pr-219` and snake_case_name.\n* a list item'
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', question })
   const { render, stored } = await askingPane([asked])
-  expect(texts(await render())).toContain('Question 1 of 1 — merge it?\nContext. The review is green, see pr-219 and snake_case_name.\n* a list item')
+  const drawn = texts(await render())
+  expect(drawn).toContain('Question : merge it?')
+  expect(drawn).toContain('Context : The review is green, really, see pr-219 and snake_case_name.\n* a list item')
   expect(stored(asked.id).question).toBe(question)
 })
 
@@ -1241,7 +1243,7 @@ test('the footer says how keys reach the selector, and names no letter where non
 
 test('a submitted text answers the entry from the pane and is sent to its sender', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
-  const next = entry('Orch : low', '2026-10-18T10:05:00.000Z', { session: 'low', blocks: 'phase 4', question: 'Rename it?' })
+  const next = entry('Orch : low', '2026-10-18T10:05:00.000Z', { session: 'low', blocks: 'phase 4', question: '_Question_ : Rename it?' })
   const { fx, sent, render, stored } = await askingPane([asked, next])
   await pick(await render(), 'other')
   await input(await render()).props.onSubmit('  some text  ')
@@ -1253,7 +1255,7 @@ test('a submitted text answers the entry from the pane and is sent to its sender
     text: `[module] The operator answered from the coordinator's pane at ${answered.answer!.at} — some text (question since 2026-10-18T10:03:00.000Z, blocks: phase 3)`,
   }])
   expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
-  expect(texts(await render())).toContain('Rename it?')
+  expect(texts(await render())).toContain('Question : Rename it?')
 })
 
 test('an empty or blank submit writes and sends nothing', async () => {
