@@ -1392,8 +1392,10 @@ test('with the pane closed every open question is due at once; one answered in t
   await tick()
   expect(fx.submitted.length).toBe(1)
   expect(fx.submitted[0]).toContain(fresh.from)
-  const quiet = await wakingCoordinator([entry('Orch : b', minutesAgo(1), { session: 'sb' })])
-  const settled = entry('Orch : b', minutesAgo(1), { session: 'sb' })
+  // One fixed start: the entry's id carries its minute, and two readings of the clock may straddle one.
+  const asked = entry('Orch : b', '2026-10-24T11:59:00.000Z', { session: 'sb' })
+  const quiet = await wakingCoordinator([asked])
+  const settled = asked
   quiet.fx.files.set(`${ROUND}/${settled.id}.json`, JSON.stringify({ ...settled, since: minutesAgo(20), status: 'answered' }) + '\n')
   await quiet.tick()
   expect(quiet.fx.submitted).toEqual([])
