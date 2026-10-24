@@ -136,7 +136,9 @@ duplicate its questions in your tab; you ask one only when it is truly urgent or
 unanswered in the pane. So an entry of the round is the pane's: record it in your ledger, but
 present it in your decision round only once `coordinator.sh round` marks it `due` — its sender
 ended on `waiting: operator (urgent) — blocks: …`, it has stayed open 15 minutes, or your pane
-is closed. A closing proposal, which the pane cannot rule, and a question that reached you by
+is closed. One with no choice and no labelled field asks nothing the pane draws, its sender's
+row alone showing the wait: record it all the same, and present it once due. A closing
+proposal, which the pane cannot rule, and a question that reached you by
 message, you present as before. The module wakes you once for each entry that falls due
 (« [module] … now due in this tab »): run `round` and present the due ones. An entry answered
 in the pane before it is due is never presented: close it as answered from the pane. One you
