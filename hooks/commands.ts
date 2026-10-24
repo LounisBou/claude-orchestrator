@@ -331,8 +331,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // `/orchestrator:<file>` or `/orchestrator:<short>` was typed (measured live),
   // the file's stem never — in the envelope's own command field, the key a
   // matcher narrows on, so each hook answers its command's run alone, never
-  // another plugin's and never the host's own commands of a bare name. The engine validates neither key
-  // nor field; the wiring tests pin the exact objects.
+  // another plugin's and never the host's own commands of a bare name. The engine
+  // validates neither key nor field; the wiring tests pin the exact objects.
   on('command.run', { command: 'orchestrator:orchestrator-status' }, async ($: any) => {
     return { text: statusText(withRemote(await readRows($), await readRemote($), Date.now(), REMOTE_STALE_AFTER_MS)) }
   }).catch(async ($: any, e: any, next: any) => {

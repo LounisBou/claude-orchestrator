@@ -4,11 +4,11 @@
 // this file's own session.measure handler and removed by its session.end, one
 // file per key under the module's state root. The supervision pane below reads
 // the same rows, opened when the person types /coordinator-supervision or
-// /orchestrator-supervision — never on a start: the operator wants nothing placed on screen unasked — and in a
-// coordinator, by the module itself once, at the end of its first turn while the
-// coordinator's record names one: his ruling of 2026-10-18. In a coordinator
-// session it lists the orchestrators, and under them the first question of its
-// round (round.ts); in an orchestrator session,
+// /orchestrator-supervision — never on a start: the operator wants nothing placed
+// on screen unasked — and in a coordinator, by the module itself once, at the end
+// of its first turn while the coordinator's record names one: his ruling of
+// 2026-10-18. In a coordinator session it lists the orchestrators, and under them
+// the first question of its round (round.ts); in an orchestrator session,
 // that orchestrator's own agents, read from the launcher's chain and the host's
 // session records; in any other role it opens nothing. The commands hold no $ of
 // the writing side and read the same files through their own $.fs calls plus
