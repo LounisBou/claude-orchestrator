@@ -6460,11 +6460,10 @@ round w1 | operator | from Orch : a | since 2026-10-20T10:01:00.000Z | blocks: p
     withdrawn by the sender at 2026-10-20T10:09:00.000Z: a later turn the operator typed in waits on something else" \
   "$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1)"
 # An open question the pane can show is the pane's: `round` marks it due, for the coordinator to
-# present in its tab, only when its sender marked it urgent, once it has stayed open 15
-# minutes, read against COORDINATOR_NOW (the clock a test pins), never against the real clock
-# here, or when no pane of the coordinator is open: its record, <state>/pane.json, names a pid
-# the process table (COORDINATOR_PS_TABLE here) holds. Answered and withdrawn entries, and a
-# closing proposal, which the pane cannot rule, are never due.
+# present in its tab, only when its sender marked it urgent, however long the others have
+# waited, or when no pane of the coordinator is open: its record, <state>/pane.json, names a
+# pid the process table (COORDINATOR_PS_TABLE here) holds. Answered and withdrawn entries, and
+# a closing proposal, which the pane cannot rule, are never due.
 DSTATE="$WORK/coord-due"; DCFG="$WORK/coord-due-config"
 mkdir -p "$DSTATE/round" "$DCFG/claude-orchestrator/store/sessions"
 for spec in "u1:open:2026-10-24T11:59:00.000Z:true" "p15:open:2026-10-24T11:45:00.000Z:false" \
@@ -6484,10 +6483,10 @@ done
 printf '4242 1 ttys004 hostcli\n' > "$WORK/coord-due-ps"
 printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$DSTATE/pane.json"
 dround() { ORCHESTRATOR_STATE_DIR="$DSTATE" CLAUDE_CONFIG_DIR="$DCFG" COORDINATOR_NOW=2026-10-24T12:00:00Z COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round 2>&1; }
-check "round marks due an urgent entry and one open 15 minutes or more, and no other" \
-  "round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open | due
+check "with the pane open round marks due an urgent entry alone, however old the others" \
+  "round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open
 round zdone | done | from Orch : d | since 2026-10-24T09:30:00.000Z | blocks: - | open
-round p15 | operator | from Orch : d | since 2026-10-24T11:45:00.000Z | blocks: phase 3 | open | due
+round p15 | operator | from Orch : d | since 2026-10-24T11:45:00.000Z | blocks: phase 3 | open
 round p14 | operator | from Orch : d | since 2026-10-24T11:45:01.000Z | blocks: phase 3 | open
 round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
 round xu | operator | from Orch : d | since 2026-10-24T11:58:00.000Z | blocks: phase 3 | answered
@@ -6503,6 +6502,33 @@ check "an entry answered in the pane is never due, and once closed with round-cl
   "$(dround | grep -c '^round xu .* | due')|$(ORCHESTRATOR_STATE_DIR="$DSTATE" bash "$COORD" round-close xu --answer 'answered from the pane: A : ship it' 2>&1)|$(dround | grep -c '^round xu ')|$(dround | grep -c 'Ask xu?')"
 check "round refuses a pinned clock that is no UTC time" "exit 1|coordinator: round: COORDINATOR_NOW is no UTC time: soon" \
   "$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round >/dev/null 2>&1; echo "exit $?")|$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round 2>&1)"
+# round --by-urgency lists the same lines, due marked the same, each set ordered urgent first,
+# then by start, across senders: the order a decision round over every orchestrator asks in.
+USTATE="$WORK/coord-urgency"; UCFG="$WORK/coord-urgency-config"
+mkdir -p "$USTATE/round" "$UCFG/claude-orchestrator/store/sessions"
+for spec in "a0:a:open:10:00:false" "b1:b:open:10:01:true" "b2:b:open:10:02:false" "a3:a:open:10:03:true" \
+    "a4:a:answered:10:04:true" "b5:b:answered:10:05:false"; do
+  IFS=: read -r uid ufrom ustatus uh um uurgent <<< "$spec"
+  jq -n --arg id "$uid" --arg from "Orch : $ufrom" --arg status "$ustatus" --arg since "2026-10-24T$uh:$um:00.000Z" --argjson urgent "$uurgent" \
+    '{id:$id, from:$from, session:("s-" + ($from | ascii_downcase | gsub("[^a-z]"; ""))), kind:"operator", since:$since,
+      blocks:"phase 3", question:("Ask " + $id + "?"), choices:[], recommendation:null, status:$status, at:$since,
+      answer:(if $status == "answered" then {text:"A : ship it", by:"pane", at:"2026-10-24T11:00:00.000Z"} else null end)}
+     + (if $urgent then {urgent:true} else {} end)' > "$USTATE/round/$uid.json"
+done
+: > "$UCFG/claude-orchestrator/store/sessions/s-orcha"; : > "$UCFG/claude-orchestrator/store/sessions/s-orchb"
+printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$USTATE/pane.json"
+uround() { ORCHESTRATOR_STATE_DIR="$USTATE" CLAUDE_CONFIG_DIR="$UCFG" COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round "$@" 2>&1; }
+check "round --by-urgency orders each set urgent first, then by start, across senders, due marked as without it" \
+  "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
+round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
+round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
+round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
+round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered" \
+  "$(uround --by-urgency | grep '^round ')"
+check "round without the flag keeps the round's order, its lines those of --by-urgency, and refuses another argument" \
+  "a0 a3 b1 b2 a4 b5|same lines|exit 1|coordinator: round: unexpected argument --soon" \
+  "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround | sort)" = "$(uround --by-urgency | sort)" ] && echo 'same lines')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
 echo "== routing: cost =="
