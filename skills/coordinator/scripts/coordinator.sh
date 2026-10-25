@@ -65,7 +65,11 @@
 #     withdrawn by the sender at <UTC time>: <why>
 # the reason the module wrote (superseded by <id>, the sender's session ended, handed over to its
 # successor), or, when it wrote none (a later turn the operator typed in ended on another machine
-# line), « a later turn the operator typed in waits on something else ».
+# line), « a later turn the operator typed in waits on something else »; one the operator's prompt
+# in the sender's own tab withdrew ends on
+#     withdrawn in the sender's tab at <UTC time>: <why>
+# and any other withdrawal on « withdrawn by <who> at <UTC time>: <why> »: every reason recorded
+# is printed, so the entry is closed with it.
 # round-close rewrites the entry with status closed and the answer {text, by "coordinator", at},
 # in one rename, and refuses an id with no entry.
 # round-archive moves each entry file of <state>/round/ whose status is closed into
@@ -810,7 +814,9 @@ cmd_round() {
         | "round \(.id) | \(.kind) | from \(.from) | since \(.since) | blocks: \(.blocks // "-") | \(.status)\($due)\($gone)",
           (.question | select(. != "") | split("\n")[] | "    " + .),
           (select(.status == "answered") | "    answered from the pane at \(.answer.at // "?"): \(.answer.text // "")"),
-          (select(.status == "withdrawn" and .answer.by? == "sender") | "    withdrawn by the sender at \(.answer.at // "?"): \(if (.answer.text | type) == "string" and .answer.text != "" then .answer.text else "a later turn the operator typed in waits on something else" end)")'
+          (select(.status == "withdrawn" and .answer.by? == "sender") | "    withdrawn by the sender at \(.answer.at // "?"): \(if (.answer.text | type) == "string" and .answer.text != "" then .answer.text else "a later turn the operator typed in waits on something else" end)"),
+          (select(.status == "withdrawn" and .answer.by? == "tab") | "    withdrawn in the sender\u0027s tab at \(.answer.at // "?"): \(.answer.text // "")"),
+          (select(.status == "withdrawn" and (.answer | type) == "object" and .answer.by != "sender" and .answer.by != "tab") | "    withdrawn by \(.answer.by // "?") at \(.answer.at // "?"): \(.answer.text // "")")'
 }
 
 cmd_round_close() {

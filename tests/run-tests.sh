@@ -3255,7 +3255,7 @@ check "the orchestrator asks in its tab and the module carries the question to a
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**While a coordinator runs, every question for the operator goes to it** — his order —')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
 # A report that asks nothing, ended on the operator's wait, was drawn in the pane as a question.
 check "the orchestrator ends on the operator's wait only for a question in the decide shape, and the coordinator still records one that asks nothing" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only such a question ends on that line; a report asking nothing, on its other machine line.')|$(spells "$COORDSKILL" 'row alone showing the wait: record it all the same, and present it once due.')"
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only such a question ends on that line; a report asking nothing, on its other machine line.')|$(spells "$COORDSKILL" 'and its « Other answer » field: record it all the same, and present it once due.')"
 check "the orchestrator rulebook no longer runs the lookup and the send itself" "no|no" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'coordinator.sh lookup')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'no coordinator runs, and you ask him directly')"
 check "a decision round goes through a running coordinator, carried by the module" "yes|yes" \
@@ -6629,6 +6629,26 @@ round w3 | operator | from Orch : a | since 2026-10-20T10:00:00.000Z | blocks: p
     withdrawn by the sender at 2026-10-20T10:09:00.000Z: handed over to its successor|0" \
   "$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1 | grep -A2 '^round w[23] ')|$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1 | grep -c '^round w[123] .*| open')"
 rm -f "$ASTATE/round/w2.json" "$ASTATE/round/w3.json"
+# Every withdrawal's reason is printed on the entry, whoever recorded it: one the prompt typed in
+# the sender's tab withdrew printed nothing, and the coordinator closed a lost question with a
+# fixed text instead of its reason (the operator's report of 2026-10-25).
+for spec in "w4:tab:answered in the sender's own tab" "w5:pane:an older reason"; do
+  IFS=: read -r wid wby wwhy <<< "$spec"
+  jq -n --arg id "$wid" --arg by "$wby" --arg why "$wwhy" '{id:$id, from:"Orch : a", session:"s-a", kind:"operator", since:"2026-10-20T10:00:00.000Z",
+    blocks:"phase 3", question:("Ask " + $id + "?"), choices:[], recommendation:null, status:"withdrawn", at:"2026-10-20T10:00:00.000Z",
+    answer:{text:$why, by:$by, at:"2026-10-20T10:09:00.000Z"}}' > "$ASTATE/round/$wid.json"
+done
+check "round prints every withdrawn entry's reason, whoever withdrew it" \
+  "round w4 | operator | from Orch : a | since 2026-10-20T10:00:00.000Z | blocks: phase 3 | withdrawn
+    Ask w4?
+    withdrawn in the sender's tab at 2026-10-20T10:09:00.000Z: answered in the sender's own tab
+round w5 | operator | from Orch : a | since 2026-10-20T10:00:00.000Z | blocks: phase 3 | withdrawn
+    Ask w5?
+    withdrawn by pane at 2026-10-20T10:09:00.000Z: an older reason" \
+  "$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1 | grep -A2 '^round w[45] ')"
+rm -f "$ASTATE/round/w4.json" "$ASTATE/round/w5.json"
+check "the coordinator closes a withdrawn entry with its recorded reason, and reads a supersede as the newer entry to present" "yes|yes|no" \
+  "$(spells "$COORDSKILL" '`coordinator.sh round-close <id> --answer "withdrawn: <its')|$(spells "$COORDSKILL" 'A reason « superseded by <id> » reads « present <id>')|$(spells "$COORDSKILL" '--answer "withdrawn: answered in its own tab"')"
 # An open question the pane can show is the pane's: `round` marks it due, for the coordinator to
 # present in its tab, only when its sender marked it urgent, however long the others have
 # waited, or when no pane of the coordinator is open: its record, <state>/pane.json, names a

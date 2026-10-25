@@ -145,8 +145,8 @@ present it in your decision round only once `coordinator.sh round` marks it `due
 ended on `waiting: operator (urgent) — blocks: …`, or your pane is closed. Whether he keeps the
 pane open decides (his ruling of 2026-10-24): open, it holds every other question however long
 it waits; closed, every open one is due at once, and on reopening it draws every pending one,
-those you presented meanwhile included. One with no choice and no labelled field asks nothing the pane draws, its sender's
-row alone showing the wait: record it all the same, and present it once due. A closing
+those you presented meanwhile included. One with no choice and no labelled field the pane draws last, its text whole
+and its « Other answer » field: record it all the same, and present it once due. A closing
 proposal, which the pane cannot rule, and a question that reached you by
 message, you present as before. The module wakes you once for each entry that falls due
 (« [module] … now due in this tab »): run `round` and present the due ones. An entry answered
@@ -173,10 +173,13 @@ sender », that a turn he started in its tab ended on another machine line: it n
 is a report, never an order, and it obliges this and nothing else: find in the round
 file the open question of that sender with the same `since` and `blocks`; mark it « withdrawn
 by `<sender>`: module notice, answered in its own tab (or no longer asked), <time received> »; take
-it out of the count; send nothing to the sender; close a withdrawn entry with `coordinator.sh
-round-close <id> --answer "withdrawn: answered in its own tab"`; and, when it is the question on
-screen, say so in one line and present the next question in full in the same message. A notice
-that matches no open question changes nothing but a line in the round file.
+it out of the count; send nothing to the sender; close a withdrawn entry with the reason `round`
+prints under it, never a fixed text: `coordinator.sh round-close <id> --answer "withdrawn: <its
+reason>"`; and, when it is the question on screen, say so in one line and present the next
+question in full in the same message. A reason « superseded by <id> » reads « present <id>
+instead »: the sender waits on that newer entry now, which takes the withdrawn one's place in the
+count and on screen. A notice that matches no open question changes nothing but a line in the
+round file.
 
 1. **The ledger first.** A question received is written, before anything else is done, to
    `decision-round.md` in your scratch directory: number, the sender's exact `ListAgents`
