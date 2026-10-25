@@ -1250,6 +1250,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       const linked = (text: string): unknown[] => typeof el.Link === 'function'
         ? prPieces(text, owners).map(piece => (typeof piece === 'string' ? piece : el.Link({ href: piece.href, children: piece.text })))
         : [text]
+      // A text as it takes rows. The host does not tell whether its surface draws a hyperlink as
+      // such: where it does not, it writes the URL after the link's text, so each link is counted
+      // with its URL, the conservative count.
+      const takesRows = (text: string): string => typeof el.Link === 'function'
+        ? prPieces(plainText(text), owners).map(piece => (typeof piece === 'string' ? piece : `${piece.text} ${piece.href}`)).join('')
+        : plainText(text)
       // Each orchestrator is a block: one line, a dot in its state's colour, its bold name and
       // its figures in the normal colour; the speaker's whole line bold in `suggestion`. A wait
       // adds a Status line and, on the operator, a Blocks line, each label in a column of its own
@@ -1290,7 +1296,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           rows: (i > 0 ? 1 : 0)
             + rowsOf(`● ${row.name} · ${row.head} · ${row.fill}${row.age !== null ? ` · ${row.age}` : ''}`, width)
             + (row.status !== null ? rowsOf(row.status, textWidth) : 0)
-            + (row.blocked !== null ? rowsOf(plainText(row.blocked), textWidth) : 0),
+            + (row.blocked !== null ? rowsOf(takesRows(row.blocked), textWidth) : 0),
         }
       }
       const listed: Drawn[] = blocks.length === 0 ? [{ node: el.Text({ children: none }), rows: rowsOf(none, width) }] : blocks.map(block)
@@ -1406,7 +1412,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
               el.Box({ flexGrow: 1, flexShrink: 1, children: [el.Text({ ...look, children: [rich(c.text, look), ...(tail ? [el.Text({ ...look, children: tail })] : [])] })] }),
             ],
           }),
-          rows: rowsOf(`${plainText(c.text)}${tail}`, choiceWidth),
+          rows: rowsOf(`${takesRows(c.text)}${tail}`, choiceWidth),
         }
       }))
       // A field: its label upper-case in `suggestion` on a line of its own, its value indented
@@ -1421,7 +1427,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           const label: Drawn = { node: el.Text({ bold: true, color: 'suggestion', children: field.label.toUpperCase() }), rows: rowsOf(field.label.toUpperCase(), inner) }
           const value: Drawn | null = i === heading
             ? indented(choiceList(entry))
-            : field.text === '' ? null : indented({ node: rich(field.text, fieldLook(field.label)), rows: rowsOf(plainText(field.text), valueWidth) })
+            : field.text === '' ? null : indented({ node: rich(field.text, fieldLook(field.label)), rows: rowsOf(takesRows(field.text), valueWidth) })
           return {
             node: el.Box({ flexDirection: 'column', children: [label.node, ...(value ? [value.node] : [])] }),
             rows: label.rows + (value?.rows ?? 0),
@@ -1434,7 +1440,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const head = `${STAR} ${recommendation.label}${recommendation.separator}`
         return {
           node: el.Text({ children: [el.Text({ color: 'success', children: `${STAR} ` }), el.Text({ bold: true, children: `${recommendation.label}${recommendation.separator}` }), rich(recommendation.text)] }),
-          rows: rowsOf(`${head}${plainText(recommendation.text)}`, inner),
+          rows: rowsOf(`${head}${takesRows(recommendation.text)}`, inner),
         }
       }
       // Beside a picker the field is drawn only once « Other answer » is picked: drawn sooner,
@@ -1475,7 +1481,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const pieces: Drawn[] = [
           { node: el.Text({ bold: true, color: 'suggestion', children: title }), rows: rowsOf(title, inner) },
           ...(shape !== null ? fields(entry) : []),
-          ...(body !== '' ? [{ node: rich(body), rows: rowsOf(plainText(body), inner) }] : []),
+          ...(body !== '' ? [{ node: rich(body), rows: rowsOf(takesRows(body), inner) }] : []),
           ...(shape === null && choosing ? [indented(choiceList(entry))] : []),
           ...[recommendationLine()].filter((line): line is Drawn => line !== null),
           ...(choosing && picker ? [{ node: choices(entry), rows: 1 + (e.props?.isFocused ? part!.choices.length + 1 : 0) }] : []),
@@ -1802,7 +1808,7 @@ async function answerPart($: any, pane: PaneMemory, asked: RoundEntry, text: str
   const given = pane.partial?.get(asked.id) ?? []
   if (part !== given.length || part >= parts.length) return
   const number = parts[part].number
-  const answers = [...given, `${number === null ? `Question ${part + 1}` : numberLabel(number)}: ${text}`]
+  const answers = [...given, `${number === null ? `Question ${part + 1}` : number}: ${text}`]
   forgetDraft(pane, `${asked.id}:${part + 1}`)
   if (answers.length < parts.length) {
     pane.partial = (pane.partial ?? new Map()).set(asked.id, answers)

@@ -2018,9 +2018,9 @@ test('answering the first question moves to the next, sends nothing, and the las
   await pick(second, 'B')
   const answered = stored(twoQuestions().id)
   expect(answered.status).toBe('answered')
-  expect(answered.answer!.text).toBe(`Question 3 / 4: A : ${FIRST_A} · Question 4 / 4: B : ${SECOND_B}`)
+  expect(answered.answer!.text).toBe(`Question 3 sur 4: A : ${FIRST_A} · Question 4 sur 4: B : ${SECOND_B}`)
   expect(sent.length).toBe(1)
-  expect(sent[0].text).toContain(`— Question 3 / 4: A : ${FIRST_A} · Question 4 / 4: B : ${SECOND_B} (question since`)
+  expect(sent[0].text).toContain(`— Question 3 sur 4: A : ${FIRST_A} · Question 4 sur 4: B : ${SECOND_B} (question since`)
   expect(texts(await render())[0]).toBe('Questions for you')
 })
 
@@ -2033,7 +2033,7 @@ test('a typed answer to one question of several is kept with its number, and its
   const second = await render()
   expect(input(second)).toBeUndefined()
   await pick(second, 'A')
-  expect(stored(twoQuestions().id).answer!.text).toBe('Question 3 / 4: neither, keep 1.14 · Question 4 / 4: A : une release par module converti. Chaque étape arrive en production et y est validée, au prix de plus de montées de version dans le BO et le FO.')
+  expect(stored(twoQuestions().id).answer!.text).toBe('Question 3 sur 4: neither, keep 1.14 · Question 4 sur 4: A : une release par module converti. Chaque étape arrive en production et y est validée, au prix de plus de montées de version dans le BO et le FO.')
   expect(sent.length).toBe(1)
 })
 
@@ -2059,7 +2059,7 @@ test('without a picker (mobile) the same card draws one Button per choice, and a
   const second = await render()
   expect(texts(cardOf(second))[0]).toBe('Orch : low · Question 4 / 4')
   await button(second, 'choice:B').props.onPress()
-  expect(stored(twoQuestions().id).answer!.text).toBe(`Question 3 / 4: A : ${FIRST_A} · Question 4 / 4: B : ${SECOND_B}`)
+  expect(stored(twoQuestions().id).answer!.text).toBe(`Question 3 sur 4: A : ${FIRST_A} · Question 4 sur 4: B : ${SECOND_B}`)
   expect(sent.length).toBe(1)
 })
 
@@ -2114,4 +2114,28 @@ test('a reference in a question\'s fields or choices is a link too, its owner th
     ['speculoos#53', 'https://github.com/acme/speculoos/pull/53'],
     ['speculoos#54', 'https://github.com/acme/speculoos/pull/54'],
   ])
+})
+
+// The host tells nothing of a surface's hyperlinks: where one is not drawn, it writes the URL after
+// the link's text. The module counts that case, the longer one, so its track is never short.
+const withUrls = (node: any): any => {
+  if (!node || typeof node !== 'object') return node
+  if (node.type === 'Link') return { type: 'Text', props: { children: `${textOf(node)} ${node.props.href}` } }
+  const kids = node.props.children
+  return { ...node, props: { ...node.props, ...(kids === undefined ? {} : { children: Array.isArray(kids) ? kids.map(withUrls) : withUrls(kids) }) } }
+}
+
+test('at 60 columns the rows counted for a text of links are the rows drawn where the URL is written after each', async () => {
+  const { fx, render } = await askingPane([])
+  for (const [key, value] of Object.entries({
+    w: orch('Orch : w', { waiting: 'operator', waiting_since: SINCE, blocks: GLUED_BLOCKS }),
+    i: orch('Orch : i', { repo: 'acme/infra' }),
+    g: orch('Orch : g', { repo: 'acme/geo-git-flow' }),
+  })) fx.files.set(`${SESSIONS}/${key}`, JSON.stringify(value) + '\n')
+  const rows = drawScreen(withUrls(await render({ bodyColumns: 60 })), 58).length
+  expect(rows).toBeGreaterThan(drawScreen(await render({ bodyColumns: 60 }), 58).length)
+  const track = async (bodyRows: number) => (await render({ scroll: { offset: 0, bodyRows }, bodyColumns: 60 }))
+    .props.children.filter((k: any) => k.props?.position === 'absolute' && k.props.right === 0).length
+  expect(await track(rows)).toBe(0)
+  expect(await track(rows - 1)).toBe(1)
 })
