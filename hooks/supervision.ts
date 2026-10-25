@@ -165,6 +165,7 @@ const WORDS = {
   send: 'send',
   choose: 'Choose',
   recommended: 'recommended',
+  choices: 'Choices',
   next: 'next',
   notDelivered: 'not delivered',
 } as const
@@ -1419,6 +1420,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // under it — the context dim, the question bold. A label with no text heads what follows
       // it: the choices, when it is the last.
       const indented = (inside: Drawn): Drawn => ({ node: el.Box({ paddingLeft: FIELD_INDENT, flexDirection: 'column', children: [inside.node] }), rows: inside.rows })
+      // The choices under a label of their own, as the sender's fields are, when the sender's text
+      // gives none above them.
+      const labelledChoices = (entry: RoundEntry): Drawn => {
+        const label = WORDS.choices.toUpperCase()
+        const list = indented(choiceList(entry))
+        return {
+          node: el.Box({ flexDirection: 'column', children: [el.Text({ bold: true, color: 'suggestion', children: label }), list.node] }),
+          rows: rowsOf(label, inner) + list.rows,
+        }
+      }
       const fieldLook = (label: string) => /^cont/i.test(label) ? { dimColor: true } : /^quest/i.test(label) ? { bold: true } : {}
       const fields = (entry: RoundEntry): Drawn[] => {
         const list = shape?.fields ?? []
@@ -1432,7 +1443,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
             node: el.Box({ flexDirection: 'column', children: [label.node, ...(value ? [value.node] : [])] }),
             rows: label.rows + (value?.rows ?? 0),
           }
-        }).concat(choosing && heading < 0 ? [indented(choiceList(entry))] : [])
+        }).concat(choosing && heading < 0 ? [labelledChoices(entry)] : [])
       }
       const recommendation = shape?.recommendation ?? null
       const recommendationLine = (): Drawn | null => {
@@ -1482,7 +1493,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           { node: el.Text({ bold: true, color: 'suggestion', children: title }), rows: rowsOf(title, inner) },
           ...(shape !== null ? fields(entry) : []),
           ...(body !== '' ? [{ node: rich(body), rows: rowsOf(takesRows(body), inner) }] : []),
-          ...(shape === null && choosing ? [indented(choiceList(entry))] : []),
+          ...(shape === null && choosing ? [labelledChoices(entry)] : []),
           ...[recommendationLine()].filter((line): line is Drawn => line !== null),
           ...(choosing && picker ? [{ node: choices(entry), rows: 1 + (e.props?.isFocused ? part!.choices.length + 1 : 0) }] : []),
           ...otherAnswer(entry),

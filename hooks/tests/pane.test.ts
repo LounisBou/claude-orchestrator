@@ -666,6 +666,7 @@ test('a coordinator\'s pane draws the round\'s first question under the orchestr
     '│  QUESTION                                                │',
     '│    Merge it?                                             │',
     '│                                                          │',
+    '│  CHOICES                                                 │',
     '│    [A]  merge it now — the release goes out today        │',
     '│                                                          │',
     '│    [B]  wait for the next review — a day lost  ★         │',
@@ -2138,4 +2139,12 @@ test('at 60 columns the rows counted for a text of links are the rows drawn wher
     .props.children.filter((k: any) => k.props?.position === 'absolute' && k.props.right === 0).length
   expect(await track(rows)).toBe(0)
   expect(await track(rows - 1)).toBe(1)
+})
+
+test('the choices have a label of their own unless the sender labelled them, never both', async () => {
+  const labelled = await (await askingPane([twoQuestions()])).render()
+  expect(texts(cardOf(labelled))).toContain('CHOIX')
+  expect(texts(cardOf(labelled))).not.toContain('CHOICES')
+  const bare = await (await askingPane([entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })])).render()
+  expect(texts(cardOf(bare))).toContain('CHOICES')
 })
