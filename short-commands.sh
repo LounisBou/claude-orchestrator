@@ -51,7 +51,7 @@ render() {
 
 # A file is this plugin's when its frontmatter carries the marker line.
 ours() {
-  awk -v m="$MARKER" 'NR == 1 { if ($0 != "---") exit 1; next } /^---$/ { exit 1 } $0 == m { found = 1; exit 0 } END { exit !found }' "$1"
+  awk -v m="$MARKER" 'NR == 1 { if ($0 != "---") exit 1; next } /^---$/ { exit 1 } $0 == m { found = 1; exit 0 } END { exit !found }' "$1" 2>/dev/null
 }
 
 write() {  # <target> <plugin command>
@@ -70,7 +70,7 @@ while IFS=$'\t' read -r short file; do
   target="$DEST/$short.md"
   plugin_cmd="$SRC/commands/$file.md"
   [ -f "$plugin_cmd" ] || { echo "  no plugin command $plugin_cmd for /$short" >&2; continue; }
-  if [ -e "$target" ] && ! ours "$target"; then
+  if { [ -e "$target" ] || [ -L "$target" ]; } && ! ours "$target"; then
     [ "$mode" = sync ] || say "kept: $target is not this plugin's (no « $MARKER » line), left as it is"
     continue
   fi

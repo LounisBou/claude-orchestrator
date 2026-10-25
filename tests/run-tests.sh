@@ -5794,6 +5794,15 @@ check "sync on a directory that does not exist writes nothing and succeeds" "0|n
 # form does not exist on a fresh machine, the plugin's own `orchestrator:install` does.
 check "no first-run text names the short form of the install command" "0|0|0" \
   "$(grep -c '/orchestrator-install' "$ROOT/skills/iterm-agents/scripts/iterm_agent.py")|$(grep -c '/orchestrator-install' "$ROOT/skills/iterm-agents/references/commands.md")|$(grep -cE 'Run `/orchestrator-install`|^\| `/orchestrator-install` \|' "$ROOT/README.md")"
+# A dangling symlink of the same name is the operator's too: `[ -e ]` is false on it, and the
+# writer would have replaced the link with a copy.
+SNL="$WORK/short-link"; mkdir -p "$SNL"; ln -s "$WORK/no-such-target" "$SNL/coordinator.md"
+snout=$(bash "$ROOT/short-commands.sh" install --dir "$SNL" 2>&1)
+check "a dangling symlink of the same name is kept as it is, and the installer says so" "link|$WORK/no-such-target|1" \
+  "$([ -L "$SNL/coordinator.md" ] && echo link || echo replaced)|$(readlink "$SNL/coordinator.md")|$(printf '%s\n' "$snout" | grep -c "kept: $SNL/coordinator.md is not this plugin's")"
+bash "$ROOT/short-commands.sh" sync --dir "$SNL" >/dev/null 2>&1
+bash "$ROOT/short-commands.sh" uninstall --dir "$SNL" >/dev/null 2>&1
+check "sync and uninstall leave a dangling symlink of the same name" "link" "$([ -L "$SNL/coordinator.md" ] && echo link || echo replaced)"
 echo "== iterm-agents: the asyncio stderr filter (§29) =="
 
 # The filter drops the library's own "Task exception was never retrieved" tracebacks —
