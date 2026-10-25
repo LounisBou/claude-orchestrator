@@ -181,7 +181,8 @@ questions_round() {
 
 # The operator's case: a takeover report with no field and no choice, ended on a wait for him;
 # its sender's row carries the wait. Beside it a question with choices, whose answer no live
-# session receives, and a labelled question without choices.
+# session receives, and a labelled question without choices: the report is drawn last, its field
+# at once.
 REPORT_BLOCKS='line 239 (merge of speculoos#53) and the next ready PRs'
 report_round() {
   local now="$1"
@@ -370,13 +371,24 @@ check "Enter answers the highlighted choice in the short pane" "A : $LONG" "$(jq
 echo "== a wait that asks nothing, beside two questions (160x50)"
 start 50 report
 record "drawn"
-check "the report is no question: not drawn under the questions, not counted" "1|0|0" "$(pane | grep -c '^Questions for you — 2 pending')|$(pane | grep -c 'Takeover done')|$(pane | grep -c 'speculoos#54')"
+check "the report is counted, drawn after the questions" "1|0|0" "$(pane | grep -c '^Questions for you — 3 pending')|$(pane | grep -c 'Takeover done')|$(pane | grep -c 'speculoos#54')"
 check "its sender's row still shows what it waits on and blocks, each label in its column" "1|1" "$(pane | grep -c '^Status: *waiting for the operator')|$(pane | grep -c '^Blocks: *line 239 (merge of speculoos#53)')"
 press Enter
 check "Enter answers the question with choices, its sender reached by no session" "answered" "$(jq -r .status "$SANDBOX/state/round/s-gamma-q1.json")"
-check "the labelled question without choices is drawn as a question, the report still out" "Orch : beta · Question 1 / 1|1|1|1|0" "$(pane | grep -m1 '^Orch : beta')|$(pane | grep -c '^Questions for you — 1 pending')|$(pane | grep -c '^which page goes first')|$(pane | grep -c '^Other answer')|$(pane | grep -c 'Takeover done')"
+check "the labelled question without choices is drawn as a question, the report after it" "Orch : beta · Question 1 / 1|1|1|1|0" "$(pane | grep -m1 '^Orch : beta')|$(pane | grep -c '^Questions for you — 2 pending')|$(pane | grep -c '^which page goes first')|$(pane | grep -c '^Other answer')|$(pane | grep -c 'Takeover done')"
 notice=$(line_of 'not delivered:')
 check "the notice is one line at the section's foot, below the question, above the orchestrators" "1|1|1" "$(pane | grep -c 'not delivered:')|$([ -n "$notice" ] && [ "$notice" -gt "$(line_of 'which page goes first')" ] && echo 1)|$([ -n "$notice" ] && [ "$notice" -lt "$(line_of 'Orchestrators')" ] && echo 1)"
+tm send-keys -t "$SESSION" -l 'the design first'
+sleep 0.6
+press Enter
+check "the labelled question answered from its field" "the design first" "$(jq -r .answer.text "$SANDBOX/state/round/s-beta-q3.json")"
+wait_for 'Takeover done' 5
+record "the report drawn"
+check "the report in its card, its text whole, the field drawn at once and no picker" "Orch : alpha|1|1|1|1|0" "$(pane | grep -m1 '^Orch : alpha')|$(pane | grep -c '^Questions for you — 1 pending')|$(pane | grep -c '| speculoos#54 | ready |')|$(pane | grep -c 'Takeover done')|$(pane | grep -c '^Other answer')|$(pane | grep -c '^Choose: ')"
+tm send-keys -t "$SESSION" -l 'merge speculoos#53'
+sleep 0.6
+press Enter
+check "the typed text answers the report, and the section has no question left" "merge speculoos#53|1|0" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-r1.json")|$(pane | grep -c '^Questions for you$')|$(pane | grep -c 'Takeover done')"
 
 echo "== an entry that asks two questions (160x50)"
 start 50 pair

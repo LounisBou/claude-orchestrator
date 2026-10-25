@@ -10,7 +10,7 @@
 // its name, never the measure.
 import { expect, test } from 'claude-code/testing'
 import { agentPaneRows, answerFromPane, paneRows, readRound, roundLines, scrollTrack, wrapWords, register as registerSupervision, registerWake, registerPaneTool, SUPERVISION_TOOL, PANE_MAIN_THREAD_ONLY, type SessionRow } from '../supervision.ts'
-import type { RoundEntry } from '../round.ts'
+import { paneQuestions, type RoundEntry } from '../round.ts'
 import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
 import { logLineOf, blockOf } from './fakes.ts'
@@ -1321,14 +1321,17 @@ test('a question without choices never hides one that has them, and the count is
 const REPORT = 'Takeover done.\n\n| PR | state |\n|---|---|\n| speculoos#53 | ready |\n| speculoos#54 | ready |'
 const BLOCKS = 'line 239 (merge of speculoos#53) and the next ready PRs'
 
-test('a wait that asks nothing, no field and no choice, is no question: neither drawn under the questions nor counted, its row still shows what it blocks', async () => {
+test('a wait that asks nothing, no field and no choice, is drawn and counted: its text whole in a card, the Other answer field at once, its row still shows what it blocks', async () => {
   const report = entry('Orch : w', '2026-10-18T10:03:00.000Z', { session: 'w', question: REPORT, blocks: BLOCKS })
-  expect(roundLines([report])).toEqual([])
+  expect(roundLines([report])).toEqual([{ letter: null, text: 'Orch : w', bold: false }])
   const tree = await paneTree({ w: orch('Orch : w', { waiting: 'operator', waiting_since: SINCE, blocks: BLOCKS }) }, [report])
   const [section, , block] = tree.props.children
-  expect(texts(section)).toEqual(['Questions for you', 'none in the pane — 1 orchestrator waits for you: ask the coordinator', '─'.repeat(40)])
-  expect(JSON.stringify(tree)).not.toContain('Takeover done')
-  expect(JSON.stringify(tree)).not.toContain('pending')
+  expect(texts(section).slice(0, 2)).toEqual(['Questions for you — 1 pending', 'Orch : w'])
+  expect(texts(section).join('\n')).toContain('Takeover done.')
+  expect(texts(section).join('\n')).toContain('| speculoos#54 | ready |')
+  expect(input(section).props).toMatchObject({ label: 'Other answer' })
+  expect(findAll(section, n => n.type === 'Select').length).toBe(0)
+  expect(JSON.stringify(tree)).not.toContain('none in the pane')
   const [, status, blocks] = block.props.children
   expect(pieces(status)[1].text).toMatch(/^waiting for the operator since \d\d:\d\d$/)
   expect(pieces(blocks)).toEqual([{ text: 'Blocks:', bold: false }, { text: BLOCKS, bold: false }])
@@ -1346,8 +1349,36 @@ test('a labelled question without choices is still drawn and counted, beside a w
   const report = entry('Orch : w', '2026-10-18T10:05:00.000Z', { session: 'w', question: REPORT, blocks: BLOCKS })
   expect(roundLines([report, open])).toEqual([{ letter: null, text: 'Orch : w', bold: false }])
   const drawn = texts((await paneTree({ w: orch('Orch : w') }, [open, report])).props.children[0])
-  expect(drawn).toEqual(['Questions for you — 1 pending', 'Orch : w', 'QUESTION', 'Rename it?', '─'.repeat(40)])
+  expect(drawn).toEqual(['Questions for you — 2 pending', 'Orch : w', 'QUESTION', 'Rename it?', '─'.repeat(40)])
   expect(drawn.join('\n')).not.toContain('Takeover done')
+})
+
+test('the waits that ask nothing come last, after the labelled questions without choices, whatever their start', () => {
+  const report = entry('Orch : a', '2026-10-18T10:01:00.000Z', { question: REPORT })
+  const labelled = entry('Orch : b', '2026-10-18T10:02:00.000Z', { question: '_Question_ : Rename it?' })
+  const asked = entry('Orch : c', '2026-10-18T10:03:00.000Z', { choices: CHOICES })
+  expect(paneQuestions([report, labelled, asked]).map(e => e.from)).toEqual(['Orch : c', 'Orch : b', 'Orch : a'])
+})
+
+test('a wait that asks nothing comes after the questions with choices, and its submitted text answers it as a choice does', async () => {
+  const report = entry('Orch : low', '2026-10-18T10:01:00.000Z', { session: 'low', question: REPORT, blocks: BLOCKS })
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
+  const { sent, render, stored } = await askingPane([report, asked])
+  const first = await render()
+  expect(texts(first)[0]).toBe('Questions for you — 2 pending')
+  expect(picker(first).props.key).toBe(`choices:${asked.id}`)
+  await pick(first, 'B')
+  const second = await render()
+  expect(texts(second)[0]).toBe('Questions for you — 1 pending')
+  expect(texts(second).join('\n')).toContain('Takeover done.')
+  await input(second).props.onSubmit('  merge speculoos#53  ')
+  const answered = stored(report.id)
+  expect([answered.status, answered.answer?.text, answered.answer?.by]).toEqual(['answered', 'merge speculoos#53', 'pane'])
+  expect(sent[1]).toEqual({
+    to: { sessionId: 'low' },
+    text: `[module] The operator answered from the coordinator's pane at ${answered.answer!.at} — merge speculoos#53 (question since 2026-10-18T10:01:00.000Z, blocks: ${BLOCKS})`,
+  })
+  expect(texts(await render())[0]).toBe('Questions for you')
 })
 
 // --- the selector ---------------------------------------------------------------------------
