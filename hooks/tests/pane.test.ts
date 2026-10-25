@@ -723,7 +723,21 @@ test('a question whose sender has ended is not drawn, nor counted: only the live
   const asked = entry('Orch : live', '2026-10-18T10:03:00.000Z', { session: 'live', choices: CHOICES, recommendation: 'B' })
   for (const e of [gone, asked]) fx.files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
   const [round] = (await coordinatorRender(fx)).props.children
-  expect(texts(round).slice(0, 2)).toEqual(['Questions for you — 1 pending', 'Orch : live'])
+  expect(texts(round)).toEqual([
+    'Questions for you — 1 pending',
+    'Orch : live',
+    'QUESTION',
+    'Merge it?',
+    'CHOICES',
+    '[A]',
+    'merge it now — the release goes out today',
+    '[B]',
+    'wait for the next review — a day lost',
+    '  ★',
+    '[C]',
+    'close it — the work is dropped',
+    '─'.repeat(40),
+  ])
   expect(JSON.stringify(round)).not.toContain('Orch : gone')
   // Every sender ended: nothing is drawn below the rows.
   fx.files.delete(`${SESSIONS}/live`)
@@ -1012,9 +1026,10 @@ test('the questions section is titled in bold suggestion, with an open question 
 
 test('no question: the section says none, or counts the orchestrators waiting when the round holds none', async () => {
   const none = await paneTree({ low: orch('Orch : low') })
-  expect(pieces(none.props.children[0]).slice(0, 2)).toEqual([
+  expect(pieces(none.props.children[0])).toEqual([
     { text: 'Questions for you', color: 'suggestion', bold: true },
     { text: 'none', bold: false },
+    { text: '─'.repeat(40), bold: false },
   ])
   const waits = { w1: orch('Orch : w1', { waiting: 'operator', waiting_since: SINCE }), w2: orch('Orch : w2', { waiting: 'operator', waiting_since: SINCE }), d: orch('Orch : d', { waiting: 'done', waiting_since: SINCE }) }
   const two = await paneTree(waits)
@@ -1286,7 +1301,7 @@ test('a wait that asks nothing, no field and no choice, is no question: neither 
   expect(roundLines([report])).toEqual([])
   const tree = await paneTree({ w: orch('Orch : w', { waiting: 'operator', waiting_since: SINCE, blocks: BLOCKS }) }, [report])
   const [section, , block] = tree.props.children
-  expect(texts(section).slice(0, 2)).toEqual(['Questions for you', 'none in the pane — 1 orchestrator waits for you: ask the coordinator'])
+  expect(texts(section)).toEqual(['Questions for you', 'none in the pane — 1 orchestrator waits for you: ask the coordinator', '─'.repeat(40)])
   expect(JSON.stringify(tree)).not.toContain('Takeover done')
   expect(JSON.stringify(tree)).not.toContain('pending')
   const [, status, blocks] = block.props.children
@@ -1306,7 +1321,7 @@ test('a labelled question without choices is still drawn and counted, beside a w
   const report = entry('Orch : w', '2026-10-18T10:05:00.000Z', { session: 'w', question: REPORT, blocks: BLOCKS })
   expect(roundLines([report, open])).toEqual([{ letter: null, text: 'Orch : w', bold: false }])
   const drawn = texts((await paneTree({ w: orch('Orch : w') }, [open, report])).props.children[0])
-  expect(drawn.slice(0, 4)).toEqual(['Questions for you — 1 pending', 'Orch : w', 'QUESTION', 'Rename it?'])
+  expect(drawn).toEqual(['Questions for you — 1 pending', 'Orch : w', 'QUESTION', 'Rename it?', '─'.repeat(40)])
   expect(drawn.join('\n')).not.toContain('Takeover done')
 })
 
@@ -2147,4 +2162,17 @@ test('the choices have a label of their own unless the sender labelled them, nev
   expect(texts(cardOf(labelled))).not.toContain('CHOICES')
   const bare = await (await askingPane([entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })])).render()
   expect(texts(cardOf(bare))).toContain('CHOICES')
+})
+
+test('a dim rule line, the pane\'s width wide, stands between the questions and the orchestrators', async () => {
+  for (const [props, width] of [[{}, 40], [{ bodyColumns: 60 }, 58]] as const) {
+    const { render } = await askingPane([entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })])
+    const tree = await render(props)
+    const [section, heading] = tree.props.children
+    const rule = section.props.children.at(-1)
+    expect(rule.props.marginTop).toBe(1)
+    expect(rule.props.children).toHaveLength(1)
+    expect(rule.props.children[0].props).toMatchObject({ dimColor: true, wrap: 'truncate-end', children: '─'.repeat(width) })
+    expect(texts(heading)).toEqual(['Orchestrators'])
+  }
 })
