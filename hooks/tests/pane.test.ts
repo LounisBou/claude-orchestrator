@@ -546,6 +546,23 @@ test('a name walk that cannot answer in time costs the row its name, never the m
   expect(stored.model).toBe('a-model')
 })
 
+test('with the module directory overridden, the measure and the pane use it, and nothing lands in the config dir', async () => {
+  // A harness driving a host on the machine's own config dir sets ORCHESTRATOR_MODULE_DIR: its
+  // rows and measures stay in its sandbox, and the operator's store never sees them.
+  const SANDBOX = '/sandbox/module'
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.env.ORCHESTRATOR_MODULE_DIR = SANDBOX
+  await drive(composedChains(), 'session.measure', fx.dollar, {})
+  expect(fx.files.has(`${SANDBOX}/store/sessions/s-one`)).toBe(true)
+  expect(fx.files.has(`${SANDBOX}/measure/s-one.json`)).toBe(true)
+  expect([...fx.files.keys()].filter(p => p.startsWith(`${HOME}/.claude/claude-orchestrator/store`) || p.startsWith(`${HOME}/.claude/claude-orchestrator/measure`))).toEqual([])
+  fx.files.set(`${SANDBOX}/store/sessions/s-alpha`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : alpha', context_percent: 12 })) + '\n')
+  fx.files.set(`${SESSIONS}/s-real`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : real', context_percent: 40 })) + '\n')
+  const drawn = JSON.stringify(await coordinatorRender(fx))
+  expect(drawn).toContain('Orch : alpha')
+  expect(drawn).not.toContain('Orch : real')
+})
+
 test('an open pane redraws on its own clock while its session waits, and the clock stops with any close', async () => {
   // A render was raised only by this session's own measure: a coordinator waiting on
   // the others saw their rows frozen at its last turn. The open starts a clock that

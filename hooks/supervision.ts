@@ -27,7 +27,7 @@ import {
 } from './session-name.ts'
 import { withDeadline, isDegradedPass, chainEntries, watchNumberOf } from './stop-gate.ts'
 import { typedByOperator } from './models-guard.ts'
-import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
+import { logArgv, moduleDirOf, LOG_TIMEOUT_MS } from './module-log.ts'
 import {
   parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
@@ -216,9 +216,9 @@ async function stateDir($: any): Promise<string> {
   return (await $.env.get('ORCHESTRATOR_STATE_DIR')) ?? `${await configDir($)}/claude-orchestrator`
 }
 
-// The store's root under the module's state dir: one file per key.
-function storeDir(config: string): string {
-  return `${config}/claude-orchestrator/store`
+// The store's root under the module's own directory (module-log.ts, moduleDirOf): one file per key.
+async function storeOf($: any): Promise<string> {
+  return `${moduleDirOf(await configDir($), await $.env.get('ORCHESTRATOR_MODULE_DIR'))}/store`
 }
 
 // The key is the session's own: one file per session id, so two sessions
@@ -284,13 +284,13 @@ export function withWait(row: SessionRow, waitText: string): SessionRow {
 }
 
 async function readWait($: any, id: string): Promise<WaitRecord | null> {
-  return parseWaitRecord(String(await $.fs.read(`${storeDir(await configDir($))}/${waitKey(id)}`).catch(() => '')))
+  return parseWaitRecord(String(await $.fs.read(`${await storeOf($)}/${waitKey(id)}`).catch(() => '')))
 }
 
 // Written atomically: a temporary file beside it, then one rename — $.fs.write is not
 // atomic, and a wait caught mid-write would read as none.
 async function writeWait($: any, id: string, record: WaitRecord): Promise<void> {
-  await writeAtomic($, `${storeDir(await configDir($))}/${waitKey(id)}`, JSON.stringify(record) + '\n')
+  await writeAtomic($, `${await storeOf($)}/${waitKey(id)}`, JSON.stringify(record) + '\n')
 }
 
 async function writeAtomic($: any, path: string, text: string): Promise<void> {
@@ -310,7 +310,7 @@ async function writeAtomic($: any, path: string, text: string): Promise<void> {
 // measure handler is the only writer of a key: a same-key race is last-writer-wins,
 // at most one measure of freshness. The relay writes its own file (writeWait).
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
-  const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
+  const path = `${await storeOf($)}/${sessionKey(id)}`
   const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
     role: null, name: null, repo: null,
     context_percent: 0, context_tokens: 0, window: 0,
@@ -326,7 +326,7 @@ export async function writeSession($: any, id: string, patch: Partial<SessionRow
 // no remove, rm does — so the store does not grow with every session the
 // machine ever ran.
 export async function readSessions($: any): Promise<Record<string, SessionRow>> {
-  const dir = `${storeDir(await configDir($))}/sessions`
+  const dir = `${await storeOf($)}/sessions`
   let entries: { name: string; kind: string }[]
   try {
     entries = await $.fs.list(dir)
@@ -338,7 +338,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
     if (!entry || entry.kind !== 'file') continue
     const text = String(await $.fs.read(`${dir}/${entry.name}`).catch(() => ''))
     const row = parseSessionRow(text)
-    const waits = `${storeDir(await configDir($))}/waits/${entry.name}`
+    const waits = `${await storeOf($)}/waits/${entry.name}`
     read.push([entry.name, text, row && withWait(row, String(await $.fs.read(waits).catch(() => '')))])
   }
   const argv = livePidsArgv(read.map(([, , row]) => String(row?.pid ?? '')))
@@ -348,7 +348,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   const now = Date.now()
   for (const [name, text, row] of read) {
     if (row && !isStale(row, now, alive)) rows[`sessions/${name}`] = row
-    else if (text === '' || row) dead.push(`${dir}/${name}`, `${storeDir(await configDir($))}/waits/${name}`, `${storeDir(await configDir($))}/gates/${name}`, `${storeDir(await configDir($))}/rows/${name}`)
+    else if (text === '' || row) dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`)
   }
   // A liveness read that failed removes nothing: its rows are drawn as alive
   // and the next read that answers sweeps the dead. Removing on it wiped the
@@ -360,8 +360,8 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
 // The session's own row goes with it: removed, or — rm failing — truncated to
 // empty, which the row parser reads as no row and the next read removes.
 export async function deleteSession($: any, id: string): Promise<void> {
-  const path = `${storeDir(await configDir($))}/${sessionKey(id)}`
-  const store = storeDir(await configDir($))
+  const path = `${await storeOf($)}/${sessionKey(id)}`
+  const store = await storeOf($)
   const done = await $.process.run(['rm', '-f', path, `${store}/${waitKey(id)}`, `${store}/${gateKey(id)}`, `${store}/${rowKey(id)}`], { timeoutMs: 5000 }).catch(() => null)
   if (!done || done.exitCode !== 0) await $.fs.write(path, '')
 }
@@ -495,7 +495,7 @@ async function agentViews($: any, tty: string): Promise<AgentView[]> {
     for (const pid of String(ps.stdout ?? '').split('\n').map((line: string) => line.trim().split(/\s+/)[0] ?? '').filter((pid: string) => /^\d+$/.test(pid))) {
       const record = hostRecordOf(String(await $.fs.read(`${config}/sessions/${pid}.json`).catch(() => '')))
       if (!record || !record.sessionId) continue
-      const row = parseSessionRow(String(await $.fs.read(`${storeDir(config)}/${sessionKey(record.sessionId)}`).catch(() => '')))
+      const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(record.sessionId)}`).catch(() => '')))
       // The host's record says the agent lives: its row is shown whatever its age.
       views.push({ name: record.name, status: record.status, row })
       break
@@ -749,7 +749,7 @@ async function openOnFirstTurn($: any, pane: PaneMemory): Promise<boolean> {
 // its pid walked the same way, its role kept.
 async function recordedCoordinator($: any): Promise<{ tty: string | null; pid: string | null } | null> {
   const sessionId = await $.session.id()
-  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   let role = row?.role ?? null
   let tty = row?.tty ?? null
   let pid = row?.pid ?? null
@@ -1453,7 +1453,7 @@ async function dropMark($: any): Promise<void> {
 // that ends on the wait again with a text that offers no choice keeps the choices its entry has.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const sessionId = await $.session.id()
-  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   let name = row?.name ?? null
   let pid = row?.pid ?? null
   let tty = row?.tty ?? null
@@ -1551,7 +1551,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
   if (!typedByOperator(kind) || text.trimStart().startsWith('/')) return
   const sessionId = await $.session.id()
-  const row = parseSessionRow(String(await $.fs.read(`${storeDir(await configDir($))}/${sessionKey(sessionId)}`).catch(() => '')))
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   let name = row?.name ?? null
   if (!row?.role) {
     const walked = await walkWithinBound($, sessionId)
@@ -1763,12 +1763,12 @@ function parseRoundEntry(text: string): RoundEntry | null {
 export async function coordinatorAddress($: any): Promise<{ to: string; name: string; local: boolean } | null> {
   const local = coordinatorOf(String(await $.fs.read(`${await stateDir($)}/coordinator.json`).catch(() => '')))
   if (local) return { to: local, name: local, local: true }
-  const learnt = parseLearnt(String(await $.fs.read(`${storeDir(await configDir($))}/coordinator-learnt`).catch(() => '')))
+  const learnt = parseLearnt(String(await $.fs.read(`${await storeOf($)}/coordinator-learnt`).catch(() => '')))
   return learnt ? { to: learnt.from ?? learnt.name, name: learnt.name, local: false } : null
 }
 
 async function learnCoordinator($: any, learnt: { name: string; from: string | null; at: string }): Promise<void> {
-  const path = `${storeDir(await configDir($))}/coordinator-learnt`
+  const path = `${await storeOf($)}/coordinator-learnt`
   const known = parseLearnt(String(await $.fs.read(path).catch(() => '')))
   if (known && known.name === learnt.name && known.from === learnt.from) return
   await writeAtomic($, path, JSON.stringify(learnt) + '\n')
@@ -1813,7 +1813,7 @@ async function prsOf($: any, sessionId: string, repo: string | null): Promise<st
 // is nobody to send to. What was sent is kept only once delivered; a failure is one log
 // line, tried again at the next measure or turn end.
 export async function sendRow($: any, sessionId: string): Promise<void> {
-  const store = storeDir(await configDir($))
+  const store = await storeOf($)
   const read = parseSessionRow(String(await $.fs.read(`${store}/${sessionKey(sessionId)}`).catch(() => '')))
   if (read?.role !== 'orchestrator') return
   const to = await coordinatorAddress($)
@@ -1838,7 +1838,7 @@ async function receiveRow($: any, body: string): Promise<{ consumed: string }> {
     await logLine($, `receive: a marked row was refused (${body.length} characters)`)
     return { consumed: 'orchestrator: a malformed supervision row, refused' }
   }
-  await writeAtomic($, `${storeDir(await configDir($))}/${remoteKey(row.name)}`, JSON.stringify(row) + '\n')
+  await writeAtomic($, `${await storeOf($)}/${remoteKey(row.name)}`, JSON.stringify(row) + '\n')
   return { consumed: 'orchestrator: a supervision row, stored' }
 }
 
@@ -1846,7 +1846,7 @@ async function receiveRow($: any, body: string): Promise<{ consumed: string }> {
 // unreadable one is removed as it is met, so the directory never outgrows the live set.
 const REMOTE_READ_CAP = 64
 export async function readRemoteRows($: any): Promise<RemoteRow[]> {
-  const dir = `${storeDir(await configDir($))}/remote`
+  const dir = `${await storeOf($)}/remote`
   const entries: { name: string; kind: string }[] = await $.fs.list(dir).catch(() => [])
   const rows: RemoteRow[] = []
   const dead: string[] = []
@@ -1874,7 +1874,7 @@ export async function orchestratorOn($: any, tty: string): Promise<string | null
   }
   const owner = chainOwnerTty(chains, tty)
   if (!owner) return null
-  const rows = `${storeDir(await configDir($))}/sessions`
+  const rows = `${await storeOf($)}/sessions`
   let found: SessionRow | null = null
   for (const entry of await $.fs.list(rows).catch(() => [])) {
     const row = parseSessionRow(String(await $.fs.read(`${rows}/${entry.name}`).catch(() => '')))
@@ -1888,7 +1888,7 @@ export async function orchestratorOn($: any, tty: string): Promise<string | null
 // is sent the figures once; back under it, the mark is cleared for the next crossing.
 export async function reportGate($: any, sessionId: string, name: string, tty: string,
   reading: { context_tokens: number; context_percent: number; context_window: number }): Promise<void> {
-  const path = `${storeDir(await configDir($))}/${gateKey(sessionId)}`
+  const path = `${await storeOf($)}/${gateKey(sessionId)}`
   const past = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, await gateEnv($)).tripped
   const reported = String(await $.fs.read(path).catch(() => '')).trim() === 'reported'
   if (past === reported) return
@@ -1926,7 +1926,7 @@ async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number; la
 async function logLine($: any, message: string): Promise<void> {
   try {
     const config = await configDir($)
-    await $.process.run(logArgv($.plugin.root, config, 'supervision', message), { timeoutMs: LOG_TIMEOUT_MS })
+    await $.process.run(logArgv($.plugin.root, config, 'supervision', message, undefined, await $.env.get('ORCHESTRATOR_MODULE_DIR')), { timeoutMs: LOG_TIMEOUT_MS })
   } catch { /* the log itself never blocks the handler that failed */ }
 }
 
