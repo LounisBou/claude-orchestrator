@@ -115,6 +115,12 @@ const PANE_TITLES = { coordinator: 'Orchestrators', orchestrator: 'Agents' } as 
 // The two commands that toggle the pane, as the host hands them to command.run.
 export const SUPERVISION_COMMANDS = ['orchestrator:orchestrator-supervision', 'orchestrator:coordinator-supervision'] as const
 
+// The tool that opens or closes the same pane on the operator's plain words, called by the
+// session's main thread; a subagent is refused it, as it is the rename.
+export const SUPERVISION_TOOL = 'supervision'
+export const PANE_MAIN_THREAD_ONLY = "only the session's main thread opens or closes the supervision pane"
+const PANE_ROLES_ONLY = 'The supervision pane opens in a coordinator session (« Coord : … ») or an orchestrator session (« Orch : … ») alone.'
+
 // The sort's one law: a row past the rotation gate outranks every row below
 // it, however full each side is; within a side, the fill descends. The floor
 // is any number no honest fill reaches, added to the fill so the order stays
@@ -571,14 +577,29 @@ export type PaneMemory = {
 
 // The pane opened, by the command or by the module: the role it lists, its title, its clock,
 // and, for a coordinator's, its record.
-async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchestrator', tty: string | null, pid: string | null): Promise<void> {
+async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchestrator', tty: string | null, pid: string | null): Promise<{ isPlaced?: boolean; reason?: string } | undefined> {
   pane.opened = { role, tty }
   // With the keys, so the picker answers at once: the host grants them only over an empty
   // prompt, never taking text the operator is typing.
-  await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role], focus: true })
+  const placed = await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role], focus: true })
   pane.ticker?.cancel()
   pane.ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
   if (role === 'coordinator') await recordPaneOpen($, pid).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
+  return placed
+}
+
+// The pane open at the host, and its close by the command or the tool: the clock stops and a
+// coordinator's record goes with it.
+async function paneShown($: any): Promise<boolean> {
+  const panes: readonly { id: string }[] = await $.ui.panes()
+  return panes.some(open => open.id === PANE_ID)
+}
+
+async function closeShown($: any, pane: PaneMemory): Promise<void> {
+  pane.ticker?.cancel()
+  pane.ticker = null
+  await $.ui.close({ id: PANE_ID })
+  await recordPaneClosed($).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
 }
 
 // The coordinator's pane as `coordinator.sh round` reads it, `<state>/pane.json`: the session
@@ -761,6 +782,33 @@ export function registerWake(on: (...args: [event: string, handler: Function] | 
       else if (self) armWake($, wake)
     } catch (err) {
       await logLine($, `round wake: ${(err as Error).message}`)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+}
+
+// The supervision tool registered at each start, mounted beside the supervision like the wake:
+// a registration, never an open. Every session gets it, the tool.call refusing those that
+// supervise nothing, so a role read later than the start is never missed.
+export function registerPaneTool(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
+  on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      await $.tool.register({
+        name: SUPERVISION_TOOL,
+        isDeferred: false,
+        description: 'Opens or closes the supervision pane, when the operator says to start, launch or open the supervision, or to end, stop or close it. Only in a coordinator or an orchestrator session.',
+        inputSchema: {
+          type: 'object',
+          properties: { action: { type: 'string', enum: ['open', 'close'] } },
+          required: ['action'],
+        },
+      })
+    } catch (err) {
+      // A start never fails on the tool: the commands still open the pane.
+      await logLine($, `supervision tool not registered: ${(err as Error).message}`)
     }
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
@@ -964,11 +1012,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     // the pane holds no focus), beside the pane's own ✕. Either way the pane is his
     // from now on: the module no longer opens it on its own.
     await $.state.set(PANE_OPENED, true)
-    const panes: readonly { id: string }[] = await $.ui.panes()
-    if (panes.some(pane => pane.id === PANE_ID)) {
-      stopTicker()
-      await $.ui.close({ id: PANE_ID })
-      await recordPaneClosed($).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
+    if (await paneShown($)) {
+      await closeShown($, pane)
       return { text: 'Supervision pane closed.' }
     }
     await openPane($, pane, role, tty, pid)
@@ -976,6 +1021,31 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
+  })
+
+  // The same pane on the operator's plain words: the model calls the tool with `open` or
+  // `close` where he types no command. Not a toggle — the word says which — and, like the
+  // command, the pane is his from then on.
+  on('tool.call', { tool: `mcp__orchestrator__${SUPERVISION_TOOL}` }, async ($: any, e: any) => {
+    if (e.agentId) return { result: PANE_MAIN_THREAD_ONLY, isError: true }
+    if (e.action !== 'open' && e.action !== 'close') return { result: 'action is "open" or "close"', isError: true }
+    const { tty, name, pid } = await walkWithinBound($, await $.session.id())
+    const role = roleOf(name)
+    if (role !== 'coordinator' && role !== 'orchestrator') return { result: PANE_ROLES_ONLY, isError: true }
+    await $.state.set(PANE_OPENED, true)
+    const shown = await paneShown($)
+    if (e.action === 'close') {
+      if (!shown) return { result: 'The supervision pane is not open.' }
+      await closeShown($, pane)
+      return { result: 'Supervision pane closed.' }
+    }
+    if (shown) return { result: 'The supervision pane is already open.' }
+    const placed = await openPane($, pane, role, tty, pid)
+    if (placed && placed.isPlaced === false) return { result: `Supervision pane opened, not drawn yet: ${placed.reason ?? 'no reason given'}.` }
+    return { result: 'Supervision pane opened.' }
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return { result: "the supervision pane could not be opened or closed; the module's log says why", isError: true }
   })
 
   // The pane closed by its ✕ or its key: its clock stops with it.
