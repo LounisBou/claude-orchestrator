@@ -643,6 +643,9 @@ async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchest
   // With the keys, so the picker answers at once: the host grants them only over an empty
   // prompt, never taking text the operator is typing.
   const placed = await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role], focus: true })
+  // No round read yet: an absent round is no move, and a draw that throws before reading it
+  // leaves nothing that moves at every tick.
+  pane.roundSeen = null
   pane.ticker?.cancel()
   pane.ticker = $.clock.every(PANE_ROUND_POLL_MS, () => paneTick($, pane))
   if (role === 'coordinator') await recordPaneOpen($, pid).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
@@ -650,7 +653,8 @@ async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchest
 }
 
 // One tick of the pane's clock: a pane never drawn, or drawn PANE_REFRESH_MS ago, is redrawn;
-// a coordinator's is also redrawn when its round's directory moved since the last draw.
+// a coordinator's is also redrawn when its round's directory moved since the last draw, the move
+// recorded at once, so a draw that fails is retried once per move, never at every tick.
 function paneTick($: any, pane: PaneMemory): void {
   if (pane.ticksSinceDraw === undefined || ++pane.ticksSinceDraw * PANE_ROUND_POLL_MS >= PANE_REFRESH_MS) {
     $.ui.invalidate('ui.render')
@@ -658,7 +662,9 @@ function paneTick($: any, pane: PaneMemory): void {
   }
   if (pane.opened?.role !== 'coordinator') return
   roundMtime($).then(mtime => {
-    if (mtime !== pane.roundSeen) $.ui.invalidate('ui.render')
+    if (mtime === pane.roundSeen) return
+    pane.roundSeen = mtime
+    $.ui.invalidate('ui.render')
   })
 }
 

@@ -651,6 +651,38 @@ test('an open coordinator\'s pane redraws within one tick of a write in its roun
   expect(fx.invalidated).toEqual(['ui.render', 'ui.render'])
 })
 
+test('a coordinator\'s pane whose draw throws is not redrawn at every tick, its round absent or unmoved', async () => {
+  // The round's mtime last drawn was left unset when a draw threw before reading it: every tick
+  // then saw it moved, and the pane redrew every 2 s for as long as the draw kept failing.
+  const roundDir = `${HOME}/.claude/claude-orchestrator/round`
+  for (const mtime of [null, 1000]) {
+    const { handlers } = mounted(registerSupervision)
+    const fx = coordinatorSession()
+    const stat = fx.dollar.fs.stat
+    fx.dollar.fs.stat = async (p: string) => {
+      if (p !== roundDir) return stat(p)
+      if (mtime === null) throw new Error(`ENOENT: ${p}`)
+      return { kind: 'directory', size: 0, mtimeMs: mtime, isLink: false }
+    }
+    const read = fx.dollar.fs.read
+    fx.dollar.fs.read = (p: string) => {
+      if (p === `${SESSIONS}/s-one`) throw new Error('the store cannot be read')
+      return read(p)
+    }
+    await handlers['command.run'](fx.dollar, supervisionRun)
+    const tick = async () => {
+      fx.timers[0].fn()
+      for (let i = 0; i < 10; i++) await Promise.resolve()
+    }
+    await tick()
+    expect(fx.invalidated).toEqual(['ui.render'])
+    await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
+    for (let i = 0; i < 5; i++) await tick()
+    // A round present is redrawn once for the move the failed draw never recorded, then no more.
+    expect(fx.invalidated).toEqual(mtime === null ? ['ui.render'] : ['ui.render', 'ui.render'])
+  }
+})
+
 // --- the coordinator's round ------------------------------------------------------------------
 
 const ROUND = `${HOME}/.claude/claude-orchestrator/round`
