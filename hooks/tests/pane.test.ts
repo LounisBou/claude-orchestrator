@@ -1137,6 +1137,14 @@ test('an entry whose session has no live row on this machine is answered by its 
   expect(sent.map(s => s.to)).toEqual(['Orch : far'])
 })
 
+test('an entry recorded before entries carried a session is answered by its sender\'s name', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: '', choices: CHOICES })
+  const { fx, sent } = await askingPane([asked])
+  const pane = { opened: null, ticker: null, other: new Set<string>(), writing: null, undelivered: new Map(), answering: new Set<string>() }
+  await answerFromPane(fx.dollar, pane, asked, CHOICES[0])
+  expect(sent.map(s => s.to)).toEqual(['Orch : low'])
+})
+
 for (const [label, settled] of [
   ['withdrawn', { status: 'withdrawn', answer: { text: 'superseded by x', by: 'sender', at: '2026-10-18T10:09:00.000Z' } }],
   ['closed', { status: 'closed', answer: { text: 'done', by: 'coordinator', at: '2026-10-18T10:09:00.000Z' } }],
@@ -1151,6 +1159,15 @@ for (const [label, settled] of [
     expect(texts(await render()).some(t => t.startsWith('not delivered:'))).toBe(false)
   })
 }
+
+test('an answer not delivered is no longer said once its entry\'s file is gone', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
+  const { fx, render } = await askingPane([asked], { refuse: 'two agents are named Orch : low' })
+  await pick(await render(), 'A')
+  expect(texts(await render()).some(t => t.startsWith('not delivered:'))).toBe(true)
+  fx.files.delete(`${ROUND}/${asked.id}.json`)
+  expect(texts(await render()).some(t => t.startsWith('not delivered:'))).toBe(false)
+})
 
 test('an entry its sender withdrew is out of the pane and of its count', async () => {
   const stale = entry('Orch : low', '2026-10-18T10:01:00.000Z', { session: 'low', status: 'withdrawn', answer: { text: '', by: 'sender', at: '2026-10-18T10:02:00.000Z' } })
