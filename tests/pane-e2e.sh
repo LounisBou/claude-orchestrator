@@ -110,7 +110,8 @@ start() {
   mkdir -p "$ROWS" "$SANDBOX/state/round" "$SANDBOX/work"
   # The short names, written by the installer's own writer as the work directory's project
   # commands, never in the host's user commands: `/coordinator-supervision` below is the copy.
-  ORCHESTRATOR_COMMANDS_DIR="$COMMANDS" bash "$ROOT/short-commands.sh" install >/dev/null
+  ORCHESTRATOR_COMMANDS_DIR="$COMMANDS" bash "$ROOT/short-commands.sh" install >/dev/null \
+    || { echo "refused: the short names could not be written to $COMMANDS" >&2; exit 1; }
   jq -n '{ tui: "fullscreen" }' > "$SANDBOX/settings.json"
   echo '{"name":"Coord : e2e"}' > "$SANDBOX/state/coordinator.json"
   [ -n "$ALIVE" ] && kill "$ALIVE" 2>/dev/null
@@ -425,15 +426,25 @@ check "reopened by the file's own prefixed name, the pane draws every pending qu
 
 # The short names as the installer writes them, here as project commands: the typeahead draws
 # one name per row and one row per description, and the copy of `/coordinator-supervision`
-# toggles the pane. A row of the list starts with its name; a description too long for its row
-# continues on the next, indented under the descriptions' column.
+# toggles the pane. The host also reads the operator's real ~/.claude/commands (HOME is kept
+# for its login), so the rows of the operator's own copies may be drawn too: the checks count
+# a wrapped description only on the rows of the sandbox's names, and need two rows at least,
+# so they hold whether or not the real copies exist. A row of the list starts with its name;
+# a description too long for its row continues on the next, indented under the descriptions'
+# column.
 typeahead() {
   tm send-keys -t "$SESSION" -l "$1"
   sleep 2
   record "the typeahead after $1"
-  local drawn shown
+  local drawn shown names
   drawn=$(screen)
-  shown=$(printf '%s\n' "$drawn" | awk '/^  (❯ |  )\// { list = 1; print "name"; next } list && /^                    +[^ ]/ { print "wrap"; next } { list = 0 }')
+  # Only the sandbox's rows count a wrap: the host, run with the real HOME, also lists the
+  # operator's own user commands, whose descriptions this script does not own.
+  names=$(ls "$COMMANDS" | sed 's/\.md$//' | tr '\n' ' ')
+  shown=$(printf '%s\n' "$drawn" | awk -v names="$names" '
+    /^  (❯ |  )\// { list = 1; print "name"; row = $0; sub(/^  (❯ |  )\//, "", row); split(row, w, " "); mine = index(" " names, " " w[1] " ") > 0; next }
+    list && /^                    +[^ ]/ { if (mine) print "wrap"; next }
+    { list = 0 }')
   tm send-keys -t "$SESSION" C-u
   sleep 0.5
   printf '%s|%s|%s' "$([ "$(printf '%s\n' "$shown" | grep -c '^name$')" -ge 2 ] && echo rows)" \
