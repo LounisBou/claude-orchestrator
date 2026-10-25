@@ -8,8 +8,11 @@
 # script makes no credential, asks for none and writes none. It reads the host's banner before
 # it drives anything and refuses to run when the banner bills usage by the API rather than the
 # subscription (ORCHESTRATOR_E2E_PLAN, `Max` by default, names the plan the banner must show).
-# It types no prompt for the model: the pane is opened by its command, and the one model turn,
-# the coordinator's wake in the last part, is the module's own and is interrupted once it shows.
+# Until its last part it types no prompt for the model: the pane is opened by its command, and
+# the coordinator's turns — its wake, the module's notices that a question is settled — are the
+# module's own and are interrupted once they show. The last part starts a second host, an
+# orchestrator, whose banner is read the same way, and drives its model with project commands
+# that ask it to reply with a fixed text, and with one prompt typed in its tab.
 # It skips itself without tmux, jq or the host.
 #
 # What it proves that the faked `$` cannot: how the host routes the keys and draws the card. A
@@ -91,6 +94,22 @@ cleanup() {
 trap cleanup EXIT
 [ -n "$SCREENS" ] && : > "$SCREENS"
 
+# The subscription, or nothing driven at all: the banner's first rows, read from the screen given
+# (`$1`), name the product and the plan (the plan escaped, so a name with a dot or a bracket
+# matches itself), and the API billing line anywhere on that screen refuses. Every host the
+# script starts is read so before anything is typed in it.
+subscription_or_exit() {
+  local brand plan_re
+  brand=$(printf '%s' "${HOST##*/}" | awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }')
+  plan_re=$(printf '%s' "$PLAN" | sed 's/[][\\.*^$(){}?+|\/-]/\\&/g')
+  if printf '%s\n' "$1" | grep -qF 'API Usage Billing' || ! printf '%s\n' "$1" | head -12 | grep -qE "$brand $plan_re( |$)"; then
+    [ -n "$SCREENS" ] && printf '== the banner\n%s\n\n' "$1" >> "$SCREENS"
+    echo "refused: the host's banner does not read the $PLAN subscription; nothing more was driven" >&2
+    printf '%s\n' "$1" | head -12 >&2
+    exit 1
+  fi
+}
+
 LONG='merge it now — the release goes out today, the changelog is written, the tag is pushed and every reader of the notes sees the new pane at once'
 ROWS="$SANDBOX/module/store/sessions"
 COMMANDS="$SANDBOX/work/.claude/commands"
@@ -144,18 +163,7 @@ start() {
     echo "refused: the host asks to trust $SANDBOX/work; set ORCHESTRATOR_E2E_DIR to a directory it trusts" >&2
     exit 1
   fi
-  # The subscription, or nothing driven at all: the banner's first rows name the product and the
-  # plan (the plan escaped, so a name with a dot or a bracket matches itself), and the API
-  # billing line anywhere on the screen refuses.
-  local brand plan_re
-  brand=$(printf '%s' "${HOST##*/}" | awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }')
-  plan_re=$(printf '%s' "$PLAN" | sed 's/[][\\.*^$(){}?+|\/-]/\\&/g')
-  if screen | grep -qF 'API Usage Billing' || ! screen | head -12 | grep -qE "$brand $plan_re( |$)"; then
-    record "the banner"
-    echo "refused: the host's banner does not read the $PLAN subscription; nothing was driven" >&2
-    screen | head -12 >&2
-    exit 1
-  fi
+  subscription_or_exit "$(screen)"
   tm send-keys -t "$SESSION" '/coordinator-supervision'
   sleep 1
   tm send-keys -t "$SESSION" Enter
@@ -485,15 +493,22 @@ check "after /coordinator, one name per row and one row per description" "rows|0
 # The whole flow, one scenario per path a question leaves by, each asked once and gone from every
 # surface: (a) answered in the pane, (c) answered in the coordinator's tab, (e) a wait that asks
 # nothing answered from its field — the coordinator's host alone —, then, with a live orchestrator
-# host beside it, (d) a question with choices followed by a turn that asks nothing, and (b) a
-# question answered in the orchestrator's own tab. The orchestrator's turns are its model's: each
-# is a project command asking it to reply with a fixed text, so its machine line is known, and a
-# slash command is no prompt the operator typed. `round` is run as the coordinator runs it at each
-# turn, which records the entries it was shown. Each delay is measured from the moment the entry's
-# file reads settled to the question leaving the pane, and to the coordinator's tab receiving the
-# notice; a turn the notice starts in the coordinator is interrupted once it shows.
+# host beside it, (d) a question with choices followed by a turn that asks nothing, both drawn,
+# and (b) a question answered in the orchestrator's own tab. The orchestrator's turns are its
+# model's: each is a project command asking it to reply with a fixed text, so its machine line is
+# known, and a slash command is no prompt the operator typed. `round` is run as the coordinator
+# runs it at each turn, which records the entries it was shown: the module closes such an entry
+# itself once it is settled, and tells the coordinator in one line with nothing to run. The time
+# is stamped once, the moment the answer is given, and both delays are measured from that stamp
+# — the question leaving the pane and the notice reaching the coordinator's tab —, polled in one
+# loop; (b)'s include the sender's model turn, whose end settles the entry, and the time after that
+# end is printed and checked apart. A turn the notice starts in the coordinator is interrupted once
+# it shows.
 COORDSH="$ROOT/skills/coordinator/scripts/coordinator.sh"
 DELAYS=""
+# The poll's own floor: one screen read plus a 100 ms sleep a round. A figure at or under it says
+# only that the change was already there at the first read or the next.
+FLOOR_MS=200
 coordround() { ORCHESTRATOR_STATE_DIR="$SANDBOX/state" ORCHESTRATOR_MODULE_DIR="$SANDBOX/module" CLAUDE_CONFIG_DIR="$SANDBOX/module-config" bash "$COORDSH" "$@"; }
 ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 # The milliseconds until `$2` holds (a command), polled every 100 ms up to `$1` seconds, or « never ».
@@ -507,9 +522,29 @@ until_ms() {
   done
   echo never
 }
+# From the stamp `$1`, taken when the answer was given, the milliseconds until the pane lacks `$3`
+# and until the coordinator's tab shows `$4`, both polled in the same loop every 100 ms up to `$2`
+# seconds: « <pane> <tab> », each « never » when it does not happen, the tab « n/a » when `$4` is
+# empty. Each figure is read after the screen read that saw it.
+since_answer() {
+  local t0="$1" bound="$2" text="$3" notice="$4" gone=never told=never i
+  [ -z "$notice" ] && told=n/a
+  for ((i = 0; i < bound * 10; i++)); do
+    [ "$gone" = never ] && pane_lacks "$text" && gone=$(( $(ms) - t0 ))
+    [ "$told" = never ] && in_tab "$notice" && told=$(( $(ms) - t0 ))
+    [ "$gone" != never ] && [ "$told" != never ] && break
+    sleep 0.1
+  done
+  echo "$gone $told"
+}
 status_is() { [ "$(jq -r .status "$SANDBOX/state/round/$1.json" 2>/dev/null)" = "$2" ]; }
-status_not() { ! status_is "$1" "$2"; }
-pane_lacks() { ! pane | grep -qF -- "$1"; }
+# The question gone from a pane that is drawn: its « Questions for you » header on screen, so an
+# empty or failed screen never reads as a question gone.
+pane_lacks() {
+  local drawn
+  drawn=$(pane)
+  printf '%s\n' "$drawn" | grep -qF 'Questions for you' && ! printf '%s\n' "$drawn" | grep -qF -- "$1"
+}
 # The coordinator's tab as the operator reads it: the screen's transcript column, what precedes
 # the pane's bar on each row, on one line. Its transcript file is no measure: the host writes it
 # late, and the orchestrator's host, in the same work directory, writes beside it.
@@ -519,7 +554,14 @@ tab_count() { tab | grep -o -F -- "$1" | wc -l | tr -d ' '; }
 # The pane given the keys when it has not them: it holds them on its open, and ctrl+x tab then
 # gives them back to the prompt.
 keys_to_pane() { pane | grep -qF 'ctrl+x tab or a click' && press C-x Tab; return 0; }
-delay() { DELAYS="$DELAYS$1: pane $2 ms, tab $3 ms; "; echo "  delay $1: pane $2 ms, tab $3 ms"; }
+# A figure as measured, or « ≤ ~200 ms » when it sits on the poll's floor.
+shown() {
+  case "$1" in
+    never|n/a) echo "$1" ;;
+    *) [ "$1" -le "$FLOOR_MS" ] && echo "≤ ~${FLOOR_MS} ms" || echo "$1 ms" ;;
+  esac
+}
+delay() { DELAYS="$DELAYS$1: pane $(shown "$2"), tab $(shown "$3"); "; echo "  delay $1: pane $(shown "$2"), tab $(shown "$3")"; }
 fluid() { [ "$1" != never ] && [ "$1" -le 3000 ] && echo yes || echo "no ($1 ms)"; }
 
 echo "== (a) answered in the pane, (c) answered in the coordinator's tab (160x50)"
@@ -527,17 +569,18 @@ start 50
 coordround round >/dev/null
 check "round recorded the two entries it printed" "s-alpha-q1,s-beta-q2" "$(jq -r 'sort | join(",")' "$SANDBOX/state/round-listed.json")"
 tm send-keys -t "$SESSION" Enter
-gone=$(until_ms 10 pane_lacks 'merge the release branch now?')
-told=$(until_ms 10 in_tab 'Settled in the pane: Orch : alpha')
+stamp=$(ms)
+read -r gone told <<< "$(since_answer "$stamp" 10 'merge the release branch now?' 'Settled in the pane: Orch : alpha')"
 record "(a) after the answer"
 delay a "$gone" "$told"
 press Escape
-check "(a) answered once, gone from the pane, the coordinator told once, within seconds" "answered|yes|1|yes" \
-  "$(jq -r .status "$SANDBOX/state/round/s-alpha-q1.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : alpha')|$(fluid "$told")"
+check "(a) answered once and closed by the module, gone from the pane, the coordinator told once with nothing to run, within seconds" "closed|answered from the pane: B : wait for the next review — a day lost|yes|1|0|yes" \
+  "$(jq -r .status "$SANDBOX/state/round/s-alpha-q1.json")|$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-q1.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : alpha')|$(tab_count 'round-close')|$(fluid "$told")"
+stamp=$(ms)
 coordround round-close s-beta-q2 --answer 'A, the design (relayed in the tab)' >/dev/null
-gone=$(until_ms 25 pane_lacks 'Which docs first?')
+read -r gone told <<< "$(since_answer "$stamp" 25 'Which docs first?' '')"
 record "(c) after the round-close"
-delay c "$gone" "0"
+delay c "$gone" "$told"
 check "(c) closed in the tab: gone from the pane within seconds, no notice sent back" "closed|yes|0" \
   "$(jq -r .status "$SANDBOX/state/round/s-beta-q2.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : beta')"
 
@@ -547,27 +590,28 @@ coordround round >/dev/null
 for id in s-gamma-q1 s-beta-q3; do
   jq '.status = "closed"' "$SANDBOX/state/round/$id.json" > "$SANDBOX/e.json" && mv "$SANDBOX/e.json" "$SANDBOX/state/round/$id.json"
 done
-wait_for 'Takeover done' 25
+drawn=$(wait_for 'Takeover done' 25 && echo drawn || echo missing)
 record "(e) the report drawn"
+check "(e) the report that asks nothing is drawn once the others are closed" "drawn" "$drawn"
 keys_to_pane
 tm send-keys -t "$SESSION" -l 'merge speculoos#53'
 sleep 0.6
 tm send-keys -t "$SESSION" Enter
-settled=$(until_ms 10 status_is s-alpha-r1 answered)
-gone=$(until_ms 10 pane_lacks 'Takeover done')
-told=$(until_ms 10 in_tab 'Settled in the pane: Orch : alpha')
+stamp=$(ms)
+read -r gone told <<< "$(since_answer "$stamp" 10 'Takeover done' 'Settled in the pane: Orch : alpha')"
 record "(e) after the answer"
 delay e "$gone" "$told"
 press Escape
-check "(e) the typed text answers the report once, gone from the pane, the coordinator told once" "merge speculoos#53|yes|1|yes" \
-  "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-r1.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : alpha')|$(fluid "$told")"
+check "(e) the typed text answers the report once, closed by the module, gone from the pane, the coordinator told once" "closed|answered from the pane: merge speculoos#53|yes|1|yes" \
+  "$(jq -r .status "$SANDBOX/state/round/s-alpha-r1.json")|$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-r1.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : alpha')|$(fluid "$told")"
 
 # A live orchestrator beside the coordinator, in a second window of the same server, its turns
-# its model's replies to the project commands below.
+# its model's replies to the project commands below. Its banner is read before anything is typed.
 ORCH=orch
 flow_command() {  # <name> <the text to reply with>
   printf -- '---\ndescription: e2e flow reply\n---\nReply with exactly the text between the two marker lines, without the marker lines, and use no tool.\n<<<\n%s\n>>>\n' "$2" > "$COMMANDS/$1.md"
 }
+orch_screen() { tm capture-pane -p -t "$SESSION:$ORCH"; }
 start_orch() {
   tm new-window -d -t "$SESSION" -n "$ORCH" -c "$SANDBOX/work" \
     env -i HOME="$HOME" USER="$USER" PATH="$PATH" TERM=xterm-256color FORCE_HYPERLINK=1 \
@@ -575,14 +619,15 @@ start_orch() {
     "$HOST" --setting-sources project --strict-mcp-config --settings "$SANDBOX/settings.json" \
     --plugin-dir "$ROOT" --name "Orch : flow"
   local i
-  for ((i = 0; i < 120; i++)); do tm capture-pane -p -t "$SESSION:$ORCH" | grep -qF 'Orch : flow' && return 0; sleep 0.25; done
-  return 1
+  for ((i = 0; i < 120; i++)); do orch_screen | grep -qF 'Orch : flow' && break; sleep 0.25; done
+  [ "$i" -lt 120 ] || return 1
+  subscription_or_exit "$(orch_screen)"
 }
 orch_type() { tm send-keys -t "$SESSION:$ORCH" -l "$1"; sleep 1; tm send-keys -t "$SESSION:$ORCH" Enter; }
-orch_screen() { tm capture-pane -p -t "$SESSION:$ORCH"; }
 flow_entries() { jq -r --arg s "$1" 'select(.from == "Orch : flow" and .status == $s) | .id' "$SANDBOX/state/round/"*.json 2>/dev/null | sort | paste -sd, -; }
-has_open() { [ -n "$(flow_entries open)" ]; }
 flow_open_with() { [ -n "$(jq -r --arg b "$1" 'select(.from == "Orch : flow" and .status == "open" and .blocks == $b) | .id' "$SANDBOX/state/round/"*.json 2>/dev/null)" ]; }
+flow_id() { jq -r --arg b "$1" 'select(.from == "Orch : flow" and .blocks == $b) | .id' "$SANDBOX/state/round/"*.json 2>/dev/null | head -1; }
+settled_is() { status_is "$1" withdrawn || status_is "$1" closed; }
 
 echo "== (d) a question with choices, then a turn that asks nothing, (b) answered in the sender's own tab (160x50)"
 start 50 flow
@@ -595,44 +640,51 @@ else
   orch_type '/flow-ask'
   asked=$(until_ms 120 flow_open_with 'the docs, the tag')
   record "(d) the question asked"
-  check "(d) the orchestrator's question with choices is entered and drawn" "yes|1" "$([ "$asked" != never ] && echo yes)|$(wait_for 'which page goes first?' 25 && echo 1)"
+  check "(d) the orchestrator's question with choices is entered and drawn" "yes|drawn" "$([ "$asked" != never ] && echo yes)|$(wait_for 'which page goes first?' 25 && echo drawn || echo missing)"
   first=$(flow_entries open)
+  cp "$SANDBOX/state/round/$first.json" "$SANDBOX/first.json"
   coordround round >/dev/null
   orch_type '/flow-report'
   until_ms 120 flow_open_with 'the docs' >/dev/null
-  sleep 3
+  report=$(flow_id 'the docs')
+  # A positive marker first, then one tick of the pane's 2 s clock, before any absence is read.
+  counted=$(wait_for 'Questions for you — 2 pending' 25 && echo counted || echo missing)
+  sleep 2
   record "(d) after the turn that asks nothing"
-  check "(d) the question stays, open, on the report's blocks, nothing withdrawn, still drawn, no notice" "$first|1|0|1|1|0" \
-    "$(flow_entries open)|$(jq -r 'select(.from == "Orch : flow" and .status == "open") | .choices | length | if . == 2 then 1 else 0 end' "$SANDBOX/state/round/"*.json)|$( [ -n "$(flow_entries withdrawn)" ] && echo 1 || echo 0)|$(pane | grep -c 'which page goes first?')|$(flat | grep -c 'Choose:')|$(tab_count 'Settled in')"
+  check "(d) the report is its own entry, the question with choices untouched beside it, both counted, nothing withdrawn, no notice" \
+    "counted|$(printf '%s\n%s\n' "$first" "$report" | sort | paste -sd, -)|same|0|1|0" \
+    "$counted|$(flow_entries open)|$(cmp -s "$SANDBOX/first.json" "$SANDBOX/state/round/$first.json" && echo same || echo changed)|$( [ -n "$(flow_entries withdrawn)" ] && echo 1 || echo 0)|$(pane | grep -c 'which page goes first?')|$(tab_count 'Settled in')"
   keys_to_pane
   tm send-keys -t "$SESSION" Enter
-  settled=$(until_ms 10 status_is "$first" answered)
-  gone=$(until_ms 10 pane_lacks 'which page goes first?')
-  told=$(until_ms 10 in_tab "Settled in the pane: Orch : flow")
+  stamp=$(ms)
+  read -r gone told <<< "$(since_answer "$stamp" 10 'which page goes first?' 'Settled in the pane: Orch : flow')"
   record "(d) answered in the pane"
   delay d "$gone" "$told"
   tm send-keys -t "$SESSION" Escape
-  check "(d) answered once from the pane, gone from it, the coordinator told once" "answered|yes|1|yes" \
-    "$(jq -r .status "$SANDBOX/state/round/$first.json")|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : flow')|$(fluid "$told")"
+  check "(d) answered once from the pane and closed, the report drawn next, the coordinator told once" "closed|open|drawn|yes|1|yes" \
+    "$(jq -r .status "$SANDBOX/state/round/$first.json")|$(jq -r .status "$SANDBOX/state/round/$report.json")|$(wait_for 'The pages are drafted' 10 && echo drawn || echo missing)|$(fluid "$gone")|$(tab_count 'Settled in the pane: Orch : flow')|$(fluid "$told")"
   # The orchestrator's next turn, started by the pane's answer, is let end before (b).
   sleep 20
   orch_type '/flow-tag'
   until_ms 120 flow_open_with 'the tag' >/dev/null
   tag=$(jq -r 'select(.from == "Orch : flow" and .status == "open" and .blocks == "the tag") | .id' "$SANDBOX/state/round/"*.json | head -1)
-  wait_for 'tag the release?' 25
+  check "(b) the question to answer in the tab is drawn" "drawn" "$(wait_for 'tag the release?' 25 && echo drawn || echo missing)"
   coordround round >/dev/null
   orch_type 'B, wait. Reply with exactly the two lines « Noted. » and « waiting: done », with no tool.'
-  settled=$(until_ms 120 status_is "$tag" withdrawn)
-  gone=$(until_ms 25 pane_lacks 'tag the release?')
-  told=$(until_ms 15 in_tab "Settled in Orch : flow's tab")
+  stamp=$(ms)
+  # The entry is settled only when the sender's turn ends, its model's reply included: what
+  # follows that end is the module's and the pane's, and is what must be fluid.
+  ended=$(until_ms 120 settled_is "$tag")
+  read -r gone told <<< "$(since_answer "$stamp" 25 'tag the release?' "Settled in Orch : flow's tab")"
   record "(b) answered in the sender's tab"
   delay b "$gone" "$told"
+  after() { [ "$1" = never ] || [ "$ended" = never ] && echo never || echo $(( $1 > ended ? $1 - ended : 0 )); }
+  echo "  (b) the sender's turn ended $(shown "$ended") after the answer; then pane $(shown "$(after "$gone")"), tab $(shown "$(after "$told")"); the entry $(jq -r .status "$SANDBOX/state/round/$tag.json") by $(jq -r .answer.by "$SANDBOX/state/round/$tag.json")"
   tm send-keys -t "$SESSION" Escape
-  # The live coordinator closes the entry on the notice, with the reason recorded on it.
-  check "(b) withdrawn once by the tab, gone from the pane, the coordinator told once" "tab|yes|1|yes" \
-    "$(jq -r 'if (.status == "withdrawn" and .answer.by == "tab") or (.status == "closed" and (.answer.text | contains("answered in the sender'"'"'s own tab"))) then "tab" else "\(.status) by \(.answer.by)" end' "$SANDBOX/state/round/$tag.json")|$(fluid "$gone")|$(tab_count "Settled in Orch : flow's tab")|$(fluid "$told")"
+  check "(b) closed once by the module as answered in the tab, gone from the pane and the coordinator told once within seconds of the turn's end, with nothing to run" "closed|withdrawn: answered in the sender's own tab|yes|1|0|yes" \
+    "$(jq -r .status "$SANDBOX/state/round/$tag.json")|$(jq -r .answer.text "$SANDBOX/state/round/$tag.json")|$(fluid "$(after "$gone")")|$(tab_count "Settled in Orch : flow's tab")|$(tab_count 'round-close')|$(fluid "$(after "$told")")"
 fi
-echo "delays: $DELAYS"
+echo "delays (from the answer; a figure ≤ ~${FLOOR_MS} ms sits on the poll's floor): $DELAYS"
 
 echo "pane-e2e: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
