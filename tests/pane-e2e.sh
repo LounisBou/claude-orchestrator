@@ -411,7 +411,13 @@ WOKEN="$SANDBOX/state/round-woken.json"
 woken() { jq -r 'sort | join(",")' "$WOKEN" 2>/dev/null; }
 echo "== the pane's state routes each question (160x50)"
 start 50 aged
+# The cost of the pane's clock, which stats the round every 2 s: the host's processor time over
+# these idle seconds, printed, never asserted.
+host_cpu() { ps -o time= -p "$(tm display-message -p -t "$SESSION" '#{pane_pid}')" | awk -F'[:.]' '{ print ($1 * 60 + $2) * 100 + $3 }'; }
+cpu_before=$(host_cpu)
 sleep 35
+cpu_after=$(host_cpu)
+echo "  idle cost: the host used $(( (cpu_after - cpu_before) * 10 )) ms of processor time over 35 s with the pane open"
 record "35 seconds with the pane open"
 check "pane open: two questions two hours old wake the coordinator for neither" "|0" "$(woken)|$(screen | grep -c 'now due in this tab')"
 press Escape
@@ -504,10 +510,15 @@ until_ms() {
 status_is() { [ "$(jq -r .status "$SANDBOX/state/round/$1.json" 2>/dev/null)" = "$2" ]; }
 status_not() { ! status_is "$1" "$2"; }
 pane_lacks() { ! pane | grep -qF -- "$1"; }
-# The coordinator's transcript holds `$1`: what reached its tab, submitted or sent.
-transcript_dir() { printf '%s/projects/%s' "$HOSTDIR" "$(printf '%s' "$SANDBOX/work" | sed 's/[^A-Za-z0-9]/-/g')"; }
-in_tab() { cat "$(transcript_dir)"/*.jsonl 2>/dev/null | grep -qF -- "$1"; }
-tab_count() { cat "$(transcript_dir)"/*.jsonl 2>/dev/null | grep -o -F -- "$1" | wc -l | tr -d ' '; }
+# The coordinator's tab as the operator reads it: the screen's transcript column, what precedes
+# the pane's bar on each row, on one line. Its transcript file is no measure: the host writes it
+# late, and the orchestrator's host, in the same work directory, writes beside it.
+tab() { screen | awk '{ i = index($0, "│"); print i ? substr($0, 1, i - 1) : $0 }' | tr '\n' ' ' | tr -s ' '; }
+in_tab() { tab | grep -qF -- "$1"; }
+tab_count() { tab | grep -o -F -- "$1" | wc -l | tr -d ' '; }
+# The pane given the keys when it has not them: it holds them on its open, and ctrl+x tab then
+# gives them back to the prompt.
+keys_to_pane() { pane | grep -qF 'ctrl+x tab or a click' && press C-x Tab; return 0; }
 delay() { DELAYS="$DELAYS$1: pane $2 ms, tab $3 ms; "; echo "  delay $1: pane $2 ms, tab $3 ms"; }
 fluid() { [ "$1" != never ] && [ "$1" -le 3000 ] && echo yes || echo "no ($1 ms)"; }
 
@@ -538,7 +549,7 @@ for id in s-gamma-q1 s-beta-q3; do
 done
 wait_for 'Takeover done' 25
 record "(e) the report drawn"
-press C-x Tab
+keys_to_pane
 tm send-keys -t "$SESSION" -l 'merge speculoos#53'
 sleep 0.6
 tm send-keys -t "$SESSION" Enter
@@ -593,8 +604,7 @@ else
   record "(d) after the turn that asks nothing"
   check "(d) the question stays, open, on the report's blocks, nothing withdrawn, still drawn, no notice" "$first|1|0|1|1|0" \
     "$(flow_entries open)|$(jq -r 'select(.from == "Orch : flow" and .status == "open") | .choices | length | if . == 2 then 1 else 0 end' "$SANDBOX/state/round/"*.json)|$( [ -n "$(flow_entries withdrawn)" ] && echo 1 || echo 0)|$(pane | grep -c 'which page goes first?')|$(flat | grep -c 'Choose:')|$(tab_count 'Settled in')"
-  tm send-keys -t "$SESSION" C-x Tab
-  sleep 0.6
+  keys_to_pane
   tm send-keys -t "$SESSION" Enter
   settled=$(until_ms 10 status_is "$first" answered)
   gone=$(until_ms 10 pane_lacks 'which page goes first?')
@@ -618,8 +628,9 @@ else
   record "(b) answered in the sender's tab"
   delay b "$gone" "$told"
   tm send-keys -t "$SESSION" Escape
-  check "(b) withdrawn once by the tab, gone from the pane, the coordinator told once" "withdrawn|tab|yes|1|yes" \
-    "$(jq -r .status "$SANDBOX/state/round/$tag.json")|$(jq -r .answer.by "$SANDBOX/state/round/$tag.json")|$(fluid "$gone")|$(tab_count "Settled in Orch : flow's tab")|$(fluid "$told")"
+  # The live coordinator closes the entry on the notice, with the reason recorded on it.
+  check "(b) withdrawn once by the tab, gone from the pane, the coordinator told once" "tab|yes|1|yes" \
+    "$(jq -r 'if (.status == "withdrawn" and .answer.by == "tab") or (.status == "closed" and (.answer.text | contains("answered in the sender'"'"'s own tab"))) then "tab" else "\(.status) by \(.answer.by)" end' "$SANDBOX/state/round/$tag.json")|$(fluid "$gone")|$(tab_count "Settled in Orch : flow's tab")|$(fluid "$told")"
 fi
 echo "delays: $DELAYS"
 
