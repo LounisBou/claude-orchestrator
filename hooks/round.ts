@@ -309,6 +309,12 @@ export function openEntries(entries: readonly RoundEntry[]): RoundEntry[] {
   return [...groups.values()].flat()
 }
 
+// A wait whose text asks nothing the pane could offer: no question of it carries a lettered
+// choice or a labelled field. A status report still waiting on an answer asked earlier, say.
+export function asksNothing(entry: Pick<RoundEntry, 'question' | 'choices' | 'recommendation'>): boolean {
+  return entryQuestions(entry).every(part => part.choices.length === 0 && questionShape(part.question, part.choices) === null)
+}
+
 // The open operator questions in the order the pane draws them: those that carry choices
 // first, in the round's order among themselves, then those without. A question the operator can
 // only answer in its session never hides one he can answer from the pane. A wait that asks

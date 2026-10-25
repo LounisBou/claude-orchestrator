@@ -33,7 +33,7 @@ import {
   parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, type RoundChoice, type RoundEntry } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, asksNothing, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -1627,7 +1627,8 @@ async function dropMark($: any): Promise<void> {
 // A prompt the operator typed while a question was held left a mark (withdrawOnTyped): the turn
 // that ends on the same wait leaves the question open, any other end withdraws it as answered
 // in the tab, and only such a turn withdraws the session's other open entries as stale. A turn
-// that ends on the wait again with a text that offers no choice keeps the choices its entry has.
+// that ends on an operator wait whose text asks nothing keeps its session's open question with
+// choices, moved to that wait's blocks.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
@@ -1682,13 +1683,13 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   // is not woken for it. The fingerprint is kept once the entry is in place, as a delivery's.
   if (coordinator?.local && wait && patch) {
     const entry = roundEntry(sessionId, name, wait, patch.waiting_since!, new Date().toISOString())
-    const kept = entry.choices.length === 0 ? await keptChoices($, entry) : null
+    const kept = asksNothing(entry) ? await keptChoices($, entry) : null
     if (kept) {
-      // Marked urgent or unmarked, the entry is rewritten with its choices: urgent, it is due at once.
-      if (Boolean(kept.entry.urgent) !== Boolean(entry.urgent)) {
-        const { urgent: _, ...plain } = kept.entry
-        await writeAtomic($, kept.path, JSON.stringify(entry.urgent ? { ...plain, urgent: true } : plain) + '\n')
-      }
+      // The question keeps its text and choices and takes this wait's blocks, start and urgent
+      // mark: a prompt typed in the tab finds it by them, and urgent, it is due at once.
+      const { urgent: _, ...plain } = kept.entry
+      const moved = { ...plain, blocks: entry.blocks, since: entry.since, ...(entry.urgent ? { urgent: true as const } : {}) }
+      if (JSON.stringify(moved) !== JSON.stringify(kept.entry)) await writeAtomic($, kept.path, JSON.stringify(moved) + '\n')
       await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
       return
     }
@@ -1777,12 +1778,14 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   }
 }
 
-// The session's open entry for the same wait when it already carries choices, the text of this
-// turn offering none: a progress note written under the same machine line is no new question.
+// The session's open operator entry that carries choices, the text of this turn asking nothing:
+// a progress note or a status report under a machine line is no new question, whatever its
+// blocks or start, and never withdraws the question still waiting for its answer (the
+// operator's report of 2026-10-25). The latest such entry when several.
 async function keptChoices($: any, entry: RoundEntry): Promise<{ path: string; entry: RoundEntry } | null> {
-  return (await readRound($)).find(({ entry: open }) =>
-    open.session === entry.session && open.kind === 'operator' && open.status === 'open'
-    && open.blocks === entry.blocks && open.since === entry.since && open.choices.length > 0) ?? null
+  return (await readRound($))
+    .filter(({ entry: open }) => open.session === entry.session && open.kind === 'operator' && open.status === 'open' && open.choices.length > 0)
+    .sort((a, b) => (a.entry.since < b.entry.since ? 1 : a.entry.since > b.entry.since ? -1 : 0))[0] ?? null
 }
 
 // The held question's entry in the round: that session's open operator question with the same

@@ -652,6 +652,64 @@ test('a new operator wait supersedes every older open entry of its session, one 
   expect(fx.row().relayed).toBe(fingerprint(parseWait(answerOf('A new question?', 'waiting: operator — blocks: phase 4'))!))
 })
 
+// The operator's report of 2026-10-25: a question with choices, then a turn ending on a status
+// report that waits on the same answer, its blocks one item shorter. The report superseded the
+// question, and the pane had nothing left to draw.
+const STAGING_QUESTION = 'Question 1 of 1\n\n_Question_ : which version ends the campaign?\n\n_Choices_ :\n- **A** : the new versions\n- **B** : as A, with the lot tested\n- **C** : stop here\n\n_Recommendation_ : A.'
+const STAGING_REPORT = 'The front-office checks on the old versions passed.\n\nYour choice A, B or C on the lot, asked above, decides what the three agents do next.'
+
+test('a choice-less turn end keeps its session\'s open question with choices: new blocks and since, nothing written, nothing withdrawn', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: fin de B14, a4 b, BO §3.21/§3.22, gestes G2-G6, report.md')))
+  const [asked] = entries(fx)
+  expect(asked.choices.map(c => c.letter)).toEqual(['A', 'B', 'C'])
+  await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md')))
+  const row = fx.row()!
+  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.since, e.question, e.choices.length, e.recommendation, e.answer])).toEqual([
+    [asked.id, 'open', 'fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md', row.waiting_since, STAGING_QUESTION, 3, 'A', null],
+  ])
+  expect(fx.logged.some(l => l.includes('round: withdrawn by the sender'))).toBe(false)
+  expect(row.relayed).toBe(fingerprint(parseWait(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md'))!))
+  // The same report again is the same wait: nothing more is written.
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md')))
+  expect(entries(fx).length).toBe(1)
+  expect(fx.sent.length).toBe(0)
+})
+
+test('the kept question takes the choice-less turn\'s urgent mark, and loses it again', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
+  const [asked] = entries(fx)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting on the lot.', 'waiting: operator (urgent) — blocks: phase 3 and 4')))
+  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.urgent])).toEqual([[asked.id, 'open', 'phase 3 and 4', true]])
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator — blocks: phase 4')))
+  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.urgent])).toEqual([[asked.id, 'open', 'phase 4', undefined]])
+})
+
+for (const [label, question] of [['choices', 'Which one?\n- **A** : this\n- **B** : that'], ['labelled fields', '_Question_ : Rename it?']] as const) {
+  test(`a later wait with ${label} still supersedes the question with choices`, async () => {
+    const chains = mounted()
+    const fx = fake()
+    await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
+    await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(question, 'waiting: operator — blocks: phase 4')))
+    const [old, fresh] = entries(fx)
+    expect([old.status, old.answer?.text, fresh.status, fresh.blocks]).toEqual(['withdrawn', `superseded by ${fresh.id}`, 'open', 'phase 4'])
+  })
+}
+
+test('a question kept by a choice-less turn is still withdrawn by a prompt the operator types in its tab', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
+  const [asked] = entries(fx)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator — blocks: phase 3 and 4')))
+  await typedTurn(chains, fx, 'Working on phase 3.')
+  expect([entries(fx)[0].id, entries(fx)[0].status, entries(fx)[0].answer?.by]).toEqual([asked.id, 'withdrawn', 'tab'])
+})
+
 test('a done wait supersedes nothing', async () => {
   const chains = mounted()
   const fx = fake()
