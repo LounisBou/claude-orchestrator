@@ -5748,8 +5748,11 @@ check "the installer writes one command per short name, each marked as the plugi
   "$(ls "$SND" 2>/dev/null | wc -l | tr -d ' ')|$(grep -lx "$SNMARK" "$SND"/*.md 2>/dev/null | wc -l | tr -d ' ')|$(printf '%s\n' "$snout" | grep -c 'short command written: ')"
 check "each copy is its plugin command, the plugin root spelled out and the marker after the opening line" "" \
   "$(diff <(sed "s#\${CLAUDE_PLUGIN_ROOT}#$ROOT#g" "$ROOT/commands/sleeping.md" | awk -v m="$SNMARK" 'NR == 2 { print m } { print }') "$SND/orchestrator-sleeping.md" 2>&1)"
-check "no copy keeps a plugin variable, and each keeps its plugin command's description" "0|" \
-  "$(cat "$SND"/*.md | grep -c 'CLAUDE_PLUGIN_ROOT')|$(diff <(sed -n 's/^description: //p' "$ROOT/commands/coordinator.md") <(sed -n 's/^description: //p' "$SND/coordinator.md"))"
+check "no copy keeps a plugin variable" "0" "$(cat "$SND"/*.md | grep -c 'CLAUDE_PLUGIN_ROOT')"
+check "every copy keeps its plugin command's description" "" \
+  "$(while IFS=$'\t' read -r short file; do diff <(sed -n 's/^description: //p' "$ROOT/commands/$file.md") <(sed -n 's/^description: //p' "$SND/$short.md") >/dev/null || echo "differs:$short"; done < "$ROOT/short-names.tsv")"
+check "every copy is its plugin command with the root spelled out and the marker after the opening line" "" \
+  "$(while IFS=$'\t' read -r short file; do diff <(sed "s#\${CLAUDE_PLUGIN_ROOT}#$ROOT#g" "$ROOT/commands/$file.md" | awk -v m="$SNMARK" 'NR == 2 { print m } { print }') "$SND/$short.md" >/dev/null || echo "differs:$short"; done < "$ROOT/short-names.tsv")"
 check "the pane's two short names carry one body, the file's own" "|" \
   "$(diff <(sed 1,2d "$SND/coordinator-supervision.md") <(sed 1d "$ROOT/commands/coordinator-supervision.md"))|$(diff <(sed 1,2d "$SND/orchestrator-supervision.md") <(sed 1d "$ROOT/commands/supervision.md"))"
 # An update: a copy written by an earlier version names that version's root; it is rewritten.
