@@ -3194,7 +3194,7 @@ check "a command with a name, one the table does not know and one it lost fail t
   "$(short_names_wrong "$SNCMDS" "$WORK/short-names.tsv" | paste -sd'|' -)"
 check "both supervision commands carry one body" "" \
   "$(diff "$ROOT/commands/supervision.md" "$ROOT/commands/coordinator-supervision.md")"
-# One short line each (the operator, 2026-10-25: « 10/15 mots max pas plus »): the typeahead
+# One short line each (the operator, 2026-10-25: ten to fifteen words at most, no more): the typeahead
 # draws a description beside its name and wraps a long one on two rows.
 long_descriptions() {  # <commands dir>: one line per command whose description is too long
   local f d
