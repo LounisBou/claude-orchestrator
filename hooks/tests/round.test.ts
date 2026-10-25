@@ -363,8 +363,46 @@ test('the references to a pull request are found one each, glued by a slash, a c
 })
 
 test('the owners of the repositories the module knows, by the repository\'s name', () => {
-  const owners = repositoryOwners(['LounisBou/infra', null, 'geonative/geo-git-flow#21', 'not a repository', 'other/infra'])
+  const owners = repositoryOwners(['LounisBou/infra', null, 'geonative/geo-git-flow#21', 'not a repository', 'LounisBou/infra#7'])
   expect([...owners]).toEqual([['infra', 'LounisBou'], ['geo-git-flow', 'geonative']])
+})
+
+test('a repository name two owners hold has no owner: no guess', () => {
+  const owners = repositoryOwners(['LounisBou/infra', 'other/infra', 'third/infra#2', 'geonative/api'])
+  expect([...owners]).toEqual([['api', 'geonative']])
+  expect(prPieces('see infra#5 and api#7', owners)).toEqual([
+    'see infra#5 and ',
+    { href: 'https://github.com/geonative/api/pull/7', text: 'api#7' },
+  ])
+})
+
+test('an owner written in the text is the owner of the link, whatever the known one', () => {
+  const owners = new Map([['infra', 'LounisBou']])
+  expect(prPieces('merge other/infra#5, then infra#6', owners)).toEqual([
+    'merge ',
+    { href: 'https://github.com/other/infra/pull/5', text: 'other/infra#5' },
+    ', then ',
+    { href: 'https://github.com/LounisBou/infra/pull/6', text: 'infra#6' },
+  ])
+  expect(prPieces('merge other/infra#5', new Map())).toEqual([
+    'merge ',
+    { href: 'https://github.com/other/infra/pull/5', text: 'other/infra#5' },
+  ])
+  expect(prReferences('other/infra#5')).toEqual([{ at: 0, text: 'other/infra#5', repo: 'infra', number: 5, owner: 'other' }])
+})
+
+test('a reference stuck to the word or the sign before it is still linked', () => {
+  const owners = new Map([['infra', 'acme']])
+  expect(prPieces('done at the end.infra#195 and (-infra#196', owners)).toEqual([
+    'done at the end.',
+    { href: 'https://github.com/acme/infra/pull/195', text: 'infra#195' },
+    ' and (-',
+    { href: 'https://github.com/acme/infra/pull/196', text: 'infra#196' },
+  ])
+  expect(prReferences('.infra#1 -infra#2')).toEqual([
+    { at: 1, text: 'infra#1', repo: 'infra', number: 1 },
+    { at: 10, text: 'infra#2', repo: 'infra', number: 2 },
+  ])
 })
 
 test('a glued pair of references whose owner is known: each its own link, the slash between them plain', () => {
@@ -388,6 +426,23 @@ test('a reference whose owner is unknown stays plain text', () => {
   ])
   expect(prPieces('no reference here', new Map())).toEqual(['no reference here'])
   expect(prPieces('', new Map())).toEqual([''])
+})
+
+test('two bold version lines are no numbering: the text is not split at them', () => {
+  const text = '**Version 1.2**\n_Subject_ : a\n**Version 1.3**\n_Subject_ : b'
+  expect(questionParts(text)).toEqual([text])
+  expect(questionShape(text, [])!.number).toBeNull()
+  expect(questionParts('**Question 3/4**\n_Subject_ : a\n**Question 4/4**\n_Subject_ : b').length).toBe(2)
+  expect(questionParts('**3 sur 4**\n_Subject_ : a\n**4 sur 4**\n_Subject_ : b').length).toBe(1)
+})
+
+test('a woken entry of several questions reads each question\'s choices from its text, whatever it recorded', () => {
+  const stale = [{ letter: 'A', text: 'stale one' }, { letter: 'B', text: 'stale two' }]
+  const parts = entryQuestions({ question: TWO_QUESTIONS, choices: stale, recommendation: 'B' })
+  expect(parts.map(part => [part.choices.map(c => c.text.slice(0, 6)), part.recommendation])).toEqual([
+    [['1.15.0', '2.0.0,'], 'A'],
+    [['une re', 'une se'], 'A'],
+  ])
 })
 
 test('the sender\'s numbering drawn as its two numbers', () => {

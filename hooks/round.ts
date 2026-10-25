@@ -75,8 +75,9 @@ export function questionBody(entry: Pick<RoundEntry, 'question' | 'choices'>): s
 // language and read by its shape alone. The colon may have spaces around it or none: one with a
 // space before it is drawn « label : text », one without « label: text ».
 const FIELD = /^\s*_([^_\n]*[^_\s])_(\s*:\s*)(.*?)\s*$/
-// The sender's own numbering: a line wholly bold holding two numbers, `**Question 5 of 6**`.
-const NUMBER = /^\s*\*\*([^*\n]*\d+\D+\d+[^*\n]*)\*\*\s*$/
+// The sender's own numbering: a line wholly bold holding two numbers, a word before the first and
+// a word or a slash between them, `**Question 5 of 6**`; `**Version 1.2**` is no numbering.
+const NUMBER = /^\s*\*\*([^*\n\d]*\p{L}[^*\n\d]*\d+[^*\n\d]*[\p{L}/][^*\n\d]*\d+[^*\n]*)\*\*\s*$/u
 // A field after the choices whose text starts with a lone choice letter: the recommendation.
 const NAMES_LETTER = /^\**([A-E])\**(?:$|[\s.,;:—–-])/
 
@@ -197,34 +198,52 @@ export function textSpans(text: string): TextSpan[] {
 
 // The references to a pull request a text names, `<repository>#<number>`, one each wherever they
 // stand: glued to another by a slash, a comma or nothing, each is its own. `at` is where it
-// starts in the text.
-export type PrReference = { at: number; text: string; repo: string; number: number }
+// starts in the text. A sign `.` or `-` stuck before the repository's name is no part of it. An
+// owner written before the name, `other/infra#5`, is kept as `owner`.
+export type PrReference = { at: number; text: string; repo: string; number: number; owner?: string }
 export function prReferences(text: string): PrReference[] {
-  return [...text.matchAll(/([A-Za-z0-9_.-]+)#(\d+)/g)].map(found => ({ at: found.index!, text: found[0], repo: found[1], number: Number(found[2]) }))
+  return [...text.matchAll(/(?:([A-Za-z0-9_.-]+)\/)?([A-Za-z0-9_.-]+)#(\d+)/g)].flatMap(found => {
+    const owner = found[1]?.replace(/^[.-]+/, '')
+    const repo = found[2].replace(/^[.-]+/, '')
+    if (repo === '') return []
+    const start = found.index! + found[0].length - `${repo}#${found[3]}`.length - (owner ? owner.length + 1 : 0)
+    return [{ at: start, text: text.slice(start, found.index! + found[0].length), repo, number: Number(found[3]), ...(owner ? { owner } : {}) }]
+  })
 }
 
 // The owner of each repository the module knows, by the repository's name: from the addresses
-// it holds (`owner/name`, a pull request's `owner/name#<n>` too), the first owner of a name kept.
-// Anything else is no address and is skipped.
+// it holds (`owner/name`, a pull request's `owner/name#<n>` too). A name two owners hold is
+// ambiguous and has no owner: no guess. Anything else is no address and is skipped.
 export function repositoryOwners(addresses: readonly (string | null | undefined)[]): Map<string, string> {
   const owners = new Map<string, string>()
+  const ambiguous = new Set<string>()
   for (const address of addresses) {
     const found = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:#\d+)?$/.exec(address ?? '')
-    if (found && !owners.has(found[2])) owners.set(found[2], found[1])
+    if (!found) continue
+    if (owners.has(found[2]) && owners.get(found[2]) !== found[1]) ambiguous.add(found[2])
+    else owners.set(found[2], found[1])
   }
+  for (const name of ambiguous) owners.delete(name)
   return owners
 }
 
-// A text cut at the references to a pull request it names: each reference whose repository has
-// a known owner is a link of its own to the pull request, the text around it plain. A reference
-// whose owner is unknown stays in the text.
+// A text cut at the references to a pull request it names: each reference with an owner, the one
+// written before it or else the one known for its repository, is a link of its own to the pull
+// request, the text around it plain. A name stuck to a word by a dot (`end.infra#195`) is read
+// by what follows the dot when the whole is no known repository. A reference with no owner
+// stays in the text.
 export type PrLink = { href: string; text: string }
 export function prPieces(text: string, owners: ReadonlyMap<string, string>): (string | PrLink)[] {
   const pieces: (string | PrLink)[] = []
   let at = 0
-  for (const ref of prReferences(text)) {
-    const owner = owners.get(ref.repo)
-    if (owner === undefined) continue
+  for (const found of prReferences(text)) {
+    let ref = found
+    if (ref.owner === undefined && !owners.has(ref.repo) && ref.repo.includes('.')) {
+      const cut = ref.repo.length - ref.repo.slice(ref.repo.lastIndexOf('.') + 1).length
+      ref = { ...ref, at: ref.at + cut, text: ref.text.slice(cut), repo: ref.repo.slice(cut) }
+    }
+    const owner = ref.owner ?? owners.get(ref.repo)
+    if (owner === undefined || ref.repo === '') continue
     if (ref.at > at) pieces.push(text.slice(at, ref.at))
     pieces.push({ href: `https://github.com/${owner}/${ref.repo}/pull/${ref.number}`, text: ref.text })
     at = ref.at + ref.text.length
