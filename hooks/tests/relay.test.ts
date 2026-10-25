@@ -917,6 +917,26 @@ test('the sender\'s session ending withdraws its open entries, and no other sess
   expectWithdrawn(fx, asked, other, settled, "the sender's session ended")
 })
 
+test('the sender\'s row is deleted before the withdrawal runs, and a withdrawal that hangs does not hold the end past what the host leaves', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  let rowThere: boolean | null = null
+  const list = fx.dollar.fs.list
+  fx.dollar.fs.list = async (dir: string) => {
+    if (dir !== ROUND) return list(dir)
+    rowThere = fx.files.has(ROW)
+    return new Promise<never>(() => undefined)
+  }
+  const ended = { sessionId: 's-one', reason: 'exit' }
+  const budget = { ms: 1500, remainingMs: 20 }
+  const run = async (i: number, ev: any): Promise<any> =>
+    i >= chains['session.end'].length ? ev : chains['session.end'][i](fx.dollar, ev, Object.assign((x: any) => run(i + 1, x), { budget }))
+  expect(await run(0, ended)).toBe(ended)
+  expect(rowThere).toBe(false)
+  expect(fx.files.has(ROW)).toBe(false)
+  expect(fx.logged.some(l => l.includes('round: did not finish within 20 ms'))).toBe(true)
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+})
+
 for (const text of ['handed over', '**Handed over.**']) {
   test(`the sender's own message ${JSON.stringify(text)} to its successor withdraws its open entries, the message sent all the same`, async () => {
     const { chains, fx, asked, other, settled } = await senderWithEntries()
@@ -926,10 +946,49 @@ for (const text of ['handed over', '**Handed over.**']) {
   })
 }
 
+test('a refused hand-over leaves the sender\'s open entries open', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  const send = { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'model' } }
+  const refused = { isDelivered: false, reason: 'nobody by that name' }
+  expect(await chains['session.send'][0](fx.dollar, send, async () => refused)).toBe(refused)
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+  expect(fx.logged.some(l => l.includes('withdrawn by the sender'))).toBe(false)
+})
+
+test('another session\'s end, and another session\'s hand-over, leave this sender\'s open entries open', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-two', reason: 'exit' })
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+  const id = fx.dollar.session.id
+  fx.dollar.session.id = async () => 's-two'
+  await drive(chains, 'session.send', fx.dollar, { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'model' } })
+  fx.dollar.session.id = id
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+})
+
 test('a turn whose last line is « handed over » withdraws the sender\'s open entries', async () => {
   const { chains, fx, asked, other, settled } = await senderWithEntries()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd('Takeover confirmed by the successor.\n\nhanded over'))
   expectWithdrawn(fx, asked, other, settled, 'handed over to its successor')
+})
+
+test('a non-orchestrator\'s turn ending on « handed over » withdraws nothing', async () => {
+  const chains = mounted()
+  const ask = fake()
+  await drive(chains, 'turn.complete', ask.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  const [asked] = entries(ask)
+  const agent = fake({ name: 'Agent : belt-p3', role: 'agent' })
+  agent.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  await drive(chains, 'turn.complete', agent.dollar, turnEnd('Takeover confirmed by the successor.\n\nhanded over'))
+  expect(entries(agent).find(e => e.id === asked.id)!.status).toBe('open')
+  expect(agent.logged.some(l => l.includes('withdrawn by the sender'))).toBe(false)
+})
+
+test('a turn whose last line is a wait after « handed over » withdraws nothing on that account', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(`handed over\n\n${QUESTION}\n\n${QUESTION_LINE}`))
+  expect(entries(fx).some(e => e.answer?.text === 'handed over to its successor')).toBe(false)
+  expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
 })
 
 for (const [label, send] of [

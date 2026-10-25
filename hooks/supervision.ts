@@ -893,20 +893,24 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 
   on('session.end', {}, async ($: any, e: any, next: (e: any) => any) => {
-    try {
-      // A question whose sender has ended has no one left to answer it.
-      const done = await withDeadline(withdrawStale($, e.sessionId ?? await $.session.id(), null, "the sender's session ended"), RELAY_BOUND_MS)
-      if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
-    } catch (err) {
-      await logLine($, `round: ${(err as Error).message}`)
-    }
+    const sessionId = e.sessionId ?? await $.session.id()
     try {
       stopWake(wake)
-      await deleteSession($, e.sessionId ?? await $.session.id())
+      await deleteSession($, sessionId)
       await recordPaneClosed($)
     } catch (err) {
       // The end is never held on the store's own failure; it is said.
       await logLine($, (err as Error).message)
+    }
+    try {
+      // A question whose sender has ended has no one left to answer it. After the row is
+      // gone, and bounded by what the host's own end bound leaves: a slow round never
+      // starves the store's deletion.
+      const bound = Math.min(RELAY_BOUND_MS, next.budget?.remainingMs ?? RELAY_BOUND_MS)
+      const done = await withDeadline(withdrawStale($, sessionId, null, "the sender's session ended"), bound)
+      if (isDegradedPass(done)) await logLine($, `round: did not finish within ${bound} ms`)
+    } catch (err) {
+      await logLine($, `round: ${(err as Error).message}`)
     }
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
@@ -987,15 +991,19 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // succession: the work is the successor's now, and the session's open questions with it.
   // The message is sent all the same.
   on('session.send', {}, async ($: any, e: any, next: (e: any) => any) => {
+    const handedOver = !e.agentId && e.origin?.kind === 'model' && typeof e.text === 'string' && handsOver(e.text)
+    const sent = await next(e)
     try {
-      if (!e.agentId && e.origin?.kind === 'model' && typeof e.text === 'string' && handsOver(e.text)) {
+      // Only a hand-over that was not refused closes the questions: a refused one leaves
+      // the sender in charge of them.
+      if (handedOver && sent?.isDelivered !== false) {
         const done = await withDeadline(withdrawStale($, await $.session.id(), null, 'handed over to its successor'), RELAY_BOUND_MS)
         if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
       }
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
     }
-    return next(e)
+    return sent
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
