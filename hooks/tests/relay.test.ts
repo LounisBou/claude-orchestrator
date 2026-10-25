@@ -6,8 +6,8 @@
 // write or a send that fails never holding the turn's end.
 import { expect, test } from 'claude-code/testing'
 import { parseWait, waitPatch, fingerprint, relayText, coordinatorOf, waitLabel, waitParts, heldQuestion, withdrawalText, RELAY_CAP } from '../relay.ts'
-import { roundEntry, type RoundEntry } from '../round.ts'
-import { answerFromPane, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
+import { paneQuestions, roundEntry, type RoundEntry } from '../round.ts'
+import { answerFromPane, settledText, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 
@@ -645,7 +645,9 @@ test('a new operator wait supersedes every older open entry of its session, one 
   const fresh = entries(fx).find(e => e.blocks === 'phase 4')!
   expect(fresh.status).toBe('open')
   for (const id of [asked.id, 'woken', 'done']) {
-    expect([after.get(id)!.status, after.get(id)!.answer?.text, after.get(id)!.answer?.by]).toEqual(['withdrawn', `superseded by ${fresh.id}`, 'sender'])
+    // The one the coordinator was woken for is closed by the module itself.
+    const [status, text] = id === 'woken' ? ['closed', `withdrawn: superseded by ${fresh.id}`] : ['withdrawn', `superseded by ${fresh.id}`]
+    expect([after.get(id)!.status, after.get(id)!.answer?.text, after.get(id)!.answer?.by]).toEqual([status, text, 'sender'])
     expect(fx.logged.filter(l => l.includes(`round: withdrawn by the sender: ${id}`)).length).toBe(1)
   }
   expect(after.get(other.id)).toEqual(other)
@@ -654,61 +656,112 @@ test('a new operator wait supersedes every older open entry of its session, one 
 
 // The operator's report of 2026-10-25: a question with choices, then a turn ending on a status
 // report that waits on the same answer, its blocks one item shorter. The report superseded the
-// question, and the pane had nothing left to draw.
+// question, and the pane had nothing left to draw. A wait that asks nothing is now entered as
+// its own entry, beside the question with choices, which stays as it was asked.
 const STAGING_QUESTION = 'Question 1 of 1\n\n_Question_ : which version ends the campaign?\n\n_Choices_ :\n- **A** : the new versions\n- **B** : as A, with the lot tested\n- **C** : stop here\n\n_Recommendation_ : A.'
 const STAGING_REPORT = 'The front-office checks on the old versions passed.\n\nYour choice A, B or C on the lot, asked above, decides what the three agents do next.'
+const STAGING_LINE = 'waiting: operator — blocks: fin de B14, a4 b, BO §3.21/§3.22, gestes G2-G6, report.md'
+const REPORT_LINE = 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md'
 
-test('a choice-less turn end keeps its session\'s open question with choices: new blocks and since, nothing written, nothing withdrawn', async () => {
+// A question with choices in the round, then the operator's next turn on `answer`.
+async function choicesThen(answer: string) {
   const chains = mounted()
   const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: fin de B14, a4 b, BO §3.21/§3.22, gestes G2-G6, report.md')))
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, STAGING_LINE)))
   const [asked] = entries(fx)
   expect(asked.choices.map(c => c.letter)).toEqual(['A', 'B', 'C'])
   await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md')))
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answer))
+  return { chains, fx, asked }
+}
+
+test('a choice-less turn end is entered as its own entry beside the open question with choices, which stays as asked, and the pane draws both', async () => {
+  const { chains, fx, asked } = await choicesThen(answerOf(STAGING_REPORT, REPORT_LINE))
   const row = fx.row()!
-  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.since, e.question, e.choices.length, e.recommendation, e.answer])).toEqual([
-    [asked.id, 'open', 'fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md', row.waiting_since, STAGING_QUESTION, 3, 'A', null],
-  ])
+  const wait = roundEntry('s-one', 'Orch : belt', parseWait(answerOf(STAGING_REPORT, REPORT_LINE))!, row.waiting_since!, 'T')
+  expect(entries(fx)).toEqual([asked, { ...wait, at: entries(fx)[1].at }])
   expect(fx.logged.some(l => l.includes('round: withdrawn by the sender'))).toBe(false)
-  expect(row.relayed).toBe(fingerprint(parseWait(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md'))!))
+  expect(row.relayed).toBe(fingerprint(parseWait(answerOf(STAGING_REPORT, REPORT_LINE))!))
+  expect(paneQuestions(entries(fx)).map(e => e.id)).toEqual([asked.id, wait.id])
   // The same report again is the same wait: nothing more is written.
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, 'waiting: operator — blocks: fin de B14, BO §3.21/§3.22, gestes G2-G6, report.md')))
-  expect(entries(fx).length).toBe(1)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, REPORT_LINE)))
+  expect(entries(fx).length).toBe(2)
   expect(fx.sent.length).toBe(0)
 })
 
-test('the kept question takes the choice-less turn\'s urgent mark, and loses it again', async () => {
-  const chains = mounted()
-  const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
-  const [asked] = entries(fx)
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting on the lot.', 'waiting: operator (urgent) — blocks: phase 3 and 4')))
-  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.urgent])).toEqual([[asked.id, 'open', 'phase 3 and 4', true]])
+test('a prose question after a question with choices is entered beside it, and the pane draws both, choices first', async () => {
+  const { fx, asked } = await choicesThen(answerOf('Shall I also tag the release?', 'waiting: operator — blocks: phase 4'))
+  const [first, prose] = entries(fx)
+  expect(first).toEqual(asked)
+  expect([prose.status, prose.blocks, prose.question, prose.choices]).toEqual(['open', 'phase 4', 'Shall I also tag the release?', []])
+  expect(paneQuestions(entries(fx)).map(e => e.id)).toEqual([asked.id, prose.id])
+})
+
+test('a done turn after a question with choices absorbs nothing and withdraws nothing', async () => {
+  const { fx, asked } = await choicesThen(answerOf('All merged.', 'waiting: done'))
+  expect(entries(fx).map(e => [e.id === asked.id, e.kind, e.status])).toEqual([[true, 'operator', 'open'], [false, 'done', 'open']])
+  expect(entries(fx)[0]).toEqual(asked)
+})
+
+test('a choice-less wait marked urgent copies its mark onto the question with choices, and its plain repeat removes none', async () => {
+  const { chains, fx, asked } = await choicesThen(answerOf('Still waiting on the lot.', 'waiting: operator (urgent) — blocks: phase 3 and 4'))
+  const [kept, wait] = entries(fx)
+  expect(kept).toEqual({ ...asked, urgent: true })
+  expect([wait.status, wait.blocks, wait.urgent]).toEqual(['open', 'phase 3 and 4', true])
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator — blocks: phase 4')))
-  expect(entries(fx).map(e => [e.id, e.status, e.blocks, e.urgent])).toEqual([[asked.id, 'open', 'phase 4', undefined]])
+  const after = new Map(entries(fx).map(e => [e.id, e]))
+  expect(after.get(asked.id)).toEqual({ ...asked, urgent: true })
+  expect([after.get(wait.id)!.status, after.get(wait.id)!.answer?.text]).toEqual(['withdrawn', `superseded by ${entries(fx)[2].id}`])
+  expect(entries(fx)[2].status).toBe('open')
 })
 
 for (const [label, question] of [['choices', 'Which one?\n- **A** : this\n- **B** : that'], ['labelled fields', '_Question_ : Rename it?']] as const) {
-  test(`a later wait with ${label} still supersedes the question with choices`, async () => {
-    const chains = mounted()
-    const fx = fake()
-    await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
+  test(`a later wait with ${label} still supersedes the question with choices and the choice-less wait`, async () => {
+    const { chains, fx, asked } = await choicesThen(answerOf(STAGING_REPORT, REPORT_LINE))
+    const [, wait] = entries(fx)
     await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(question, 'waiting: operator — blocks: phase 4')))
-    const [old, fresh] = entries(fx)
-    expect([old.status, old.answer?.text, fresh.status, fresh.blocks]).toEqual(['withdrawn', `superseded by ${fresh.id}`, 'open', 'phase 4'])
+    const fresh = entries(fx)[2]
+    const after = new Map(entries(fx).map(e => [e.id, e]))
+    for (const id of [asked.id, wait.id]) expect([after.get(id)!.status, after.get(id)!.answer?.text]).toEqual(['withdrawn', `superseded by ${fresh.id}`])
+    expect([fresh.status, fresh.blocks]).toEqual(['open', 'phase 4'])
   })
 }
 
-test('a question kept by a choice-less turn is still withdrawn by a prompt the operator types in its tab', async () => {
-  const chains = mounted()
-  const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_QUESTION, 'waiting: operator — blocks: phase 3')))
-  const [asked] = entries(fx)
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', 'waiting: operator — blocks: phase 3 and 4')))
-  await typedTurn(chains, fx, 'Working on phase 3.')
-  expect([entries(fx)[0].id, entries(fx)[0].status, entries(fx)[0].answer?.by]).toEqual([asked.id, 'withdrawn', 'tab'])
+for (const [label, answer] of [['another wait', answerOf('Something else.', 'waiting: operator — blocks: phase 5')], ['done', answerOf('All merged.', 'waiting: done')]] as const) {
+  test(`a prompt typed in the tab, then a turn ending on ${label}, withdraws both the question with choices and the choice-less wait`, async () => {
+    const { chains, fx, asked } = await choicesThen(answerOf(STAGING_REPORT, REPORT_LINE))
+    const [, wait] = entries(fx)
+    await typedTurn(chains, fx, answer)
+    const after = new Map(entries(fx).map(e => [e.id, e]))
+    expect([after.get(wait.id)!.status, after.get(wait.id)!.answer?.by]).toEqual(['withdrawn', 'tab'])
+    expect([after.get(asked.id)!.status, after.get(asked.id)!.answer?.text, after.get(asked.id)!.answer?.by]).toEqual(['withdrawn', "answered in the sender's own tab", 'sender'])
+    expect(paneQuestions(entries(fx)).filter(e => e.session === 's-one' && e.id !== entries(fx)[2]?.id).length).toBe(0)
+  })
+}
+
+test('an answer from the pane to the question with choices leaves the choice-less wait to the sender\'s next turn end', async () => {
+  const { chains, fx, asked } = await choicesThen(answerOf(STAGING_REPORT, REPORT_LINE))
+  const [, wait] = entries(fx)
+  const pane = { opened: null, ticker: null, other: new Set<string>(), writing: null, undelivered: new Map(), answering: new Set<string>() }
+  await answerFromPane({ ...fx.dollar, ui: { invalidate: () => undefined } }, pane, asked, asked.choices[0])
+  expect(new Map(entries(fx).map(e => [e.id, e.status]))).toEqual(new Map([[asked.id, 'answered'], [wait.id, 'open']]))
+  // The same wait again leaves it open; a turn on another wait supersedes it.
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(STAGING_REPORT, REPORT_LINE)))
+  expect(entries(fx).find(e => e.id === wait.id)!.status).toBe('open')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Next?', 'waiting: operator — blocks: phase 5')))
+  expect([entries(fx).find(e => e.id === wait.id)!.status, entries(fx).find(e => e.id === asked.id)!.status]).toEqual(['withdrawn', 'answered'])
 })
+
+for (const [label, end, why] of [
+  ['its session ending', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' }), "the sender's session ended"],
+  ['its hand-over', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.send', fx.dollar, { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'model' } }), 'handed over to its successor'],
+] as const) {
+  test(`${label} withdraws both the question with choices and the choice-less wait`, async () => {
+    const { chains, fx } = await choicesThen(answerOf(STAGING_REPORT, REPORT_LINE))
+    await end(chains, fx)
+    expect(entries(fx).map(e => [e.status, e.answer?.text])).toEqual([['withdrawn', why], ['withdrawn', why]])
+  })
+}
 
 test('a done wait supersedes nothing', async () => {
   const chains = mounted()
@@ -1065,31 +1118,45 @@ for (const [label, send] of [
 
 // The operator answered « A » in the pane at 21:10:00Z, then the coordinator, which had presented
 // the same question in its tab, relayed the same « A » again at 21:10:30Z (his report of
-// 2026-10-25). An entry the coordinator was shown — listed by its `round`, or woken for — tells it
-// once when its sender withdraws it; one it never saw tells it nothing.
+// 2026-10-25). An entry the coordinator was shown — listed by its `round`, or woken for — is
+// closed by the module when its sender withdraws it, and the coordinator told once, with no
+// command to run; one it never saw is only withdrawn, and tells it nothing.
 const LISTED = `${HOME}/.claude/claude-orchestrator/round-listed.json`
 const WOKEN = `${HOME}/.claude/claude-orchestrator/round-woken.json`
-const settledText = (asked: RoundEntry, reason: string) =>
-  `[module] Settled in Orch : belt's tab: Orch : belt's question since ${asked.since} — blocks: ${asked.blocks} (entry ${asked.id}), withdrawn at `
+const DROP = 'Already closed: drop it, never ask or relay it again, present the next.'
+
+test('the settled notice is worded by the answer the entry was closed with, and carries no command', () => {
+  const asked = roundEntry('s-one', 'Orch : belt', parseWait(answerOf(QUESTION, QUESTION_LINE))!, '2026-10-25T21:00:00.000Z', 'T')
+  const head = `Orch : belt's question since 2026-10-25T21:00:00.000Z (entry ${asked.id})`
+  const at = '2026-10-25T21:10:00.000Z'
+  for (const [text, by, expected] of [
+    ['answered from the pane: A : "ship" it', 'pane', `[module] Settled in the pane: ${head} — answered at ${at}. ${DROP}`],
+    ["withdrawn: answered in the sender's own tab", 'tab', `[module] Settled in Orch : belt's tab: ${head} — answered there. ${DROP}`],
+    ["withdrawn: answered in the sender's own tab", 'sender', `[module] Settled in Orch : belt's tab: ${head} — answered there. ${DROP}`],
+    ['withdrawn: superseded by s-one-17-abc', 'sender', `[module] Settled superseded: ${head} — by s-one-17-abc, present that one. ${DROP}`],
+    ["withdrawn: the sender's session ended", 'sender', `[module] Settled: ${head} — session ended. ${DROP}`],
+    ['withdrawn: handed over to its successor', 'sender', `[module] Settled: ${head} — handed over to its successor. ${DROP}`],
+  ] as const) {
+    expect(settledText(asked, { text, by, at })).toBe(expected)
+  }
+  expect(settledText(asked, { text: 'answered from the pane: A : "ship" it', by: 'pane', at })).not.toContain('ship')
+})
 
 for (const [label, file] of [['listed by its round', LISTED], ['woken for', WOKEN]] as const) {
-  test(`a superseded entry the coordinator was ${label} tells it once, with the newer entry to present`, async () => {
+  test(`a superseded entry the coordinator was ${label} is closed and tells it once, with the newer entry to present`, async () => {
     const chains = mounted()
     const fx = fake()
     await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
     const [asked] = entries(fx)
     fx.files.set(file, JSON.stringify([asked.id]) + '\n')
     await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
-    const fresh = entries(fx)[1]
-    expect(fx.sent.length).toBe(1)
-    expect(fx.sent[0].to).toBe('Coord : ops [abc]')
-    expect(fx.sent[0].text.startsWith(settledText(asked, ''))).toBe(true)
-    expect(fx.sent[0].text.endsWith(`: superseded by ${fresh.id}. Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "withdrawn: superseded by ${fresh.id}".`)).toBe(true)
-    expect(fx.sent[0].text.includes('\n')).toBe(false)
+    const [closed, fresh] = entries(fx)
+    expect([closed.status, closed.answer?.text, closed.answer?.by]).toEqual(['closed', `withdrawn: superseded by ${fresh.id}`, 'sender'])
+    expect(fx.sent).toEqual([{ to: 'Coord : ops [abc]', text: `[module] Settled superseded: Orch : belt's question since ${asked.since} (entry ${asked.id}) — by ${fresh.id}, present that one. ${DROP}` }])
   })
 }
 
-test('an entry the coordinator was never shown, neither listed nor woken for, tells it nothing when withdrawn', async () => {
+test('an entry the coordinator was never shown, neither listed nor woken for, is only withdrawn and tells it nothing', async () => {
   const chains = mounted()
   const fx = fake()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
@@ -1099,48 +1166,74 @@ test('an entry the coordinator was never shown, neither listed nor woken for, te
   expect(fx.sent).toEqual([])
 })
 
-test('an entry the operator answered in the sender\'s own tab tells the coordinator that showed it', async () => {
+test('an entry the operator answered in the sender\'s own tab is closed and tells the coordinator that showed it', async () => {
   const { chains, fx } = await relayedQuestion()
   const [asked] = entries(fx)
   fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
   await typedTurn(chains, fx, 'Working on phase 3.')
-  expect(entries(fx)[0].status).toBe('withdrawn')
-  expect(fx.sent.length).toBe(1)
-  expect(fx.sent[0].text.startsWith(settledText(asked, ''))).toBe(true)
-  expect(fx.sent[0].text).toContain(`: answered in the sender's own tab. Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "withdrawn: answered in the sender's own tab".`)
+  expect([entries(fx)[0].status, entries(fx)[0].answer?.text, entries(fx)[0].answer?.by]).toEqual(['closed', "withdrawn: answered in the sender's own tab", 'tab'])
+  expect(fx.sent).toEqual([{ to: 'Coord : ops [abc]', text: `[module] Settled in Orch : belt's tab: Orch : belt's question since ${asked.since} (entry ${asked.id}) — answered there. ${DROP}` }])
 })
 
-test('an entry withdrawn by a typed turn ending on another wait says why when the module recorded no reason', async () => {
+test('an entry withdrawn by a typed turn ending on another wait is answered in the tab too', async () => {
   const { chains, fx } = await relayedQuestion()
   const [asked] = entries(fx)
   const older: RoundEntry = { ...asked, id: 'older', blocks: 'phase 2', since: '2026-10-14T07:00:00.000Z' }
   fx.files.set(`${ROUND}/older.json`, JSON.stringify(older) + '\n')
   fx.files.set(LISTED, JSON.stringify(['older']) + '\n')
   await typedTurn(chains, fx, answerOf('Something else.', 'waiting: operator — blocks: phase 4'))
-  expect(fx.sent.map(s => s.text.match(/\(entry ([^)]+)\)/)![1])).toEqual(['older'])
-  expect(fx.sent[0].text).toContain(': a later turn the operator typed in waits on something else. ')
+  const closed = entries(fx).find(e => e.id === 'older')!
+  expect([closed.status, closed.answer?.text, closed.answer?.by]).toEqual(['closed', "withdrawn: answered in the sender's own tab", 'sender'])
+  expect(fx.sent.map(s => s.text)).toEqual([`[module] Settled in Orch : belt's tab: Orch : belt's question since ${older.since} (entry older) — answered there. ${DROP}`])
 })
 
 for (const [label, end, why] of [
-  ['its session ending', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' }), "the sender's session ended"],
+  ['its session ending', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' }), 'session ended'],
   ['its hand-over', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'turn.complete', fx.dollar, turnEnd('Takeover confirmed.\n\nhanded over')), 'handed over to its successor'],
+  ['its hand-over message', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.send', fx.dollar, { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'model' } }), 'handed over to its successor'],
 ] as const) {
-  test(`an entry withdrawn by ${label} tells the coordinator that showed it`, async () => {
+  test(`${label} closes every entry the coordinator was shown before it tells it of the first`, async () => {
     const { chains, fx, asked } = await senderWithEntries()
-    fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+    const second: RoundEntry = { ...asked, id: 'second', blocks: 'phase 9' }
+    fx.files.set(`${ROUND}/second.json`, JSON.stringify(second) + '\n')
+    fx.files.set(LISTED, JSON.stringify([asked.id, 'second']) + '\n')
+    const seen: string[][] = []
+    const send = fx.dollar.session.send
+    fx.dollar.session.send = async (args: { to: unknown; text: string }) => {
+      if (args.text.startsWith('[module] Settled')) seen.push([asked.id, 'second'].map(id => entries(fx).find(e => e.id === id)!.status))
+      return send(args)
+    }
     await end(chains, fx)
-    expect(fx.sent.length).toBe(1)
-    expect(fx.sent[0].text).toContain(`(entry ${asked.id}), withdrawn at `)
-    expect(fx.sent[0].text).toContain(`: ${why}. Do not ask or relay it again`)
+    expect(seen).toEqual([['closed', 'closed'], ['closed', 'closed']])
+    expect(fx.sent.filter(s => s.text.startsWith('[module] Settled')).map(s => s.text)).toEqual([asked, second].map(e =>
+      `[module] Settled: Orch : belt's question since ${e.since} (entry ${e.id}) — ${why}. ${DROP}`))
   })
 }
 
-test('a coordinator on another machine is told nothing of a withdrawal in this round', async () => {
+test('a notice that does not fit in what the session end leaves is one log line, the entries closed all the same', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  const second: RoundEntry = { ...asked, id: 'second', blocks: 'phase 9' }
+  fx.files.set(`${ROUND}/second.json`, JSON.stringify(second) + '\n')
+  fx.files.set(LISTED, JSON.stringify([asked.id, 'second']) + '\n')
+  fx.dollar.session.send = () => new Promise<never>(() => undefined)
+  const ended = { sessionId: 's-one', reason: 'exit' }
+  const budget = { ms: 1500, remainingMs: 60 }
+  const run = async (i: number, ev: any): Promise<any> =>
+    i >= chains['session.end'].length ? ev : chains['session.end'][i](fx.dollar, ev, Object.assign((x: any) => run(i + 1, x), { budget }))
+  expect(await run(0, ended)).toBe(ended)
+  expect([asked.id, 'second'].map(id => entries(fx).find(e => e.id === id)!.status)).toEqual(['closed', 'closed'])
+  for (const id of [asked.id, 'second']) expect(fx.logged.filter(l => l.endsWith(`| round: no time left to tell Coord : ops [abc] that ${id} is settled`)).length).toBe(1)
+})
+
+test('a coordinator on another machine is told nothing of a withdrawal in this round, and the entry is only withdrawn', async () => {
   const chains = mounted()
   const fx = fake({ remote: true })
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
-  fx.sent.length = 0
-  fx.files.set(LISTED, JSON.stringify([`s-one-${fingerprint(parseWait(answerOf(QUESTION, QUESTION_LINE))!)}`]) + '\n')
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
-  expect(fx.sent.every(s => !s.text.startsWith('[module] Settled'))).toBe(true)
+  // The round on this machine holds the sender's entry, listed as if shown: only a coordinator on
+  // this machine reads it, so it is neither closed nor told.
+  const asked = roundEntry('s-one', 'Orch : belt', parseWait(answerOf(QUESTION, QUESTION_LINE))!, '2026-10-25T21:00:00.000Z', 'T')
+  fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Takeover confirmed.\n\nhanded over'))
+  expect([entries(fx)[0].status, entries(fx)[0].answer?.text]).toEqual(['withdrawn', 'handed over to its successor'])
+  expect(fx.sent.filter(s => s.text.startsWith('[module] Settled'))).toEqual([])
 })

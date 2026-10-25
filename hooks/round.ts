@@ -315,6 +315,12 @@ export function asksNothing(entry: Pick<RoundEntry, 'question' | 'choices' | 're
   return entryQuestions(entry).every(part => part.choices.length === 0 && questionShape(part.question, part.choices) === null)
 }
 
+// An operator question that carries lettered choices, in any of its questions: the one a later
+// wait asking nothing never withdraws. A closing proposal is none, whatever its text.
+export function carriesChoices(entry: RoundEntry): boolean {
+  return entry.kind === 'operator' && entryQuestions(entry).some(part => part.choices.length > 0)
+}
+
 // The open operator questions in the order the pane draws them: those that carry choices
 // first, in the round's order among themselves, then those without, then the waits that ask
 // nothing. A question the operator can only answer in its session never hides one he can answer

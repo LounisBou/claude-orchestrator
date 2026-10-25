@@ -1613,9 +1613,11 @@ for (const [label, file] of [['listed by its round', LISTED], ['woken for', WOKE
     const drawn = await render()
     await pick(drawn, 'A')
     const at = stored(asked.id).answer!.at
+    // Closed by the module in the same rename: the coordinator has no command to run.
+    expect([stored(asked.id).status, stored(asked.id).answer]).toEqual(['closed', { text: `answered from the pane: A : ${CHOICES[0].text}`, by: 'pane', at }])
     expect(fx.submitted).toEqual([
-      `[module] Settled in the pane: Orch : low's question since 2026-10-18T10:03:00.000Z — blocks: phase 3 (entry ${asked.id}), answered at ${at}: A : ${CHOICES[0].text}. `
-      + `Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "answered from the pane: A : ${CHOICES[0].text}".`,
+      `[module] Settled in the pane: Orch : low's question since 2026-10-18T10:03:00.000Z (entry ${asked.id}) — answered at ${at}. `
+      + 'Already closed: drop it, never ask or relay it again, present the next.',
     ])
     // A press landing late on the same picker settles nothing more.
     await pick(drawn, 'A')
@@ -1652,6 +1654,16 @@ test('a submitted text not delivered keeps the entry answered and leaves its not
   await input(await render()).props.onSubmit('some text')
   expect(stored(asked.id).status).toBe('answered')
   expect(fx.written.filter(l => l.includes("round: the pane's answer was not delivered to Orch : low: nobody by that name")).length).toBe(1)
+  expect(texts(await render()).some(t => t.startsWith('not delivered: nobody by that name'))).toBe(true)
+})
+
+test('a text not delivered to an entry the coordinator was shown closes it and still leaves its notice', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
+  const { fx, render, stored } = await askingPane([asked], { refuse: 'nobody by that name' })
+  fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+  await pick(await render(), 'other')
+  await input(await render()).props.onSubmit('some text')
+  expect(stored(asked.id).status).toBe('closed')
   expect(texts(await render()).some(t => t.startsWith('not delivered: nobody by that name'))).toBe(true)
 })
 

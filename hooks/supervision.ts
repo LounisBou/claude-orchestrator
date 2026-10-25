@@ -33,7 +33,7 @@ import {
   parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, asksNothing, type RoundChoice, type RoundEntry } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, asksNothing, carriesChoices, type RoundAnswer, type RoundChoice, type RoundEntry } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
@@ -766,34 +766,56 @@ async function shownToCoordinator($: any, id: string): Promise<boolean> {
   return (await readWoken($)).includes(id) || (await readIds($, `${await stateDir($)}/round-listed.json`)).includes(id)
 }
 
-// The reports that an entry the coordinator was shown is settled elsewhere: one line each,
-// naming the entry, how it was settled and the round-close that records it.
-export function settledInPaneText(entry: RoundEntry, answer: string, at: string): string {
-  return `[module] Settled in the pane: ${entry.from}'s question since ${entry.since} — blocks: ${entry.blocks ?? '-'} (entry ${entry.id}), answered at ${at}: ${oneLine(answer)}. `
-    + `Do not ask or relay it again: close it with coordinator.sh round-close ${entry.id} --answer "answered from the pane: ${oneLine(answer)}".`
+// The reason an entry withdrawn by the operator's prompt in its sender's own tab records.
+const TAB_ANSWER = "answered in the sender's own tab"
+
+// An entry settled in the pane or at its sender's turn end, closed by the module itself when the
+// coordinator on this machine was shown it: the answer it was closed with.
+export type Settled = { entry: RoundEntry; answer: RoundAnswer }
+
+// The notice that an entry the coordinator was shown is settled and already closed: where and
+// how, worded by the answer it was closed with. One line, no command to run, no operator text.
+export function settledText(entry: RoundEntry, answer: RoundAnswer): string {
+  const reason = answer.text.replace(/^withdrawn: /, '')
+  const [where, how] = answer.by === 'pane' ? ['in the pane', `answered at ${answer.at}`]
+    : answer.by === 'tab' || reason === TAB_ANSWER ? [`in ${entry.from}'s tab`, 'answered there']
+    : reason.startsWith('superseded by ') ? ['superseded', `by ${reason.slice('superseded by '.length)}, present that one`]
+    : reason === "the sender's session ended" ? ['', 'session ended']
+    : ['', reason.replace(/\s*\n\s*/g, ' ').trim() || 'withdrawn by its sender']
+  return `[module] Settled${where ? ` ${where}` : ''}: ${entry.from}'s question since ${entry.since} (entry ${entry.id}) — ${how}. `
+    + 'Already closed: drop it, never ask or relay it again, present the next.'
 }
 
-export function settledInTabText(entry: RoundEntry, reason: string, at: string): string {
-  const why = oneLine(reason) || 'a later turn the operator typed in waits on something else'
-  return `[module] Settled in ${entry.from}'s tab: ${entry.from}'s question since ${entry.since} — blocks: ${entry.blocks ?? '-'} (entry ${entry.id}), withdrawn at ${at}: ${why}. `
-    + `Do not ask or relay it again: close it with coordinator.sh round-close ${entry.id} --answer "withdrawn: ${why}".`
+// Whether the entry is closed by the module when settled: the coordinator on this machine was
+// shown it. A coordinator elsewhere never reads this round.
+async function closesItself($: any, id: string): Promise<boolean> {
+  return !!(await coordinatorAddress($))?.local && await shownToCoordinator($, id)
 }
 
-function oneLine(text: string): string {
-  return text.replace(/\s*\n\s*/g, ' ').trim()
-}
-
-// A withdrawal written at the end of the sender's turn, told to the coordinator on this machine
-// when it was shown that entry. A send refused or that throws is one log line.
-async function tellWithdrawn($: any, entry: RoundEntry, reason: string, at: string): Promise<void> {
+// The settled entries told to the coordinator on this machine, one message each, while time is
+// left before `until`: a notice that does not fit, is refused or throws is one log line.
+async function tellSettled($: any, settled: readonly Settled[], until = Infinity): Promise<void> {
+  if (settled.length === 0) return
+  let to: string
   try {
-    if (!await shownToCoordinator($, entry.id)) return
     const coordinator = await coordinatorAddress($)
     if (!coordinator?.local) return
-    const sent = await $.session.send({ to: coordinator.to, text: settledInTabText(entry, reason, at) })
-    if (!sent?.isDelivered) await logLine($, `round: the withdrawal of ${entry.id} was not delivered to ${coordinator.to}: ${sent?.reason ?? 'no answer'}`)
+    to = coordinator.to
   } catch (err) {
     await logLine($, `round: ${(err as Error).message}`)
+    return
+  }
+  for (const { entry, answer } of settled) {
+    try {
+      // No bound given, the caller's own deadline holds the sends.
+      const left = until - Date.now()
+      const send = () => $.session.send({ to, text: settledText(entry, answer) })
+      const sent = left === Infinity ? await send() : left > 0 ? await withDeadline(send(), left) : null
+      if (!sent || isDegradedPass(sent)) await logLine($, `round: no time left to tell ${to} that ${entry.id} is settled`)
+      else if (!sent.isDelivered) await logLine($, `round: the settled notice of ${entry.id} was not delivered to ${to}: ${sent.reason ?? 'no answer'}`)
+    } catch (err) {
+      await logLine($, `round: ${(err as Error).message}`)
+    }
   }
 }
 
@@ -1034,9 +1056,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // A question whose sender has ended has no one left to answer it. After the row is
       // gone, and bounded by what the host's own end bound leaves: a slow round never
       // starves the store's deletion.
+      // Every write first, then the notices in what is left of it.
       const bound = Math.min(RELAY_BOUND_MS, next.budget?.remainingMs ?? RELAY_BOUND_MS)
+      const until = Date.now() + bound
       const done = await withDeadline(withdrawStale($, sessionId, null, "the sender's session ended"), bound)
       if (isDegradedPass(done)) await logLine($, `round: did not finish within ${bound} ms`)
+      else await tellSettled($, done, until)
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
     }
@@ -1124,10 +1149,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     try {
       // Only a hand-over that was not refused closes the questions: a refused one leaves
       // the sender in charge of them.
-      if (handedOver && sent?.isDelivered !== false) {
-        const done = await withDeadline(withdrawStale($, await $.session.id(), null, 'handed over to its successor'), RELAY_BOUND_MS)
-        if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
-      }
+      if (handedOver && sent?.isDelivered !== false) await handOver($, await $.session.id())
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
     }
@@ -1292,7 +1314,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const held = new Map(read.map(({ entry }) => [entry.id, entry]))
         for (const [id, notice] of pane.undelivered) {
           const now = held.get(id)
-          const same = now?.status === 'answered' && now.answer?.by === 'pane' && now.answer.at === notice.entry.answer?.at
+          const same = (now?.status === 'answered' || now?.status === 'closed') && now.answer?.by === 'pane' && now.answer.at === notice.entry.answer?.at
           if (!(sessionKey(notice.entry.session) in local) || !same) pane.undelivered.delete(id)
         }
         failed = [...pane.undelivered.values()]
@@ -1706,9 +1728,9 @@ async function dropMark($: any): Promise<void> {
 // on it. The row itself is never written here: the measure is its one writer.
 // A prompt the operator typed while a question was held left a mark (withdrawOnTyped): the turn
 // that ends on the same wait leaves the question open, any other end withdraws it as answered
-// in the tab, and only such a turn withdraws the session's other open entries as stale. A turn
-// that ends on an operator wait whose text asks nothing keeps its session's open question with
-// choices, moved to that wait's blocks.
+// in the tab, and only such a turn withdraws the session's other open entries as answered there.
+// A turn that ends on an operator wait whose text asks nothing is entered as its own entry and
+// never withdraws its session's open question with choices.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
@@ -1736,10 +1758,14 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   if (typed) {
     const sameWait = wait?.kind === 'operator' && wait.blocks === typed.blocks
     heldKey = (await readWait($, sessionId))?.relayed ?? null
-    if (!sameWait) forgotten = await withdrawHeld($, sessionId, name, typed)
-    if (wait && !sameWait) {
-      await withdrawStale($, sessionId, roundEntryId(sessionId, wait))
-      swept = true
+    if (!sameWait) {
+      forgotten = await withdrawHeld($, sessionId, name, typed)
+      // He answered in this tab: a turn ending on another machine line, a wait or done, leaves
+      // none of the session's other open entries waiting either.
+      if (wait) {
+        await tellSettled($, await withdrawStale($, sessionId, roundEntryId(sessionId, wait), TAB_ANSWER))
+        swept = true
+      }
     }
   }
   const read = await readWait($, sessionId)
@@ -1747,7 +1773,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   // A wait rewritten while the withdrawal was sent keeps the fingerprint it was written with.
   const relayed = forgotten && (before?.relayed ?? null) === heldKey ? null : before?.relayed ?? null
   // A turn that ends on « handed over »: the successor holds the work, and the questions.
-  if (!wait && role === 'orchestrator' && handsOver(answer)) await withdrawStale($, sessionId, null, 'handed over to its successor')
+  if (!wait && role === 'orchestrator' && handsOver(answer)) await handOver($, sessionId)
   if (!wait && role === 'orchestrator') {
     if (before?.waiting || typed) await writeWait($, sessionId, { ...clearedWait(before!), relayed, name, pid })
     return
@@ -1763,21 +1789,26 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   // is not woken for it. The fingerprint is kept once the entry is in place, as a delivery's.
   if (coordinator?.local && wait && patch) {
     const entry = roundEntry(sessionId, name, wait, patch.waiting_since!, new Date().toISOString())
-    const kept = asksNothing(entry) ? await keptChoices($, entry) : null
+    const kept = entry.kind === 'operator' && entry.choices.length === 0 ? await keptChoices($, entry) : null
     if (kept) {
-      // The question keeps its text and choices and takes this wait's blocks, start and urgent
-      // mark: a prompt typed in the tab finds it by them, and urgent, it is due at once.
-      const { urgent: _, ...plain } = kept.entry
-      const moved = { ...plain, blocks: entry.blocks, since: entry.since, ...(entry.urgent ? { urgent: true as const } : {}) }
-      if (JSON.stringify(moved) !== JSON.stringify(kept.entry)) await writeAtomic($, kept.path, JSON.stringify(moved) + '\n')
+      // The same wait, its text now a note: the entry keeps its choices and takes the urgent mark
+      // or its absence, urgent, it is due at once.
+      if (Boolean(kept.entry.urgent) !== Boolean(entry.urgent)) {
+        const { urgent: _, ...plain } = kept.entry
+        await writeAtomic($, kept.path, JSON.stringify(entry.urgent ? { ...plain, urgent: true } : plain) + '\n')
+      }
       await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
       return
     }
     await writeAtomic($, roundPath(await stateDir($), entry.id), JSON.stringify(entry) + '\n')
     await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
+    if (entry.kind !== 'operator' || swept) return
     // A new question is what the session waits on now: its older open entries are not. A turn
-    // the operator typed in withdrew them already, above.
-    if (entry.kind === 'operator' && !swept) await withdrawStale($, sessionId, entry.id, `superseded by ${entry.id}`)
+    // the operator typed in withdrew them already, above. A wait that asks nothing never
+    // withdraws its session's open question with choices, which only copies its urgent mark.
+    const silent = asksNothing(entry)
+    if (silent && entry.urgent) await markUrgent($, sessionId)
+    await tellSettled($, await withdrawStale($, sessionId, entry.id, `superseded by ${entry.id}`, silent ? carriesChoices : undefined))
     return
   }
   const to = role === 'orchestrator'
@@ -1843,7 +1874,7 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   if (!coordinator) return false
   try {
     if (coordinator.local) {
-      await withdrawEntry($, sessionId, name, held)
+      await tellSettled($, await withdrawEntry($, sessionId, name, held))
     } else {
       const sent = await $.session.send({ to: coordinator.to, text: withdrawalText(name, held.blocks, held.since) })
       if (!sent?.isDelivered) {
@@ -1858,30 +1889,51 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   }
 }
 
-// The session's open operator entry that carries choices, the text of this turn asking nothing:
-// a progress note or a status report under a machine line is no new question, whatever its
-// blocks or start, and never withdraws the question still waiting for its answer (the
-// operator's report of 2026-10-25). The latest such entry when several.
+// The session's open question with choices that this very wait holds, the same blocks since the
+// same start: a text without choices under it is a note on that question, never a new one.
 async function keptChoices($: any, entry: RoundEntry): Promise<{ path: string; entry: RoundEntry } | null> {
-  return (await readRound($))
-    .filter(({ entry: open }) => open.session === entry.session && open.kind === 'operator' && open.status === 'open' && open.choices.length > 0)
-    .sort((a, b) => (a.entry.since < b.entry.since ? 1 : a.entry.since > b.entry.since ? -1 : 0))[0] ?? null
+  return (await readRound($)).find(({ entry: open }) =>
+    open.session === entry.session && open.kind === 'operator' && open.status === 'open'
+    && open.blocks === entry.blocks && open.since === entry.since && open.choices.length > 0) ?? null
+}
+
+// The urgent mark of a wait that asks nothing, copied onto its session's open questions with
+// choices: they stay open beside it (the operator's report of 2026-10-25), and its urgency is theirs.
+async function markUrgent($: any, sessionId: string): Promise<void> {
+  for (const { path, entry } of await readRound($)) {
+    if (entry.session !== sessionId || entry.status !== 'open' || entry.urgent || !carriesChoices(entry)) continue
+    await writeAtomic($, path, JSON.stringify({ ...entry, urgent: true }) + '\n')
+  }
+}
+
+// The session's open entries withdrawn by its hand-over, every write first, then the notices
+// in what is left of the bound.
+async function handOver($: any, sessionId: string): Promise<void> {
+  const until = Date.now() + RELAY_BOUND_MS
+  const done = await withDeadline(withdrawStale($, sessionId, null, 'handed over to its successor'), RELAY_BOUND_MS)
+  if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
+  else await tellSettled($, done, until)
 }
 
 // The held question's entry in the round: that session's open operator question with the same
-// start and the same blocks, marked withdrawn, answered in its own tab. None found, nothing is
-// written and the log says so; one that cannot be written throws, and the next typed prompt tries again.
-async function withdrawEntry($: any, sessionId: string, name: string, held: { blocks: string; since: string | null }): Promise<void> {
+// start and the same blocks, marked withdrawn, answered in its own tab, or closed so when the
+// coordinator was shown it (the entries to tell it of). None found, nothing is written and the
+// log says so; one that cannot be written throws, and the next typed prompt tries again.
+async function withdrawEntry($: any, sessionId: string, name: string, held: { blocks: string; since: string | null }): Promise<Settled[]> {
+  const settled: Settled[] = []
   let matched = 0
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.kind !== 'operator' || entry.status !== 'open') continue
     if (entry.since !== held.since || entry.blocks !== held.blocks) continue
     matched++
-    const answer = { text: "answered in the sender's own tab", by: 'tab' as const, at: new Date().toISOString() }
-    await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
-    await tellWithdrawn($, entry, answer.text, answer.at)
+    const at = new Date().toISOString()
+    const closed = await closesItself($, entry.id)
+    const answer: RoundAnswer = { text: closed ? `withdrawn: ${TAB_ANSWER}` : TAB_ANSWER, by: 'tab', at }
+    await writeAtomic($, path, JSON.stringify({ ...entry, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
+    if (closed) settled.push({ entry, answer })
   }
   if (matched === 0) await logLine($, `round: no open entry matched for ${name} since ${held.since ?? '?'}`)
+  return settled
 }
 
 // A choice pressed in the coordinator's pane: the entry, read again so a question settled
@@ -1940,7 +1992,11 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
     const entry = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
     if (!entry || entry.status !== 'open') return
     const at = new Date().toISOString()
-    await writeAtomic($, path, JSON.stringify({ ...entry, status: 'answered', answer: { text, by: 'pane', at } }) + '\n')
+    // The coordinator that was shown this question leaves it at once, in its own session: the
+    // entry is closed here, in the same rename, and never waits on its round-close.
+    const closed = await shownToCoordinator($, entry.id)
+    const answer: RoundAnswer = { text: closed ? `answered from the pane: ${text}` : text, by: 'pane', at }
+    await writeAtomic($, path, JSON.stringify({ ...entry, status: closed ? 'closed' : 'answered', answer }) + '\n')
     forgetDraft(pane, entry.id)
     await forgetRelayed($, entry)
     let reason: string | null = null
@@ -1954,9 +2010,8 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
       pane.undelivered.set(entry.id, { entry: { ...entry, status: 'answered', answer: { text, by: 'pane', at } }, reason })
       await logLine($, `round: the pane's answer was not delivered to ${entry.from}: ${reason}`)
     }
-    // The coordinator that was shown this question leaves it at once, in its own session.
-    if (await shownToCoordinator($, entry.id)) {
-      const taken = await $.prompt.submit({ text: settledInPaneText(entry, text, at) })
+    if (closed) {
+      const taken = await $.prompt.submit({ text: settledText(entry, answer) })
       if (taken && typeof taken === 'object' && 'drop' in taken && taken.drop) await logLine($, `round: the host dropped the settled notice of ${entry.id}: ${String(taken.drop)}`)
     }
   } catch (err) {
@@ -1994,21 +2049,26 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
 // of its wait and withdraws nothing. The same withdrawal closes every open entry of a session
 // that is superseded by its new question, that ended, or that handed over (`current` null).
 // `current` is the id of the entry this turn's wait has, kept open; `why` the withdrawal's answer
-// text. Each withdrawal is one log line; one that cannot be written is one too, and the relay
-// goes on.
-async function withdrawStale($: any, sessionId: string, current: string | null, why = ''): Promise<void> {
+// text; `kept` the entries left open besides. An entry the coordinator on this machine was shown
+// is closed instead, its answer « withdrawn: <why> », and returned so the caller tells it once
+// every write is done. Each withdrawal is one log line; one that cannot be written is one too,
+// and the relay goes on.
+async function withdrawStale($: any, sessionId: string, current: string | null, why: string, kept?: (entry: RoundEntry) => boolean): Promise<Settled[]> {
+  const settled: Settled[] = []
   for (const { path, entry } of await readRound($)) {
-    if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current) continue
+    if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current || kept?.(entry)) continue
     try {
-      const answer = { text: why, by: 'sender' as const, at: new Date().toISOString() }
-      await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+      const closed = await closesItself($, entry.id)
+      const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: 'sender', at: new Date().toISOString() }
+      await writeAtomic($, path, JSON.stringify({ ...entry, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)
-      await tellWithdrawn($, entry, why, answer.at)
+      if (closed) settled.push({ entry, answer })
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
     }
   }
+  return settled
 }
 
 // Every entry of the round on this machine, each with the file it was read from. A file that
