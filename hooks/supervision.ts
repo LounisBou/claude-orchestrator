@@ -147,6 +147,13 @@ const ROUND_WAKE_MS = 30000
 // others' fills, their ages — froze at its own last turn.
 const PANE_REFRESH_MS = 20000
 
+// How often an open coordinator's pane looks at its round. The host offers no watch on a
+// file: the clock stats the round's directory, whose mtime every write moves (the module, the
+// script's round-close and the senders' sessions all rename a file into it), and redraws only
+// when it moved, so a question settled elsewhere leaves the pane within this delay for one
+// stat a tick.
+const PANE_ROUND_POLL_MS = 2000
+
 // The pane's last option under a question's choices where the surface draws no text field
 // (mobile): no state changes, the operator types his answer in a tab. Its hotkey is no
 // choice's letter (A to E).
@@ -622,6 +629,10 @@ export type PaneMemory = {
   // The content last drawn, as the module counts its rows, and the tree's height as the
   // person's last move measured it, with the content it measured.
   drawn?: string
+  // The clock's ticks since the pane was last drawn, and the round directory's mtime that draw
+  // read: the clock redraws when the first reaches PANE_REFRESH_MS or the second moves.
+  ticksSinceDraw?: number
+  roundSeen?: number | null
   measure?: { contentRows: number; drawn: string }
 }
 
@@ -633,9 +644,32 @@ async function openPane($: any, pane: PaneMemory, role: 'coordinator' | 'orchest
   // prompt, never taking text the operator is typing.
   const placed = await $.ui.open({ id: PANE_ID, title: PANE_TITLES[role], focus: true })
   pane.ticker?.cancel()
-  pane.ticker = $.clock.every(PANE_REFRESH_MS, () => $.ui.invalidate('ui.render'))
+  pane.ticker = $.clock.every(PANE_ROUND_POLL_MS, () => paneTick($, pane))
   if (role === 'coordinator') await recordPaneOpen($, pid).catch((err: unknown) => logLine($, `pane: ${(err as Error).message}`))
   return placed
+}
+
+// One tick of the pane's clock: a pane never drawn, or drawn PANE_REFRESH_MS ago, is redrawn;
+// a coordinator's is also redrawn when its round's directory moved since the last draw.
+function paneTick($: any, pane: PaneMemory): void {
+  if (pane.ticksSinceDraw === undefined || ++pane.ticksSinceDraw * PANE_ROUND_POLL_MS >= PANE_REFRESH_MS) {
+    $.ui.invalidate('ui.render')
+    return
+  }
+  if (pane.opened?.role !== 'coordinator') return
+  roundMtime($).then(mtime => {
+    if (mtime !== pane.roundSeen) $.ui.invalidate('ui.render')
+  })
+}
+
+// The round directory's mtime, or null when it cannot be read (never written, or gone).
+async function roundMtime($: any): Promise<number | null> {
+  try {
+    const stat = await $.fs.stat(`${await stateDir($)}/round`)
+    return typeof stat?.mtimeMs === 'number' ? stat.mtimeMs : null
+  } catch {
+    return null
+  }
 }
 
 // The pane open at the host, and its close by the command or the tool: the clock stops and a
@@ -1221,6 +1255,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     try {
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
+      pane.ticksSinceDraw = 0
       let rows: { label: string; name: string; rest: string; urgency: number }[] = []
       let blocks: PaneRow[] = []
       let speaker: string | null = null
@@ -1238,6 +1273,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         none = WORDS.noOrchestrator
         // A question whose sender has ended has no one left to answer: only the entries of a
         // session with a live row are drawn, and counted.
+        // Stat before the read: a write landing between the two is seen by the next tick.
+        pane.roundSeen = await roundMtime($)
         const read = await readRound($)
         const drawn = read.map(found => found.entry).filter(entry => sessionKey(entry.session) in local)
         const questions = paneQuestions(drawn)

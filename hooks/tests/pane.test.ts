@@ -600,7 +600,7 @@ test('an open pane redraws on its own clock while its session waits, and the clo
   const fx = fakeDollar({ launchName: 'Coord : main' })
   await handlers['command.run'](fx.dollar, supervisionRun)
   expect(fx.timers.length).toBe(1)
-  expect(fx.timers[0].ms).toBe(20000)
+  expect(fx.timers[0].ms).toBe(2000)
   fx.timers[0].fn()
   expect(fx.invalidated).toEqual(['ui.render'])
   await handlers['command.run'](fx.dollar, supervisionRun)
@@ -610,6 +610,45 @@ test('an open pane redraws on its own clock while its session waits, and the clo
   const e = { id: 'supervision', origin: { kind: 'person' } }
   expect(await handlers['ui.close'](fx.dollar, e, (x: unknown) => x)).toBe(e)
   expect(fx.timers[1].cancelled).toBe(true)
+})
+
+test('an open coordinator\'s pane redraws within one tick of a write in its round, and a tick that sees none draws nothing', async () => {
+  // A question settled in its sender's tab or closed by the coordinator stayed drawn up to the
+  // clock's 20 s. The clock now ticks every 2 s and stats the round's directory, a rename
+  // into it moving its mtime: a tick redraws only when it moved since the last draw, or when the
+  // last draw is 20 s old, so the ages and fills still move.
+  const { handlers } = mounted(registerSupervision)
+  const fx = coordinatorSession()
+  const roundDir = `${HOME}/.claude/claude-orchestrator/round`
+  let mtime = 1000
+  let stats = 0
+  const stat = fx.dollar.fs.stat
+  fx.dollar.fs.stat = async (p: string) => {
+    if (p !== roundDir) return stat(p)
+    stats++
+    return { kind: 'directory', size: 0, mtimeMs: mtime, isLink: false }
+  }
+  await handlers['command.run'](fx.dollar, supervisionRun)
+  expect(fx.timers.map(t => t.ms)).toEqual([2000])
+  await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
+  const tick = async () => {
+    fx.timers[0].fn()
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+  }
+  await tick()
+  expect(fx.invalidated).toEqual([])
+  expect(stats).toBe(2)
+  mtime = 2000
+  await tick()
+  expect(fx.invalidated).toEqual(['ui.render'])
+  await handlers['ui.render'](fx.dollar, renderEvent, (x: unknown) => ({ passed: x }))
+  await tick()
+  expect(fx.invalidated).toEqual(['ui.render'])
+  // No write for 20 s: the clock still redraws, its ages and fills moving.
+  for (let i = 0; i < 8; i++) await tick()
+  expect(fx.invalidated).toEqual(['ui.render'])
+  await tick()
+  expect(fx.invalidated).toEqual(['ui.render', 'ui.render'])
 })
 
 // --- the coordinator's round ------------------------------------------------------------------
@@ -796,7 +835,7 @@ test('a coordinator\'s pane opens by itself at the end of its first turn, as the
   const fx = coordinatorSession()
   expect(await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)).toBe(firstTurn)
   expect(fx.opened).toEqual([{ id: 'supervision', title: 'Orchestrators', focus: true }])
-  expect(fx.timers.map(t => t.ms)).toEqual([20000])
+  expect(fx.timers.map(t => t.ms)).toEqual([2000])
   await handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
   expect(fx.opened.length).toBe(1)
   expect(fx.timers.length).toBe(1)
