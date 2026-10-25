@@ -6647,6 +6647,18 @@ round w5 | operator | from Orch : a | since 2026-10-20T10:00:00.000Z | blocks: p
     withdrawn by pane at 2026-10-20T10:09:00.000Z: an older reason" \
   "$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1 | grep -A2 '^round w[45] ')"
 rm -f "$ASTATE/round/w4.json" "$ASTATE/round/w5.json"
+# round records the open entries it printed, for the module to tell the coordinator at once when
+# one of them is settled in the pane or in the sender's tab: the coordinator once relayed a second
+# time an answer the pane had sent (the operator's report of 2026-10-25). The record keeps the
+# ids printed before while the round holds them, drops the others, and is written by one rename.
+printf '["gone-entry","w1"]\n' > "$ASTATE/round-listed.json"
+ROPEN=$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>/dev/null | sed -n 's/^round \([^ ]*\) .*| open.*/\1/p' | sort | paste -sd, -)
+check "round records the ids of the open entries it printed, keeps those printed before while the round holds them" \
+  "yes|$(printf '%s,w1' "$ROPEN" | tr ',' '\n' | sort | paste -sd, -)|0" \
+  "$([ -n "$ROPEN" ] && echo yes)|$(jq -r 'sort | join(",")' "$ASTATE/round-listed.json")|$(find "$ASTATE" -maxdepth 1 -name 'round-listed.json.tmp-*' | wc -l | tr -d ' ')"
+rm -f "$ASTATE/round-listed.json"
+check "the coordinator drops a question settled elsewhere in one line and never asks it again" "yes|yes|yes" \
+  "$(spells "$COORDSKILL" '**A question settled elsewhere leaves your tab at once.**')|$(spells "$COORDSKILL" 'one line, « settled in the pane » or « settled in <sender>'"'"'s tab », run the `round-close` the')|$(spells "$COORDSKILL" 'line gives, never ask or relay it again, and present the next one in full in the same message;')"
 check "the coordinator closes a withdrawn entry with its recorded reason, and reads a supersede as the newer entry to present" "yes|yes|no" \
   "$(spells "$COORDSKILL" '`coordinator.sh round-close <id> --answer "withdrawn: <its')|$(spells "$COORDSKILL" 'A reason « superseded by <id> » reads « present <id>')|$(spells "$COORDSKILL" '--answer "withdrawn: answered in its own tab"')"
 # An open question the pane can show is the pane's: `round` marks it due, for the coordinator to

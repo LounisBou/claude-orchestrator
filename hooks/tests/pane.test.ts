@@ -1561,6 +1561,38 @@ test('a submitted text answers the entry from the pane and is sent to its sender
   expect(texts(await render())).toContain('Rename it?')
 })
 
+// The operator's report of 2026-10-25: « A » from the pane at 21:10:00Z, then the same « A »
+// relayed again from the coordinator's tab, which had presented the question. An entry the
+// coordinator was shown, listed by its `round` or woken for, is settled in its tab at once.
+const LISTED = `${HOME}/.claude/claude-orchestrator/round-listed.json`
+const WOKEN = `${HOME}/.claude/claude-orchestrator/round-woken.json`
+for (const [label, file] of [['listed by its round', LISTED], ['woken for', WOKEN]] as const) {
+  test(`an answer from the pane to an entry the coordinator was ${label} is submitted to the coordinator once`, async () => {
+    const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
+    const { fx, render, stored } = await askingPane([asked])
+    fx.files.set(file, JSON.stringify([asked.id]) + '\n')
+    const drawn = await render()
+    await pick(drawn, 'A')
+    const at = stored(asked.id).answer!.at
+    expect(fx.submitted).toEqual([
+      `[module] Settled in the pane: Orch : low's question since 2026-10-18T10:03:00.000Z — blocks: phase 3 (entry ${asked.id}), answered at ${at}: A : ${CHOICES[0].text}. `
+      + `Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "answered from the pane: A : ${CHOICES[0].text}".`,
+    ])
+    // A press landing late on the same picker settles nothing more.
+    await pick(drawn, 'A')
+    expect(fx.submitted.length).toBe(1)
+  })
+}
+
+test('an answer from the pane to an entry the coordinator was never shown submits nothing', async () => {
+  const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
+  const { fx, render, stored } = await askingPane([asked])
+  fx.files.set(LISTED, JSON.stringify(['another-entry']) + '\n')
+  await pick(await render(), 'A')
+  expect(stored(asked.id).status).toBe('answered')
+  expect(fx.submitted).toEqual([])
+})
+
 test('an empty or blank submit writes and sends nothing', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, sent, render, stored } = await askingPane([asked])

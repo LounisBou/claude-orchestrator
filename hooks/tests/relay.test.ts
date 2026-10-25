@@ -1060,3 +1060,87 @@ for (const [label, send] of [
     expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
   })
 }
+
+// --- a settled question leaves the coordinator's tab -------------------------------------------
+
+// The operator answered « A » in the pane at 21:10:00Z, then the coordinator, which had presented
+// the same question in its tab, relayed the same « A » again at 21:10:30Z (his report of
+// 2026-10-25). An entry the coordinator was shown — listed by its `round`, or woken for — tells it
+// once when its sender withdraws it; one it never saw tells it nothing.
+const LISTED = `${HOME}/.claude/claude-orchestrator/round-listed.json`
+const WOKEN = `${HOME}/.claude/claude-orchestrator/round-woken.json`
+const settledText = (asked: RoundEntry, reason: string) =>
+  `[module] Settled in Orch : belt's tab: Orch : belt's question since ${asked.since} — blocks: ${asked.blocks} (entry ${asked.id}), withdrawn at `
+
+for (const [label, file] of [['listed by its round', LISTED], ['woken for', WOKEN]] as const) {
+  test(`a superseded entry the coordinator was ${label} tells it once, with the newer entry to present`, async () => {
+    const chains = mounted()
+    const fx = fake()
+    await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+    const [asked] = entries(fx)
+    fx.files.set(file, JSON.stringify([asked.id]) + '\n')
+    await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
+    const fresh = entries(fx)[1]
+    expect(fx.sent.length).toBe(1)
+    expect(fx.sent[0].to).toBe('Coord : ops [abc]')
+    expect(fx.sent[0].text.startsWith(settledText(asked, ''))).toBe(true)
+    expect(fx.sent[0].text.endsWith(`: superseded by ${fresh.id}. Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "withdrawn: superseded by ${fresh.id}".`)).toBe(true)
+    expect(fx.sent[0].text.includes('\n')).toBe(false)
+  })
+}
+
+test('an entry the coordinator was never shown, neither listed nor woken for, tells it nothing when withdrawn', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  fx.files.set(LISTED, JSON.stringify(['another-entry']) + '\n')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
+  expect(entries(fx)[0].status).toBe('withdrawn')
+  expect(fx.sent).toEqual([])
+})
+
+test('an entry the operator answered in the sender\'s own tab tells the coordinator that showed it', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+  await typedTurn(chains, fx, 'Working on phase 3.')
+  expect(entries(fx)[0].status).toBe('withdrawn')
+  expect(fx.sent.length).toBe(1)
+  expect(fx.sent[0].text.startsWith(settledText(asked, ''))).toBe(true)
+  expect(fx.sent[0].text).toContain(`: answered in the sender's own tab. Do not ask or relay it again: close it with coordinator.sh round-close ${asked.id} --answer "withdrawn: answered in the sender's own tab".`)
+})
+
+test('an entry withdrawn by a typed turn ending on another wait says why when the module recorded no reason', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  const older: RoundEntry = { ...asked, id: 'older', blocks: 'phase 2', since: '2026-10-14T07:00:00.000Z' }
+  fx.files.set(`${ROUND}/older.json`, JSON.stringify(older) + '\n')
+  fx.files.set(LISTED, JSON.stringify(['older']) + '\n')
+  await typedTurn(chains, fx, answerOf('Something else.', 'waiting: operator — blocks: phase 4'))
+  expect(fx.sent.map(s => s.text.match(/\(entry ([^)]+)\)/)![1])).toEqual(['older'])
+  expect(fx.sent[0].text).toContain(': a later turn the operator typed in waits on something else. ')
+})
+
+for (const [label, end, why] of [
+  ['its session ending', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' }), "the sender's session ended"],
+  ['its hand-over', async (chains: Record<string, Function[]>, fx: ReturnType<typeof fake>) => drive(chains, 'turn.complete', fx.dollar, turnEnd('Takeover confirmed.\n\nhanded over')), 'handed over to its successor'],
+] as const) {
+  test(`an entry withdrawn by ${label} tells the coordinator that showed it`, async () => {
+    const { chains, fx, asked } = await senderWithEntries()
+    fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+    await end(chains, fx)
+    expect(fx.sent.length).toBe(1)
+    expect(fx.sent[0].text).toContain(`(entry ${asked.id}), withdrawn at `)
+    expect(fx.sent[0].text).toContain(`: ${why}. Do not ask or relay it again`)
+  })
+}
+
+test('a coordinator on another machine is told nothing of a withdrawal in this round', async () => {
+  const chains = mounted()
+  const fx = fake({ remote: true })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  fx.sent.length = 0
+  fx.files.set(LISTED, JSON.stringify([`s-one-${fingerprint(parseWait(answerOf(QUESTION, QUESTION_LINE))!)}`]) + '\n')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
+  expect(fx.sent.every(s => !s.text.startsWith('[module] Settled'))).toBe(true)
+})

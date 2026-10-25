@@ -712,11 +712,54 @@ async function wokenPath($: any): Promise<string> {
 }
 
 async function readWoken($: any): Promise<string[]> {
+  return readIds($, await wokenPath($))
+}
+
+async function readIds($: any, path: string): Promise<string[]> {
   try {
-    const ids: unknown = JSON.parse(String(await $.fs.read(await wokenPath($))))
+    const ids: unknown = JSON.parse(String(await $.fs.read(path)))
     return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
   } catch {
     return []
+  }
+}
+
+// An entry the coordinator was shown: one its `coordinator.sh round` printed open
+// (`<state>/round-listed.json`, the script's own record) or one the module woke it for. Read by
+// the files, never by its model's memory: a question it presented and then saw settled
+// elsewhere was asked a second time (the operator's report of 2026-10-25).
+async function shownToCoordinator($: any, id: string): Promise<boolean> {
+  return (await readWoken($)).includes(id) || (await readIds($, `${await stateDir($)}/round-listed.json`)).includes(id)
+}
+
+// The reports that an entry the coordinator was shown is settled elsewhere: one line each,
+// naming the entry, how it was settled and the round-close that records it.
+export function settledInPaneText(entry: RoundEntry, answer: string, at: string): string {
+  return `[module] Settled in the pane: ${entry.from}'s question since ${entry.since} — blocks: ${entry.blocks ?? '-'} (entry ${entry.id}), answered at ${at}: ${oneLine(answer)}. `
+    + `Do not ask or relay it again: close it with coordinator.sh round-close ${entry.id} --answer "answered from the pane: ${oneLine(answer)}".`
+}
+
+export function settledInTabText(entry: RoundEntry, reason: string, at: string): string {
+  const why = oneLine(reason) || 'a later turn the operator typed in waits on something else'
+  return `[module] Settled in ${entry.from}'s tab: ${entry.from}'s question since ${entry.since} — blocks: ${entry.blocks ?? '-'} (entry ${entry.id}), withdrawn at ${at}: ${why}. `
+    + `Do not ask or relay it again: close it with coordinator.sh round-close ${entry.id} --answer "withdrawn: ${why}".`
+}
+
+function oneLine(text: string): string {
+  return text.replace(/\s*\n\s*/g, ' ').trim()
+}
+
+// A withdrawal written at the end of the sender's turn, told to the coordinator on this machine
+// when it was shown that entry. A send refused or that throws is one log line.
+async function tellWithdrawn($: any, entry: RoundEntry, reason: string, at: string): Promise<void> {
+  try {
+    if (!await shownToCoordinator($, entry.id)) return
+    const coordinator = await coordinatorAddress($)
+    if (!coordinator?.local) return
+    const sent = await $.session.send({ to: coordinator.to, text: settledInTabText(entry, reason, at) })
+    if (!sent?.isDelivered) await logLine($, `round: the withdrawal of ${entry.id} was not delivered to ${coordinator.to}: ${sent?.reason ?? 'no answer'}`)
+  } catch (err) {
+    await logLine($, `round: ${(err as Error).message}`)
   }
 }
 
@@ -1799,6 +1842,7 @@ async function withdrawEntry($: any, sessionId: string, name: string, held: { bl
     matched++
     const answer = { text: "answered in the sender's own tab", by: 'tab' as const, at: new Date().toISOString() }
     await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
+    await tellWithdrawn($, entry, answer.text, answer.at)
   }
   if (matched === 0) await logLine($, `round: no open entry matched for ${name} since ${held.since ?? '?'}`)
 }
@@ -1873,6 +1917,11 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
       pane.undelivered.set(entry.id, { entry: { ...entry, status: 'answered', answer: { text, by: 'pane', at } }, reason })
       await logLine($, `round: the pane's answer was not delivered to ${entry.from}: ${reason}`)
     }
+    // The coordinator that was shown this question leaves it at once, in its own session.
+    if (await shownToCoordinator($, entry.id)) {
+      const taken = await $.prompt.submit({ text: settledInPaneText(entry, text, at) })
+      if (taken && typeof taken === 'object' && 'drop' in taken && taken.drop) await logLine($, `round: the host dropped the settled notice of ${entry.id}: ${String(taken.drop)}`)
+    }
   } catch (err) {
     await logLine($, `round: ${(err as Error).message}`)
   } finally {
@@ -1918,6 +1967,7 @@ async function withdrawStale($: any, sessionId: string, current: string | null, 
       await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)
+      await tellWithdrawn($, entry, why, answer.at)
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
     }

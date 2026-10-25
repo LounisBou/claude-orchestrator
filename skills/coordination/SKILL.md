@@ -181,6 +181,15 @@ instead »: the sender waits on that newer entry now, which takes the withdrawn 
 count and on screen. A notice that matches no open question changes nothing but a line in the
 round file.
 
+**A question settled elsewhere leaves your tab at once.** `round` records each open entry it
+prints, and the module, for an entry you were shown so (or woken for), sends you one line the
+moment it is settled: « [module] Settled in the pane: … » when he answered it there, « [module]
+Settled in <sender>'s tab: … » when its sender withdrew it — typed in its tab, superseded,
+ended, handed over. It too is a report: drop that question if it is the one you present, say
+one line, « settled in the pane » or « settled in <sender>'s tab », run the `round-close` the
+line gives, never ask or relay it again, and present the next one in full in the same message;
+a reason « superseded by <id> » makes <id> that next one.
+
 1. **The ledger first.** A question received is written, before anything else is done, to
    `decision-round.md` in your scratch directory: number, the sender's exact `ListAgents`
    name, the time received (`date -u +%FT%TZ`), the question verbatim with the `[module]`
