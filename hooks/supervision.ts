@@ -1628,8 +1628,8 @@ async function withdrawEntry($: any, sessionId: string, name: string, held: { bl
 // place, and the asking orchestrator's own session is sent the operator's choice (senderAddress).
 // Its fingerprint is forgotten, so the same question asked again is entered again. A send not
 // delivered, or one that throws, keeps the entry answered, is one log line, and the pane says it
-// on that question until its sender is gone or the entry is settled again. A press on an entry whose answer is in flight does
-// nothing. The pane is drawn again: the next open question comes up.
+// on that question until its sender is gone or the entry is settled again. A press on an entry
+// whose answer is in flight does nothing. The pane is drawn again: the next open question comes up.
 export async function answerFromPane($: any, pane: PaneMemory, asked: RoundEntry, choice: RoundChoice): Promise<void> {
   return answerEntryFromPane($, pane, asked, `${choice.letter} : ${choice.text}`)
 }
@@ -1702,8 +1702,8 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
 // of its wait and withdraws nothing. The same withdrawal closes every open entry of a session
 // that is superseded by its new question, that ended, or that handed over (`current` null).
 // `current` is the id of the entry this turn's wait has, kept open; `why` the withdrawal's answer
-// text. Each withdrawal is one log line; one that cannot be
-// written is one too, and the relay goes on.
+// text. Each withdrawal is one log line; one that cannot be written is one too, and the relay
+// goes on.
 async function withdrawStale($: any, sessionId: string, current: string | null, why = ''): Promise<void> {
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current) continue
