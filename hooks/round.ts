@@ -46,7 +46,13 @@ const LETTERS = 'ABCDE'
 // when they read A, B, … in that order, two to five of them: anything else is no choice
 // the pane could offer, and the question is answered in words. The recommendation is the
 // first line that names one, kept only when its letter is among the kept choices.
+// An entry holding several numbered questions (questionParts) records its first one's: the
+// pane reads every question's own from the text (entryQuestions).
 export function parseChoices(question: string): { choices: RoundChoice[]; recommendation: string | null } {
+  return readChoices(questionParts(question)[0])
+}
+
+function readChoices(question: string): { choices: RoundChoice[]; recommendation: string | null } {
   const lines = question.split('\n')
   const found = lines.flatMap(line => {
     const matched = CHOICE.exec(line)
@@ -73,6 +79,34 @@ const FIELD = /^\s*_([^_\n]*[^_\s])_(\s*:\s*)(.*?)\s*$/
 const NUMBER = /^\s*\*\*([^*\n]*\d+\D+\d+[^*\n]*)\*\*\s*$/
 // A field after the choices whose text starts with a lone choice letter: the recommendation.
 const NAMES_LETTER = /^\**([A-E])\**(?:$|[\s.,;:—–-])/
+
+// The questions of an entry, one text each: a turn may ask several in the decide shape, each
+// under its own numbering line (`**Question 3 of 4**`, in the sender's language). Two such lines
+// or more split the text before each, the first question keeping what precedes its own (the
+// previous answer's record, which questionShape drops). One line or none: the text whole.
+export function questionParts(question: string): string[] {
+  const lines = question.split('\n')
+  const heads = lines.flatMap((line, i) => (NUMBER.test(line) ? [i] : []))
+  if (heads.length < 2) return [question]
+  return heads.map((head, k) => lines.slice(k === 0 ? 0 : head, heads[k + 1] ?? lines.length).join('\n').trimEnd())
+}
+
+// One question of an entry as the pane presents it: its own text, the sender's numbering, its
+// choices and its recommendation. An entry of one question keeps what it recorded; one of
+// several reads each question's from its own text.
+export type QuestionPart = { question: string; number: string | null; choices: RoundChoice[]; recommendation: string | null }
+export function entryQuestions(entry: Pick<RoundEntry, 'question' | 'choices' | 'recommendation'>): QuestionPart[] {
+  const parts = questionParts(entry.question)
+  const read = parts.length < 2
+    ? [{ question: entry.question, choices: entry.choices, recommendation: entry.recommendation }]
+    : parts.map(part => ({ question: part, ...readChoices(part) }))
+  return read.map(part => ({
+    question: part.question,
+    number: questionShape(part.question, part.choices)?.number ?? null,
+    choices: part.choices,
+    recommendation: part.recommendation,
+  }))
+}
 
 export type QuestionField = { label: string; separator: string; text: string }
 export type QuestionShape = { number: string | null; fields: QuestionField[]; recommendation: QuestionField | null }
@@ -126,11 +160,47 @@ export function questionShape(question: string, choices: readonly RoundChoice[])
 // (snake_case) or before a space (a `* ` list item) is no emphasis. Each span stays on its
 // line. The entry itself keeps the text verbatim.
 export function plainText(text: string): string {
-  return text
-    .replace(/`([^`\n]+)`/g, '$1')
-    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, '$2')
-    .replace(/(^|[^\w*])\*(?=[^\s*])([^\n*]*?[^\s*])\*(?![\w*])/gm, '$1$2')
-    .replace(/(^|[^\w])_(?=[^\s_])([^\n_]*?[^\s_])_(?!\w)/gm, '$1$2')
+  return textSpans(text).map(span => span.text).join('')
+}
+
+// The same text cut into the spans the pane draws, each mark it carried kept as a style: inline
+// code, bold, italic. Joined, the spans are plainText's text. The markers are found as plainText
+// always found them, then read as an opening and a closing mark around each span.
+export type TextSpan = { text: string; code?: true; bold?: true; italic?: true }
+const MARK = { code: ['\uE000', '\uE001'], bold: ['\uE002', '\uE003'], italic: ['\uE004', '\uE005'] } as const
+export function textSpans(text: string): TextSpan[] {
+  const marked = text
+    .replace(/`([^`\n]+)`/g, `${MARK.code[0]}$1${MARK.code[1]}`)
+    .replace(/(\*\*|__)(?=\S)([^\n]*?\S)\1/g, `${MARK.bold[0]}$2${MARK.bold[1]}`)
+    .replace(/(^|[^\w*])\*(?=[^\s*])([^\n*]*?[^\s*])\*(?![\w*])/gm, `$1${MARK.italic[0]}$2${MARK.italic[1]}`)
+    .replace(/(^|[^\w])_(?=[^\s_])([^\n_]*?[^\s_])_(?!\w)/gm, `$1${MARK.italic[0]}$2${MARK.italic[1]}`)
+  const spans: TextSpan[] = []
+  const on = { code: 0, bold: 0, italic: 0 }
+  let run = ''
+  const flush = () => {
+    if (run === '') return
+    spans.push({ text: run, ...(on.code ? { code: true as const } : {}), ...(on.bold ? { bold: true as const } : {}), ...(on.italic ? { italic: true as const } : {}) })
+    run = ''
+  }
+  for (const char of marked) {
+    const mark = (Object.keys(MARK) as (keyof typeof MARK)[]).find(name => MARK[name].includes(char as never))
+    if (!mark) {
+      run += char
+      continue
+    }
+    flush()
+    on[mark] += char === MARK[mark][0] ? 1 : -1
+  }
+  flush()
+  return spans
+}
+
+// The references to a pull request a text names, `<repository>#<number>`, one each wherever they
+// stand: glued to another by a slash, a comma or nothing, each is its own. `at` is where it
+// starts in the text.
+export type PrReference = { at: number; text: string; repo: string; number: number }
+export function prReferences(text: string): PrReference[] {
+  return [...text.matchAll(/([A-Za-z0-9_.-]+)#(\d+)/g)].map(found => ({ at: found.index!, text: found[0], repo: found[1], number: Number(found[2]) }))
 }
 
 // The fingerprint of the wait an entry was written for, as the sender's wait file keeps it.

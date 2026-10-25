@@ -3,7 +3,8 @@
 // recommendation read out of a question in the decide shape, near misses read as none, the
 // entry built from an orchestrator's wait, and the order the round takes its open entries in.
 import { expect, test } from 'claude-code/testing'
-import { parseChoices, questionBody, questionShape, roundEntry, roundEntryId, roundPath, openEntries, isDue, type RoundEntry } from '../round.ts'
+import { parseChoices, questionBody, questionShape, questionParts, entryQuestions, textSpans, plainText, prReferences, roundEntry, roundEntryId, roundPath, openEntries, isDue, type RoundEntry } from '../round.ts'
+import { TWO_QUESTIONS } from './fixtures.ts'
 import { fingerprint, parseWait, relayText, RELAY_CAP, type Wait } from '../relay.ts'
 
 const DECIDE = [
@@ -286,4 +287,77 @@ test('the open entries come grouped by sender, the groups by their earliest wait
     'Orch : c 10:06',
   ])
   expect(openEntries([])).toEqual([])
+})
+
+// --- several questions in one entry ------------------------------------------------------------
+
+test('an entry holding two numbered questions is split at each numbering line, the first keeping what precedes it', () => {
+  const parts = questionParts(`Recorded: B.\n\n${TWO_QUESTIONS}`)
+  expect(parts.length).toBe(2)
+  expect(parts[0].startsWith('Recorded: B.')).toBe(true)
+  expect(parts[0]).toContain('**Question 3 sur 4**')
+  expect(parts[0]).not.toContain('Question 4 sur 4')
+  expect(parts[1].startsWith('**Question 4 sur 4**')).toBe(true)
+  // One numbering line, or none: one question, the text whole.
+  expect(questionParts('**Question 5 of 6**\n_Question_ : which?')).toEqual(['**Question 5 of 6**\n_Question_ : which?'])
+  expect(questionParts('Merge it?')).toEqual(['Merge it?'])
+})
+
+test('the real entry of two questions gives each its own choices, recommendation and number', () => {
+  const asked = { question: TWO_QUESTIONS, choices: [], recommendation: null }
+  const parts = entryQuestions(asked)
+  expect(parts.map(part => [part.number, part.choices.map(c => c.letter), part.recommendation])).toEqual([
+    ['Question 3 sur 4', ['A', 'B'], 'A'],
+    ['Question 4 sur 4', ['A', 'B'], 'A'],
+  ])
+  expect(parts[0].choices[1].text).toBe('2.0.0, pour marquer la réécriture, au prix de signaler une rupture qui n\'existe pas dans l\'API.')
+  expect(parts[1].choices[0].text.startsWith('une release par module converti.')).toBe(true)
+  const shape = questionShape(parts[1].question, parts[1].choices)!
+  expect(shape.fields.map(f => f.label)).toEqual(['Sujet', 'Contexte', 'Question', 'Choix'])
+  expect(shape.fields[0].text).toBe('rythme de publication de la v2')
+  expect(shape.recommendation!.text.startsWith('A. Une étape publiée')).toBe(true)
+})
+
+test('the entry of two questions records the first one\'s choices, so the round reads it as a question with choices', () => {
+  const wait: Wait = { kind: 'operator', blocks: 'the version', question: TWO_QUESTIONS }
+  const entry = roundEntry('s-1', 'Orch : s', wait, '2026-10-25T11:52:50.299Z', '2026-10-25T11:52:50.302Z')
+  expect(entry.question).toBe(TWO_QUESTIONS)
+  expect(entry.choices.map(c => c.letter)).toEqual(['A', 'B'])
+  expect(entry.choices[0].text.startsWith('1.15.0, puis des 1.x.')).toBe(true)
+  expect(entry.recommendation).toBe('A')
+})
+
+test('an entry of one question keeps the choices it recorded', () => {
+  const choices = [{ letter: 'A', text: 'one' }, { letter: 'B', text: 'two' }]
+  expect(entryQuestions({ question: 'Merge it?', choices, recommendation: 'B' })).toEqual([
+    { question: 'Merge it?', number: null, choices, recommendation: 'B' },
+  ])
+})
+
+// --- the text's own marks --------------------------------------------------------------------
+
+test('the spans keep inline code and bold as marks, their markers dropped, and join to the plain text', () => {
+  const text = 'the **review** is green, see `pr-219` and snake_case_name, *really*'
+  expect(textSpans(text)).toEqual([
+    { text: 'the ' },
+    { text: 'review', bold: true },
+    { text: ' is green, see ' },
+    { text: 'pr-219', code: true },
+    { text: ' and snake_case_name, ' },
+    { text: 'really', italic: true },
+  ])
+  expect(textSpans(text).map(span => span.text).join('')).toBe(plainText(text))
+  expect(textSpans('')).toEqual([])
+})
+
+test('the references to a pull request are found one each, glued by a slash, a comma or nothing', () => {
+  expect(prReferences('merge of infra#195/infra#196, geo-git-flow#21,geo-git-flow#22 and api#7api#8')).toEqual([
+    { at: 9, text: 'infra#195', repo: 'infra', number: 195 },
+    { at: 19, text: 'infra#196', repo: 'infra', number: 196 },
+    { at: 30, text: 'geo-git-flow#21', repo: 'geo-git-flow', number: 21 },
+    { at: 46, text: 'geo-git-flow#22', repo: 'geo-git-flow', number: 22 },
+    { at: 66, text: 'api#7', repo: 'api', number: 7 },
+    { at: 71, text: 'api#8', repo: 'api', number: 8 },
+  ])
+  expect(prReferences('issue #12 and a#b')).toEqual([])
 })
