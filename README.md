@@ -17,7 +17,7 @@ session can read without depending on a particular status bar.
 | skill `coordination` | The coordinator's role, outside every orchestration on one machine: answers from the facts, flags collisions to both sides, gates nothing, relays to the operator what is his. The orchestrator's and the auditor's skills say nothing of it. |
 | `templates/` | Phase brief, rotation resume brief, orchestrator succession brief, review-agent brief, comments-agent brief, audit brief, with the sections the rulebook makes mandatory. |
 | script `rhythm.sh` | An audit's net balance read from git alone: merges per week by conventional-commit type, and lines added and removed under product globs against instrument globs. |
-| `/orchestrator-install` | Creates the state directory, unwires any tap a previous install left in front of your status line, prunes what the tap left behind, and writes the short names as user commands. Idempotent; refuses a host older than 2.1.287. |
+| `/orchestrator:install` | Creates the state directory, unwires any tap a previous install left in front of your status line, prunes what the tap left behind, and writes the short names as user commands. Idempotent; refuses a host older than 2.1.287. |
 | `/orchestrator-uninstall` | Restores the previous status line, removes the state directory and the short names' user commands. |
 | `/orchestrator-status` | Live sessions and their context fill, the ones past the gate flagged. |
 | `/coordinator-supervision`, `/orchestrator-supervision` | Opens the supervision pane, kept on screen with each session's fill and redrawn every 20 seconds while open: the orchestrators in a coordinator session (`Coord :`) — those on another machine too, labelled `remote <machine>`: their module sends the row silently, only when the wait or a 5 % band of the fill changes, and the coordinator's module stores it without a model turn — its own agents in an orchestrator session (`Orch :`). In a coordinator it also opens by itself, once, at the end of its first turn, and shows under the rows the first open question of its round that carries choices (those without come after), with its lettered choices; otherwise only when typed, or when the operator asks in plain words to open or close the supervision, through the module's `supervision` tool. Typed again, it closes it. |
@@ -84,7 +84,7 @@ unwired and nothing is purged, yet the run looks like success. The order is ther
    ```
 
 5. Restart the session, so the slash command resolves to the 0.49.0 installer.
-6. Run `/orchestrator-install`. It takes the tap off the status line and keeps the
+6. Run `/orchestrator:install`. It takes the tap off the status line and keeps the
    command that followed it exactly as written, `$HOME` or `~` spelling included. It then
    removes the old pipeline's files and the measure files of sessions that ended over a
    week ago.

@@ -5790,6 +5790,10 @@ check "sync leaves a current copy, a foreign file and a removed one as they are"
 check "sync on a directory that does not exist writes nothing and succeeds" "0|none" \
   "$(bash "$ROOT/short-commands.sh" sync --dir "$WORK/no-such-dir" >/dev/null 2>&1; echo $?)|$([ -d "$WORK/no-such-dir" ] && echo created || echo none)"
 
+# A text read before the installer ran cannot name a command the installer writes: the short
+# form does not exist on a fresh machine, the plugin's own `orchestrator:install` does.
+check "no first-run text names the short form of the install command" "0|0|0" \
+  "$(grep -c '/orchestrator-install' "$ROOT/skills/iterm-agents/scripts/iterm_agent.py")|$(grep -c '/orchestrator-install' "$ROOT/skills/iterm-agents/references/commands.md")|$(grep -cE 'Run `/orchestrator-install`|^\| `/orchestrator-install` \|' "$ROOT/README.md")"
 echo "== iterm-agents: the asyncio stderr filter (§29) =="
 
 # The filter drops the library's own "Task exception was never retrieved" tracebacks —
