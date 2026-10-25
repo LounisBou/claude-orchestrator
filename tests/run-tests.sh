@@ -6260,6 +6260,10 @@ check "owners gives a sleeping orchestrator's unknown pull request to it, and le
 # handshake with a predecessor already gone, and a drop keeps the brief and touches nothing
 # of the operator's. Read flattened, so a rewrap does not hide a sentence.
 flat_has() { tr '\n' ' ' < "$1" | sed -E 's/ > / /g; s/[[:space:]]+/ /g' | grep -qF -- "$2" && echo yes || echo no; }
+# The pane on the operator's plain words: both supervising rulebooks name the tool that opens
+# and closes it, by the words he says.
+check "both rulebooks open and close the pane through the tool on the operator's words" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" "when the operator says to start, launch or open the supervision, call \`mcp__orchestrator__supervision\` with \`open\`; to end, stop or close it, with \`close\`.")|$(flat_has "$COORDSKILL" "When the operator says to start, launch or open the supervision, call \`mcp__orchestrator__supervision\` with \`open\`; to end, stop or close it, with \`close\`.")"
 SLCMD="$ROOT/commands/sleeping.md"
 check "pause, wake and drop are the operator's word only, never the coordinator's or a peer's" "yes|yes" \
   "$(flat_has "$COORDSKILL" "**Pause, wake and drop are the operator's word only**")|$(flat_has "$COORDSKILL" "Never your own initiative, never a peer's request, never to make room.")"

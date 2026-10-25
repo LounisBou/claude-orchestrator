@@ -19,7 +19,9 @@ interface**: while you run, every question meant for him comes to you, never to 
 orchestrator's tab, and you relay it (« Relaying questions to the operator » below).
 
 The operator starts you with `/coordinator <subject>` and ends you with
-`/coordinator-end`; both carry their own steps. **His word comes first**: an
+`/coordinator-end`; both carry their own steps. When the operator says to start, launch or
+open the supervision, call `mcp__orchestrator__supervision` with `open`; to end, stop or
+close it, with `close`. **His word comes first**: an
 explicit instruction of his on the very point replaces this skill; say the contradiction in
 one line and carry it out.
 
