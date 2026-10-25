@@ -26,8 +26,11 @@
 # sandbox: its state (ORCHESTRATOR_STATE_DIR) and its own files, the store's rows among them
 # (ORCHESTRATOR_MODULE_DIR), so the fixture's rows never reach the real store. What the host
 # itself keeps of a session it ran — its counters, its session record, its caches, the
-# transcript of the wake — is its own bookkeeping; the transcript directory of the sandbox's
-# work path is removed at the end, and the prompt history's lines naming the sandbox are counted.
+# transcript of the wake — is its own bookkeeping. Each run leaves two traces of it there, and the
+# script removes neither: the transcript directory of the sandbox's work path is removed at the
+# end, but the prompt history (~/.claude/history.jsonl) keeps its lines naming the sandbox, which
+# the script only counts, and the host's own configuration file (~/.claude.json) keeps a project
+# entry for the sandbox's work path. The script never edits that file.
 # The sandbox lives under ORCHESTRATOR_E2E_DIR (/tmp by default), a directory the host already
 # trusts: the script never accepts the trust question, which would write the host's
 # configuration, and refuses to run when it is asked.
@@ -78,7 +81,9 @@ cleanup() {
   case "$transcripts" in *-orchestrator-*-work) rm -rf "${HOSTDIR:?}/projects/$transcripts" ;; esac
   [ "$KEEP" = 1 ] || rm -rf "$SANDBOX"
   [ "$KEEP" = 1 ] && echo "sandbox kept: $SANDBOX"
-  echo "history: $(grep -cF -- "$SANDBOX" "$HISTORY" 2>/dev/null || echo 0) lines name the sandbox"
+  local named
+  named=$(grep -cF -- "$SANDBOX" "$HISTORY" 2>/dev/null)
+  echo "history: ${named:-0} lines name the sandbox"
   return 0
 }
 trap cleanup EXIT
@@ -131,8 +136,13 @@ start() {
     echo "refused: the host asks to trust $SANDBOX/work; set ORCHESTRATOR_E2E_DIR to a directory it trusts" >&2
     exit 1
   fi
-  # The subscription, or nothing driven at all.
-  if screen | grep -qF 'API Usage Billing' || ! screen | grep -qE "[[:alpha:]] $PLAN( |$)"; then
+  # The subscription, or nothing driven at all: the banner's first rows name the product and the
+  # plan (the plan escaped, so a name with a dot or a bracket matches itself), and the API
+  # billing line anywhere on the screen refuses.
+  local brand plan_re
+  brand=$(printf '%s' "${HOST##*/}" | awk '{ print toupper(substr($0, 1, 1)) substr($0, 2) }')
+  plan_re=$(printf '%s' "$PLAN" | sed 's/[][\\.*^$(){}?+|\/-]/\\&/g')
+  if screen | grep -qF 'API Usage Billing' || ! screen | head -12 | grep -qE "$brand $plan_re( |$)"; then
     record "the banner"
     echo "refused: the host's banner does not read the $PLAN subscription; nothing was driven" >&2
     screen | head -12 >&2
