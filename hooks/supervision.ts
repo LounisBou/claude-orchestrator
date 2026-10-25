@@ -29,7 +29,7 @@ import { withDeadline, isDegradedPass, chainEntries, watchNumberOf } from './sto
 import { typedByOperator } from './models-guard.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 import {
-  parseWait, parseStatus, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
+  parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
 import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, plainText, questionBody, questionShape, isDue, dueText, type QuestionField, type RoundChoice, type RoundEntry } from './round.ts'
@@ -894,6 +894,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 
   on('session.end', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
+      // A question whose sender has ended has no one left to answer it.
+      const done = await withDeadline(withdrawStale($, e.sessionId ?? await $.session.id(), null, "the sender's session ended"), RELAY_BOUND_MS)
+      if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
+    } catch (err) {
+      await logLine($, `round: ${(err as Error).message}`)
+    }
+    try {
       stopWake(wake)
       await deleteSession($, e.sessionId ?? await $.session.id())
       await recordPaneClosed($)
@@ -969,6 +976,24 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (isDegradedPass(done)) await logLine($, `withdraw: did not finish within ${RELAY_BOUND_MS} ms`)
     } catch (err) {
       await logLine($, `withdraw: ${(err as Error).message}`)
+    }
+    return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+
+  // The model's own « handed over » to its successor, the predecessor's last word in a
+  // succession: the work is the successor's now, and the session's open questions with it.
+  // The message is sent all the same.
+  on('session.send', {}, async ($: any, e: any, next: (e: any) => any) => {
+    try {
+      if (!e.agentId && e.origin?.kind === 'model' && typeof e.text === 'string' && handsOver(e.text)) {
+        const done = await withDeadline(withdrawStale($, await $.session.id(), null, 'handed over to its successor'), RELAY_BOUND_MS)
+        if (isDegradedPass(done)) await logLine($, `round: did not finish within ${RELAY_BOUND_MS} ms`)
+      }
+    } catch (err) {
+      await logLine($, `round: ${(err as Error).message}`)
     }
     return next(e)
   }).catch(async ($: any, e: any, next: any) => {
@@ -1455,6 +1480,8 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const before = read ? withoutMark(read) : null
   // A wait rewritten while the withdrawal was sent keeps the fingerprint it was written with.
   const relayed = forgotten && (before?.relayed ?? null) === heldKey ? null : before?.relayed ?? null
+  // A turn that ends on « handed over »: the successor holds the work, and the questions.
+  if (!wait && role === 'orchestrator' && handsOver(answer)) await withdrawStale($, sessionId, null, 'handed over to its successor')
   if (!wait && role === 'orchestrator') {
     if (before?.waiting || typed) await writeWait($, sessionId, { ...clearedWait(before!), relayed, name, pid })
     return
@@ -1664,8 +1691,10 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
 // An orchestrator's turn ended on a machine line other than the wait an open entry of its own
 // holds: that entry is no longer what it waits on, so it is withdrawn by the sender, leaves the
 // pane and its count, and its fingerprint is forgotten. A turn with no machine line says nothing
-// of its wait and withdraws nothing. `current` is the id of the entry this turn's wait has, kept
-// open; `why` the withdrawal's answer text. Each withdrawal is one log line; one that cannot be
+// of its wait and withdraws nothing. The same withdrawal closes every open entry of a session
+// that is superseded by its new question, that ended, or that handed over (`current` null).
+// `current` is the id of the entry this turn's wait has, kept open; `why` the withdrawal's answer
+// text. Each withdrawal is one log line; one that cannot be
 // written is one too, and the relay goes on.
 async function withdrawStale($: any, sessionId: string, current: string | null, why = ''): Promise<void> {
   for (const { path, entry } of await readRound($)) {

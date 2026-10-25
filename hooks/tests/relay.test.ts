@@ -888,3 +888,58 @@ test('a text that carries choices replaces the entry\'s question', async () => {
   const [now] = entries(fx)
   expect([entries(fx).length, now.status, now.choices.map(c => c.letter), now.recommendation]).toEqual([1, 'open', ['A', 'B', 'C'], null])
 })
+
+// --- a sender that is gone or handed over ----------------------------------------------------
+
+// A sender with one open question in the round, beside another session's and a settled one.
+async function senderWithEntries() {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  const [asked] = entries(fx)
+  const other: RoundEntry = { ...asked, id: 'other-session', session: 's-two', from: 'Orch : other' }
+  const settled: RoundEntry = { ...asked, id: 'already-closed', status: 'closed', answer: { text: 'x', by: 'coordinator', at: 'T' } }
+  for (const kept of [other, settled]) fx.files.set(`${ROUND}/${kept.id}.json`, JSON.stringify(kept) + '\n')
+  return { chains, fx, asked, other, settled }
+}
+
+function expectWithdrawn(fx: ReturnType<typeof fake>, asked: RoundEntry, other: RoundEntry, settled: RoundEntry, why: string) {
+  const after = new Map(entries(fx).map(e => [e.id, e]))
+  expect([after.get(asked.id)!.status, after.get(asked.id)!.answer?.text, after.get(asked.id)!.answer?.by]).toEqual(['withdrawn', why, 'sender'])
+  expect(fx.logged.filter(l => l.includes(`round: withdrawn by the sender: ${asked.id}`)).length).toBe(1)
+  expect(after.get(other.id)).toEqual(other)
+  expect(after.get(settled.id)).toEqual(settled)
+}
+
+test('the sender\'s session ending withdraws its open entries, and no other session\'s', async () => {
+  const { chains, fx, asked, other, settled } = await senderWithEntries()
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expectWithdrawn(fx, asked, other, settled, "the sender's session ended")
+})
+
+for (const text of ['handed over', '**Handed over.**']) {
+  test(`the sender's own message ${JSON.stringify(text)} to its successor withdraws its open entries, the message sent all the same`, async () => {
+    const { chains, fx, asked, other, settled } = await senderWithEntries()
+    const send = { to: 'Orch : belt-2', text, origin: { kind: 'model' } }
+    expect(await drive(chains, 'session.send', fx.dollar, send)).toBe(send)
+    expectWithdrawn(fx, asked, other, settled, 'handed over to its successor')
+  })
+}
+
+test('a turn whose last line is « handed over » withdraws the sender\'s open entries', async () => {
+  const { chains, fx, asked, other, settled } = await senderWithEntries()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Takeover confirmed by the successor.\n\nhanded over'))
+  expectWithdrawn(fx, asked, other, settled, 'handed over to its successor')
+})
+
+for (const [label, send] of [
+  ['another message of the model', { to: 'Orch : belt-2', text: 'not handed over yet', origin: { kind: 'model' } }],
+  ['a plugin\'s send', { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'plugin', name: 'other' } }],
+  ['a subagent\'s send', { to: 'Orch : belt-2', text: 'handed over', origin: { kind: 'model' }, agentId: 'a-1' }],
+] as const) {
+  test(`${label} withdraws nothing`, async () => {
+    const { chains, fx, asked } = await senderWithEntries()
+    await drive(chains, 'session.send', fx.dollar, send)
+    expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
+  })
+}
