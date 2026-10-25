@@ -20,12 +20,17 @@
 #
 # The host runs on its own configuration directory, which holds its login, with the user's
 # settings left out (`--setting-sources project`, no MCP server) and its fullscreen layout,
-# where the pane is docked beside the transcript. Everything the module writes goes to the
+# where the pane is docked beside the transcript. The host is told the terminal draws links
+# (FORCE_HYPERLINK), as the operator's does: a tmux pane says nothing of it, and a host that
+# cannot draw one prints its address after its text. Everything the module writes goes to the
 # sandbox: its state (ORCHESTRATOR_STATE_DIR) and its own files, the store's rows among them
 # (ORCHESTRATOR_MODULE_DIR), so the fixture's rows never reach the real store. What the host
 # itself keeps of a session it ran — its counters, its session record, its caches, the
 # transcript of the wake — is its own bookkeeping; the transcript directory of the sandbox's
-# work path is removed at the end. The prompt history's line count is said before and after.
+# work path is removed at the end, and the prompt history's lines naming the sandbox are counted.
+# The sandbox lives under ORCHESTRATOR_E2E_DIR (/tmp by default), a directory the host already
+# trusts: the script never accepts the trust question, which would write the host's
+# configuration, and refuses to run when it is asked.
 
 set -uo pipefail
 
@@ -57,12 +62,11 @@ check() {
 # directory of the sandbox's work path alone.
 HOSTDIR="$HOME/.claude"
 HISTORY="$HOSTDIR/history.jsonl"
-lines_of() { [ -f "$1" ] && wc -l < "$1" | tr -d ' ' || echo 0; }
-HISTORY_BEFORE=$(lines_of "$HISTORY")
+BASE=${ORCHESTRATOR_E2E_DIR:-/tmp}
 
 # Resolved to its real path: the host keys its projects on the real path.
-SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX") && SANDBOX=$(cd "$SANDBOX" && pwd -P)
-[ -d "${SANDBOX}" ] || { echo "cannot create a working directory under ${TMPDIR:-/tmp}" >&2; exit 1; }
+SANDBOX=$(mktemp -d "$BASE/orchestrator-XXXXXX") && SANDBOX=$(cd "$SANDBOX" && pwd -P)
+[ -d "${SANDBOX}" ] || { echo "cannot create a working directory under $BASE" >&2; exit 1; }
 tm() { tmux -L "$SESSION" "$@"; }
 cleanup() {
   tm kill-server 2>/dev/null
@@ -74,7 +78,7 @@ cleanup() {
   case "$transcripts" in *-orchestrator-*-work) rm -rf "${HOSTDIR:?}/projects/$transcripts" ;; esac
   [ "$KEEP" = 1 ] || rm -rf "$SANDBOX"
   [ "$KEEP" = 1 ] && echo "sandbox kept: $SANDBOX"
-  echo "history: $HISTORY_BEFORE lines before, $(lines_of "$HISTORY") after"
+  echo "history: $(grep -cF -- "$SANDBOX" "$HISTORY" 2>/dev/null || echo 0) lines name the sandbox"
   return 0
 }
 trap cleanup EXIT
@@ -117,11 +121,16 @@ start() {
     *) questions_round "$now" ;;
   esac
   tm new-session -d -s "$SESSION" -x 160 -y "$rows" -c "$SANDBOX/work" \
-    env -i HOME="$HOME" USER="$USER" PATH="$PATH" TERM=xterm-256color \
+    env -i HOME="$HOME" USER="$USER" PATH="$PATH" TERM=xterm-256color FORCE_HYPERLINK=1 \
     ORCHESTRATOR_STATE_DIR="$SANDBOX/state" ORCHESTRATOR_MODULE_DIR="$SANDBOX/module" \
     "$HOST" --setting-sources project --strict-mcp-config --settings "$SANDBOX/settings.json" \
     --plugin-dir "$ROOT" --name "Coord : e2e"
   wait_for 'Coord : e2e' 30
+  if screen | grep -qF 'trust this folder'; then
+    record "the trust question"
+    echo "refused: the host asks to trust $SANDBOX/work; set ORCHESTRATOR_E2E_DIR to a directory it trusts" >&2
+    exit 1
+  fi
   # The subscription, or nothing driven at all.
   if screen | grep -qF 'API Usage Billing' || ! screen | grep -qE "[[:alpha:]] $PLAN( |$)"; then
     record "the banner"
@@ -243,7 +252,12 @@ rawpane() { screen | column_of; }
 flat() { pane | tr '\n' ' ' | tr -s ' '; }
 thumb() { screen | grep -n '█$' | cut -d: -f1 | paste -sd, -; }
 line_of() { pane | grep -nF -- "$1" | head -1 | cut -d: -f1; }
-dim_rows() { tm capture-pane -e -p -t "$SESSION" | grep -F -- "$1" | grep -c $'\x1b\\[2m'; }
+# The pane's rows starting with `$1` drawn dim: the host draws dim as faint or as a grey of the
+# 256-colour ramp.
+dim_rows() {
+  tm capture-pane -e -p -t "$SESSION" \
+    | grep -cE $'│(\x1b\\[[0-9;]*m)*\x1b\\[(2|38;5;2(3[2-9]|4[0-9]|5[0-5]))m(\x1b\\[[0-9;]*m)*'"$1"
+}
 
 echo "== a pane tall enough for its tree (160x50)"
 start 50
@@ -256,7 +270,7 @@ check "one numbering, the sender's, and nothing of its turn outside its fields" 
 check "each label upper-case on its own line, its text under it, the recommendation starred" "the release|merge the release branch now?|1" "$(pane | grep -A1 '^SUBJECT$' | sed -n 2p)|$(pane | grep -A1 '^QUESTION$' | sed -n 2p)|$(pane | grep -c '^★ Recommendation : B — one more')"
 check "each choice behind its badge, the recommended one starred" "1|1" "$(pane | grep -c '^\[C\] *close it')|$(pane | grep -c '^\[B\] *wait for the next review — a day lost *★')"
 check "a blank line between two choices, and before the picker" "||" "$(rawpane | grep -A1 '^\[B\] *wait' | sed -n 2p)|$(rawpane | grep -B1 '^\[B\] *wait' | sed -n 1p)|$(rawpane | grep -B1 '^Choose: ' | sed -n 1p)"
-check "the rule and the key line, dim, the key line at the foot" "1|1|1" "$([ "$(dim_rows '────')" -ge 1 ] && echo 1)|$(dim_rows 'Enter: choose')|$([ "$(line_of 'Enter: choose')" -gt "$(line_of 'Orchestrators')" ] && echo 1)"
+check "the rule and the key line, dim, the key line at the foot" "1|1|1" "$(dim_rows '────')|$(dim_rows 'arrows: move')|$([ "$(line_of 'Enter: choose')" -gt "$(line_of 'Orchestrators')" ] && echo 1)"
 check "the pane opens with the keys, the recommended choice highlighted in the open picker" "1|B (recommended)" "$(pane | grep -c '^Choose: .*▴')|$(focused)"
 press Escape
 check "Esc gives the keys back to the prompt" "0" "$(pane | grep -c '^Choose: .*▴')"
@@ -299,7 +313,7 @@ check "Esc from the text field gives the keys back to the prompt" "0|0" "$(pane 
 press C-x Tab
 check "ctrl+x tab reopens the picker on the free answer, the field gone" "Other answer: type it below|0" "$(focused)|$(pane | grep -c '^Other answer: ')"
 press Enter
-check "and Enter on it gives the field the keys again" "1" "$(pane | grep -c '^Other answer: >>')"
+check "and Enter on it gives the field the keys again" "1" "$(pane | grep -c '^Other answer: .*⏎ send')"
 tm send-keys -t "$SESSION" -l 'start with the README'
 sleep 0.6
 record "after typing in the field"
