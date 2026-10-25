@@ -252,7 +252,7 @@ export function wrapWords(text: string, width: number): string[] {
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
 async function configDir($: any): Promise<string> {
-  return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
+  return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
 }
 
 // The scripts' state root (the launcher's chains, the coordinator's record): the

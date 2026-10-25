@@ -301,6 +301,16 @@ test('the copy is read where the installer wrote it: the override, else the conf
   expect(await status.handler(config.dollar, e, passed)).toEqual({ text: 'Live sessions: none measured yet.' })
 })
 
+test('an empty config dir is an unset one: the copy is read under the home directory\'s', async () => {
+  const { registrations } = mounted()
+  const status = registrations.find(r => (r.matcher as any)?.command === 'orchestrator-status')!
+  const e = { command: 'orchestrator-status', args: '' }
+  const empty = fakeDollar()
+  empty.env.CLAUDE_CONFIG_DIR = ''
+  empty.files.set(`${HOME}/.claude/commands/orchestrator-status.md`, MARKED)
+  expect(await status.handler(empty.dollar, e, (x: unknown) => ({ passed: x }))).toEqual({ text: 'Live sessions: none measured yet.' })
+})
+
 test('sleeping lists each sleeping orchestrator, or says none, or says the record is unreadable', () => {
   const records = parseSleeping(JSON.stringify([
     { name: 'Orch : alpha', brief: '/p/briefs/succession-brief.md', dir: '/p', model: 'a-model', effort: '', slept: '2026-10-13T10:00:00Z', prs: ['forge/o/app#7 feat/x'], checkouts: ['/w/a1'] },

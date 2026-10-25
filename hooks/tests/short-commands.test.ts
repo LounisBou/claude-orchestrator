@@ -5,7 +5,7 @@
 // differs) and leaves (a current copy, a foreign file, a removed one) is tested on the script
 // itself in tests/run-tests.sh; here, through a fake $, what the module asks of it.
 import { expect, test } from 'claude-code/testing'
-import { register, syncArgv, SYNC_TIMEOUT_MS } from '../short-commands.ts'
+import { register, syncArgv, startBoundMs, SYNC_TIMEOUT_MS, START_BOUND_MS } from '../short-commands.ts'
 import { logLineOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
@@ -70,4 +70,24 @@ test('a sync that fails, or never answers, is logged and the start goes on', asy
   const hung = fakeDollar({ run: () => { throw new Error('timed out after 5000 ms') } })
   expect(await startHook().handler(hung.dollar, start, passed)).toEqual({ passed: start })
   expect(hung.written.some(l => l.includes('| short-commands | short commands not synced: timed out after 5000 ms'))).toBe(true)
+})
+
+test('the start is bound by the smaller of the host budget and 1500 ms', () => {
+  expect([startBoundMs(undefined), startBoundMs(20), startBoundMs(5000)]).toEqual([START_BOUND_MS, 20, START_BOUND_MS])
+  expect(START_BOUND_MS).toBe(1500)
+})
+
+test('a sync that never answers never holds the start past the bound', async () => {
+  const hung = fakeDollar({ run: () => new Promise(() => {}) })
+  const next = Object.assign((x: unknown) => passed(x), { budget: { ms: 1500, remainingMs: 40 } })
+  const began = Date.now()
+  expect(await startHook().handler(hung.dollar, start, next)).toEqual({ passed: start })
+  expect(Date.now() - began).toBeLessThan(1000)
+  expect(hung.written.some(l => l.includes('| short-commands | short commands not synced: did not finish within 40 ms'))).toBe(true)
+})
+
+test('an empty config dir is an unset one: the sync reads the home directory\'s', async () => {
+  const fx = fakeDollar({ env: { CLAUDE_CONFIG_DIR: '' } })
+  await startHook().handler(fx.dollar, start, passed)
+  expect(fx.runs.map(r => r.argv)).toEqual([['bash', `${INSTALLED}/short-commands.sh`, 'sync', '--dir', `${HOME}/.claude/commands`]])
 })

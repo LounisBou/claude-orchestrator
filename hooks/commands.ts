@@ -32,7 +32,7 @@ import { commandForms, commandsDirOf, isBare, isOwnCopy } from './short-names.ts
 // The config dir, this file's own resolution: $ never crosses an import, so
 // each domain that needs it spells the same two env reads itself.
 async function configDir($: any): Promise<string> {
-  return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
+  return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
 }
 
 // The records registry's root, the shell pipeline's own contract (dispatch-record.sh:59,

@@ -13,8 +13,17 @@
 // logged, and the start goes on either way.
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 import { commandsDirOf } from './short-names.ts'
+import { withDeadline, isDegradedPass } from './stop-gate.ts'
 
 export const SYNC_TIMEOUT_MS = 5000
+export const START_BOUND_MS = 1500
+// What the timeout's own log line may add: the log run is bounded too, the start goes on without it.
+const TIMEOUT_LOG_MS = 500
+
+// The whole start step's bound: the host's start budget when it is smaller, else 1500 ms.
+export function startBoundMs(remainingMs: number | undefined): number {
+  return Math.min(START_BOUND_MS, remainingMs ?? START_BOUND_MS)
+}
 
 // The writer's argv, or null where the start has nothing to sync from this root.
 export function syncArgv(root: string, configDir: string, override: string | undefined): string[] | null {
@@ -23,13 +32,11 @@ export function syncArgv(root: string, configDir: string, override: string | und
 }
 
 export function register(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
-  on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
+  on('session.start', {}, async ($: any, e: any, next: any) => {
+    const bound = startBoundMs(next.budget?.remainingMs)
     try {
-      const argv = syncArgv($.plugin.root, await configDir($), await $.env.get('ORCHESTRATOR_COMMANDS_DIR'))
-      if (argv) {
-        const done = await $.process.run(argv, { timeoutMs: SYNC_TIMEOUT_MS })
-        if (done.exitCode !== 0) await logLine($, `short commands not synced (exit ${done.exitCode}): ${String(done.stderr ?? '').trim()}`)
-      }
+      const done = await withDeadline(sync($), bound)
+      if (isDegradedPass(done)) await withDeadline(logLine($, `short commands not synced: did not finish within ${bound} ms`), TIMEOUT_LOG_MS)
     } catch (err) {
       await logLine($, `short commands not synced: ${(err as Error).message}`)
     }
@@ -40,9 +47,17 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   })
 }
 
+// The sync itself, and its failure's log line: all of it under the start's one bound.
+async function sync($: any): Promise<void> {
+  const argv = syncArgv($.plugin.root, await configDir($), await $.env.get('ORCHESTRATOR_COMMANDS_DIR'))
+  if (!argv) return
+  const done = await $.process.run(argv, { timeoutMs: SYNC_TIMEOUT_MS })
+  if (done.exitCode !== 0) await logLine($, `short commands not synced (exit ${done.exitCode}): ${String(done.stderr ?? '').trim()}`)
+}
+
 // The config dir, this file's own resolution: $ never crosses an import.
 async function configDir($: any): Promise<string> {
-  return (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${await $.env.get('HOME')}/.claude`
+  return (await $.env.get('CLAUDE_CONFIG_DIR')) || `${await $.env.get('HOME')}/.claude`
 }
 
 // One line appended to the module's log (module-log.ts). Never throws, never blocks the start.
