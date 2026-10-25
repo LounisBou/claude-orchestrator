@@ -3,8 +3,8 @@
 // recommendation read out of a question in the decide shape, near misses read as none, the
 // entry built from an orchestrator's wait, and the order the round takes its open entries in.
 import { expect, test } from 'claude-code/testing'
-import { parseChoices, questionBody, questionShape, questionParts, entryQuestions, textSpans, plainText, prReferences, roundEntry, roundEntryId, roundPath, openEntries, isDue, type RoundEntry } from '../round.ts'
-import { TWO_QUESTIONS } from './fixtures.ts'
+import { parseChoices, questionBody, questionShape, questionParts, entryQuestions, textSpans, plainText, prReferences, prPieces, repositoryOwners, numberLabel, roundEntry, roundEntryId, roundPath, openEntries, isDue, type RoundEntry } from '../round.ts'
+import { TWO_QUESTIONS, GLUED_BLOCKS } from './fixtures.ts'
 import { fingerprint, parseWait, relayText, RELAY_CAP, type Wait } from '../relay.ts'
 
 const DECIDE = [
@@ -360,4 +360,38 @@ test('the references to a pull request are found one each, glued by a slash, a c
     { at: 71, text: 'api#8', repo: 'api', number: 8 },
   ])
   expect(prReferences('issue #12 and a#b')).toEqual([])
+})
+
+test('the owners of the repositories the module knows, by the repository\'s name', () => {
+  const owners = repositoryOwners(['LounisBou/infra', null, 'geonative/geo-git-flow#21', 'not a repository', 'other/infra'])
+  expect([...owners]).toEqual([['infra', 'LounisBou'], ['geo-git-flow', 'geonative']])
+})
+
+test('a glued pair of references whose owner is known: each its own link, the slash between them plain', () => {
+  const owners = new Map([['infra', 'acme'], ['geo-git-flow', 'acme']])
+  expect(prPieces(GLUED_BLOCKS, owners)).toEqual([
+    'merge of ',
+    { href: 'https://github.com/acme/infra/pull/195', text: 'infra#195' },
+    '/',
+    { href: 'https://github.com/acme/infra/pull/196', text: 'infra#196' },
+    ' (staging lot content), E2E waiver for ',
+    { href: 'https://github.com/acme/geo-git-flow/pull/21', text: 'geo-git-flow#21' },
+    '/',
+    { href: 'https://github.com/acme/geo-git-flow/pull/22', text: 'geo-git-flow#22' },
+  ])
+})
+
+test('a reference whose owner is unknown stays plain text', () => {
+  expect(prPieces('see infra#195 and api#7', new Map([['api', 'acme']]))).toEqual([
+    'see infra#195 and ',
+    { href: 'https://github.com/acme/api/pull/7', text: 'api#7' },
+  ])
+  expect(prPieces('no reference here', new Map())).toEqual(['no reference here'])
+  expect(prPieces('', new Map())).toEqual([''])
+})
+
+test('the sender\'s numbering drawn as its two numbers', () => {
+  expect(numberLabel('Question 3 sur 4')).toBe('Question 3 / 4')
+  expect(numberLabel('Question 5 of 6')).toBe('Question 5 / 6')
+  expect(numberLabel('3/4')).toBe('3 / 4')
 })

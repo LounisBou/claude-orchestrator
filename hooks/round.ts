@@ -203,6 +203,42 @@ export function prReferences(text: string): PrReference[] {
   return [...text.matchAll(/([A-Za-z0-9_.-]+)#(\d+)/g)].map(found => ({ at: found.index!, text: found[0], repo: found[1], number: Number(found[2]) }))
 }
 
+// The owner of each repository the module knows, by the repository's name: from the addresses
+// it holds (`owner/name`, a pull request's `owner/name#<n>` too), the first owner of a name kept.
+// Anything else is no address and is skipped.
+export function repositoryOwners(addresses: readonly (string | null | undefined)[]): Map<string, string> {
+  const owners = new Map<string, string>()
+  for (const address of addresses) {
+    const found = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)(?:#\d+)?$/.exec(address ?? '')
+    if (found && !owners.has(found[2])) owners.set(found[2], found[1])
+  }
+  return owners
+}
+
+// A text cut at the references to a pull request it names: each reference whose repository has
+// a known owner is a link of its own to the pull request, the text around it plain. A reference
+// whose owner is unknown stays in the text.
+export type PrLink = { href: string; text: string }
+export function prPieces(text: string, owners: ReadonlyMap<string, string>): (string | PrLink)[] {
+  const pieces: (string | PrLink)[] = []
+  let at = 0
+  for (const ref of prReferences(text)) {
+    const owner = owners.get(ref.repo)
+    if (owner === undefined) continue
+    if (ref.at > at) pieces.push(text.slice(at, ref.at))
+    pieces.push({ href: `https://github.com/${owner}/${ref.repo}/pull/${ref.number}`, text: ref.text })
+    at = ref.at + ref.text.length
+  }
+  if (at < text.length || pieces.length === 0) pieces.push(text.slice(at))
+  return pieces
+}
+
+// The sender's numbering (`Question 3 of 4`, in its language) drawn as its two numbers with a
+// slash between them, the same in every language: `Question 3 / 4`.
+export function numberLabel(number: string): string {
+  return number.replace(/(\d+)\D+?(\d+)/, '$1 / $2')
+}
+
 // The fingerprint of the wait an entry was written for, as the sender's wait file keeps it.
 export function entryFingerprint(entry: Pick<RoundEntry, 'kind' | 'blocks' | 'question' | 'urgent'>): string {
   return fingerprint(entry.kind === 'operator'
@@ -258,11 +294,14 @@ export function openEntries(entries: readonly RoundEntry[]): RoundEntry[] {
 // first, in the round's order among themselves, then those without. A question the operator can
 // only answer in its session never hides one he can answer from the pane. A wait that asks
 // nothing, with no lettered choice and no labelled field, is no question: its sender's row
-// shows what it blocks, and the operator answers it in that tab.
+// shows what it blocks, and the operator answers it in that tab. An entry that asks several
+// questions is read by its first.
 export function paneQuestions(entries: readonly RoundEntry[]): RoundEntry[] {
-  const questions = openEntries(entries)
-    .filter(entry => entry.kind === 'operator' && (entry.choices.length > 0 || questionShape(entry.question, entry.choices) !== null))
-  return [...questions.filter(entry => entry.choices.length > 0), ...questions.filter(entry => entry.choices.length === 0)]
+  const read = openEntries(entries)
+    .filter(entry => entry.kind === 'operator')
+    .map(entry => ({ entry, first: entryQuestions(entry)[0] }))
+    .filter(({ first }) => first.choices.length > 0 || questionShape(first.question, first.choices) !== null)
+  return [...read.filter(({ first }) => first.choices.length > 0), ...read.filter(({ first }) => first.choices.length === 0)].map(({ entry }) => entry)
 }
 
 // An open question is due in the coordinator's tab when its sender marked it urgent, or when no
