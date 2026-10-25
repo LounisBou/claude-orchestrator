@@ -5803,6 +5803,13 @@ check "a dangling symlink of the same name is kept as it is, and the installer s
 bash "$ROOT/short-commands.sh" sync --dir "$SNL" >/dev/null 2>&1
 bash "$ROOT/short-commands.sh" uninstall --dir "$SNL" >/dev/null 2>&1
 check "sync and uninstall leave a dangling symlink of the same name" "link" "$([ -L "$SNL/coordinator.md" ] && echo link || echo replaced)"
+# A commands directory the writer cannot write to: the run fails and leaves nothing behind.
+SNRO="$WORK/short-readonly"; mkdir -p "$SNRO"; chmod 555 "$SNRO"
+bash "$ROOT/short-commands.sh" install --dir "$SNRO" >/dev/null 2>&1; snrc=$?
+check "a commands directory that cannot be written fails the install and writes nothing" "1|0" \
+  "$snrc|$(ls -A "$SNRO" | wc -l | tr -d ' ')"
+chmod 755 "$SNRO"
+
 echo "== iterm-agents: the asyncio stderr filter (§29) =="
 
 # The filter drops the library's own "Task exception was never retrieved" tracebacks —
