@@ -4,7 +4,7 @@
 // entry built from an orchestrator's wait, and the order the round takes its open entries in.
 import { expect, test } from 'claude-code/testing'
 import { parseChoices, questionBody, questionShape, questionParts, entryQuestions, textSpans, plainText, prReferences, prPieces, repositoryOwners, numberLabel, roundEntry, roundEntryId, roundPath, openEntries, isDue, type RoundEntry } from '../round.ts'
-import { TWO_QUESTIONS, GLUED_BLOCKS } from './fixtures.ts'
+import { TWO_QUESTIONS, GLUED_BLOCKS, SHAPED, SHAPED_SUBJECT, SHAPED_CONTEXT, SHAPED_RECOMMENDATION, FIRST_B, SECOND_RECOMMENDATION_START } from './fixtures.ts'
 import { fingerprint, parseWait, relayText, RELAY_CAP, type Wait } from '../relay.ts'
 
 const DECIDE = [
@@ -170,25 +170,6 @@ test('the question as the pane shows it leaves out the choice lines and the reco
   expect(questionBody({ question: 'Merge it?\n- **A** : alone\n', choices: [] })).toBe('Merge it?\n- **A** : alone')
 })
 
-// The shape `/orchestrator-decide` step 2 writes, in the operator's language: a bold line
-// holding the sender's own numbering, labelled fields, the choices, the recommendation. The
-// fixture is French on purpose: it checks that labels are read by their shape, accents and
-// all, never by an English word list.
-const SHAPED = [
-  'Décision notée : B, la vague continue.',
-  '',
-  '**Question 5 sur 6**',
-  '_Sujet_ : la numérotation des questions du pane',
-  '_Contexte_ : le pane affiche « 1 sur 1 » et « 5 sur 6 ».',
-  'Deux numéros pour une seule question.',
-  '_Question_ : laquelle garder ?',
-  '_Propositions_ :',
-  '- **A** : celle de l\'orchestrateur — elle suit sa vague',
-  '- **B** : celle du pane — elle compte la file',
-  '_Recommandation de l\'orchestrateur_ : A — une seule numérotation, la sienne',
-  '',
-  'Tu décides : A ou B ?',
-].join('\n')
 
 test('a question in the decide shape gives its number, its fields as labelled and its recommendation, nothing else', () => {
   const { choices, recommendation } = parseChoices(SHAPED)
@@ -197,12 +178,12 @@ test('a question in the decide shape gives its number, its fields as labelled an
   expect(questionShape(SHAPED, choices)).toEqual({
     number: 'Question 5 sur 6',
     fields: [
-      { label: 'Sujet', separator: ' : ', text: 'la numérotation des questions du pane' },
-      { label: 'Contexte', separator: ' : ', text: 'le pane affiche « 1 sur 1 » et « 5 sur 6 ».\nDeux numéros pour une seule question.' },
+      { label: 'Sujet', separator: ' : ', text: SHAPED_SUBJECT },
+      { label: 'Contexte', separator: ' : ', text: SHAPED_CONTEXT },
       { label: 'Question', separator: ' : ', text: 'laquelle garder ?' },
       { label: 'Propositions', separator: ' : ', text: '' },
     ],
-    recommendation: { label: 'Recommandation de l\'orchestrateur', separator: ' : ', text: 'A — une seule numérotation, la sienne' },
+    recommendation: { label: 'Recommandation de l\'orchestrateur', separator: ' : ', text: SHAPED_RECOMMENDATION },
   })
 })
 
@@ -310,12 +291,12 @@ test('the real entry of two questions gives each its own choices, recommendation
     ['Question 3 sur 4', ['A', 'B'], 'A'],
     ['Question 4 sur 4', ['A', 'B'], 'A'],
   ])
-  expect(parts[0].choices[1].text).toBe('2.0.0, pour marquer la réécriture, au prix de signaler une rupture qui n\'existe pas dans l\'API.')
+  expect(parts[0].choices[1].text).toBe(FIRST_B)
   expect(parts[1].choices[0].text.startsWith('une release par module converti.')).toBe(true)
   const shape = questionShape(parts[1].question, parts[1].choices)!
   expect(shape.fields.map(f => f.label)).toEqual(['Sujet', 'Contexte', 'Question', 'Choix'])
   expect(shape.fields[0].text).toBe('rythme de publication de la v2')
-  expect(shape.recommendation!.text.startsWith('A. Une étape publiée')).toBe(true)
+  expect(shape.recommendation!.text.startsWith(SECOND_RECOMMENDATION_START)).toBe(true)
 })
 
 test('the entry of two questions records the first one\'s choices, so the round reads it as a question with choices', () => {

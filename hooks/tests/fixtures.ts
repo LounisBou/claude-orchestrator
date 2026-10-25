@@ -27,3 +27,36 @@ export const TWO_QUESTIONS = [
 
 // The blocks text of a row the operator reported on 2026-10-25, its references glued by a slash.
 export const GLUED_BLOCKS = 'merge of infra#195/infra#196 (staging lot content), E2E waiver for geo-git-flow#21/geo-git-flow#22'
+
+// The shape `/orchestrator-decide` step 2 writes, in the operator's language: a bold line
+// holding the sender's own numbering, labelled fields, the choices, the recommendation. The
+// fixture is French on purpose: it checks that labels are read by their shape, accents and
+// all, never by an English word list. Kept here with its expected strings, under the fixture
+// exemption for accented text.
+export const SHAPED = [
+  'Décision notée : B, la vague continue.',
+  '',
+  '**Question 5 sur 6**',
+  '_Sujet_ : la numérotation des questions du pane',
+  '_Contexte_ : le pane affiche « 1 sur 1 » et « 5 sur 6 ».',
+  'Deux numéros pour une seule question.',
+  '_Question_ : laquelle garder ?',
+  '_Propositions_ :',
+  '- **A** : celle de l\'orchestrateur — elle suit sa vague',
+  '- **B** : celle du pane — elle compte la file',
+  '_Recommandation de l\'orchestrateur_ : A — une seule numérotation, la sienne',
+  '',
+  'Tu décides : A ou B ?',
+].join('\n')
+
+// What the shaped question reads as, verbatim.
+export const SHAPED_SUBJECT = 'la numérotation des questions du pane'
+export const SHAPED_RECOMMENDATION = 'A — une seule numérotation, la sienne'
+export const SHAPED_CONTEXT = 'le pane affiche « 1 sur 1 » et « 5 sur 6 ».\nDeux numéros pour une seule question.'
+
+// Texts of TWO_QUESTIONS' choices and recommendations, as the pane reads them.
+export const FIRST_A = "1.15.0, puis des 1.x. L'API est inchangée, donc la montée reste sans rupture pour les applications."
+export const FIRST_B = "2.0.0, pour marquer la réécriture, au prix de signaler une rupture qui n'existe pas dans l'API."
+export const SECOND_A = "une release par module converti. Chaque étape arrive en production et y est validée, au prix de plus de montées de version dans le BO et le FO."
+export const SECOND_B = "une seule release à la fin. Une seule montée de version par application, mais tout le risque arrive d'un coup."
+export const SECOND_RECOMMENDATION_START = 'A. Une étape publiée'

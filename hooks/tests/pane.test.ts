@@ -15,7 +15,7 @@ import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
 import { logLineOf, blockOf } from './fakes.ts'
 import { drawScreen, textOf } from './screen.ts'
-import { TWO_QUESTIONS, GLUED_BLOCKS } from './fixtures.ts'
+import { TWO_QUESTIONS, GLUED_BLOCKS, FIRST_A, FIRST_B, SECOND_A, SECOND_B } from './fixtures.ts'
 
 const HOME = '/tmp/h'
 const SESSIONS = `${HOME}/.claude/claude-orchestrator/store/sessions`
@@ -2001,8 +2001,6 @@ test('the rows the module counts are the rows the tree draws: a track exactly wh
 // --- one question at a time -----------------------------------------------------------------
 
 const twoQuestions = (over: Partial<RoundEntry> = {}) => entry('Orch : low', '2026-10-25T10:03:00.000Z', { session: 'low', question: TWO_QUESTIONS, blocks: 'questions 3 and 4', ...over })
-const FIRST_A = "1.15.0, puis des 1.x. L'API est inchangée, donc la montée reste sans rupture pour les applications."
-const SECOND_B = 'une seule release à la fin. Une seule montée de version par application, mais tout le risque arrive d\'un coup.'
 
 test('an entry that asks two questions is one card per question, its title the sender and its number, the next one named below it', async () => {
   const { render } = await askingPane([twoQuestions()])
@@ -2049,7 +2047,7 @@ test('a typed answer to one question of several is kept with its number, and its
   const second = await render()
   expect(input(second)).toBeUndefined()
   await pick(second, 'A')
-  expect(stored(twoQuestions().id).answer!.text).toBe('Question 3 sur 4: neither, keep 1.14 · Question 4 sur 4: A : une release par module converti. Chaque étape arrive en production et y est validée, au prix de plus de montées de version dans le BO et le FO.')
+  expect(stored(twoQuestions().id).answer!.text).toBe(`Question 3 sur 4: neither, keep 1.14 · Question 4 sur 4: A : ${SECOND_A}`)
   expect(sent.length).toBe(1)
 })
 
@@ -2069,7 +2067,7 @@ test('without a picker (mobile) the same card draws one Button per choice, and a
   expect(cardOf(tree).props).toMatchObject({ borderStyle: 'round', borderColor: 'suggestion' })
   expect(findAll(tree, n => n.type === 'Button' && String(n.props.key).startsWith('choice:')).map(n => n.props.label)).toEqual([
     `[A] ${FIRST_A}  ★`,
-    '[B] 2.0.0, pour marquer la réécriture, au prix de signaler une rupture qui n\'existe pas dans l\'API.',
+    `[B] ${FIRST_B}`,
   ])
   await button(tree, 'choice:A').props.onPress()
   const second = await render()
