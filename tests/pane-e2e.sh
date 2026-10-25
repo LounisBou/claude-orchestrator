@@ -380,7 +380,7 @@ check "the glued pull requests read as written, each a link of its own" "1|2" "$
 press Enter
 check "the first answer moves to the second question and sends nothing" "Orch : alpha · Question 2 / 2|1|open|0" "$(pane | grep -m1 '^Orch : alpha')|$(pane | grep -c '^Questions for you — 1 pending')|$(jq -r .status "$SANDBOX/state/round/s-alpha-p1.json")|$(pane | grep -c '^next:')"
 press Down Enter
-check "the last answer sends both, each after its number" "Question 1 / 2: A : 1.15.0 — no break for the applications · Question 2 / 2: B : one at the end — one upgrade per application" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-p1.json")"
+check "the last answer sends both, each after its number" "Question 1 of 2: A : 1.15.0 — no break for the applications · Question 2 of 2: B : one at the end — one upgrade per application" "$(jq -r .answer.text "$SANDBOX/state/round/s-alpha-p1.json")"
 
 # The pane's state routes each question: with the pane open no question but an urgent one is
 # due, however old, so the coordinator is not woken; with the pane closed every open one is,
