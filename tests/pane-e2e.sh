@@ -212,7 +212,7 @@ column_of() {
     | sed -E 's/^[[:space:]]*│//; s/[[:space:]]*[│█]?[[:space:]]*$//; s/[[:space:]]*│$//; s/^[[:space:]]+//'
 }
 pane() {
-  tm capture-pane -e -p -t "$SESSION" | sed -E 's/\x1b\[[0-9;]*7m/>>/g; s/\x1b\[[0-9;]*m//g; s/\x1b\]8;[^\x1b]*\x1b\\//g' \
+  tm capture-pane -e -p -t "$SESSION" | sed -E 's/\x1b\[[0-9;]*7m/>>/g; s/\x1b\[[0-9;]*m//g; s/\x1b\]8;[^[:cntrl:]]*\x1b\\//g' \
     | column_of | sed '/^[[:space:]]*$/d'
 }
 wait_for() {
