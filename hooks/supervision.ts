@@ -1441,11 +1441,15 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const typed = role === 'orchestrator' ? (await readWait($, sessionId))?.typed ?? null : null
   let forgotten = false
   let heldKey: string | null = null
+  let swept = false
   if (typed) {
     const sameWait = wait?.kind === 'operator' && wait.blocks === typed.blocks
     heldKey = (await readWait($, sessionId))?.relayed ?? null
     if (!sameWait) forgotten = await withdrawHeld($, sessionId, name, typed)
-    if (wait && !sameWait) await withdrawStale($, sessionId, roundEntryId(sessionId, wait))
+    if (wait && !sameWait) {
+      await withdrawStale($, sessionId, roundEntryId(sessionId, wait))
+      swept = true
+    }
   }
   const read = await readWait($, sessionId)
   const before = read ? withoutMark(read) : null
@@ -1478,6 +1482,9 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
     }
     await writeAtomic($, roundPath(await stateDir($), entry.id), JSON.stringify(entry) + '\n')
     await writeWait($, sessionId, { ...patch, relayed: key, name, pid })
+    // A new question is what the session waits on now: its older open entries are not. A turn
+    // the operator typed in withdrew them already, above.
+    if (entry.kind === 'operator' && !swept) await withdrawStale($, sessionId, entry.id, `superseded by ${entry.id}`)
     return
   }
   const to = role === 'orchestrator'
@@ -1657,13 +1664,14 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
 // An orchestrator's turn ended on a machine line other than the wait an open entry of its own
 // holds: that entry is no longer what it waits on, so it is withdrawn by the sender, leaves the
 // pane and its count, and its fingerprint is forgotten. A turn with no machine line says nothing
-// of its wait and withdraws nothing. `current` is the id of the entry this turn's wait has. Each
-// withdrawal is one log line; one that cannot be written is one too, and the relay goes on.
-async function withdrawStale($: any, sessionId: string, current: string): Promise<void> {
+// of its wait and withdraws nothing. `current` is the id of the entry this turn's wait has, kept
+// open; `why` the withdrawal's answer text. Each withdrawal is one log line; one that cannot be
+// written is one too, and the relay goes on.
+async function withdrawStale($: any, sessionId: string, current: string | null, why = ''): Promise<void> {
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current) continue
     try {
-      const answer = { text: '', by: 'sender' as const, at: new Date().toISOString() }
+      const answer = { text: why, by: 'sender' as const, at: new Date().toISOString() }
       await writeAtomic($, path, JSON.stringify({ ...entry, status: 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)

@@ -619,15 +619,45 @@ test('a typed turn on another wait withdraws the sender\'s own open entry; the s
   expect([...fx.files.keys()].some(p => p.includes('.tmp-'))).toBe(false)
 })
 
-test('the same turn, not typed in, leaves the entry open and adds the new one beside it', async () => {
+test('a later operator wait, not typed in, supersedes the sender\'s open entry and adds the new one', async () => {
   const chains = mounted()
   const fx = fake()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
   const [asked] = entries(fx)
   await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
-  expect(entries(fx).map(e => [e.blocks, e.status])).toEqual([['phase 3', 'open'], ['phase 4', 'open']])
-  expect(entries(fx)[0]).toEqual(asked)
+  expect(entries(fx).map(e => [e.blocks, e.status])).toEqual([['phase 3', 'withdrawn'], ['phase 4', 'open']])
+  expect([entries(fx)[0].answer?.text, entries(fx)[0].answer?.by]).toEqual([`superseded by ${entries(fx)[1].id}`, 'sender'])
+})
+
+test('a new operator wait supersedes every older open entry of its session, one presented in the tab included, and no other session\'s', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
+  const [asked] = entries(fx)
+  const woken: RoundEntry = { ...asked, id: 'woken', blocks: 'phase 2', since: '2026-10-14T07:00:00.000Z' }
+  const done: RoundEntry = { ...asked, id: 'done', kind: 'done', blocks: null, since: '2026-10-14T06:00:00.000Z' }
+  const other: RoundEntry = { ...asked, id: 'other-session', session: 's-two', from: 'Orch : other' }
+  for (const kept of [woken, done, other]) fx.files.set(`${ROUND}/${kept.id}.json`, JSON.stringify(kept) + '\n')
+  fx.files.set(`${HOME}/.claude/claude-orchestrator/round-woken.json`, JSON.stringify(['woken']) + '\n')
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4')))
+  const after = new Map(entries(fx).map(e => [e.id, e]))
+  const fresh = entries(fx).find(e => e.blocks === 'phase 4')!
+  expect(fresh.status).toBe('open')
+  for (const id of [asked.id, 'woken', 'done']) {
+    expect([after.get(id)!.status, after.get(id)!.answer?.text, after.get(id)!.answer?.by]).toEqual(['withdrawn', `superseded by ${fresh.id}`, 'sender'])
+    expect(fx.logged.filter(l => l.includes(`round: withdrawn by the sender: ${id}`)).length).toBe(1)
+  }
+  expect(after.get(other.id)).toEqual(other)
+  expect(fx.row().relayed).toBe(fingerprint(parseWait(answerOf('A new question?', 'waiting: operator — blocks: phase 4'))!))
+})
+
+test('a done wait supersedes nothing', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase 3')))
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('All merged.', 'waiting: done')))
+  expect(entries(fx).map(e => [e.kind, e.status])).toEqual([['operator', 'open'], ['done', 'open']])
 })
 
 test('a later turn that ends on no machine line leaves the sender\'s open entries as they are', async () => {
@@ -807,7 +837,7 @@ test('a coordinator on another machine is sent the withdrawal at the turn\'s end
   expect(report.text).toContain('blocks: phase 4')
 })
 
-for (const [label, line] of [['another operator wait', 'waiting: operator — blocks: phase 4'], ['done', 'waiting: done']] as const) {
+for (const [label, line] of [['done', 'waiting: done']] as const) {
   test(`a turn the operator did not start, ending on ${label}, leaves every open entry open`, async () => {
     const { chains, fx } = await relayedQuestion()
     const [asked] = entries(fx)
