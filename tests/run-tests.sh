@@ -6656,6 +6656,26 @@ ROPEN=$(ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_N
 check "round records the ids of the open entries it printed, keeps those printed before while the round holds them" \
   "yes|$(printf '%s,w1' "$ROPEN" | tr ',' '\n' | sort | paste -sd, -)|0" \
   "$([ -n "$ROPEN" ] && echo yes)|$(jq -r 'sort | join(",")' "$ASTATE/round-listed.json")|$(find "$ASTATE" -maxdepth 1 -name 'round-listed.json.tmp-*' | wc -l | tr -d ' ')"
+# One read of the round serves the print and the record: an entry opened while the print runs
+# was recorded as shown though never printed, and its settling later told a coordinator that
+# had never seen it. A jq shim writes such an entry while round prints.
+LATE_BIN="$WORK/late-jq"
+mkdir -p "$LATE_BIN"
+REAL_JQ=$(command -v jq)
+cat > "$LATE_BIN/jq" <<SHIM
+#!/bin/bash
+case "\$*" in
+  *'def ordered'*) [ -f "$ASTATE/round/late.json" ] || jq -n '{id:"late", from:"Orch : a", session:"s-a", kind:"operator", since:"2026-10-20T10:05:00.000Z",
+    blocks:"phase 9", question:"Late?", choices:[], recommendation:null, status:"open", at:"2026-10-20T10:05:00.000Z", answer:null}' > "$ASTATE/round/late.json" ;;
+esac
+exec "$REAL_JQ" "\$@"
+SHIM
+chmod +x "$LATE_BIN/jq"
+rm -f "$ASTATE/round-listed.json"
+LATE_OUT=$(PATH="$LATE_BIN:$PATH" ORCHESTRATOR_STATE_DIR="$ASTATE" CLAUDE_CONFIG_DIR="$ACFG" COORDINATOR_NOW=2026-10-20T10:06:00Z bash "$COORD" round 2>&1)
+check "an entry opened while round prints is neither printed nor recorded as shown" "yes|0|yes|no" \
+  "$([ -f "$ASTATE/round/late.json" ] && echo yes)|$(printf '%s\n' "$LATE_OUT" | grep -c '^round late ')|$([ -s "$ASTATE/round-listed.json" ] && echo yes)|$(jq -e 'index("late") != null' "$ASTATE/round-listed.json" >/dev/null 2>&1 && echo yes || echo no)"
+rm -f "$ASTATE/round/late.json" "$ASTATE/round-listed.json"
 rm -f "$ASTATE/round-listed.json"
 check "the coordinator drops a question settled elsewhere in one line, runs nothing for it and never asks it again" "yes|yes|yes|no" \
   "$(spells "$COORDSKILL" '**A question settled elsewhere leaves your tab at once.**')|$(spells "$COORDSKILL" '« Already closed »: run no command for it. Drop that question if it is the one you present, say')|$(spells "$COORDSKILL" 'one line, « settled in the pane » or « settled in <sender>'"'"'s tab », never ask or relay it again,')|$(spells "$COORDSKILL" 'run the `round-close` the')"

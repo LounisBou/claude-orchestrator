@@ -794,9 +794,13 @@ cmd_round() {
     # A clock a test pins must still read as a UTC time, though no rule reads an age any more.
     jq -n --arg now "${COORDINATOR_NOW:-}" 'if $now == "" then now else $now | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 end' >/dev/null 2>&1 \
         || die "round: COORDINATOR_NOW is no UTC time: ${COORDINATOR_NOW:-}"
+    # One read of the round for the print and its record: an entry opened between two reads
+    # would be recorded as shown though it was never printed.
+    local entries
+    entries=$(round_entries)
     # An entry whose sender's sessions file is absent keeps its place, and its header says the
     # sender is gone: the session ended with its question still open.
-    round_entries | jq -s -r --argjson live "$(live_sessions)" --argjson pane "$pane" --argjson by_urgency "$by_urgency" '
+    printf '%s\n' "$entries" | jq -s -r --argjson live "$(live_sessions)" --argjson pane "$pane" --argjson by_urgency "$by_urgency" '
         # The round order (hooks/round.ts openEntries): grouped by sender, the groups by their
         # earliest wait, each in the order its waits began.
         def ordered: (sort_by(.since) | reduce .[] as $e ({}; if has($e.from) then . else .[$e.from] = $e.since end)) as $first
@@ -818,10 +822,11 @@ cmd_round() {
           (select(.status == "withdrawn" and .answer.by? == "sender") | "    withdrawn by the sender at \(.answer.at // "?"): \(if (.answer.text | type) == "string" and .answer.text != "" then .answer.text else "a later turn the operator typed in waits on something else" end)"),
           (select(.status == "withdrawn" and .answer.by? == "tab") | "    withdrawn in the sender\u0027s tab at \(.answer.at // "?"): \(.answer.text // "")"),
           (select(.status == "withdrawn" and (.answer | type) == "object" and .answer.by != "sender" and .answer.by != "tab") | "    withdrawn by \(.answer.by // "?") at \(.answer.at // "?"): \(.answer.text // "")")'
-    record_listed
+    record_listed "$entries"
 }
 
-# record_listed: the ids of the open entries `round` printed, kept in <state>/round-listed.json
+# record_listed <entries>: the ids of the open entries `round` printed, from the very lines it
+# printed them from (round_entries' output), kept in <state>/round-listed.json
 # beside those it printed before, and only while the round still holds them. The hooks module
 # reads it: an entry the coordinator was shown and that is then settled in the pane or in the
 # sender's tab is reported to it at once, so it never asks it again. Written as the module
@@ -832,7 +837,7 @@ record_listed() {
     local listed="$STATE/round-listed.json" was ids tmp
     was=$(jq -c 'if type == "array" then map(select(type == "string")) else [] end' "$listed" 2>/dev/null) || was='[]'
     [ -n "$was" ] || was='[]'
-    ids=$(round_entries | jq -s -c --argjson was "$was" \
+    ids=$(printf '%s\n' "$1" | jq -s -c --argjson was "$was" \
         'map(.id) as $present | ($was + map(select(.status == "open") | .id)) | unique | map(. as $id | select($present | index($id)))') || return 0
     tmp=$(mktemp "$listed.tmp-XXXXXX" 2>/dev/null) \
         && printf '%s\n' "$ids" > "$tmp" && mv -f "$tmp" "$listed" \
