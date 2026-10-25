@@ -271,6 +271,11 @@ check "the orchestrator rulebook stays at 21,518 bytes or fewer" "yes" \
 # rulebook, the briefs reference and the phase brief template each carry the rule.
 check "the rulebook stops real machine load an agent reports or plans" "yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'is stopped at once, its processes killed, and the work redone under emulated throttling')"
+# The pane draws each pull request reference of a blocks text as a link of its own, and a slash
+# glues two of them into a name it cannot resolve: the rulebook tells the orchestrator to split
+# them by a comma.
+check "the rulebook splits the references of a blocks text by commas, never a slash" "yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Split references in `blocks:` by `, `, never `/`.')"
 check "the standing rules read « under load » as emulated throttling" "yes" \
   "$(spells "$ORCH_REFS/briefs.md" '**« Under load » means emulated throttling, never real load on the machine.**')"
 check "the phase brief template reads « under load » as emulated throttling" "yes" \
