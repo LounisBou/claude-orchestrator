@@ -519,8 +519,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         return table
       }
       const background = ownBackground(await processes(), pid)
+      // Without the host pid no process can be told as the session's own: a true tool line
+      // is accepted rather than refused as « nothing runs », which sends the turn back to a false operator wait.
+      const hostUnread = !pid
+      if (hostUnread) await logLine($, 'stop gate: host pid unread: the process table could not be tied to this session')
       const wake = checkWake({
-        agents, resident, delivered, background,
+        agents, resident, delivered, background, hostUnread,
         awaiting: sessionId !== '' && awaitingIn(sessionId),
         message: String(e.last_assistant_message ?? ''),
         handedOver: (sessionId !== '' && handedOverIn === sessionId) || isEnding(),

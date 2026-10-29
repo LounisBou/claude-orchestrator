@@ -131,11 +131,17 @@ export const URGENT_LINE = /^waiting:\s*operator\s*\(urgent\)/i
 export const TOOL_LINE = /^waiting:\s*tool\s*(?:—|–|--|-)\s*(.+)$/i
 // A wait on the operator whose reason blocks nothing: no question for him, so no wait on him.
 const OPERATOR_LINE = /^waiting:\s*operator\s*(?:\(urgent\)\s*)?(?:—|–|--|-)\s*blocks:\s*(.*)$/i
-const NOTHING_BLOCKED = new Set(['', 'nothing', 'none', 'rien', 'aucun', 'n/a', '-'])
+// A reason that blocks nothing: empty, `n/a`, `-`, or one whose first word is `nothing` or
+// `none` and that names nothing after it: no identifier (`G5`, `#12`, `row 3`), no « than », « but »,
+// « except » or « before » — « nothing yet », « none for now ».
+const NOTHING_BLOCKED = /^(?:|n\/a|-|(?:nothing|none)\b.*)$/i
+const NAMES_SOMETHING = /\bG\d+\b|#\d+|\brow\s+\d+\b|\b(?:than|but|except|before)\b/i
 
 export function blocksNothing(line: string): boolean {
   const matched = OPERATOR_LINE.exec(line)
-  return matched !== null && NOTHING_BLOCKED.has(matched[1].trim().replace(/\.$/, '').trim().toLowerCase())
+  if (matched === null) return false
+  const reason = matched[1].trim().replace(/\.$/, '').trim()
+  return NOTHING_BLOCKED.test(reason) && !NAMES_SOMETHING.test(reason)
 }
 // The predecessor's last word in a succession (succeed.md): the line itself, nothing else.
 const HANDED_OVER = /^handed over$/i
@@ -357,6 +363,7 @@ export function checkWake(facts: {
   watching?: boolean
   background?: readonly string[]
   awaiting?: boolean
+  hostUnread?: boolean
 }): Held | { blocks: string } | { tool: string } | 'read-what-is-left' | null {
   const last = machineLine(facts.message)
   const matched = MACHINE_LINE.exec(last)
@@ -373,7 +380,7 @@ export function checkWake(facts: {
   }
   const tool = TOOL_LINE.exec(last)
   if (tool) {
-    if (running.length > 0 || facts.watching) return { tool: tool[1].trim() }
+    if (running.length > 0 || facts.watching || facts.hostUnread) return { tool: tool[1].trim() }
     return { case: 'tool-not-running', reason: toolNotRunningReason(busy) }
   }
   if (busy) return null

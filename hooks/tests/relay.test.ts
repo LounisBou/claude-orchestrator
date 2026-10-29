@@ -1285,7 +1285,7 @@ test('a coordinator on another machine is told nothing of a withdrawal in this r
 // nothing, asks him nothing: neither is entered in the round, nor sent, nor kept as a wait.
 test('neither a tool wait nor an operator wait blocking nothing is a wait', () => {
   expect(parseWait(answerOf('Deploys started.', 'waiting: tool — the deploy monitor'))).toBeNull()
-  for (const blocks of ['nothing', 'Nothing.', 'none', 'rien', 'aucun', 'n/a', '-', '']) {
+  for (const blocks of ['nothing', 'Nothing.', 'none', 'nothing yet', 'n/a', '-', '']) {
     expect([blocks, parseWait(answerOf('Watching.', `waiting: operator — blocks: ${blocks}`))]).toEqual([blocks, null])
   }
   expect(parseWait(answerOf('Watching.', 'waiting: operator (urgent) — blocks: none'))).toBeNull()

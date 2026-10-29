@@ -1406,7 +1406,7 @@ test('the tool line, decided over the facts', () => {
 
 test('a wait on the operator that blocks nothing is refused, the right line named', () => {
   const base = { agents: [], resident: false, delivered: [] }
-  for (const blocks of ['nothing', 'Nothing.', 'none', 'NONE', 'rien', 'aucun', 'n/a', 'N/A', '-', '']) {
+  for (const blocks of ['nothing', 'Nothing.', 'none', 'NONE', 'nothing yet', 'nothing to ask', 'none for now', 'nothing.', 'n/a', 'N/A', '-', '']) {
     const held = checkWake({ ...base, message: `Watching the deploys.\nwaiting: operator — blocks: ${blocks}` }) as any
     expect([blocks, held.case]).toEqual([blocks, 'blocks-nothing'])
     expect(held.reason).toContain('waiting: done')
@@ -1421,6 +1421,16 @@ test('a wait on the operator that blocks nothing is refused, the right line name
   expect(busy.reason).toContain('An agent of yours is busy: end on no machine line')
   // What blocks something is still the operator's wait.
   expect(checkWake({ ...base, message: 'waiting: operator — blocks: nothing else than the merge' })).toEqual({ blocks: 'nothing else than the merge' })
+  expect(checkWake({ ...base, message: 'waiting: operator — blocks: nothing but G5' })).toEqual({ blocks: 'nothing but G5' })
+  expect(checkWake({ ...base, message: 'waiting: operator — blocks: none, except row 3' })).toEqual({ blocks: 'none, except row 3' })
+  expect(checkWake({ ...base, message: 'waiting: operator — blocks: nothing before geonative-api#12' })).toEqual({ blocks: 'nothing before geonative-api#12' })
+})
+
+test('a true tool line is accepted when the host pid could not be read', () => {
+  const base = { agents: [], resident: false, delivered: [] }
+  expect(checkWake({ ...base, message: 'waiting: tool — the deploy monitor', hostUnread: true })).toEqual({ tool: 'the deploy monitor' })
+  // A read host pid still refuses a tool line with nothing running.
+  expect((checkWake({ ...base, message: 'waiting: tool — the deploy monitor' }) as any).case).toBe('tool-not-running')
 })
 
 test('the refusals offer the tool line only as what follows a launch, never as a line that fits now', () => {
