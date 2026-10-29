@@ -3,6 +3,9 @@
 #
 #   tests/pane-e2e.sh [--screens <file>] [--keep]
 #
+# A failed check keeps the module's log: in `pane-e2e-module.log` beside the screens' file,
+# else its last lines printed under the failure.
+#
 # NOT part of `run-tests.sh`, like `e2e.sh`: it drives a host session in a detached tmux
 # server of its own. The host is the one logged in on this machine, on its subscription: the
 # script makes no credential, asks for none and writes none. It reads the host's banner before
@@ -63,7 +66,19 @@ done
 pass=0; fail=0; ALIVE=""
 check() {
   if [ "$2" = "$3" ]; then printf '  ok   %s\n' "$1"; pass=$((pass+1))
-  else printf '  FAIL %s\n       expected: %s\n       actual:   %s\n' "$1" "$2" "$3"; fail=$((fail+1)); fi
+  else printf '  FAIL %s\n       expected: %s\n       actual:   %s\n' "$1" "$2" "$3"; fail=$((fail+1)); keep_log "FAIL $1"; fi
+}
+# The module's log as it stands, kept past the sandbox so a fall can be read afterwards: each
+# section's start wipes it, and the end removes the sandbox. Appended under `$1` to the file
+# beside the screens, else its last lines printed.
+keep_log() {
+  local log="$SANDBOX/module/hooks-module.log"
+  if [ ! -s "$log" ]; then echo "       module log: empty or absent ($1)"
+  elif [ -n "$SCREENS" ]; then
+    { printf '== %s\n' "$1"; cat "$log"; printf '\n'; } >> "$MODULE_LOG"
+    echo "       module log kept in $MODULE_LOG"
+  else tail -n 30 "$log" | sed 's/^/       log: /'; fi
+  return 0
 }
 
 # The host's own configuration directory, read for the history's count and the transcript
@@ -81,6 +96,8 @@ cleanup() {
   [ -n "$ALIVE" ] && kill "$ALIVE" 2>/dev/null
   # The host writes until it is gone: removed sooner, part of it comes back.
   sleep 2
+  # The last section's log once its hosts are gone, with what they wrote after its checks.
+  [ "$fail" -gt 0 ] && keep_log "the module's log at the end"
   local transcripts
   transcripts=$(printf '%s' "$SANDBOX/work" | sed 's/[^A-Za-z0-9]/-/g')
   case "$transcripts" in *-orchestrator-*-work) rm -rf "${HOSTDIR:?}/projects/$transcripts" ;; esac
@@ -93,6 +110,8 @@ cleanup() {
 }
 trap cleanup EXIT
 [ -n "$SCREENS" ] && : > "$SCREENS"
+MODULE_LOG="$(dirname "${SCREENS:-.}")/pane-e2e-module.log"
+[ -n "$SCREENS" ] && : > "$MODULE_LOG"
 
 # The subscription, or nothing driven at all: the banner's first rows, read from the screen given
 # (`$1`), name the product and the plan (the plan escaped, so a name with a dot or a bracket
