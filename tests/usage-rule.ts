@@ -2,17 +2,24 @@
 // suite to hold it to routing.py's on the same transcript.
 //
 //   node tests/usage-rule.ts cost <transcript> <prices.json> [<split>]
+//   node tests/usage-rule.ts read <transcript> <offset> <length>
 //
 // Reads the transcript through the module's own reader (appendedArgv, the shell it runs) in
 // two reads, the first one ending at byte <split> (half the file by default), then prints
-// the tokens and the cost of every message in it, in `routing.py cost --json`'s keys.
+// the tokens and the cost of every message in it, in `routing.py cost --json`'s keys. `read`
+// prints the reader's own answer for one window, as it hands it to the module.
 import { execFileSync } from 'node:child_process'
 import { readFileSync, statSync } from 'node:fs'
 import { appendedArgv, consumedOf, ingest, newBook, settle, sumsOf } from '../hooks/usage.ts'
 
 const [mode, transcript, pricesPath, split] = process.argv.slice(2)
+if (mode === 'read' && transcript && pricesPath && split) {
+  const [cmd, ...args] = appendedArgv(transcript, Number(pricesPath), Number(split))
+  process.stdout.write(execFileSync(cmd, args, { encoding: 'utf8' }))
+  process.exit(0)
+}
 if (mode !== 'cost' || !transcript || !pricesPath) {
-  process.stderr.write('usage: usage-rule.ts cost <transcript> <prices.json> [<split>]\n')
+  process.stderr.write('usage: usage-rule.ts cost <transcript> <prices.json> [<split>] | read <transcript> <offset> <length>\n')
   process.exit(2)
 }
 

@@ -6841,6 +6841,20 @@ head -n 2 "$UFIX/transcript.jsonl" > "$WORK/partial.jsonl"
 printf '%s' '{"type":"assistant","message":{"model":"a-model","usage":{"input_tokens":5' >> "$WORK/partial.jsonl"
 check "a partial last line is left for the next read" "$(head -n 2 "$UFIX/transcript.jsonl" | wc -c | tr -d ' ')" \
   "$(node --no-warnings "$ROOT/tests/usage-rule.ts" cost "$WORK/partial.jsonl" "$USTATE/routing/prices.json" | jq -r '.offset')"
+# The reader's own answer, as the module receives it: only the lines a usage may be read from,
+# the line still being written neither printed nor counted, then the bytes the complete lines
+# spanned after the separator (shown here as |).
+uread_a='{"type":"assistant","message":{"id":"r1","model":"a-model","usage":{"input_tokens":3}}}'
+uread_b='{"type":"user","usage":"assistant"}'
+uread_p='{"type":"assistant","message":{"id":"r2","model":"a-model","usage":{"input_tokens":4'
+{ printf '%s\n' "$uread_a" '{"type":"user","message":{"content":"x"}}' "$uread_b" '{"type":"progress","usage":1}' '{"type":"assistant","message":{"content":"x"}}'
+  printf '%s' "$uread_p"; } > "$WORK/reader.jsonl"
+usize=$(wc -c < "$WORK/reader.jsonl" | tr -d ' ')
+uread() { node --no-warnings "$ROOT/tests/usage-rule.ts" read "$WORK/reader.jsonl" "$1" "$2" | tr '\036' '|'; }
+check "the reader prints the usage lines and the complete lines' bytes, the partial one left" \
+  "$uread_a"$'\n'"$uread_b"$'\n'"|$(( usize - ${#uread_p} ))" "$(uread 0 "$usize")"
+check "a window starting past the first line counts from its own start" \
+  "$uread_b"$'\n'"|$(( usize - ${#uread_p} - ${#uread_a} - 1 ))" "$(uread $(( ${#uread_a} + 1 )) $(( usize - ${#uread_a} - 1 )))"
 
 echo "== routing: pick =="
 
