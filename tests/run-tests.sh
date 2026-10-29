@@ -8328,6 +8328,17 @@ check "ready on a row that names none prints the command with the placeholders" 
   "$(srec ready "$LR" "$lr2" --head bbb2222 --e2e "$E2EOK" 2>/dev/null | grep -c '^pr-readiness <n> ready on <owner/repo>$')"
 check "a refused ready prints no label command" "0" \
   "$(srec ready "$LR" "$lr2" --head ccc3333 --e2e "$E2EOK" 2>&1 | grep -c 'pr-readiness')"
+lr3=$(srec open "$LR" --class behaviour-phase --tier standard --label "none")
+srec review "$LR" "$lr3" --head ddd4444 --norms tool >/dev/null
+srec fixed "$LR" "$lr3" --head eee5555 >/dev/null
+srec surface "$LR" "$lr3" --none >/dev/null
+check "ready on a row corrected and verified at the head prints the command with the placeholders" "1" \
+  "$(srec ready "$LR" "$lr3" --head eee5555 --e2e "$E2EOK" 2>/dev/null | grep -c '^pr-readiness <n> ready on <owner/repo>$')"
+lr4=$(srec open "$LR" --class behaviour-phase --tier standard --label "none")
+srec surface "$LR" "$lr4" --none >/dev/null
+check_status "ready on a row with no review recorded warns and exits 0" 0 srec ready "$LR" "$lr4" --head fff6666 --e2e "$E2EOK"
+check "and it prints no label command" "0" \
+  "$(srec ready "$LR" "$lr4" --head fff6666 --e2e "$E2EOK" 2>&1 | grep -c 'pr-readiness')"
 unset SURFACE_BODIES
 check "dispatch-record.sh makes no label call itself" "0" "$(grep -c 'labels-ensure\|gh pr edit\|--add-label' "$REC")"
 
