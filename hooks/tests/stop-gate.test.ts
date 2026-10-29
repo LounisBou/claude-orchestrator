@@ -236,7 +236,8 @@ test('the remaining cases refuse each with their own text', () => {
   })
   expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting: operater blocks x' })).toEqual({
     case: 'malformed-machine-line',
-    reason: 'Your last line is not the machine line: end the message with the line waiting: operator — blocks: <what it blocks>, or with waiting: done, as the message\'s last line, no markup. '
+    reason: 'Your last line is not the machine line: end the message with the line waiting: operator — blocks: <what it blocks>, or with waiting: done, '
+      + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <ids>, as the message\'s last line, no markup. '
       + 'waiting: tool — <what is watched> fits only while a command or monitor you started runs in the background.',
   })
   expect(checkWake({ agents: [], resident: false, delivered: [], message: 'waiting: your call?' })).toEqual({
@@ -1557,4 +1558,35 @@ test('the deferred line that names nothing of what is deferred is refused at the
   const held = await stop(handlers['classic.Stop'], wrong.dollar, stopEvent({ last_assistant_message: 'Nothing left.\nwaiting: deferred — nothing' }))
   expect((held.answer as any).block).toContain('missing row 5, G5, G6')
   expect((held.answer as any).block).toContain('unknown nothing')
+})
+
+// A deferred line with no ids is a machine line that lacks its ids, not a question that blocks nothing.
+test('waiting: deferred with no ids is a malformed machine line naming the form, at the gate', () => {
+  const base = { agents: [], resident: false, delivered: [] }
+  for (const message of ['waiting: deferred', 'Nothing left.\nwaiting: deferred —', '**waiting: deferred**']) {
+    const held = checkWake({ ...base, message }) as any
+    expect([message, held.case]).toEqual([message, 'malformed-machine-line'])
+    expect(held.reason).toContain('waiting: deferred — <ids>')
+    expect(held.reason).not.toContain('blocks nothing declared')
+  }
+})
+
+test('the deferred line with no ids is refused at the stop, naming the form', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({ records: [DEFERRED_ROW], goals: DEFERRED_GOALS })
+  const held = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'Nothing left.\nwaiting: deferred' }))
+  expect((held.answer as any).block).toContain('waiting: deferred — <ids>')
+  expect((held.answer as any).block).not.toContain('blocks nothing declared')
+})
+
+// The message that sent a session to « waiting: operator » for goals the operator had deferred
+// must name the deferred ending beside the others.
+test('the malformed-line text and the lines that fit name the deferred ending', () => {
+  const base = { agents: [], resident: false, delivered: [] }
+  const NAMED = 'if the operator deferred it, his ruling recorded: waiting: deferred — <ids>'
+  expect((checkWake({ ...base, message: 'waiting: operater blocks x' }) as any).reason).toContain(NAMED)
+  expect((checkWake({ ...base, message: 'waiting: operator — blocks: nothing' }) as any).reason).toContain(NAMED)
+  expect((checkWake({ ...base, message: 'waiting: tool — the monitor' }) as any).reason).toContain(NAMED)
+  // While something runs, the line that fits is the tool line alone.
+  expect((checkWake({ ...base, message: 'waiting: operator — blocks: nothing', background: ['sleep 9'] }) as any).reason).not.toContain(NAMED)
 })

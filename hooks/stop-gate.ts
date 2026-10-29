@@ -72,12 +72,17 @@ const NOTHING = 'Nothing will wake you: no agent of yours is running, and no com
   + "The line goes as the message's last line, no markup."
 const MALFORMED = 'Your last line is not the machine line: end the message with the line '
   + 'waiting: operator — blocks: <what it blocks>, or with waiting: done, '
+  + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <ids>, '
   + "as the message's last line, no markup. "
   + 'waiting: tool — <what is watched> fits only while a command or monitor you started runs in the background.'
+const DEFERRED_MALFORMED = 'Your last line is not the machine line: a deferred ending names what is deferred. '
+  + 'End the message with the line waiting: deferred — <ids> (rows by their number, goals as G<n>), '
+  + "as the message's last line, no markup."
 // The lines that fit a turn, by what will wake it: what the two refusals below name.
 const BUSY_FITS = 'An agent of yours is busy: end on no machine line, its idle notice wakes you.'
 const OTHER_FITS = 'If a question for the operator truly blocks, end with the line waiting: operator — blocks: <what it blocks>; '
-  + 'if every goal is met or ruled out, with waiting: done; else launch what you announced.'
+  + 'if every goal is met or ruled out, with waiting: done; '
+  + 'if the operator deferred it, his ruling recorded: waiting: deferred — <ids>; else launch what you announced.'
 const runningFits = (what: readonly string[]) =>
   `${what.join(', ')} runs in the background: end with the line waiting: tool — <what is watched>.`
 function fits(busy: boolean, running: readonly string[]): string {
@@ -138,6 +143,8 @@ export const MACHINE_LINE = /^waiting:\s*(?:operator\s*(?:\(urgent\)\s*)?(?:—|
 // recorded on each row and goal (dispatch-record.sh defer, goals … defer) and the line lists
 // them. It asks him nothing, so the relay never enters it.
 const DEFERRED_LINE = /^waiting:\s*deferred\s*(?:—|–|--|-)\s*(.+)$/i
+// The deferred line's first words, with or without its ids: without them it is malformed.
+const DEFERRED_WORD = /^waiting:\s*deferred\b/i
 export function deferredIds(line: string): string | null {
   const matched = DEFERRED_LINE.exec(line)
   return matched ? matched[1].trim() : null
@@ -417,6 +424,7 @@ export function checkWake(facts: {
     const names = facts.agents.map(a => a.label).join(', ')
     return { case: 'idle-agents', reason: (facts.agents.length === 1 ? IDLE_ONE : IDLE_MANY).replace('%s', names) }
   }
+  if (DEFERRED_WORD.test(last)) return { case: 'malformed-machine-line', reason: DEFERRED_MALFORMED }
   if (last.toLowerCase().startsWith('waiting') && LOOKS_DECLARED.test(last)) {
     return { case: 'malformed-machine-line', reason: MALFORMED }
   }
