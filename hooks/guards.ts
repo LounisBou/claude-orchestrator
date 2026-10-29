@@ -540,7 +540,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const top = await projectTop($, String(e.cwd ?? ''), until)
         const checkouts = projectCheckouts(top, await mustRun($, ['bash', `${root}/skills/orchestrator/scripts/workspace.sh`, 'list'], 'workspace.sh list', until))
         const records = await registeredRecords($, state, sessionId, until)
-        const ending = deferredIds(machineLine(String(e.last_assistant_message ?? ''))) === null ? 'done' : 'deferred'
+        const ids = deferredIds(machineLine(String(e.last_assistant_message ?? '')))
+        const ending = ids === null ? 'done' : 'deferred'
         const texts = await readRecords($, records, until)
         const deferred = openRows(texts)
         const goals = await readGoals($, records, root, until)
@@ -551,6 +552,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           goalsDeferred: goals.flatMap(g => g.deferred),
           goalsFaults: goals.flatMap(g => g.faults),
           ending,
+          ids: ids ?? undefined,
         })
         if (held) {
           await logLine($, `stop gate: check1 ${held.case}`)

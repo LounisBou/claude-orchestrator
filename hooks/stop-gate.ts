@@ -111,6 +111,7 @@ const GOALS_OPEN = 'Not done against the spec: %s open. Dispatch the work that m
   + 'waiting: operator — blocks: <G>: <what he must rule> — or, if he deferred it, record his ruling with '
   + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <ids>.'
 const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <ids>, not on waiting: done.'
+const IDS_WRONG = 'waiting: deferred — <ids> must name every deferred item (rows by their number, goals as G<n>): %s.'
 const NOTHING_DEFERRED = 'Nothing is deferred: no open row or goal carries the operator\'s ruling. '
   + 'If everything is finished, end on waiting: done.'
 const GOALS_FAULT = 'goals.md is not a record of the spec: %s.'
@@ -486,7 +487,21 @@ export function isSuccessorSpawn(command: string): boolean {
 // Work the operator deferred (`deferredRows` among the open rows, `goalsDeferred` beside the
 // open goals) is open and put off by his ruling. The ending `waiting: deferred — <ids>`
 // (`ending: 'deferred'`) takes it when nothing else is open, and is refused when nothing is
-// deferred; `waiting: done` refuses it, and names the line that fits.
+// deferred; `waiting: done` refuses it, and names the line that fits. The ids the line lists
+// (`ids`) must be those deferred items, each named and none unknown.
+function idsMismatch(listed: string, rows: readonly string[], goals: readonly string[]): string | null {
+  const wanted = new Map<string, string>()
+  for (const row of rows) wanted.set(row.split(' ')[0].toUpperCase(), `row ${row.split(' ')[0]}`)
+  for (const goal of goals) wanted.set(goal.toUpperCase(), goal)
+  const named = listed.split(/[,\s]+/).filter(id => id !== '' && !/^rows?$/i.test(id))
+  const upper = named.map(id => id.toUpperCase())
+  const missing = [...wanted].filter(([id]) => !upper.includes(id)).map(([, name]) => name)
+  const unknown = named.filter(id => !wanted.has(id.toUpperCase()))
+  if (missing.length === 0 && unknown.length === 0) return null
+  const said = [missing.length > 0 ? `missing ${missing.join(', ')}` : '', unknown.length > 0 ? `unknown ${unknown.join(', ')}` : '']
+  return IDS_WRONG.replace('%s', said.filter(part => part !== '').join('; '))
+}
+
 export function checkWakeDone(left: {
   agents: readonly OwnAgent[]
   checkouts: readonly string[]
@@ -496,6 +511,7 @@ export function checkWakeDone(left: {
   goalsDeferred?: readonly string[]
   goalsFaults?: readonly string[]
   ending?: 'done' | 'deferred'
+  ids?: string
 }): Held | null {
   const stillThere = [...left.checkouts, ...left.agents.map(a => a.label)]
   const putOff = left.deferredRows ?? []
@@ -506,6 +522,8 @@ export function checkWakeDone(left: {
   const names = [...putOff.map(row => `row ${row}`), ...putOffGoals]
   if (left.ending === 'deferred') {
     if (names.length === 0 && reasons.length === 0) return { case: 'nothing-deferred', reason: NOTHING_DEFERRED }
+    const wrong = names.length > 0 && left.ids !== undefined ? idsMismatch(left.ids, putOff, putOffGoals) : null
+    if (wrong) reasons.push(wrong)
   } else if (names.length > 0) {
     reasons.push(DEFERRED_STILL.replace('%s', names.join(', ')))
   }

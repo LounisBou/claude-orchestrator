@@ -1533,3 +1533,28 @@ test('the deferred line is refused beside a row that is not deferred, and the do
   expect((refused.answer as any).block).toContain('deferred by the operator')
   expect((refused.answer as any).block).toContain('waiting: deferred')
 })
+
+// The ids after « waiting: deferred — » are compared with the deferred items: a line that names
+// nothing of what is put off, or not all of it, is no record of what the session ended on.
+test('a deferred ending passes only when its ids name every deferred item, rows by number, goals as G<n>', () => {
+  const left = { agents: [], checkouts: [], deferred: ['5 (a)'], deferredRows: ['5 (a)'], goalsDeferred: ['G5', 'G6'], ending: 'deferred' as const }
+  expect(checkWakeDone({ ...left, ids: '5, G5, G6' })).toBeNull()
+  expect(checkWakeDone({ ...left, ids: '5 G5 G6' })).toBeNull()
+  expect(checkWakeDone({ ...left, ids: 'row 5, g5, G6' })).toBeNull()
+  const none = checkWakeDone({ ...left, ids: 'nothing' })!
+  expect(none.case).toBe('not-done')
+  expect(none.reason).toContain('missing row 5, G5, G6')
+  expect(none.reason).toContain('unknown nothing')
+  const part = checkWakeDone({ ...left, ids: '5, G5, G9' })!
+  expect(part.reason).toContain('missing G6')
+  expect(part.reason).not.toContain('missing row 5')
+  expect(part.reason).toContain('unknown G9')
+})
+
+test('the deferred line that names nothing of what is deferred is refused at the stop', async () => {
+  const { handlers } = mounted()
+  const wrong = fakeDollar({ records: [DEFERRED_ROW], goals: DEFERRED_GOALS })
+  const held = await stop(handlers['classic.Stop'], wrong.dollar, stopEvent({ last_assistant_message: 'Nothing left.\nwaiting: deferred — nothing' }))
+  expect((held.answer as any).block).toContain('missing row 5, G5, G6')
+  expect((held.answer as any).block).toContain('unknown nothing')
+})
