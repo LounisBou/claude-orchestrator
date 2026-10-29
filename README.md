@@ -192,9 +192,11 @@ a remote orchestrator and for a local session whose transcript is not found.
 `usage_totals` sums the `usage` of every session the file lists, the coordinator included and
 the remote ones excluded, its `at` the file's `generated_at`; a total's `cost_usd` is `null`
 when any summed period's is. `usage_basis` names the currency, the price basis and the time
-zone of the periods. A transcript is read from where the previous write stopped, so keeping
-the sums current costs the lines appended since; a new `at` alone is no reason to write the
-file again.
+zone of the periods. Each session reads its own transcripts, never another session's, from
+where its previous read stopped, so keeping the sums current costs the lines appended since;
+the read runs beside the hook that starts it, never in its way, and the file is written again
+when it completes. A session not read since a period began shows that period empty until its
+next read. A new `at` alone is no reason to write the file again.
 
 ## The method in five lines
 
