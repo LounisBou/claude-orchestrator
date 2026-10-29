@@ -67,6 +67,10 @@ export type SessionRow = {
   relayed?: string | null
   // A row received from an orchestrator on another machine (remote-row.ts): its machine.
   machine?: string | null
+  // The session's own token use (usage.ts), published by its own read (readOwnUsage) and kept
+  // by the measure's merge: the deck takes every session's from here. Absent until the first
+  // read completes; null when its transcript is not found.
+  usage?: DeckUsage | null
 }
 
 // A row lives while its session's host process does: a session idle for hours —
@@ -364,14 +368,37 @@ async function writeAtomic($: any, path: string, text: string): Promise<void> {
 // measure handler is the only writer of a key: a same-key race is last-writer-wins,
 // at most one measure of freshness. The relay writes its own file (writeWait).
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
-  const path = `${await storeOf($)}/${sessionKey(id)}`
-  const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
-    role: null, name: null, repo: null,
-    context_percent: 0, context_tokens: 0, window: 0,
-    model: '', busy: false, updated_at: '',
-  }
-  const row: SessionRow = { ...base, ...patch, updated_at: patch.updated_at ?? new Date().toISOString() }
-  await $.fs.write(path, JSON.stringify(row) + '\n')
+  await onOwnRow(async () => {
+    const path = `${await storeOf($)}/${sessionKey(id)}`
+    const base: SessionRow = parseSessionRow(String(await $.fs.read(path).catch(() => ''))) ?? {
+      role: null, name: null, repo: null,
+      context_percent: 0, context_tokens: 0, window: 0,
+      model: '', busy: false, updated_at: '',
+    }
+    const row: SessionRow = { ...base, ...patch, updated_at: patch.updated_at ?? new Date().toISOString() }
+    await $.fs.write(path, JSON.stringify(row) + '\n')
+  })
+}
+
+// The row has two writers in its own session's process, the measure and the usage read
+// (publishUsage): their read-merge-writes run one after the other, so neither puts back a
+// field the other just wrote.
+let ownRowWrites: Promise<unknown> = Promise.resolve()
+function onOwnRow<T>(work: () => Promise<T>): Promise<T> {
+  const run = ownRowWrites.then(work, work)
+  ownRowWrites = run.catch(() => undefined)
+  return run
+}
+
+// The usage read's answer, into the session's own row: the row's stamp is the measure's and
+// stays; a row gone meanwhile (the session ended) is not written again, nor one that carries
+// no usage and gets none (the deck reads both as null).
+async function publishUsage($: any, id: string, usage: DeckUsage | null): Promise<void> {
+  await onOwnRow(async () => {
+    const path = `${await storeOf($)}/${sessionKey(id)}`
+    const row = parseSessionRow(String(await $.fs.read(path).catch(() => '')))
+    if (row && (usage || row.usage)) await $.fs.write(path, JSON.stringify({ ...row, usage }) + '\n')
+  })
 }
 
 // One row per live session: every file under the store's sessions directory,
@@ -2259,9 +2286,8 @@ export async function writeDeck($: any): Promise<void> {
     if (row.role === 'orchestrator') prs.set(key, await prsOf($, key.slice('sessions/'.length), row.repo))
   }
   const now = Date.now()
-  const usage = await readUsage($, local, now)
   const deck = deckOf({
-    machine: await machineOf($), now, local, chains, prs, usage,
+    machine: await machineOf($), now, local, chains, prs,
     remote: await readRemoteRows($),
     round: (await readRound($)).map(read => read.entry),
     sleepingText: String(await $.fs.read(`${state}/sleeping.json`).catch(() => '')),
@@ -2272,62 +2298,113 @@ export async function writeDeck($: any): Promise<void> {
   lastDeck = { deck, at: now }
 }
 
-// Each listed session's usage (usage.ts), read from its transcript and its subagents': one
-// book per session kept in module memory across writes, so a write reads only the bytes
-// appended since the last one. One read at a time: a write that outlived its caller's bound
-// still runs, and a second read of the same files beside it would count their lines twice,
-// so a write arriving meanwhile takes the running read's answer.
-const usageBooks = new Map<string, UsageBook>()
-const transcriptPaths = new Map<string, string>()
-let usageRead: Promise<Map<string, DeckUsage | null>> | null = null
+// The session's own usage (usage.ts): its transcript and its subagents', never another
+// session's, booked in module memory across reads so each one reads only the bytes appended
+// since the last. The read runs detached from the hook that starts it (refreshDeck), one at a
+// time per process: no hook waits on it, the deck written meanwhile carries the rows as they
+// stand, and when the read completes it publishes the usage in the session's row and writes
+// the deck again. A hook arriving while one runs starts none: the next hook's read takes
+// whatever was appended meanwhile.
+type OwnBook = { id: string; main: string | null | undefined; book: UsageBook }
+let ownBook: OwnBook | null = null
+let usageRead: Promise<void> | null = null
 const USAGE_READ_MS = 60 * 1000
-function readUsage($: any, local: Record<string, SessionRow>, now: number): Promise<Map<string, DeckUsage | null>> {
-  if (!usageRead) usageRead = readUsageOnce($, local, now).finally(() => { usageRead = null })
+const USAGE_ROLES: ReadonlySet<string> = new Set(['coordinator', 'orchestrator', 'agent'])
+
+// Starts the read when none runs, and answers the running one: its promise never rejects. A
+// hook never awaits it; a test does.
+export function refreshUsage($: any): Promise<void> {
+  if (!usageRead) {
+    usageRead = readOwnUsage($)
+      .then(async published => { if (published) await writeDeck($) })
+      .catch(err => logLine($, `deck: usage: ${(err as Error).message}`))
+      .finally(() => { usageRead = null })
+  }
   return usageRead
 }
 
-async function readUsageOnce($: any, local: Record<string, SessionRow>, now: number): Promise<Map<string, DeckUsage | null>> {
-  const pricesText = String(await $.fs.read(`${await stateDir($)}/routing/prices.json`).catch(() => ''))
-  let prices: Prices = {}
+// One read: the session's row says whether the deck lists it (its role); its transcript is
+// found once, a miss included, so no later read lists the projects directory again. True when
+// the row was written.
+async function readOwnUsage($: any): Promise<boolean> {
+  const id = String(await $.session.id())
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(id)}`).catch(() => '')))
+  if (!row || !USAGE_ROLES.has(String(row.role))) return false
+  if (!ownBook || ownBook.id !== id) ownBook = { id, main: undefined, book: newBook() }
+  const own = ownBook
+  if (own.main === undefined) {
+    own.main = (await transcriptPathOf($, id)) || null
+    if (!own.main) await logOnce($, `transcript ${id}`, 'missing', `deck: no transcript found for session ${id}: its usage is null`)
+  }
+  await publishUsage($, id, own.main ? await bookOwn($, own, own.main) : null)
+  return true
+}
+
+// The appended lines of the main transcript and of every subagent's, booked. A main
+// transcript that cannot be read (deleted, unreadable) is usage null: its book and its path
+// are dropped, and the next read looks for it again.
+async function bookOwn($: any, own: OwnBook, main: string): Promise<DeckUsage | null> {
+  const now = Date.now()
+  const { prices, text } = await readPrices($)
   try {
-    const parsed = JSON.parse(pricesText)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) prices = parsed
-  } catch { /* no prices: every period's cost is null, its tokens still count */ }
-  for (const key of [...usageBooks.keys()]) {
-    if (!local[key]) {
-      usageBooks.delete(key)
-      transcriptPaths.delete(key)
+    const size = (await $.fs.stat(main)).size
+    if (typeof size !== 'number') throw new Error('no size')
+  } catch (err) {
+    await logOnce($, `main ${own.id}`, main, `deck: the transcript ${main} cannot be read (${(err as Error).message}): its usage is null`)
+    own.main = undefined
+    own.book = newBook()
+    return null
+  }
+  logged.delete(`main ${own.id}`)
+  const book = own.book
+  settle(book, now, prices, text)
+  const subagents = `${main.slice(0, -'.jsonl'.length)}/subagents`
+  const listed: readonly { name: string; kind: string }[] = await $.fs.list(subagents).catch(() => [])
+  const paths = [main, ...listed.filter(e => e.kind === 'file' && e.name.endsWith('.jsonl')).map(e => `${subagents}/${e.name}`).sort()]
+  for (const path of [...book.files.keys()]) if (!paths.includes(path)) forget(book, path)
+  for (const path of paths) {
+    try {
+      await readAppended($, book, path)
+      logged.delete(`file ${path}`)
+    } catch (err) {
+      const message = (err as Error).message
+      await logOnce($, `file ${path}`, message, `deck: usage of ${path}: ${message}`)
     }
   }
-  const usage = new Map<string, DeckUsage | null>()
-  for (const [key, row] of Object.entries(local)) {
-    if (row.role !== 'coordinator' && row.role !== 'orchestrator' && row.role !== 'agent') continue
-    let main = transcriptPaths.get(key)
-    if (!main) {
-      main = await transcriptPathOf($, key.slice('sessions/'.length))
-      if (!main) {
-        usage.set(key, null)
-        continue
-      }
-      transcriptPaths.set(key, main)
-    }
-    let book = usageBooks.get(key)
-    if (!book) usageBooks.set(key, book = newBook())
-    settle(book, now, prices, pricesText)
-    const subagents = `${main.slice(0, -'.jsonl'.length)}/subagents`
-    const listed: readonly { name: string; kind: string }[] = await $.fs.list(subagents).catch(() => [])
-    const paths = [main, ...listed.filter(e => e.kind === 'file' && e.name.endsWith('.jsonl')).map(e => `${subagents}/${e.name}`).sort()]
-    for (const path of [...book.files.keys()]) if (!paths.includes(path)) forget(book, path)
-    for (const path of paths) {
-      try {
-        await readAppended($, book, path)
-      } catch (err) {
-        await logLine($, `deck: usage of ${path}: ${(err as Error).message}`)
-      }
-    }
-    usage.set(key, usageOf(book, now))
+  if (book.malformed > 0) await logOnce($, `malformed ${own.id}`, String(book.malformed), `deck: ${book.malformed} malformed lines dropped from the transcripts of session ${own.id}`)
+  return usageOf(book, now)
+}
+
+// routing/prices.json under the state directory. Missing or no JSON object: no prices, every
+// period's cost null and its tokens still counted, said once per text the file holds.
+async function readPrices($: any): Promise<{ prices: Prices; text: string }> {
+  const path = `${await stateDir($)}/routing/prices.json`
+  let text: string | null = null
+  try {
+    text = String(await $.fs.read(path))
+  } catch { /* missing: said below */ }
+  if (text === null) {
+    await logOnce($, 'prices', '', `deck: no ${path}: every cost is null`)
+    return { prices: {}, text: '' }
   }
-  return usage
+  try {
+    const parsed = JSON.parse(text)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      logged.delete('prices')
+      return { prices: parsed, text }
+    }
+  } catch { /* said below */ }
+  await logOnce($, 'prices', text, `deck: ${path} is no JSON object: every cost is null`)
+  return { prices: {}, text }
+}
+
+// What the usage read last said per topic: a condition is logged when it starts or changes,
+// never again on every read while it lasts, and forgotten when it ends.
+const logged = new Map<string, string>()
+async function logOnce($: any, topic: string, fingerprint: string, message: string): Promise<void> {
+  if (logged.get(topic) === fingerprint) return
+  logged.set(topic, fingerprint)
+  await logLine($, message)
 }
 
 // The lines appended to one transcript since the book's offset; a file shorter than it was
@@ -2345,6 +2422,8 @@ async function readAppended($: any, book: UsageBook, path: string): Promise<void
 }
 
 async function refreshDeck($: any, bound = RELAY_BOUND_MS): Promise<void> {
+  // Detached: the hook goes on, and the read writes the row and the deck again when it is done.
+  void refreshUsage($)
   try {
     const done = await withDeadline(writeDeck($), bound)
     if (isDegradedPass(done)) await logLine($, `deck: did not finish within ${bound} ms`)
