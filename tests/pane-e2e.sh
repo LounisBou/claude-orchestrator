@@ -140,9 +140,10 @@ COMMANDS="$SANDBOX/work/.claude/commands"
 # nothing, its sender's row waiting on the operator; the `aged` round holds the `questions`
 # round's two questions, neither urgent, both asked two hours ago; the `pair` round holds one
 # entry that asks two questions, its sender's row in a known repository and waiting on two pull
-# requests glued by a slash.
+# requests glued by a slash. `$3` is the text whose showing says the pane is drawn: its title by
+# default, which a window too short for it never shows.
 start() {
-  local rows="$1" round="${2:-questions}"
+  local rows="$1" round="${2:-questions}" drawn="${3:-Questions for you}"
   tm kill-server 2>/dev/null
   rm -rf "$SANDBOX/module" "$SANDBOX/state" "$SANDBOX/work"
   mkdir -p "$ROWS" "$SANDBOX/state/round" "$SANDBOX/work"
@@ -186,7 +187,7 @@ start() {
   tm send-keys -t "$SESSION" '/coordinator-supervision'
   sleep 1
   tm send-keys -t "$SESSION" Enter
-  wait_for 'Questions for you' 15
+  wait_for "$drawn" 15
 }
 
 questions_round() {
@@ -368,7 +369,10 @@ press Enter
 check "Enter sends the typed answer" "start with the README" "$(jq -r .answer.text "$SANDBOX/state/round/s-beta-q2.json")"
 
 echo "== a pane shorter than its tree (160x14)"
-start 14
+# The window is moved to the picker after the first draw, and the pane drawn again once it has:
+# the screen is read once the picker shows and the key line is pinned above it, or after 5 s.
+start 14 questions 'Choose: '
+for ((i = 0; i < 20; i++)); do pane | head -2 | grep -qF 'Enter: choose' && break; sleep 0.25; done
 record "drawn"
 check "the first draw shows the picker" "1" "$(pane | grep -c '^Choose: ')"
 check "the pane opens with the keys, the recommended choice highlighted" "B (recommended)" "$(focused)"
