@@ -1590,3 +1590,20 @@ test('the malformed-line text and the lines that fit name the deferred ending', 
   // While something runs, the line that fits is the tool line alone.
   expect((checkWake({ ...base, message: 'waiting: operator — blocks: nothing', background: ['sleep 9'] }) as any).reason).not.toContain(NAMED)
 })
+
+// Only goals are deferred, no row: the guards path hands the gate the goals the operator put off
+// (goalsDeferred), or the deferred line is refused as « nothing is deferred » and the done line passes.
+test('goals alone deferred, no open row: the deferred line passes and the done line is refused, through the stop', async () => {
+  const { handlers } = mounted()
+  const GOALS_ONLY = { last_assistant_message: 'Nothing left to move.\nwaiting: deferred — G5, G6' }
+  const ended = fakeDollar({ ...NO_ROWS, goals: DEFERRED_GOALS })
+  const passed = await stop(handlers['classic.Stop'], ended.dollar, stopEvent(GOALS_ONLY))
+  expect(passed.answer).toBe(passed.passed)
+  const done = fakeDollar({ ...NO_ROWS, goals: DEFERRED_GOALS })
+  const refused = await stop(handlers['classic.Stop'], done.dollar, stopEvent({ last_assistant_message: 'waiting: done' }))
+  expect((refused.answer as any).block).toContain('G5, G6 deferred by the operator')
+  expect((refused.answer as any).block).toContain('waiting: deferred')
+  const unnamed = fakeDollar({ ...NO_ROWS, goals: DEFERRED_GOALS })
+  const short = await stop(handlers['classic.Stop'], unnamed.dollar, stopEvent({ last_assistant_message: 'waiting: deferred — G5' }))
+  expect((short.answer as any).block).toContain('missing G6')
+})
