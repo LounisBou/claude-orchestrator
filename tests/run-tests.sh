@@ -6810,6 +6810,38 @@ check "the alias records the identifier it resolved to" "a-model-1" \
 check "an alias no model of the session carries is recorded as nothing, the others kept" "0|false|a-model-1" \
   "$(rcost --session s-1 --alias b-model >/dev/null 2>&1; echo $?)|$(jq -r 'has("b-model")' "$RSTATE/routing/aliases.json")|$(jq -r '.["a-model"]' "$RSTATE/routing/aliases.json")"
 
+echo "== deck: usage, routing.py's cost rule =="
+
+# The deck's usage (hooks/usage.ts) spells routing.py's cost rule again, in the module: the
+# two are held to the same tokens and the same cost on one transcript. The module side runs
+# under node, through the module's own reader (the shell it hands the host), in two reads cut
+# anywhere, mid-line and mid-character included.
+UFIX="$ROOT/tests/fixtures/usage"
+USTATE="$WORK/ustate"; mkdir -p "$USTATE/routing"
+cp "$UFIX/prices.json" "$USTATE/routing/prices.json"
+ucost_py() { ORCHESTRATOR_STATE_DIR="$USTATE" python3 "$ROUTING" cost --json "$1" 2>/dev/null \
+  | jq -r '"\(.tokens_in)|\(.tokens_out)|\(.cache_read)|\(.cache_write)|\(if .cost_usd == null then "null" else (.cost_usd * 1e9 | round) end)"'; }
+ucost_ts() { node --no-warnings "$ROOT/tests/usage-rule.ts" cost "$1" "$USTATE/routing/prices.json" ${2:+"$2"} 2>/dev/null \
+  | jq -r '"\(.tokens_in)|\(.tokens_out)|\(.cache_read)|\(.cache_write)|\(if .cost_usd == null then "null" else (.cost_usd * 1e9 | round) end)"'; }
+check "node runs the module's rule outside the host" "yes" "$(command -v node >/dev/null && echo yes || echo no)"
+check "the fixture's figures, as routing.py reads them" "60519|1202|72000|10200|75173500" "$(ucost_py "$UFIX/transcript.jsonl")"
+check "the module's rule reads the same tokens and the same cost" "$(ucost_py "$UFIX/transcript.jsonl")" "$(ucost_ts "$UFIX/transcript.jsonl")"
+usplit=""
+for cut in 1 57 120 121 122 3000 7785; do usplit="$usplit$(ucost_ts "$UFIX/transcript.jsonl" "$cut") "; done
+check "and the same wherever the first read ends" "$(for cut in 1 57 120 121 122 3000 7785; do printf '%s ' "$(ucost_py "$UFIX/transcript.jsonl")"; done)" "$usplit"
+check "a session of the routing fixture reads the same on both sides" \
+  "$(ORCHESTRATOR_STATE_DIR="$RSTATE" python3 "$ROUTING" cost --json "$RFIX/projects/-repo/s-1.jsonl" | jq -r '"\(.tokens_in)|\(.cost_usd * 1e9 | round)"')" \
+  "$(node --no-warnings "$ROOT/tests/usage-rule.ts" cost "$RFIX/projects/-repo/s-1.jsonl" "$RSTATE/routing/prices.json" | jq -r '"\(.tokens_in)|\(.cost_usd * 1e9 | round)"')"
+jq 'del(.["b-model"])' "$UFIX/prices.json" > "$USTATE/routing/prices.json"
+check "a model without a price: both costs null, the tokens still counted" "60519|1202|72000|10200|null" "$(ucost_py "$UFIX/transcript.jsonl")"
+check "and the module's rule says the same" "$(ucost_py "$UFIX/transcript.jsonl")" "$(ucost_ts "$UFIX/transcript.jsonl")"
+cp "$UFIX/prices.json" "$USTATE/routing/prices.json"
+# The line still being written is neither read nor counted: the next read starts on it.
+head -n 2 "$UFIX/transcript.jsonl" > "$WORK/partial.jsonl"
+printf '%s' '{"type":"assistant","message":{"model":"a-model","usage":{"input_tokens":5' >> "$WORK/partial.jsonl"
+check "a partial last line is left for the next read" "$(head -n 2 "$UFIX/transcript.jsonl" | wc -c | tr -d ' ')" \
+  "$(node --no-warnings "$ROOT/tests/usage-rule.ts" cost "$WORK/partial.jsonl" "$USTATE/routing/prices.json" | jq -r '.offset')"
+
 echo "== routing: pick =="
 
 T="$ROOT/tests/fixtures/routing/trees"
