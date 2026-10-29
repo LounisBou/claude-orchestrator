@@ -1523,11 +1523,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         } catch {
           // A host without the call: the autoFocus mark still starts the ring.
         }
-        // The window is moved once the picker is drawn: before, the key names nothing.
+        // The window is moved once the picker is drawn: before, the key names nothing. The host
+        // tells no `ui.scroll` for a plugin's own move and draws nothing after it, so the pane is
+        // drawn again once the move lands: the track and the key line sit at the window's offset
+        // read at draw time, and are left above the window until then.
         try {
           $.clock.after(SCROLL_AFTER_DRAW_MS, () => {
             try {
-              Promise.resolve($.ui.scroll({ to: { key: focus }, in: PANE_ID })).catch(() => undefined)
+              Promise.resolve($.ui.scroll({ to: { key: focus }, in: PANE_ID }))
+                .then(() => $.ui.invalidate('ui.render'))
+                .catch(() => undefined)
             } catch {
               // A host without the call: the window stays where it is.
             }
