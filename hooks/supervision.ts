@@ -2305,17 +2305,20 @@ export async function writeDeck($: any): Promise<void> {
 // stand, and when the read completes it publishes the usage in the session's row and writes
 // the deck again. A hook arriving while one runs starts none: the next hook's read takes
 // whatever was appended meanwhile.
-type OwnBook = { id: string; main: string | null | undefined; book: UsageBook }
+type OwnBook = { id: string; main: string | null | undefined; missedAt: number; book: UsageBook }
 let ownBook: OwnBook | null = null
 let usageRead: Promise<void> | null = null
 const USAGE_READ_MS = 60 * 1000
+// A transcript not found is looked for again after this long, never on every read: a session's
+// first hook can run before the host has written its transcript.
+export const TRANSCRIPT_RETRY_MS = 60 * 1000
 const USAGE_ROLES: ReadonlySet<string> = new Set(['coordinator', 'orchestrator', 'agent'])
 
 // Starts the read when none runs, and answers the running one: its promise never rejects. A
-// hook never awaits it; a test does.
-export function refreshUsage($: any): Promise<void> {
+// hook never awaits it; a test does, with its own clock.
+export function refreshUsage($: any, clock: () => number = Date.now): Promise<void> {
   if (!usageRead) {
-    usageRead = readOwnUsage($)
+    usageRead = readOwnUsage($, clock)
       .then(async published => { if (published) await writeDeck($) })
       .catch(err => logLine($, `deck: usage: ${(err as Error).message}`))
       .finally(() => { usageRead = null })
@@ -2324,16 +2327,18 @@ export function refreshUsage($: any): Promise<void> {
 }
 
 // One read: the session's row says whether the deck lists it (its role); its transcript is
-// found once, a miss included, so no later read lists the projects directory again. True when
-// the row was written.
-async function readOwnUsage($: any): Promise<boolean> {
+// found once, and a miss is looked for again at most once per TRANSCRIPT_RETRY_MS, so a read
+// in between never lists the projects directory. True when the row was written.
+async function readOwnUsage($: any, clock: () => number): Promise<boolean> {
   const id = String(await $.session.id())
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(id)}`).catch(() => '')))
   if (!row || !USAGE_ROLES.has(String(row.role))) return false
-  if (!ownBook || ownBook.id !== id) ownBook = { id, main: undefined, book: newBook() }
+  if (!ownBook || ownBook.id !== id) ownBook = { id, main: undefined, missedAt: 0, book: newBook() }
   const own = ownBook
+  if (own.main === null && clock() - own.missedAt >= TRANSCRIPT_RETRY_MS) own.main = undefined
   if (own.main === undefined) {
     own.main = (await transcriptPathOf($, id)) || null
+    if (!own.main) own.missedAt = clock()
     if (!own.main) await logOnce($, `transcript ${id}`, 'missing', `deck: no transcript found for session ${id}: its usage is null`)
   }
   await publishUsage($, id, own.main ? await bookOwn($, own, own.main) : null)

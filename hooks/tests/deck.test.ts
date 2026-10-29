@@ -5,7 +5,7 @@
 // deck.json in one rename, and written again only when it is news.
 import { expect, test } from 'claude-code/testing'
 import { deckOf, deckIsNews, deckText, DECK_REFRESH_MS, DECK_VERSION, type DeckInput, type DeckUsage } from '../deck.ts'
-import { register, refreshUsage, writeDeck, type SessionRow } from '../supervision.ts'
+import { register, refreshUsage, writeDeck, TRANSCRIPT_RETRY_MS, type SessionRow } from '../supervision.ts'
 import type { RemoteRow } from '../remote-row.ts'
 import type { RoundEntry } from '../round.ts'
 import { periodStarts } from '../usage.ts'
@@ -503,6 +503,22 @@ test('a transcript not found is said once, and no later read searches for it aga
   expect(searched).toBe(1)
   expect(fx.touched.filter(p => p === `${HOME}/.claude/projects/`).length).toBe(1)
   expect(fx.logged.filter(l => l.includes('no transcript found for session s-u9')).length).toBe(1)
+})
+
+test('a transcript written after the first miss is found by a read a minute later, not before', async () => {
+  const { fx, ownRow } = solo('s-u12')
+  fx.files.set(`${PROJECT}/other.jsonl`, '')
+  let at = Date.now()
+  const clock = () => at
+  await refreshUsage(fx.dollar, clock)
+  fx.files.set(`${PROJECT}/s-u12.jsonl`, said('m1', 10))
+  at += TRANSCRIPT_RETRY_MS - 1000
+  await refreshUsage(fx.dollar, clock)
+  expect(ownRow().usage).toBeUndefined()
+  at += 1000
+  await refreshUsage(fx.dollar, clock)
+  expect(ownRow().usage.day.tokens.input).toBe(10)
+  expect(fx.logged.filter(l => l.includes('no transcript found for session s-u12')).length).toBe(1)
 })
 
 test('prices missing or no JSON are said once per text the file holds', async () => {
