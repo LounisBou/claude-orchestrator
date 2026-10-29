@@ -92,7 +92,7 @@ export function deckOf(input: DeckInput): Deck {
       ? { kind: row.waiting, blocks: row.blocks ?? null, since: row.waiting_since ?? null, urgent: urgentOf.get(sessionIdOf(key)) ?? false }
       : null,
     updated_at: row.updated_at,
-    usage: row.machine ? null : usageOf(row.usage, starts),
+    usage: row.machine ? null : rowUsageOf(row.usage, starts),
   })
 
   const entries = Object.entries(input.local)
@@ -155,7 +155,7 @@ export function deckOf(input: DeckInput): Deck {
 // its own). A period that started before the deck's own was read before the boundary passed:
 // the session has not been read since, so nothing it did in the new period is counted yet,
 // and the period is the new one, empty, until its next read.
-function usageOf(usage: DeckUsage | null | undefined, starts: { day: number; week: number }): DeckUsage | null {
+function rowUsageOf(usage: DeckUsage | null | undefined, starts: { day: number; week: number }): DeckUsage | null {
   if (!usage || typeof usage !== 'object' || !usage.day || !usage.week) return null
   const current = (period: DeckPeriod, from: number): DeckPeriod => Date.parse(period.from) >= from ? period
     : { from: new Date(from).toISOString(), tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 }, cost_usd: 0 }
