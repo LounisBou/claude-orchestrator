@@ -4,7 +4,7 @@
 // round's open questions counted, the sleepers listed; written to the state directory's
 // deck.json in one rename, and written again only when it is news.
 import { expect, test } from 'claude-code/testing'
-import { deckOf, deckIsNews, deckText, DECK_REFRESH_MS, DECK_VERSION, type DeckInput } from '../deck.ts'
+import { deckOf, deckIsNews, deckText, DECK_REFRESH_MS, DECK_VERSION, type DeckInput, type DeckUsage } from '../deck.ts'
 import { writeDeck, type SessionRow } from '../supervision.ts'
 import type { RemoteRow } from '../remote-row.ts'
 import type { RoundEntry } from '../round.ts'
@@ -133,6 +133,59 @@ test('the text is one line of JSON', () => {
   expect(JSON.parse(text).version).toBe(DECK_VERSION)
 })
 
+// --- the usage ------------------------------------------------------------------------
+
+function usage(input: number, cost: number | null, at = AT): DeckUsage {
+  const period = (from: string) => ({ from, tokens: { input, output: 2 * input, cache_read: 3 * input, cache_write: 4 * input }, cost_usd: cost })
+  return { day: period('2026-10-27T23:00:00.000Z'), week: period('2026-10-25T23:00:00.000Z'), at }
+}
+
+test('the deck is version 2 and names the basis of its costs', () => {
+  const deck = deckOf(input())
+  expect(DECK_VERSION).toBe(2)
+  expect(deck.usage_basis).toEqual({ currency: 'USD', prices: 'api-list-equivalent', timezone: 'Europe/Paris' })
+})
+
+test('every local session carries its usage; a remote one and one without a transcript carry null', () => {
+  const usages = new Map([
+    ['sessions/s-coord', usage(1, 0.5)], ['sessions/s-orch', usage(10, 1)], ['sessions/s-agent', usage(100, 2)],
+  ])
+  const deck = deckOf(input({ usage: usages }))
+  expect(deck.coordinator?.usage).toEqual(usage(1, 0.5))
+  expect(deck.orchestrators[0].usage).toEqual(usage(10, 1))
+  expect(deck.orchestrators[0].agents[0].usage).toEqual(usage(100, 2))
+  expect(deck.orchestrators[1].usage).toBeNull()
+  expect(deck.unattached_agents[0].usage).toBeNull()
+})
+
+test('the totals sum every listed session, the coordinator included, from the deck\'s own periods', () => {
+  const usages = new Map([
+    ['sessions/s-coord', usage(1, 0.5)], ['sessions/s-orch', usage(10, 1)],
+    ['sessions/s-agent', usage(100, 2)], ['sessions/s-loose', usage(1000, 0.25)],
+  ])
+  const totals = deckOf(input({ usage: usages })).usage_totals
+  expect(totals.day).toEqual({ from: '2026-10-27T23:00:00.000Z', tokens: { input: 1111, output: 2222, cache_read: 3333, cache_write: 4444 }, cost_usd: 3.75 })
+  expect(totals.week.from).toBe('2026-10-25T23:00:00.000Z')
+  expect(totals.at).toBe('2026-10-28T14:00:00.000Z')
+})
+
+test('a total costs null when one summed period does; no session at all is zero', () => {
+  const usages = new Map([['sessions/s-orch', usage(10, 1)], ['sessions/s-agent', usage(100, null)]])
+  const totals = deckOf(input({ usage: usages })).usage_totals
+  expect(totals.day.cost_usd).toBeNull()
+  expect(totals.day.tokens.input).toBe(110)
+  const none = deckOf(input()).usage_totals
+  expect(none.day).toEqual({ from: '2026-10-27T23:00:00.000Z', tokens: { input: 0, output: 0, cache_read: 0, cache_write: 0 }, cost_usd: 0 })
+})
+
+test('a usage read again with the same sums is no news; new sums are', () => {
+  const deck = deckOf(input({ usage: new Map([['sessions/s-orch', usage(10, 1)]]) }))
+  const restamped = deckOf(input({ now: NOW + 5000, usage: new Map([['sessions/s-orch', usage(10, 1, new Date(NOW + 5000).toISOString())]]) }))
+  expect(deckIsNews(restamped, { deck, at: NOW }, NOW + 5000)).toBe(false)
+  const grown = deckOf(input({ usage: new Map([['sessions/s-orch', usage(11, 1)]]) }))
+  expect(deckIsNews(grown, { deck, at: NOW }, NOW + 5000)).toBe(true)
+})
+
 // --- when it is news ------------------------------------------------------------------
 
 test('a deck is news when nothing was written, when it changed, or when the last write is old', () => {
@@ -156,6 +209,7 @@ const DECK = `${STATE}/deck.json`
 function fake() {
   const files = new Map<string, string>()
   const renames: string[] = []
+  const reads: string[] = []
   const fresh = new Date().toISOString()
   files.set(`${STORE}/sessions/s-orch`, JSON.stringify(row({ updated_at: fresh })) + '\n')
   files.set(`${STORE}/sessions/s-agent`, JSON.stringify(row({ role: 'agent', name: 'Agent : one', pid: '502', tty: '/dev/ttys005', updated_at: fresh })) + '\n')
@@ -174,9 +228,17 @@ function fake() {
       write: async (p: string, text: string) => { files.set(p, text) },
       exists: async (p: string) => files.has(p) || [...files.keys()].some(k => k.startsWith(`${p}/`)),
       list: async (dir: string) => {
-        const names = [...files.keys()].filter(k => k.startsWith(`${dir}/`) && !k.slice(dir.length + 1).includes('/'))
-        if (names.length === 0) throw new Error(`ENOENT: ${dir}`)
-        return names.map(k => ({ name: k.slice(dir.length + 1), kind: 'file', mtimeMs: 1 }))
+        const below = [...files.keys()].filter(k => k.startsWith(`${dir}/`)).map(k => k.slice(dir.length + 1))
+        if (below.length === 0) throw new Error(`ENOENT: ${dir}`)
+        const dirs = [...new Set(below.filter(k => k.includes('/')).map(k => k.split('/')[0]))]
+        return [
+          ...below.filter(k => !k.includes('/')).map(name => ({ name, kind: 'file', mtimeMs: 1 })),
+          ...dirs.map(name => ({ name, kind: 'dir', mtimeMs: 1 })),
+        ]
+      },
+      stat: async (p: string) => {
+        if (!files.has(p)) throw new Error(`ENOENT: ${p}`)
+        return { size: new TextEncoder().encode(files.get(p)!).length, mtimeMs: 1 }
       },
     },
     process: {
@@ -196,11 +258,32 @@ function fake() {
           return { exitCode: 0, stdout: '', stderr: '' }
         }
         if (argv[0] === 'ps') return { exitCode: 0, stdout: '501\n502\n', stderr: '' }
+        if (argv[0] === 'sh' && argv[2].includes('awk')) {
+          reads.push(argv[4])
+          return appended(files.get(argv[4]) ?? '', Number(argv[5]) - 1, Number(argv[6]))
+        }
         return { exitCode: 1, stdout: '', stderr: '' }
       },
     },
   }
-  return { dollar, files, renames }
+  return { dollar, files, renames, reads }
+}
+
+// The transcript reader's answer (usage.ts, appendedArgv), spelled over the fake's files:
+// the complete lines of the window that may carry a usage, then the bytes they spanned.
+function appended(text: string, offset: number, length: number) {
+  const bytes = new TextEncoder().encode(text).slice(offset, offset + length)
+  const end = bytes.lastIndexOf(10) + 1
+  const lines = new TextDecoder().decode(bytes.slice(0, end)).split('\n').filter(l => l.includes('"usage"') && l.includes('assistant'))
+  return { exitCode: 0, stdout: lines.map(l => `${l}\n`).join('') + `\x1e${end}\n`, stderr: '' }
+}
+
+const PROJECT = `${HOME}/.claude/projects/-w-app`
+const PRICES = JSON.stringify({ 'a-model': { input: 4, output: 20, cache_write_5m: 5, cache_write_1h: 8, cache_read: 0.2 } })
+function said(id: string | null, input: number, model = 'a-model'): string {
+  const message: Record<string, unknown> = { model, usage: { input_tokens: input, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } }
+  if (id) message.id = id
+  return JSON.stringify({ type: 'assistant', timestamp: new Date().toISOString(), message }) + '\n'
 }
 
 test('writeDeck writes deck.json in one rename, with the store, the remote rows and the round', async () => {
@@ -220,4 +303,70 @@ test('writeDeck writes nothing when the deck is not news', async () => {
   await writeDeck(fx.dollar)
   await writeDeck(fx.dollar)
   expect(fx.renames.length).toBeLessThanOrEqual(1)
+})
+
+// Each test reads its own session: the books are module memory, kept across writes as they
+// are across a session's turns.
+function solo(fx: ReturnType<typeof fake>, id: string) {
+  fx.files.set(`${STORE}/sessions/${id}`, JSON.stringify(row({ role: 'agent', name: `Agent : ${id}`, pid: '502', tty: null, updated_at: new Date().toISOString() })) + '\n')
+  fx.files.set(`${STATE}/routing/prices.json`, PRICES)
+  return (deck: any) => deck.unattached_agents.find((a: any) => a.key === `sessions/${id}`)
+}
+
+test('writeDeck reads each session\'s transcript and its subagents\'; one not found is null', async () => {
+  const fx = fake()
+  const mine = solo(fx, 's-u1')
+  fx.files.set(`${PROJECT}/s-u1.jsonl`, said('m1', 100) + said('m1', 100) + JSON.stringify({ type: 'user' }) + '\n')
+  fx.files.set(`${PROJECT}/s-u1/subagents/agent-1.jsonl`, said('m2', 1000))
+  await writeDeck(fx.dollar)
+  const deck = JSON.parse(fx.files.get(DECK)!)
+  expect(deck.version).toBe(2)
+  expect(mine(deck).usage.day.tokens).toEqual({ input: 1100, output: 0, cache_read: 0, cache_write: 0 })
+  expect(Math.abs(mine(deck).usage.week.cost_usd - 1100 * 4 / 1e6) < 1e-12).toBe(true)
+  expect(deck.orchestrators[0].usage).toBeNull()
+  expect(deck.orchestrators[1].usage).toBeNull()
+  expect(deck.usage_totals.day.tokens.input).toBe(1100)
+})
+
+test('writeDeck reads only what was appended since, and a rewritten transcript from the start', async () => {
+  const fx = fake()
+  const mine = solo(fx, 's-u2')
+  const main = `${PROJECT}/s-u2.jsonl`
+  // A partial last line is left for the next read, not lost.
+  fx.files.set(main, said('m1', 10) + said('m2', 20).slice(0, 30))
+  await writeDeck(fx.dollar)
+  expect(mine(JSON.parse(fx.files.get(DECK)!)).usage.day.tokens.input).toBe(10)
+  fx.files.set(main, said('m1', 10) + said('m2', 20))
+  fx.reads.length = 0
+  await writeDeck(fx.dollar)
+  expect(fx.reads).toEqual([main])
+  expect(mine(JSON.parse(fx.files.get(DECK)!)).usage.day.tokens.input).toBe(30)
+  await writeDeck(fx.dollar)
+  expect(fx.reads).toEqual([main])
+  fx.files.set(main, said('m3', 5))
+  await writeDeck(fx.dollar)
+  expect(mine(JSON.parse(fx.files.get(DECK)!)).usage.day.tokens.input).toBe(5)
+})
+
+test('a subagent transcript gone is forgotten with what it gave', async () => {
+  const fx = fake()
+  const mine = solo(fx, 's-u4')
+  fx.files.set(`${PROJECT}/s-u4.jsonl`, said('m1', 10))
+  fx.files.set(`${PROJECT}/s-u4/subagents/agent-1.jsonl`, said('m2', 1000))
+  await writeDeck(fx.dollar)
+  expect(mine(JSON.parse(fx.files.get(DECK)!)).usage.day.tokens.input).toBe(1010)
+  fx.files.delete(`${PROJECT}/s-u4/subagents/agent-1.jsonl`)
+  await writeDeck(fx.dollar)
+  expect(mine(JSON.parse(fx.files.get(DECK)!)).usage.day.tokens.input).toBe(10)
+})
+
+test('a model without a price leaves the period\'s cost null and counts its tokens', async () => {
+  const fx = fake()
+  const mine = solo(fx, 's-u3')
+  fx.files.set(`${PROJECT}/s-u3.jsonl`, said('m1', 100) + said(null, 7, 'c-model'))
+  await writeDeck(fx.dollar)
+  const deck = JSON.parse(fx.files.get(DECK)!)
+  expect(mine(deck).usage.day.cost_usd).toBeNull()
+  expect(mine(deck).usage.day.tokens.input).toBe(107)
+  expect(deck.usage_totals.day.cost_usd).toBeNull()
 })

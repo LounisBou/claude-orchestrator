@@ -38,7 +38,8 @@ import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS, type RemoteRow,
 } from './remote-row.ts'
-import { deckOf, deckText, deckIsNews, DECK_FILE, type Deck } from './deck.ts'
+import { deckOf, deckText, deckIsNews, DECK_FILE, type Deck, type DeckUsage } from './deck.ts'
+import { newBook, settle, ingest, rewind, forget, usageOf, appendedArgv, consumedOf, type Prices, type UsageBook } from './usage.ts'
 
 // One row per live session, the store's whole schema. `pid` is the session's host
 // process — the row lives while it does.
@@ -2258,8 +2259,9 @@ export async function writeDeck($: any): Promise<void> {
     if (row.role === 'orchestrator') prs.set(key, await prsOf($, key.slice('sessions/'.length), row.repo))
   }
   const now = Date.now()
+  const usage = await readUsage($, local, now)
   const deck = deckOf({
-    machine: await machineOf($), now, local, chains, prs,
+    machine: await machineOf($), now, local, chains, prs, usage,
     remote: await readRemoteRows($),
     round: (await readRound($)).map(read => read.entry),
     sleepingText: String(await $.fs.read(`${state}/sleeping.json`).catch(() => '')),
@@ -2268,6 +2270,78 @@ export async function writeDeck($: any): Promise<void> {
   if (!deckIsNews(deck, lastDeck, now)) return
   await writeAtomic($, `${state}/${DECK_FILE}`, deckText(deck))
   lastDeck = { deck, at: now }
+}
+
+// Each listed session's usage (usage.ts), read from its transcript and its subagents': one
+// book per session kept in module memory across writes, so a write reads only the bytes
+// appended since the last one. One read at a time: a write that outlived its caller's bound
+// still runs, and a second read of the same files beside it would count their lines twice,
+// so a write arriving meanwhile takes the running read's answer.
+const usageBooks = new Map<string, UsageBook>()
+const transcriptPaths = new Map<string, string>()
+let usageRead: Promise<Map<string, DeckUsage | null>> | null = null
+const USAGE_READ_MS = 60 * 1000
+function readUsage($: any, local: Record<string, SessionRow>, now: number): Promise<Map<string, DeckUsage | null>> {
+  if (!usageRead) usageRead = readUsageOnce($, local, now).finally(() => { usageRead = null })
+  return usageRead
+}
+
+async function readUsageOnce($: any, local: Record<string, SessionRow>, now: number): Promise<Map<string, DeckUsage | null>> {
+  const pricesText = String(await $.fs.read(`${await stateDir($)}/routing/prices.json`).catch(() => ''))
+  let prices: Prices = {}
+  try {
+    const parsed = JSON.parse(pricesText)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) prices = parsed
+  } catch { /* no prices: every period's cost is null, its tokens still count */ }
+  for (const key of [...usageBooks.keys()]) {
+    if (!local[key]) {
+      usageBooks.delete(key)
+      transcriptPaths.delete(key)
+    }
+  }
+  const usage = new Map<string, DeckUsage | null>()
+  for (const [key, row] of Object.entries(local)) {
+    if (row.role !== 'coordinator' && row.role !== 'orchestrator' && row.role !== 'agent') continue
+    let main = transcriptPaths.get(key)
+    if (!main) {
+      main = await transcriptPathOf($, key.slice('sessions/'.length))
+      if (!main) {
+        usage.set(key, null)
+        continue
+      }
+      transcriptPaths.set(key, main)
+    }
+    let book = usageBooks.get(key)
+    if (!book) usageBooks.set(key, book = newBook())
+    settle(book, now, prices, pricesText)
+    const subagents = `${main.slice(0, -'.jsonl'.length)}/subagents`
+    const listed: readonly { name: string; kind: string }[] = await $.fs.list(subagents).catch(() => [])
+    const paths = [main, ...listed.filter(e => e.kind === 'file' && e.name.endsWith('.jsonl')).map(e => `${subagents}/${e.name}`).sort()]
+    for (const path of [...book.files.keys()]) if (!paths.includes(path)) forget(book, path)
+    for (const path of paths) {
+      try {
+        await readAppended($, book, path)
+      } catch (err) {
+        await logLine($, `deck: usage of ${path}: ${(err as Error).message}`)
+      }
+    }
+    usage.set(key, usageOf(book, now))
+  }
+  return usage
+}
+
+// The lines appended to one transcript since the book's offset; a file shorter than it was
+// rewritten and is read again from its first byte.
+async function readAppended($: any, book: UsageBook, path: string): Promise<void> {
+  const size = (await $.fs.stat(path)).size
+  if (typeof size !== 'number') throw new Error('no size')
+  if (size < (book.files.get(path)?.offset ?? 0)) rewind(book, path)
+  const offset = book.files.get(path)?.offset ?? 0
+  if (size === offset) return
+  const run = await $.process.run(appendedArgv(path, offset, size - offset), { timeoutMs: USAGE_READ_MS })
+  const read = run?.exitCode === 0 ? consumedOf(String(run.stdout ?? '')) : null
+  if (!read) throw new Error(`the reader exited ${run?.exitCode}`)
+  ingest(book, path, offset, read.text, read.consumed)
 }
 
 async function refreshDeck($: any, bound = RELAY_BOUND_MS): Promise<void> {
