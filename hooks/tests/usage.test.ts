@@ -4,7 +4,7 @@
 // that keeps the sums current from the lines appended since the last read.
 import { expect, test } from 'claude-code/testing'
 import {
-  periodStarts, recordOf, messageCost, sumsOf, newBook, settle, ingest, rewind, usageOf, consumedOf,
+  periodStarts, recordOf, messageCost, sumsOf, newBook, settle, ingest, rewind, forget, usageOf, consumedOf,
   type Prices,
 } from '../usage.ts'
 
@@ -183,4 +183,65 @@ test('the reader\'s answer is the matched lines, then the byte count of the comp
   expect(consumedOf('\x1e\n')).toEqual({ text: '', consumed: 0 })
   expect(consumedOf('')).toBeNull()
   expect(consumedOf('garbage\n')).toBeNull()
+})
+
+test('a message two files carry stays while either still does: forgetting or rewinding one keeps it', () => {
+  const book = newBook()
+  settle(book, NOW, PRICES, 'p')
+  ingest(book, '/main.jsonl', 0, line({ id: 'shared' }) + '\n', 100)
+  ingest(book, '/sub.jsonl', 0, line({ id: 'shared' }) + '\n', 100)
+  forget(book, '/sub.jsonl')
+  expect(usageOf(book, NOW).day.tokens.input).toBe(10)
+  ingest(book, '/sub.jsonl', 0, line({ id: 'shared' }) + '\n', 100)
+  rewind(book, '/main.jsonl')
+  expect(usageOf(book, NOW).day.tokens.input).toBe(10)
+  forget(book, '/sub.jsonl')
+  expect(usageOf(book, NOW).day.tokens.input).toBe(0)
+  expect(book.records.size).toBe(0)
+})
+
+test('a price missing a rate, or with a rate that is no finite number, is no price: the cost is null, never NaN', () => {
+  const record = recordOf(line({ write: 100, hour: 40 }))!.record
+  const { cache_write_1h, ...partial } = PRICES['a-model']
+  const broken: Prices = {
+    partial: partial as any,
+    text: { ...PRICES['a-model'], input: '4' as any },
+    none: { ...PRICES['a-model'], output: null as any },
+    tier: { ...PRICES['b-model'], above: { ...PRICES['b-model'].above!, tokens: 'x' as any } },
+    upper: { ...PRICES['b-model'], above: { ...PRICES['b-model'].above!, cache_read: null as any } },
+  }
+  for (const model of Object.keys(broken)) {
+    expect(messageCost(record, broken[model])).toBeNull()
+    const sums = sumsOf([{ ...record, model }], broken, -Infinity)
+    expect(sums.cost).toBeNull()
+    expect(sums.tokens.input).toBe(10)
+  }
+  // An upper tier that leaves a rate out takes the base one, as routing.py's rate.update does.
+  const { cache_read, ...upperPartial } = PRICES['b-model'].above!
+  const big = recordOf(line({ model: 'b-model', input: 200000, read: 1000, output: 10 }))!.record
+  const cost = messageCost(big, { ...PRICES['b-model'], above: upperPartial as any })
+  expect(near(cost, (200000 * 0.5 + 1000 * 0.01 + 10 * 2.5) / 1e6)).toBe(true)
+})
+
+test('the records older than the current week are pruned when the periods settle', () => {
+  const book = newBook()
+  settle(book, NOW, PRICES, 'p')
+  ingest(book, '/t.jsonl', 0, [
+    line({ id: 'old', at: '2026-10-20T08:00:00Z' }),
+    line({ id: 'wed', at: '2026-10-28T08:00:00Z' }),
+  ].join('\n') + '\n', 300)
+  expect(book.records.has('old')).toBe(true)
+  settle(book, Date.parse('2026-10-29T09:00:00Z'), PRICES, 'p')
+  expect(book.records.has('old')).toBe(false)
+  expect(book.records.has('wed')).toBe(true)
+  expect(book.files.get('/t.jsonl')?.keys.has('old')).toBe(false)
+  expect(usageOf(book, Date.parse('2026-10-29T09:00:00Z')).week.tokens.input).toBe(10)
+})
+
+test('a line that is no JSON is dropped and counted', () => {
+  const book = newBook()
+  settle(book, NOW, PRICES, 'p')
+  ingest(book, '/t.jsonl', 0, [line({ id: 'a' }), '{"type":"assistant","message":{"usage":', line({ type: 'user' })].join('\n') + '\n', 300)
+  expect(book.malformed).toBe(1)
+  expect(usageOf(book, NOW).day.tokens.input).toBe(10)
 })
