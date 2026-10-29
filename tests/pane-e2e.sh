@@ -417,6 +417,14 @@ check "the last answer sends both, each after its number" "Question 1 of 2: A : 
 # is the one model turn of this script. The module reads the round every 30 seconds.
 WOKEN="$SANDBOX/state/round-woken.json"
 woken() { jq -r 'sort | join(",")' "$WOKEN" 2>/dev/null; }
+# The module records the wake only once the host took its prompt (wakeForDue), with a rename it
+# runs as a process: the prompt is on the screen before the file holds it, so the file is waited
+# for on its own, never read at the moment the screen shows the wake.
+wait_woken() {
+  local i
+  for ((i = 0; i < $1 * 4; i++)); do [ -n "$(woken)" ] && return 0; sleep 0.25; done
+  return 1
+}
 echo "== the pane's state routes each question (160x50)"
 start 50 aged
 # The cost of the pane's clock, which stats the round every 2 s: the host's processor time over
@@ -435,6 +443,7 @@ tm send-keys -t "$SESSION" Enter
 sleep 2
 check "the other role's short name closes the pane the coordinator's opened, and its record goes with it" "0|0" "$(screen | grep -c 'Questions for you')|$([ -f "$SANDBOX/state/pane.json" ] && echo 1 || echo 0)"
 wait_for 'now due in this tab' 40
+wait_woken 10
 record "the pane closed"
 check "pane closed: the coordinator is woken at once for every open question" "1|s-alpha-q1,s-beta-q2" "$([ "$(screen | grep -c 'now due in this tab')" -ge 1 ] && echo 1)|$(woken)"
 press Escape
