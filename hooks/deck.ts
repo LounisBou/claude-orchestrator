@@ -179,12 +179,15 @@ export function deckText(deck: Deck): string {
 
 // Whether the deck is worth a write: its content changed, or the last write is old enough
 // that the stamp alone must move. `last` is what was written last, null when nothing was.
-// The usage stamps (`at`, the one key of that name in the deck) move on every read, like
-// generated_at: neither is news, the sums they stamp are.
+// The usage stamps (the `at` of a session's usage and of the totals) move on every read, like
+// generated_at: neither is news, the sums they stamp are. Stripped by their path alone, so a
+// key of the same name anywhere else still counts.
 export function deckIsNews(deck: Deck, last: { deck: Deck; at: number } | null, now: number): boolean {
   if (!last) return true
   if (now - last.at >= DECK_REFRESH_MS) return true
-  const content = (d: Deck) => JSON.stringify({ ...d, generated_at: '' }, (key, value) => (key === 'at' ? undefined : value))
+  const unstamped = (key: string, value: any) =>
+    (key === 'usage' || key === 'usage_totals') && value && typeof value === 'object' ? { ...value, at: '' } : value
+  const content = (d: Deck) => JSON.stringify({ ...d, generated_at: '' }, unstamped)
   return content(deck) !== content(last.deck)
 }
 

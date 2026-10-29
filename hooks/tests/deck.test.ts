@@ -186,6 +186,15 @@ test('a usage read again with the same sums is no news; new sums are', () => {
   expect(deckIsNews(grown, { deck, at: NOW }, NOW + 5000)).toBe(true)
 })
 
+test('only the usage stamps are stripped: an `at` anywhere else in the deck is news', () => {
+  const deck = deckOf(input())
+  const stamped = { ...deck, round: { ...deck.round, at: AT } } as any
+  const moved = { ...deck, round: { ...deck.round, at: new Date(NOW).toISOString() } } as any
+  expect(deckIsNews(moved, { deck: stamped, at: NOW }, NOW + 1000)).toBe(true)
+  const restamped = { ...deck, usage_totals: { ...deck.usage_totals, at: new Date(NOW + 1000).toISOString() } }
+  expect(deckIsNews(restamped, { deck, at: NOW }, NOW + 1000)).toBe(false)
+})
+
 // --- when it is news ------------------------------------------------------------------
 
 test('a deck is news when nothing was written, when it changed, or when the last write is old', () => {
