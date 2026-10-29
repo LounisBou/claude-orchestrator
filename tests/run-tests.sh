@@ -1,6 +1,9 @@
 #!/bin/bash
 # Test suite. No network, no terminal automation, isolated HOME per case.
 #
+# Requires bash, git, jq, python3 and node (the deck's usage rule runs under node, through
+# the module's own transcript reader).
+#
 # Each case runs a script against a temporary state directory or a temporary
 # HOME and compares its output or its side effects with an expected value.
 
