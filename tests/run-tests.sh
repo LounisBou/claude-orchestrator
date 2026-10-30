@@ -4769,6 +4769,15 @@ check "the template's open-questions placeholder is the sixth, before the next s
   "$(grep -cF '{{LIVE_OPEN_QUESTIONS}}' "$SUCC")|$([ "$(grep -nF '{{LIVE_OPEN_QUESTIONS}}' "$SUCC" | cut -d: -f1)" -lt "$(grep -nF '{{LIVE_NEXT_STEP}}' "$SUCC" | cut -d: -f1)" ] && echo yes || echo no)"
 check "the first task has the successor ask again any open question the round does not hold" "yes|yes|yes" \
   "$(spells "$SUCC" 'ask it again, verbatim')|$(spells "$SUCC" 'round/<id>.json')|$(spells "$SUCC" 'found, kept, asked again')"
+# The re-ask runs once the predecessor is closed: the module moves its open entries to the
+# successor at « takeover confirmed », so before that they are still open under the predecessor.
+SUCC2=$(awk '/^2\. /{f=1} /^[0-9]\. /&&!/^2\. /{f=0} /^## /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
+check "step 2 only verifies the field is there; step 5 reads each open question's entry once the predecessor is closed" "0|1|1|1" \
+  "$(printf '%s' "$SUCC2" | grep -c 'ask it again')|$(printf '%s' "$SUCC2" | grep -c 'open-questions field is there')|$(printf '%s' "$SUCC5" | grep -c 'Once the predecessor is closed, read each open question')|$(printf '%s' "$SUCC5" | grep -c 'ask it again, verbatim')"
+check "step 5 says an entry is found by its id, its file's name stem" "yes|yes" \
+  "$(spells "$SUCC" '<state directory>/round/<id>.json')|$(spells "$SUCC" "the id is the file's name stem")"
+check "the standing context keeps its reading rule, never several in one cat" "yes" \
+  "$(spells "$SUCC" 'never whole at takeover, never several in one `cat`')"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'six fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'asks again')"
 # The open-questions value sits outside the 10,000-character cap, its label inside: a verbatim
