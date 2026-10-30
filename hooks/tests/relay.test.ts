@@ -697,11 +697,20 @@ test('a choice-less turn end is entered as its own entry beside the open questio
   expect(fx.sent.length).toBe(0)
 })
 
-test('a prose question after a question with choices is entered beside it, and the pane draws the question, the prose having a line', async () => {
+test('a prose question after a question with choices is entered beside it, and the pane draws both as cards', async () => {
   const { fx, asked } = await choicesThen(answerOf('Shall I also tag the release?', 'waiting: operator — blocks: phase 4'))
   const [first, prose] = entries(fx)
   expect(first).toEqual(asked)
   expect([prose.status, prose.blocks, prose.question, prose.choices]).toEqual(['open', 'phase 4', 'Shall I also tag the release?', []])
+  expect(paneQuestions(entries(fx)).map(e => e.id)).toEqual([asked.id, prose.id])
+  expect(waitsInTab(entries(fx)).map(e => e.id)).toEqual([])
+})
+
+test('a prose wait ending with a full stop after a question with choices is entered beside it, and the pane draws the question, the prose having a line', async () => {
+  const { fx, asked } = await choicesThen(answerOf('I will also tag the release.', 'waiting: operator — blocks: phase 4'))
+  const [first, prose] = entries(fx)
+  expect(first).toEqual(asked)
+  expect([prose.status, prose.blocks, prose.question, prose.choices]).toEqual(['open', 'phase 4', 'I will also tag the release.', []])
   expect(paneQuestions(entries(fx)).map(e => e.id)).toEqual([asked.id])
   expect(waitsInTab(entries(fx)).map(e => e.id)).toEqual([prose.id])
 })

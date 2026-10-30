@@ -1456,6 +1456,16 @@ test('the waits that ask nothing are no pane question, the others in the order o
   expect(waitsInTab([report, labelled, asked]).map(e => e.from)).toEqual(['Orch : a'])
 })
 
+test('a prose question ending with a question mark is drawn as a card and counted, a status text ending with a full stop stays a line', async () => {
+  const prose = entry('Orch : p', '2026-10-18T10:01:00.000Z', { session: 'p', question: 'The staging is ready.\n\nJe lance la campagne de test ?\n' })
+  const status = entry('Orch : s', '2026-10-18T10:02:00.000Z', { session: 's', question: 'Takeover done, nothing left to rule.' })
+  expect(paneQuestions([prose, status]).map(e => e.from)).toEqual(['Orch : p'])
+  expect(waitsInTab([prose, status]).map(e => e.from)).toEqual(['Orch : s'])
+  const drawn = texts((await paneTree({ p: orch('Orch : p'), s: orch('Orch : s') }, [prose, status])).props.children[0])
+  expect(drawn[0]).toBe('Questions for you — 1 pending')
+  expect(drawn).toContain('The staging is ready.\n\nJe lance la campagne de test ?')
+})
+
 test('a wait that asks nothing beside a question with choices is not counted: the choice answers, then the pane is empty of questions', async () => {
   const report = entry('Orch : low', '2026-10-18T10:01:00.000Z', { session: 'low', question: REPORT, blocks: BLOCKS })
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES, recommendation: 'B' })
