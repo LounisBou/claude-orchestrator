@@ -2558,7 +2558,7 @@ check "--account-connectors still hands over the chosen servers' file, unchanged
 check "--account-connectors pre-answers the project's own server dialog" "1" \
   "$(mcpd --account-connectors | sed -n 's/^launch=//p' | grep -Fc -- '"enableAllProjectMcpServers":true')"
 check "--account-connectors merges into the one --settings JSON already on the launch" "1" \
-  "$(mcpd --account-connectors | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"enableAllProjectMcpServers\":true,\"syncClaudeAiSkills\":false,\"awaySummaryEnabled\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\",\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\",\"CLAUDE_CODE_AUTO_COMPACT_WINDOW\":\"300000\"}}'")"
+  "$(mcpd --account-connectors | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"enableAllProjectMcpServers\":true,\"syncClaudeAiSkills\":false,\"awaySummaryEnabled\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\",\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"}}'")"
 check "the dry run says the option is on, and off by default" "1|1" \
   "$(mcpd --account-connectors | grep -c '^account_connectors=yes$')|$(mcpd | grep -c '^account_connectors=no$')"
 # No catalogue at all: still drops strict and still pre-answers, and still writes no file —
@@ -2596,11 +2596,11 @@ check "a plain spawn never carries remote control" "0" \
 # up with the setting that turns that default off; only a successor carries the flag
 # instead, never both.
 check "a plain spawn carries the setting off, and no --remote-control" "1|0" \
-  "$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"syncClaudeAiSkills\":false,\"awaySummaryEnabled\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\",\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\",\"CLAUDE_CODE_AUTO_COMPACT_WINDOW\":\"300000\"}}'")|$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -c -- '--remote-control')"
+  "$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"syncClaudeAiSkills\":false,\"awaySummaryEnabled\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\",\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"}}'")|$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -c -- '--remote-control')"
 check "a successor carries the flag, and not the setting" "1|0" \
   "$(succ "$PSTAB" --successor | sed -n 's/^launch=//p' | grep -c -- "--remote-control 'Orch : f'")|$(succ "$PSTAB" --successor | sed -n 's/^launch=//p' | grep -c -- 'remoteControlAtStartup')"
 check "--successor --no-remote-control carries the setting" "1" \
-  "$(succ "$PSTAB" --successor --no-remote-control | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"syncClaudeAiSkills\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\",\"CLAUDE_CODE_AUTO_COMPACT_WINDOW\":\"400000\"}}'")"
+  "$(succ "$PSTAB" --successor --no-remote-control | sed -n 's/^launch=//p' | grep -Fc -- "--settings '{\"remoteControlAtStartup\":false,\"syncClaudeAiSkills\":false,\"env\":{\"CLAUDE_CODE_TOTAL_TOKENS_REMINDER\":\"off\"}}'")"
 check "a caller launched without a name cannot derive one" "1|1" \
   "$(succ "$PSNONAME" --successor >/dev/null 2>&1; echo $?)|$(succ "$PSNONAME" --successor | grep -c "needs the caller's session name")"
 # The derived name is held to the SAME shape as a typed one (§42), which retires the
@@ -8197,26 +8197,24 @@ check "rotate reads a padded name without its padding" "SendFeedback Workflow Sc
 
 # The host cuts, in the one --settings the launch carries. A cut a probe did not prove is not
 # listed here (§65).
-check "an agent's settings cut the synced skills, the recap, the countdown and the silent-turn reminder" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"}}' \
+check "an agent's settings cut the synced skills, the recap, the countdown and the silent-turn reminder" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}' \
   "$(leanl --title 'Agent : x' | leansettings)"
-check "an agent's settings carry the 300000 compaction window, and no switch for the 1M window" "1|0" \
-  "$(leanl --title 'Agent : x' | leansettings | grep -Fc '"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"')|$(leanl --title 'Agent : x' | grep -c 'DISABLE_1M_CONTEXT')"
-check "an orchestrator, a successor and a coordinator's successor carry the 400000 compaction window, an auditor none" "1|1|0|1" \
-  "$(leanl --title 'Orch : x' | grep -Fc '"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"')|$(succ "$PSTAB" --successor | grep -Fc '"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"')|$(audl --auditor --title 'Audit : tm' | grep -c 'AUTO_COMPACT_WINDOW')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -Fc '"CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"')"
-check "an orchestrator exports a 75 percent gate, an agent and an auditor none" "1|0|0" \
-  "$(gspawn --title 'Orch : gate' --prompt p | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE=75 && ')|$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')"
-check "a successor and a coordinator's successor export the 75 percent gate" "1|1" \
-  "$(succ "$PSTAB" --successor | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE=75 && ')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'export ORCHESTRATOR_CONTEXT_GATE=75 && ')"
-check "an orchestrator's settings cut the synced skills and the countdown, and compact at 400000" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"}}' \
+check "an agent's settings carry no compaction window, and no switch for the 1M window" "0|0" \
+  "$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'DISABLE_1M_CONTEXT')"
+check "no role's settings carry a compaction window: the host's own setting applies" "0|0|0|0|0" \
+  "$(leanl --title 'Orch : x' | grep -c 'AUTO_COMPACT_WINDOW')|$(succ "$PSTAB" --successor | grep -c 'AUTO_COMPACT_WINDOW')|$(audl --auditor --title 'Audit : tm' | grep -c 'AUTO_COMPACT_WINDOW')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')"
+check "no role exports a percentage gate: the gate is a token count" "0|0|0|0|0" \
+  "$(gspawn --title 'Orch : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(succ "$PSTAB" --successor | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')"
+check "an orchestrator's settings cut the synced skills and the countdown" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
   "$(leanl --title 'Orch : x' | leansettings)"
-check "a successor, an auditor and the coordinator's successor carry the cuts and no setting for remote control" '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"400000"}}' \
+check "a successor, an auditor and the coordinator's successor carry the cuts and no setting for remote control" '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
   "$(succ "$PSTAB" --successor | sed -n 's/^launch=//p' | leansettings)|$(audl --auditor --title 'Audit : tm' | leansettings)|$(crdl --coordinator-successor --title 'Coord : ops' | leansettings)"
 check "the settings key for the host's own artifact switch is never passed, whatever the role" "0|0|0" \
   "$(leanl --title 'Agent : x' --keep-tool Artifact | grep -c enableArtifact)|$(leanl --title 'Orch : x' | grep -c enableArtifact)|$(audl --auditor --title 'Audit : tm' | grep -c enableArtifact)"
-check "--account-connectors still merges into the same JSON, before the cuts" '{"remoteControlAtStartup":false,"enableAllProjectMcpServers":true,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"}}' \
+check "--account-connectors still merges into the same JSON, before the cuts" '{"remoteControlAtStartup":false,"enableAllProjectMcpServers":true,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}' \
   "$(mcpd --account-connectors | sed -n 's/^launch=//p' | leansettings)"
 
-check "--keep-synced-skills leaves the synced skills in, for any role, and the dry run says which" '{"remoteControlAtStartup":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0","CLAUDE_CODE_AUTO_COMPACT_WINDOW":"300000"}}|{"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|kept|removed' \
+check "--keep-synced-skills leaves the synced skills in, for any role, and the dry run says which" '{"remoteControlAtStartup":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}|{"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|kept|removed' \
   "$(leanl --title 'Agent : x' --keep-synced-skills | leansettings)|$(audl --auditor --title 'Audit : tm' --keep-synced-skills | leansettings)|$(lean --title 'Agent : x' --keep-synced-skills | sed -n 's/^synced_skills=//p')|$(lean --title 'Agent : x' | sed -n 's/^synced_skills=//p')"
 # The launch line first: a rotation that refused the option prints none, and a count of
 # zero on an empty output would pass.
