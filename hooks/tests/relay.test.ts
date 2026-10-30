@@ -1178,7 +1178,7 @@ function successorRunning(fx: ReturnType<typeof fake>, name = 'Orch : belt-2') {
 
 function expectMoved(fx: ReturnType<typeof fake>, asked: RoundEntry, other: RoundEntry, settled: RoundEntry) {
   const after = new Map(entries(fx).map(e => [e.id, e]))
-  expect(after.get(asked.id)).toEqual({ ...asked, session: 's-two', from: 'Orch : belt-2' })
+  expect(after.get(asked.id)).toEqual({ ...asked, session: 's-two', from: 'Orch : belt-2', movedFrom: 's-one' })
   expect(fx.logged.filter(l => l.includes(`round: moved to the successor Orch : belt-2: ${asked.id}`)).length).toBe(1)
   expect(fx.logged.some(l => l.includes('withdrawn by the sender'))).toBe(false)
   expect(after.get(other.id)).toEqual(other)
@@ -1262,6 +1262,21 @@ test('the pane\'s answer to a moved entry goes to the successor, never to the en
   await answerFromPane({ ...fx.dollar, ui: { invalidate: () => undefined } }, pane, moved, { letter: 'A', text: 'merge it' })
   expect(fx.sent.map(s => s.to)).toEqual([{ sessionId: 's-two' }])
   expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('answered')
+})
+
+test('a moved entry is not superseded by the successor\'s own question: it stays open', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  successorRunning(fx)
+  await drive(chains, 'session.receive', fx.dollar, confirmed('Orch : belt-2'))
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  const successor = { ...fx.dollar, session: { ...fx.dollar.session, id: async () => 's-two' } }
+  await drive(chains, 'turn.complete', successor, turnEnd(answerOf('Question 1 of 1 — start phase 9?', 'waiting: operator — blocks: phase 9')))
+  const after = entries(fx)
+  expect(after.find(e => e.id === asked.id)!.status).toBe('open')
+  // The successor's own older entry is superseded as ever; its own new one and the moved one stand.
+  expect(after.filter(e => e.session === 's-two' && e.status === 'open').length).toBe(2)
+  expect(after.find(e => e.id === 'other-session')!.status).toBe('withdrawn')
+  expect(fx.logged.some(l => l.includes(`withdrawn by the sender: ${asked.id}`))).toBe(false)
 })
 
 // --- a settled question leaves the coordinator's tab -------------------------------------------

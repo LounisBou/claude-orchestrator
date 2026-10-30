@@ -1960,7 +1960,11 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
     // withdraws its session's open question with choices, which only copies its urgent mark.
     const silent = asksNothing(entry)
     if (silent && entry.urgent) await markUrgent($, sessionId)
-    await tellSettled($, await withdrawStale($, sessionId, entry.id, `superseded by ${entry.id}`, silent ? carriesChoices : undefined))
+    // An entry moved here from a predecessor is the operator's question still, whatever this
+    // session asks next: only its answer, a round-close, the tab's typed answer or this session's
+    // own end settles it.
+    const standing = (open: RoundEntry) => open.movedFrom !== undefined || (silent && carriesChoices(open))
+    await tellSettled($, await withdrawStale($, sessionId, entry.id, `superseded by ${entry.id}`, standing))
     return
   }
   const to = role === 'orchestrator'
@@ -2354,7 +2358,7 @@ async function moveToSuccessor($: any, sessionId: string, successor: LearntSucce
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open') continue
     try {
-      await writeAtomic($, path, JSON.stringify({ ...entry, session: successor.session ?? '', from: successor.name }) + '\n')
+      await writeAtomic($, path, JSON.stringify({ ...entry, session: successor.session ?? '', from: successor.name, movedFrom: sessionId }) + '\n')
       await logLine($, `round: moved to the successor ${successor.name}: ${entry.id}`)
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
