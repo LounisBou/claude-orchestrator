@@ -4741,12 +4741,12 @@ check "a succession brief, every placeholder filled, lints clean and stays under
 # The Live state carries the operator's open questions, verbatim: the lint refuses a succession
 # brief whose Live state lacks the field, leaves it empty or leaves its placeholder, and passes
 # `none` and a filled one. The fixtures are the filled brief with that one line replaced.
-oq_brief() {  # $1 out file, $2 the field's value, or the single word ABSENT to drop the field
-  local l
+oq_brief() {  # $1 out file, $2 the field's value, or the single word ABSENT to drop the field, $3 its label
+  local l label="${3:-"- The operator's open questions, or \`none\` when there is none:"}"
   while IFS= read -r l; do
     case "$l" in
       "- The operator's open questions"*) continue ;;
-      "- The next step"*) [ "$2" = ABSENT ] || printf '%s\n' "- The operator's open questions, or \`none\` when there is none: $2" ;;
+      "- The next step"*) [ "$2" = ABSENT ] || printf '%s\n' "$label $2" ;;
     esac
     printf '%s\n' "$l"
   done < "$SUCCFILL" > "$1"
@@ -4771,6 +4771,39 @@ check "the first task has the successor ask again any open question the round do
   "$(spells "$SUCC" 'ask it again, verbatim')|$(spells "$SUCC" 'round/<id>.json')|$(spells "$SUCC" 'found, kept, asked again')"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'six fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'asks again')"
+# The open-questions value sits outside the 10,000-character cap, its label inside: a verbatim
+# `Question i of N` block is several hundred characters, and a Live state already brings the
+# brief near the limit, so the cap would refuse the very handover the field exists for.
+OQ_BLOCK="(id q-12) Question 1 of 3"
+while [ "${#OQ_BLOCK}" -lt 1500 ]; do OQ_BLOCK+=$'\n  Should the release wait for the review of the pending pull request, or ship now? A. wait  B. ship'; done
+OQ_BLOCK=${OQ_BLOCK:0:1500}
+OQ_BIG="$WORK/succession-oq-big.md"; oq_brief "$OQ_BIG" "$OQ_BLOCK"
+OQ_BIG_PLUS="$WORK/succession-oq-big-plus.md"
+{ cat "$OQ_BIG"; printf '%s\n' "$(head -c 600 /dev/zero | tr '\0' 'x')"; } > "$OQ_BIG_PLUS"
+check "a succession brief whose open-questions value is a 1,500-character block, the rest within the limit, lints clean" "yes|0" \
+  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 10000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
+check "succeed.md says the open-questions value is outside the 10,000-character cap" "yes" \
+  "$(spells "$ROOT/commands/succeed.md" '10,000 characters, the open-questions value apart')"
+check "the same brief with 600 characters added elsewhere is over the limit" "1|1" \
+  "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 10000')"
+# The value is read from the label's first colon, on that line and on the lines after it up to
+# the next field of the Live state: a label worded otherwise, and a value that starts on the next
+# line, are read as their real value.
+OQ_LABEL='- The operator'"'"'s open questions (verbatim, with their round ids):'
+OQ_OTHER_EMPTY="$WORK/succession-oq-other-empty.md"; oq_brief "$OQ_OTHER_EMPTY" "" "$OQ_LABEL"
+OQ_OTHER_PLACEHOLDER="$WORK/succession-oq-other-placeholder.md"; oq_brief "$OQ_OTHER_PLACEHOLDER" "{{LIVE_OPEN_QUESTIONS}}" "$OQ_LABEL"
+OQ_OTHER_FILLED="$WORK/succession-oq-other-filled.md"; oq_brief "$OQ_OTHER_FILLED" "(id q-12) Question 1 of 2: wait or ship?" "$OQ_LABEL"
+OQ_NEXT_LINE="$WORK/succession-oq-next-line.md"
+oq_brief "$OQ_NEXT_LINE" $'\n- (id q-12) Question 1 of 2\n- (id q-13) Question 2 of 2'
+OQ_NEXT_LINE_INDENTED="$WORK/succession-oq-next-line-indented.md"
+oq_brief "$OQ_NEXT_LINE_INDENTED" $'\n  - (id q-12) Question 1 of 2\n  - (id q-13) Question 2 of 2' "$OQ_LABEL"
+check "an open-questions label worded otherwise, left empty, is a finding" "1|1" \
+  "$(bash "$LINT" "$OQ_OTHER_EMPTY" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_OTHER_EMPTY" 2>&1 | grep -c "open-questions field is empty")"
+check "an open-questions label worded otherwise, left as its placeholder, is a finding" "1|1" \
+  "$(bash "$LINT" "$OQ_OTHER_PLACEHOLDER" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_OTHER_PLACEHOLDER" 2>&1 | grep -c "open-questions field is still its placeholder")"
+check "an open-questions label worded otherwise, with a value after its colon, lints clean" "0" "$(bash "$LINT" "$OQ_OTHER_FILLED" >/dev/null 2>&1; echo $?)"
+check "an open-questions value that starts on the next line, as items, lints clean" "0|0" \
+  "$(bash "$LINT" "$OQ_NEXT_LINE" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_NEXT_LINE_INDENTED" >/dev/null 2>&1; echo $?)"
 SUCCBIG="$WORK/succession-big.md"
 { cat "$SUCCFILL"; printf '\n'; head -c 10000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$SUCCBIG"
 SUCCBIG_N=$(LC_ALL=C tr -d '\200-\277' < "$SUCCBIG" | wc -c | tr -d ' ')

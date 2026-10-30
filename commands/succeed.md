@@ -22,7 +22,7 @@ Preconditions, verify each before acting:
   questions field is filled from the round's open entries of this session and the questions
   this session asked the operator that no answer has settled, verbatim, never summarised;
   `none` only after reading the round. The whole
-  brief stays within 10,000 characters: the lint refuses more.
+  brief stays within 10,000 characters, the open-questions value apart: the lint refuses more.
 
 Then:
 
