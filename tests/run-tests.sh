@@ -4684,8 +4684,8 @@ FIRST_N=$(grep -n -m1 -F -- '## Your first task' "$SUCC" | cut -d: -f1)
 check "the succession brief carries a Live state section before the first task" "1" \
   "$([ -n "$LIVE_N" ] && [ -n "$FIRST_N" ] && [ "$LIVE_N" -lt "$FIRST_N" ] && echo 1 || echo 0)"
 LIVE_BODY=$(awk -v h="$LIVE_H" '$0==h{f=1;next} /^## /{f=0} f' "$SUCC")
-check "the Live state section carries its five placeholders" "1|1|1|1|1" \
-  "$(for p in '{{LIVE_ROWS}}' '{{LIVE_PULL_REQUESTS}}' '{{LIVE_AGENTS}}' '{{LIVE_RULINGS}}' '{{LIVE_NEXT_STEP}}'; do printf '%s' "$LIVE_BODY" | grep -cF -- "$p"; done | paste -sd'|' -)"
+check "the Live state section carries its six placeholders" "1|1|1|1|1|1" \
+  "$(for p in '{{LIVE_ROWS}}' '{{LIVE_PULL_REQUESTS}}' '{{LIVE_AGENTS}}' '{{LIVE_RULINGS}}' '{{LIVE_OPEN_QUESTIONS}}' '{{LIVE_NEXT_STEP}}'; do printf '%s' "$LIVE_BODY" | grep -cF -- "$p"; done | paste -sd'|' -)"
 check "the Live state section replaces reading the journal, which is read by section for a question it leaves open" "yes|yes" \
   "$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -qF 'replaces reading the journal' && echo yes || echo no)|$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -qF 'by its section' && echo yes || echo no)"
 SUCC5=$(awk '/^5\. /{f=1} /^## /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
@@ -4738,6 +4738,39 @@ sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#O
   -e 's#\{\{LIVE_[A-Z_]+\}\}#none open#g' -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$SUCC" > "$SUCCFILL"
 check "a succession brief, every placeholder filled, lints clean and stays under 10,000 characters" "0|yes" \
   "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(LC_ALL=C tr -d '\200-\277' < "$SUCCFILL" | wc -c | tr -d ' ')" -le 10000 ] && echo yes || echo no)"
+# The Live state carries the operator's open questions, verbatim: the lint refuses a succession
+# brief whose Live state lacks the field, leaves it empty or leaves its placeholder, and passes
+# `none` and a filled one. The fixtures are the filled brief with that one line replaced.
+oq_brief() {  # $1 out file, $2 the field's value, or the single word ABSENT to drop the field
+  local l
+  while IFS= read -r l; do
+    case "$l" in
+      "- The operator's open questions"*) continue ;;
+      "- The next step"*) [ "$2" = ABSENT ] || printf '%s\n' "- The operator's open questions, or \`none\` when there is none: $2" ;;
+    esac
+    printf '%s\n' "$l"
+  done < "$SUCCFILL" > "$1"
+}
+OQ_MISSING="$WORK/succession-oq-missing.md"; oq_brief "$OQ_MISSING" ABSENT
+OQ_EMPTY="$WORK/succession-oq-empty.md"; oq_brief "$OQ_EMPTY" ""
+OQ_PLACEHOLDER="$WORK/succession-oq-placeholder.md"; oq_brief "$OQ_PLACEHOLDER" "{{LIVE_OPEN_QUESTIONS}}"
+OQ_NONE="$WORK/succession-oq-none.md"; oq_brief "$OQ_NONE" "none"
+OQ_FILLED="$WORK/succession-oq-filled.md"
+oq_brief "$OQ_FILLED" $'(id q-12) Question 1 of 2\n  Should the release wait for the review?\n  A. wait  B. ship'
+check "a succession brief without the open-questions field is a finding" "1|1" \
+  "$(bash "$LINT" "$OQ_MISSING" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_MISSING" 2>&1 | grep -c "Live state has no open-questions field")"
+check "a succession brief with the open-questions field empty is a finding" "1|1" \
+  "$(bash "$LINT" "$OQ_EMPTY" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_EMPTY" 2>&1 | grep -c "open-questions field is empty")"
+check "a succession brief with the open-questions field left as its placeholder is a finding" "1|1" \
+  "$(bash "$LINT" "$OQ_PLACEHOLDER" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_PLACEHOLDER" 2>&1 | grep -c "open-questions field is still its placeholder")"
+check "a succession brief with none as its open questions lints clean" "0" "$(bash "$LINT" "$OQ_NONE" >/dev/null 2>&1; echo $?)"
+check "a succession brief with its open questions filled, over several lines, lints clean" "0" "$(bash "$LINT" "$OQ_FILLED" >/dev/null 2>&1; echo $?)"
+check "the template's open-questions placeholder is the sixth, before the next step" "1|yes" \
+  "$(grep -cF '{{LIVE_OPEN_QUESTIONS}}' "$SUCC")|$([ "$(grep -nF '{{LIVE_OPEN_QUESTIONS}}' "$SUCC" | cut -d: -f1)" -lt "$(grep -nF '{{LIVE_NEXT_STEP}}' "$SUCC" | cut -d: -f1)" ] && echo yes || echo no)"
+check "the first task has the successor ask again any open question the round does not hold" "yes|yes|yes" \
+  "$(spells "$SUCC" 'ask it again, verbatim')|$(spells "$SUCC" 'round/<id>.json')|$(spells "$SUCC" 'found, kept, asked again')"
+check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
+  "$(spells "$ROOT/commands/succeed.md" 'six fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'asks again')"
 SUCCBIG="$WORK/succession-big.md"
 { cat "$SUCCFILL"; printf '\n'; head -c 10000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$SUCCBIG"
 SUCCBIG_N=$(LC_ALL=C tr -d '\200-\277' < "$SUCCBIG" | wc -c | tr -d ' ')
@@ -8354,8 +8387,8 @@ check "the design says why the audit left the orchestrator's context" "yes|yes" 
   "$(flat_has "$ROOT/docs/design.md" 'about 42,000 tokens')|$(flat_has "$ROOT/docs/design.md" '`orchestrator:screenshots`')"
 check "the record's messages say the audit is the screenshots agent's" "yes|yes" \
   "$(spells "$REC" 'ready: the audit covers $a_images image(s), the description of $pr carries $shots: audit every image')|$(spells "$REC" 'the screenshots agent audits each one')"
-check "both manifests carry 0.89.2" "1|2" \
-  "$(grep -c '"version": "0.89.2"' "$ROOT/.claude-plugin/plugin.json")|$(grep -c '"version": "0.89.2"' "$ROOT/.claude-plugin/marketplace.json")"
+check "both manifests carry 0.90.0" "1|2" \
+  "$(grep -c '"version": "0.90.0"' "$ROOT/.claude-plugin/plugin.json")|$(grep -c '"version": "0.90.0"' "$ROOT/.claude-plugin/marketplace.json")"
 
 # A pull request carries Ready or Not Ready beside the draft. The implementer's opens Not
 # Ready (`pr-create --draft` labels it, or `pr-readiness <n> not-ready` after another way of
