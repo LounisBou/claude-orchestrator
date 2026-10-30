@@ -4736,8 +4736,9 @@ SUCCFILL="$WORK/succession-filled.md"
 # file replaced both — and what this fill proves is the size limit over a full brief.
 sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#Orch : scratch#g' \
   -e 's#\{\{LIVE_[A-Z_]+\}\}#none open#g' -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$SUCC" > "$SUCCFILL"
+# Measured as the lint measures: the open-questions field's value is left out, its label counted.
 check "a succession brief, every placeholder filled, lints clean and stays under 10,000 characters" "0|yes" \
-  "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(LC_ALL=C tr -d '\200-\277' < "$SUCCFILL" | wc -c | tr -d ' ')" -le 10000 ] && echo yes || echo no)"
+  "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(sed "/^- The operator's open questions/s/:.*\$/:/" "$SUCCFILL" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')" -le 10000 ] && echo yes || echo no)"
 # The Live state carries the operator's open questions, verbatim: the lint refuses a succession
 # brief whose Live state lacks the field, leaves it empty or leaves its placeholder, and passes
 # `none` and a filled one. The fixtures are the filled brief with that one line replaced.
