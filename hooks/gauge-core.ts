@@ -11,11 +11,10 @@ export type MeasureReading = {
 // The gate is a token count no reported window moves: the smaller of the session's gate in
 // tokens and its percentage of the reported window. The host's compaction window is the
 // operator's to set, so a session may report 533,000 and must hand over where it would on
-// 1,000,000. A model whose real window is small keeps the percentage. `largeWindow` stays in
-// the environment record for the settings that still name it; the rule no longer reads it.
+// 1,000,000. A model whose real window is small keeps the percentage.
 export function tripGate(
   percent: number | null, tokens: number | null, window: number | null,
-  env: { gate?: number; gateTokens?: number; largeWindow?: number } = {},
+  env: { gate?: number; gateTokens?: number } = {},
 ): { tripped: boolean; words: string } {
   const gate = env.gate ?? 80
   const gateTokens = env.gateTokens ?? 300000
