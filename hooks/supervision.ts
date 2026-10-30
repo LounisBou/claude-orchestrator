@@ -977,8 +977,8 @@ export function registerWake(on: (...args: [event: string, handler: Function] | 
 
 // The tab's question band: this session's own open operator entry, kept in sight above its
 // prompt until it is answered, closed or withdrawn, wherever that happened. The round is read by
-// a clock started at the session's start, one tick every PANE_ROUND_POLL_MS: it stats the round
-// directory and reads the entries only when its mtime moved (or cannot be read), and redraws
+// a clock started at the session's start, with one tick at once and then one every PANE_ROUND_POLL_MS: it stats the round
+// directory and reads the entries only when its mtime moved (a missing directory, read once, stays so), and redraws
 // the band only when what it shows changed, so an answer written by the coordinator's pane
 // reaches the tab within one tick.
 type TabBandMemory = { timer: { cancel(): void } | null; seen: number | null | undefined; failed: string | null }
@@ -1018,6 +1018,7 @@ export function registerTabBand(on: (...args: [event: string, handler: Function]
     try {
       stopTabBand()
       tabBand.timer = $.clock.every(PANE_ROUND_POLL_MS, () => { tabBandRun($) })
+      await tabBandRun($)
     } catch (err) {
       await logLine($, `tab band: ${(err as Error).message}`)
     }

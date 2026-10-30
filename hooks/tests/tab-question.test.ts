@@ -197,3 +197,10 @@ test('the same failure is logged once, a different one again', async () => {
   await fx.tick()
   expect(fx.logged.filter(line => line.includes('tab band: bang')).length).toBe(1)
 })
+
+test('an open question is shown at the session start, without waiting for a clock tick', async () => {
+  const fx = tab()
+  fx.put(entry())
+  await fx.start()
+  expect(await fx.band()).toContain('Question for you (since 16:18): the deployment')
+})
