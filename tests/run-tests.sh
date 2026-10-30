@@ -3620,7 +3620,7 @@ for bad in 0 -5 abc 1.5 ""; do
 done
 out=$(gspawn --brief "$B/good.md" --orchestrator "$ORCHREF" --gate-tokens 200000)
 check "with --brief the startup prompt says the gate" "1" \
-  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF. Your context gate is 200000 tokens on a window of 1,000,000 tokens or more; below, 80 % of the window.")"
+  "$(printf '%s\n' "$out" | grep -Fc "prompt=Read and execute $BABS/good.md. Your orchestrator is $ORCHREF. Your context gate is the smaller of 200000 tokens and 80 % of the reported window.")"
 check "without --gate-tokens the startup prompt says no gate" "0" \
   "$(gspawn --brief "$B/good.md" --orchestrator "$ORCHREF" | grep -c 'Your context gate')"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_PS_TABLE=/dev/null bash "$AGENT" rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : gate" --prompt p --gate-tokens 200000 2>&1)
@@ -3882,16 +3882,21 @@ THRESHOLD_RE="([^0-9]|^)${OLD_FIGURE} ?%|~${OLD_FIGURE}|sixty|(gate|threshold|co
 check "no context threshold other than the gate's rule remains in the tracked tree" "" \
   "$(cd "$ROOT" && git grep -n -E -i "$THRESHOLD_RE" -- . ':!tests/run-tests.sh' 2>/dev/null)"
 
-# The gate is 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common
-# case, and 80 % of a smaller window. A line that states 80 % without the token half is a
-# gate a large-window session would read as its own: every such line carries the rule
+# The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window. A line
+# that states 80 % without the token half is a gate a large-window session would read as its own: every such line carries the rule
 # whole, in the same words.
-GATE_RULE='300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window'
+GATE_RULE='the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000'
 BARE_RE='([^0-9,.]|^)80 ?%|~ ?80([^0-9]|$)'
 check "every line stating the 80 % gate states the token gate with it" "" \
   "$(cd "$ROOT" && git grep -n -E "$BARE_RE" -- skills hooks templates commands README.md docs/design.md | grep -v -F "$GATE_RULE")"
 check "the rule is stated in « Thresholds »" "1" \
   "$(grep -c -F "**The gate is $GATE_RULE.**" "$ROOT/skills/orchestrator/SKILL.md")"
+
+# The gate reads no window variable: the name of the one that was removed is read by nothing
+# and mentioned nowhere. The name is split here so this line is not its own finding.
+GONE_VAR="ORCHESTRATOR_LARGE""_WINDOW"
+check "no window variable the gate no longer reads is left in the tracked tree" "" \
+  "$(cd "$ROOT" && git grep -n -F "$GONE_VAR" 2>/dev/null)"
 
 # Proof the sweep still catches a stale figure, planted only into a scratch copy — one file
 # per spelling it must catch.
@@ -3903,7 +3908,7 @@ printf 'GATE:-%s\n' "$OLD_FIGURE" > "$SWEEP/gate-default.sh"
 printf 'export GATE:=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-walrus.sh"
 printf 'export GATE=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-eq.sh"
 printf 'export gate=%s\n' "$OLD_FIGURE" > "$SWEEP/gate-lower.sh"
-printf 'the gate is %s; GATE_TOKENS:-300000; LARGE_WINDOW:-1000000\n' "$GATE_RULE" > "$SWEEP/new-rule.md"
+printf 'the gate is %s\n' "$GATE_RULE" > "$SWEEP/new-rule.md"
 printf 'Mark sessions past 80%%\n' > "$SWEEP/bare-eighty.md"
 check "the sweep catches a figure planted in a scratch copy" "1" \
   "$(grep -rn -E -i "$THRESHOLD_RE" "$SWEEP" | grep -c "past $OLD_FIGURE")"

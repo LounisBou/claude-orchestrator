@@ -31,7 +31,7 @@ test('an unreadable reading never trips', () => {
 })
 
 test('the tripped words name what was read', () => {
-  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: 300,000 tokens (30 %) on a window of 1,000,000 tokens or more, the common case, and 80 % of a smaller window
+  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
   expect(tripGate(30, 300000, 1000000).words).toBe('300,000 tokens (gate 300,000 on a 1M window)')
 })
 
@@ -176,7 +176,7 @@ test('an orchestrator launched with a 75 percent gate trips at 300,000 tokens on
   expect(tripGate(75, 300000, 400000, env).words).toBe('75% (gate 75%)')
 })
 
-test('the 75 percent gate falls before the compaction near 367,000 tokens', () => {
+test('an explicit 75 percent gate trips at 300,000 tokens on a 400,000 window', () => {
   expect(tripGate(75, 300000, 400000, { gate: 75 }).tripped).toBe(true)
   expect(tripGate(88, 350000, 400000, { gate: 75 }).tripped).toBe(true)
 })
