@@ -56,7 +56,7 @@ function tab(id = 's-own') {
         return { mtimeMs: state.mtime }
       },
       exists: async (p: string) => [...files.keys()].some(k => k === p || k.startsWith(`${p}/`)),
-      list: async (dir: string) => state.gone ? Promise.reject(new Error(`ENOENT: ${dir}`)) : (state.lists++, [...files.keys()].filter(p => p.startsWith(`${dir}/`)).map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false }))),
+      list: async (dir: string) => (state.lists++, state.gone ? Promise.reject(new Error(`ENOENT: ${dir}`)) : [...files.keys()].filter(p => p.startsWith(`${dir}/`)).map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false }))),
     },
     clock: {
       every: (ms: number, fn: () => void) => {
@@ -168,4 +168,32 @@ test('a tick whose read throws leaves the round unseen: the next tick, the direc
   fx.state.idFails = null
   await fx.tick()
   expect(await fx.band()).toContain('Question for you')
+})
+
+test('with no round directory the read is done once, not at every tick', async () => {
+  const fx = tab()
+  fx.state.gone = true
+  await fx.start()
+  await fx.tick()
+  await fx.tick()
+  await fx.tick()
+  expect(fx.state.lists).toBe(1)
+  fx.state.gone = false
+  fx.put(entry())
+  await fx.tick()
+  expect(await fx.band()).toContain('Question for you')
+  expect(fx.state.lists).toBe(2)
+})
+
+test('the same failure is logged once, a different one again', async () => {
+  const fx = tab()
+  fx.put(entry())
+  fx.state.idFails = 'boom'
+  await fx.start()
+  await fx.tick()
+  await fx.tick()
+  expect(fx.logged.filter(line => line.includes('tab band: boom')).length).toBe(1)
+  fx.state.idFails = 'bang'
+  await fx.tick()
+  expect(fx.logged.filter(line => line.includes('tab band: bang')).length).toBe(1)
 })

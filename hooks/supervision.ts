@@ -981,23 +981,35 @@ export function registerWake(on: (...args: [event: string, handler: Function] | 
 // directory and reads the entries only when its mtime moved (or cannot be read), and redraws
 // the band only when what it shows changed, so an answer written by the coordinator's pane
 // reaches the tab within one tick.
-type TabBandMemory = { timer: { cancel(): void } | null; seen: number | null | undefined }
-const tabBand: TabBandMemory = { timer: null, seen: undefined }
+type TabBandMemory = { timer: { cancel(): void } | null; seen: number | null | undefined; failed: string | null }
+const tabBand: TabBandMemory = { timer: null, seen: undefined, failed: null }
 
 async function tabBandTick($: any): Promise<void> {
   const mtime = await roundMtime($)
-  if (mtime !== null && mtime === tabBand.seen) return
+  if (mtime === tabBand.seen) return
   const sessionId = await $.session.id()
   const asked = tabQuestion((await readRound($)).map(found => found.entry), sessionId)
   tabBand.seen = mtime
   const next = asked ? { since: asked.since, blocks: asked.blocks ?? '', text: plainText(asked.question) } : null
+  tabBand.failed = null
   if (setTabQuestion(next)) $.ui.invalidate('ui.render')
+}
+
+// One failure is logged once: the same message at every tick would fill the log in a minute.
+function tabBandRun($: any): Promise<void> {
+  return tabBandTick($).catch(async (err: unknown) => {
+    const message = (err as Error).message
+    if (message === tabBand.failed) return
+    tabBand.failed = message
+    await logLine($, `tab band: ${message}`)
+  })
 }
 
 function stopTabBand(): void {
   tabBand.timer?.cancel()
   tabBand.timer = null
   tabBand.seen = undefined
+  tabBand.failed = null
   setTabQuestion(null)
 }
 
@@ -1005,7 +1017,7 @@ export function registerTabBand(on: (...args: [event: string, handler: Function]
   on('session.start', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
       stopTabBand()
-      tabBand.timer = $.clock.every(PANE_ROUND_POLL_MS, () => { tabBandTick($).catch((err: unknown) => logLine($, `tab band: ${(err as Error).message}`)) })
+      tabBand.timer = $.clock.every(PANE_ROUND_POLL_MS, () => { tabBandRun($) })
     } catch (err) {
       await logLine($, `tab band: ${(err as Error).message}`)
     }
