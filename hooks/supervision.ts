@@ -987,9 +987,9 @@ const tabBand: TabBandMemory = { timer: null, seen: undefined }
 async function tabBandTick($: any): Promise<void> {
   const mtime = await roundMtime($)
   if (mtime !== null && mtime === tabBand.seen) return
-  tabBand.seen = mtime
   const sessionId = await $.session.id()
   const asked = tabQuestion((await readRound($)).map(found => found.entry), sessionId)
+  tabBand.seen = mtime
   const next = asked ? { since: asked.since, blocks: asked.blocks ?? '', text: plainText(asked.question) } : null
   if (setTabQuestion(next)) $.ui.invalidate('ui.render')
 }

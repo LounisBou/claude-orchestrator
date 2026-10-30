@@ -35,17 +35,28 @@ function tab(id = 's-own') {
   const files = new Map<string, string>()
   const timers: { ms: number; fn: () => void; cancelled: boolean; cancel(): void }[] = []
   const invalidated: string[] = []
+  const logged: string[] = []
+  // The round directory's modification time moves with every entry written; `gone` is no directory.
+  const state = { mtime: 1, gone: false, lists: 0, idFails: null as string | null, idGate: null as Promise<void> | null, ids: 0 }
   const $ = {
-    session: { id: async () => id, surfaces: async () => ['terminal'], usage: async () => ({ context: { tokens: 1, window: 100000, percent: 0 } }), model: async () => 'a-model' },
+    session: { id: async () => {
+      state.ids++
+      if (state.idGate) await state.idGate
+      if (state.idFails) throw new Error(state.idFails)
+      return id
+    }, surfaces: async () => ['terminal'], usage: async () => ({ context: { tokens: 1, window: 100000, percent: 0 } }), model: async () => 'a-model' },
     env: { get: async (name: string) => (name === 'HOME' ? HOME : undefined) },
     plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
-    process: { run: async () => ({ exitCode: 0, stdout: '', stderr: '' }) },
+    process: { run: async (argv: unknown) => { logged.push(JSON.stringify(argv)); return { exitCode: 0, stdout: '', stderr: '' } } },
     fs: {
       read: async (p: string) => { if (!files.has(p)) throw new Error(`ENOENT: ${p}`); return files.get(p) },
       write: async (p: string, text: string) => { files.set(p, text) },
-      stat: async (p: string) => { throw new Error(`ENOENT: ${p}`) },
+      stat: async (p: string) => {
+        if (state.gone) throw new Error(`ENOENT: ${p}`)
+        return { mtimeMs: state.mtime }
+      },
       exists: async (p: string) => [...files.keys()].some(k => k === p || k.startsWith(`${p}/`)),
-      list: async (dir: string) => [...files.keys()].filter(p => p.startsWith(`${dir}/`)).map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+      list: async (dir: string) => state.gone ? Promise.reject(new Error(`ENOENT: ${dir}`)) : (state.lists++, [...files.keys()].filter(p => p.startsWith(`${dir}/`)).map(p => ({ name: p.slice(dir.length + 1), kind: 'file', size: 0, mtimeMs: 0, isLink: false }))),
     },
     clock: {
       every: (ms: number, fn: () => void) => {
@@ -63,7 +74,7 @@ function tab(id = 's-own') {
       }),
     },
   }
-  const put = (e: RoundEntry) => files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
+  const put = (e: RoundEntry) => { state.mtime++; files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n') }
   const pass = (x: unknown) => ({ passed: x })
   const start = () => Promise.all(handlers['session.start'].map(h => h($, {}, pass)))
   const tick = async () => {
@@ -76,7 +87,7 @@ function tab(id = 's-own') {
     return JSON.stringify(out)
   }
   const end = () => Promise.all(handlers['session.end'].map(h => h($, { sessionId: id }, pass)))
-  return { put, files, start, tick, band, end, timers, invalidated }
+  return { put, files, state, logged, start, tick, band, end, timers, invalidated }
 }
 
 test('an open question of this session is shown above its prompt, whole, with the Paris time it began', async () => {
@@ -145,4 +156,16 @@ test('a tick that sees the same entry redraws nothing, and the clock stops with 
   expect(fx.invalidated).toEqual([])
   await fx.end()
   expect(fx.timers.every(t => t.cancelled)).toBe(true)
+})
+
+test('a tick whose read throws leaves the round unseen: the next tick, the directory unchanged, reads again', async () => {
+  const fx = tab()
+  fx.put(entry())
+  fx.state.idFails = 'no session id yet'
+  await fx.start()
+  await fx.tick()
+  expect(await fx.band()).not.toContain('Question for you')
+  fx.state.idFails = null
+  await fx.tick()
+  expect(await fx.band()).toContain('Question for you')
 })
