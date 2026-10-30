@@ -1279,6 +1279,31 @@ test('a moved entry is not superseded by the successor\'s own question: it stays
   expect(fx.logged.some(l => l.includes(`withdrawn by the sender: ${asked.id}`))).toBe(false)
 })
 
+test('two sessions share the successor\'s name, one of them the receiver\'s own: the other is the successor', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  fx.files.set(`${HOME}/.claude/sessions/501.json`, JSON.stringify({ pid: 501, sessionId: 's-one', name: 'Orch : belt-2' }))
+  successorRunning(fx)
+  await drive(chains, 'session.receive', fx.dollar, confirmed('Orch : belt-2'))
+  expect(fx.logged.filter(l => l.includes('round: successor learnt: Orch : belt-2 (session s-two)')).length).toBe(1)
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  const moved = entries(fx).find(e => e.id === asked.id)!
+  expect([moved.status, moved.session, moved.from]).toEqual(['open', 's-two', 'Orch : belt-2'])
+})
+
+test('several sessions share the successor\'s name besides the receiver: the reply address\'s process id chooses', async () => {
+  const { chains, fx, asked } = await senderWithEntries()
+  fx.files.set(`${HOME}/.claude/sessions/501.json`, JSON.stringify({ pid: 501, sessionId: 's-one', name: 'Orch : belt-2' }))
+  successorRunning(fx)
+  fx.files.set(`${HOME}/.claude/sessions/9003.json`, JSON.stringify({ pid: 9003, sessionId: 's-three', name: 'Orch : belt-2' }))
+  await drive(chains, 'session.receive', fx.dollar, {
+    origin: { kind: 'peer' },
+    text: '<cross-session-message from="uds:/tmp/claude-sockets/9003.sock" from-name="Orch : belt-2" from-mode="prompting">\ntakeover confirmed\n</cross-session-message>',
+  })
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  const moved = entries(fx).find(e => e.id === asked.id)!
+  expect([moved.status, moved.session, moved.from]).toEqual(['open', 's-three', 'Orch : belt-2'])
+})
+
 // --- a settled question leaves the coordinator's tab -------------------------------------------
 
 // The operator answered « A » in the pane at 21:10:00Z, then the coordinator, which had presented

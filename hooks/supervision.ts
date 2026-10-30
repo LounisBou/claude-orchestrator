@@ -2289,12 +2289,14 @@ const REFERENCED = / \[[^\]\s]+\]$/
 
 // The session id of the one session on this machine that the host's registry (its sessions
 // directory, one record per process) names so, the process the coordinator's record names when
-// several do; null when none or several, or when the registry cannot be read.
-async function registeredSession($: any, name: string, recordText: string): Promise<{ sessionId: string } | null> {
-  let pid: string | null = null
+// several do; null when none or several, or when the registry cannot be read. `exclude` is a
+// session id left out of the candidates, and `pid` the process to choose among several, over
+// the record's own.
+async function registeredSession($: any, name: string, recordText: string, options: { exclude?: string; pid?: string | null } = {}): Promise<{ sessionId: string } | null> {
+  let pid: string | null = options.pid ?? null
   try {
     const recorded = JSON.parse(recordText)?.pid
-    if (recorded !== undefined && recorded !== null && String(recorded) !== '') pid = String(recorded)
+    if (pid === null && recorded !== undefined && recorded !== null && String(recorded) !== '') pid = String(recorded)
   } catch { /* coordinatorOf read it already */ }
   const dir = `${await configDir($)}/sessions`
   const named: { pid: string; sessionId: string }[] = []
@@ -2303,7 +2305,7 @@ async function registeredSession($: any, name: string, recordText: string): Prom
       if (!file || file.kind !== 'file' || !file.name.endsWith('.json')) continue
       try {
         const record = JSON.parse(String(await $.fs.read(`${dir}/${file.name}`)))
-        if (record?.name === name && typeof record.sessionId === 'string' && record.sessionId !== '') named.push({ pid: String(record.pid ?? ''), sessionId: record.sessionId })
+        if (record?.name === name && typeof record.sessionId === 'string' && record.sessionId !== '' && record.sessionId !== options.exclude) named.push({ pid: String(record.pid ?? ''), sessionId: record.sessionId })
       } catch { /* a record being written, or gone: not this one */ }
     }
   } catch {
@@ -2336,12 +2338,15 @@ async function learnCoordinator($: any, learnt: { name: string; from: string | n
 
 // A successor's « takeover confirmed », recorded by an orchestrator only, over any successor
 // recorded before it: its session id when this machine's registry names it alone, else its name
-// and address.
+// and address. At « takeover confirmed » the predecessor and its successor carry one name, so
+// the receiving session's own record is left out of the candidates, and the process id the
+// reply address carries (`uds:/…/<pid>.sock`) chooses among the several that remain.
 async function learnSuccessor($: any, learnt: LearntSuccessor): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   if (roleOf(row?.name ?? null) !== 'orchestrator') return
-  const session = (await registeredSession($, learnt.name, ''))?.sessionId ?? null
+  const pid = learnt.from?.match(/\/(\d+)\.sock$/)?.[1] ?? null
+  const session = (await registeredSession($, learnt.name, '', { exclude: sessionId, pid }))?.sessionId ?? null
   await writeAtomic($, `${await storeOf($)}/${successorKey(sessionId)}`, JSON.stringify({ ...learnt, session }) + '\n')
   await logLine($, `round: successor learnt: ${learnt.name}${session ? ` (session ${session})` : ''}`)
 }
