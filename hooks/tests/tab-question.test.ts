@@ -219,3 +219,15 @@ test('a tick still running when the next fires is skipped, not run beside it', a
   fx.state.idGate = null
   expect(await fx.band()).toContain('Question for you')
 })
+
+test('while the directory\'s modification time is unchanged the round is not read again, and a write reads it', async () => {
+  const fx = tab()
+  fx.put(entry())
+  await fx.start()
+  await fx.tick()
+  await fx.tick()
+  expect(fx.state.lists).toBe(1)
+  fx.put(entry({ id: 'Orch-w-1006', status: 'withdrawn' }))
+  await fx.tick()
+  expect(fx.state.lists).toBe(2)
+})
