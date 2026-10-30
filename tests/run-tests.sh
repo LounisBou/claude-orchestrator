@@ -869,7 +869,7 @@ srec audit "$A" "$a1" --head aaa1111 --images 1 >/dev/null
 check "audit records the head, the images and no defect" "aaa1111|1|0" \
   "$(jq -r --argjson i "$a1" 'select(.id==$i)|[.audit.head,.audit.images,(.audit.defects|length)]|join("|")' "$A")"
 check "an audit is not a round" "1" "$(jq -r --argjson i "$a1" 'select(.id==$i)|.rounds' "$A")"
-check_status "ready refuses an audit that opened fewer images than the description carries" 1 srec ready "$A" "$a1" --head aaa1111 --e2e "$E2EOK"
+check_status "ready refuses an audit that covered fewer images than the description carries" 1 srec ready "$A" "$a1" --head aaa1111 --e2e "$E2EOK"
 check "and names both counts" "1" \
   "$(srec ready "$A" "$a1" --head aaa1111 --e2e "$E2EOK" 2>&1 | grep -c 'ready: the audit covers 1 image(s), the description of acme/front#14 carries 2: audit every image')"
 srec audit "$A" "$a1" --head aaa1111 --images 2 --defect "map button: icon off-centre, style unlike its neighbours" --defect "after: stray text in the search field" >/dev/null
@@ -8337,6 +8337,10 @@ check "the screenshots agent audits against the checklist and never counts" "yes
   "$(spells "$SHOTS" "$VAUDIT")|$(carries "$SHOTS" 'never counts')"
 check "item 12 dispatches the screenshots agent and keeps the one-image exception" "yes|yes|yes" \
   "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'dispatch `orchestrator:screenshots`')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'never open the batch yourself')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'open that one only')"
+check "item 12 says an unreadable line is an image not audited and ready refuses until it is" "yes" \
+  "$(flat_has "$ROOT/skills/orchestrator/references/review.md" '`unreadable:` line is an image not audited, so the `<audited>` figure stays below the description'"'"'s count and `ready` refuses until the image is fetched and audited')"
+check "the screenshots agent names both fetch commands and the file check" "yes|yes|yes" \
+  "$(spells "$SHOTS" 'gh api "repos/<o>/<r>/contents/<path>?ref=<ref>" -H "Accept: application/vnd.github.raw" > <file>')|$(spells "$SHOTS" 'curl -fsSL -H "Authorization: Bearer $(gh auth token)" "<url>" -o <file>')|$(spells "$SHOTS" '`file <file>`')"
 check "item 12 relays the agent's lines and records its figures" "yes|yes" \
   "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'per the screenshots agent')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'the agent audits, it never counts')"
 check "the standing rule has the screenshots agent audit each image again" "yes" \
