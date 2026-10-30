@@ -977,12 +977,12 @@ export function registerWake(on: (...args: [event: string, handler: Function] | 
 
 // The tab's question band: this session's own open operator entry, kept in sight above its
 // prompt until it is answered, closed or withdrawn, wherever that happened. The round is read by
-// a clock started at the session's start, with one tick at once and then one every PANE_ROUND_POLL_MS: it stats the round
-// directory and reads the entries only when its mtime moved (a missing directory, read once, stays so), and redraws
-// the band only when what it shows changed, so an answer written by the coordinator's pane
-// reaches the tab within one tick.
-type TabBandMemory = { timer: { cancel(): void } | null; seen: number | null | undefined; failed: string | null }
-const tabBand: TabBandMemory = { timer: null, seen: undefined, failed: null }
+// a clock started at the session's start, with one tick at once and then one every
+// PANE_ROUND_POLL_MS: it stats the round directory and reads the entries only when its mtime
+// moved (a missing directory, read once, stays so), and redraws the band only when what it
+// shows changed, so an answer written by the coordinator's pane reaches the tab within one tick.
+type TabBandMemory = { timer: { cancel(): void } | null; seen: number | null | undefined; failed: string | null; running: boolean }
+const tabBand: TabBandMemory = { timer: null, seen: undefined, failed: null, running: false }
 
 async function tabBandTick($: any): Promise<void> {
   const mtime = await roundMtime($)
@@ -996,13 +996,16 @@ async function tabBandTick($: any): Promise<void> {
 }
 
 // One failure is logged once: the same message at every tick would fill the log in a minute.
-function tabBandRun($: any): Promise<void> {
-  return tabBandTick($).catch(async (err: unknown) => {
+// A tick still running when the next fires is skipped, the two never reading side by side.
+async function tabBandRun($: any): Promise<void> {
+  if (tabBand.running) return
+  tabBand.running = true
+  await tabBandTick($).catch(async (err: unknown) => {
     const message = (err as Error).message
     if (message === tabBand.failed) return
     tabBand.failed = message
     await logLine($, `tab band: ${message}`)
-  })
+  }).finally(() => { tabBand.running = false })
 }
 
 function stopTabBand(): void {
@@ -1010,6 +1013,7 @@ function stopTabBand(): void {
   tabBand.timer = null
   tabBand.seen = undefined
   tabBand.failed = null
+  tabBand.running = false
   setTabQuestion(null)
 }
 

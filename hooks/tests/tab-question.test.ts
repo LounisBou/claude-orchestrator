@@ -204,3 +204,18 @@ test('an open question is shown at the session start, without waiting for a cloc
   await fx.start()
   expect(await fx.band()).toContain('Question for you (since 16:18): the deployment')
 })
+
+test('a tick still running when the next fires is skipped, not run beside it', async () => {
+  const fx = tab()
+  fx.put(entry())
+  let release: () => void = () => undefined
+  fx.state.idGate = new Promise<void>(resolve => { release = resolve })
+  const started = fx.start()
+  await fx.tick()
+  await fx.tick()
+  expect(fx.state.ids).toBe(1)
+  release()
+  await started
+  fx.state.idGate = null
+  expect(await fx.band()).toContain('Question for you')
+})
