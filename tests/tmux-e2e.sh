@@ -193,6 +193,20 @@ banner_or_exit() { # <pane>
   fi
 }
 
+# A resumed session redraws its conversation, which scrolls its banner off the screen: the
+# subscription was read on that conversation's banner before it ended, so here the whole
+# history is read for what refuses, the API billing line or the trust question.
+history_of() { case "$1" in *::*) tmux -L "${1%%::*}" capture-pane -p -S - -t "${1#*::}" ;; *) tm capture-pane -p -S - -t "$1" ;; esac; }
+resumed_or_exit() { # <pane>
+  local text
+  sleep 5
+  text=$(history_of "$1")
+  if printf '%s\n' "$text" | grep -qF 'trust this folder' || printf '%s\n' "$text" | grep -qF 'API Usage Billing'; then
+    echo "refused: the resumed session on $1 asks for trust or bills usage by the API; nothing more was driven" >&2
+    exit 1
+  fi
+}
+
 # The word is asked for in pieces, to be joined by hyphens: the reply is the only line of the
 # screen that carries the whole word, never the prompt shown above it.
 prompt() { printf 'Reply with these words joined by hyphens, in lower case, and nothing else: %s. Do not use any tool.' \
@@ -323,7 +337,7 @@ check "the old process ended and window 0 resumed the session" "0|1" "$(hosts_on
 CLINE=$(ps -t "${CHOME_TTY#/dev/}" -o command= 2>/dev/null | grep -- '--setting-sources project' | head -1)
 check "window 0 replays the launch: its settings, model and mode, the session resumed under the orchestrator's name" "1|1|1|1|1" \
   "$(printf '%s' "$CLINE" | grep -c -- '--setting-sources project')|$(printf '%s' "$CLINE" | grep -c -- "--model $MODEL")|$(printf '%s' "$CLINE" | grep -c -- '--permission-mode acceptEdits')|$(printf '%s' "$CLINE" | grep -c -- "--resume $CSID")|$(printf '%s' "$CLINE" | grep -c -- '--name Orch : e2e conv$')"
-banner_or_exit "$CHOME::home:0"
+resumed_or_exit "$CHOME::home:0"
 if wait_reply "$CHOME::home:0" ready-conv-e2e 120; then CRECALL=1; else CRECALL=0; fi
 check "the resumed session answers from its earlier exchange" "1" "$CRECALL"
 check "one live session holds the id, under the orchestrator's name, and its transcript went on" "1 Orch : e2e conv|$CSID|1" \
@@ -363,7 +377,7 @@ launcher 120 spawn --wake --dir "$WORKDIR" --title "Orch : e2e open" --model "$M
 WAKE_TTY=$(out | tail -1)
 check "the wake resumes the recorded session in window 0 of a new home server" "0|$WAKE_TTY|1" \
   "$(rc)|$(home_tty "$OHOME")|$(ps -t "${WAKE_TTY#/dev/}" -o command= 2>/dev/null | grep -c -- "--resume $OSID")"
-banner_or_exit "$OHOME::home:0"
+resumed_or_exit "$OHOME::home:0"
 if wait_reply "$OHOME::home:0" ready-open-e2e 120; then ORECALL=1; else ORECALL=0; fi
 check "the woken orchestrator answers from its earlier exchange, one live session under its name, its transcript gone on" \
   "1|1 Orch : e2e open|1" \
