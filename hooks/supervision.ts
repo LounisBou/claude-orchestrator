@@ -43,7 +43,7 @@ import {
   askLine, ackLine, parseAsk, parseAck, isAsk, isAck,
   answerLine, parseAnswer, answerAckLine, parseAnswerAck, isAnswer, isAnswerAck,
 } from './remote-round.ts'
-import { targetOf, homeArgv, stateArgv, stateAfterTurn, stateAfterMeasure, TMUX_TIMEOUT_MS, type TabState, type TabTarget } from './tab-state.ts'
+import { targetOf, homeArgv, stateArgv, windowOf, stateAfterTurn, stateAfterMeasure, TMUX_TIMEOUT_MS, type TabState, type TabTarget } from './tab-state.ts'
 import { deckOf, deckText, deckIsNews, DECK_FILE, type Deck, type DeckUsage } from './deck.ts'
 import { newBook, settle, ingest, rewind, forget, usageOf, appendedArgv, consumedOf, type Prices, type UsageBook } from './usage.ts'
 
@@ -55,6 +55,8 @@ export type SessionRow = {
   pid?: string | null
   // The session's tty, the walk's: an agent's orchestrator is the chain naming it.
   tty?: string | null
+  // The session's window, `<session>:@N.%N`, when it runs in a home session (the deck's focus).
+  tmux?: string | null
   repo: string | null
   context_percent: number
   context_tokens: number
@@ -1079,6 +1081,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           ...(walked.known ? { role: roleOf(walked.name), name: walked.name } : {}),
           ...(walked.pid ? { pid: walked.pid } : {}),
           ...(walked.tty ? { tty: walked.tty } : {}),
+          tmux: await windowAddress($),
           repo: isDegradedPass(origin) ? null : origin,
           context_percent: reading.context_percent,
           context_tokens: reading.context_tokens,
@@ -2995,7 +2998,7 @@ async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number }> 
 // What each window of a home session shows, kept by the window it is written on (the server's
 // socket and the pane): the home mark read once, the state last written, whether the context is
 // past its gate, and whether a failure was already said.
-type TabMemory = { home: boolean | null; shown: TabState | null; past: boolean; said: boolean }
+type TabMemory = { home: boolean | null; window: string | null; shown: TabState | null; past: boolean; said: boolean }
 const tabs = new Map<string, TabMemory>()
 
 // This session's window, when it runs in a home session. The mark is read once per window: a
@@ -3009,14 +3012,15 @@ async function tabOf($: any): Promise<{ target: TabTarget; bin: string; memory: 
   const key = `${target.socket}|${target.pane}`
   let memory = tabs.get(key)
   if (!memory) {
-    memory = { home: null, shown: null, past: false, said: false }
+    memory = { home: null, window: null, shown: null, past: false, said: false }
     tabs.set(key, memory)
   }
   if (memory.home === null) {
     try {
       const read = await $.process.run(homeArgv(bin, target), { timeoutMs: TMUX_TIMEOUT_MS })
       if (!read || read.exitCode !== 0) throw new Error(`tmux exited ${read?.exitCode ?? 'without answer'} reading the home mark`)
-      memory.home = String(read.stdout ?? '').trim() === '1'
+      memory.window = windowOf(String(read.stdout ?? ''))
+      memory.home = memory.window !== null
     } catch (err) {
       await tabFailure($, memory, (err as Error).message)
       return null
@@ -3041,6 +3045,15 @@ async function showTabState($: any, state: TabState): Promise<void> {
     tab.memory.shown = state
   } catch (err) {
     await tabFailure($, tab.memory, (err as Error).message)
+  }
+}
+
+// The address of this session's window when it runs in a home session, else null.
+async function windowAddress($: any): Promise<string | null> {
+  try {
+    return (await tabOf($))?.memory.window ?? null
+  } catch {
+    return null
   }
 }
 
