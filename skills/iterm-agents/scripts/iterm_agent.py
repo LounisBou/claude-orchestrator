@@ -2154,6 +2154,8 @@ class TmuxTerminal(Terminal):
         return True
 
     def owns(self, tty, own):
+        # A tty no window of this session runs on is not None here: the death says where it
+        # is instead, another session's window or none at all.
         pane = self.window_of(tty, "move")
         if tty == own:
             return True
