@@ -29,9 +29,16 @@ export function targetOf(tmux: string | undefined, pane: string | undefined): Ta
   return socket && pane ? { socket, pane } : null
 }
 
-// The mark read through the pane, which resolves its session and inherits a global value.
+// The mark and the window's address (`<session>:@N.%N`, what the deck hands a reader to focus
+// it) read through the pane, which resolves its session and inherits a global value.
 export function homeArgv(bin: string, target: TabTarget): string[] {
-  return [bin, '-S', target.socket, 'display-message', '-p', '-t', target.pane, `#{${HOME_MARK}}`]
+  return [bin, '-S', target.socket, 'display-message', '-p', '-t', target.pane, `#{${HOME_MARK}}|#{session_name}:#{window_id}.#{pane_id}`]
+}
+
+// The answer of homeArgv: the window's address when the session carries the mark, else null.
+export function windowOf(stdout: string): string | null {
+  const [mark, ...address] = stdout.trim().split('|')
+  return mark === '1' && address.length > 0 ? address.join('|') : null
 }
 
 export function stateArgv(bin: string, target: TabTarget, state: TabState): string[] {

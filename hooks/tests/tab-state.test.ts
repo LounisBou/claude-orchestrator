@@ -3,7 +3,7 @@
 // (tab-state.ts, wired in supervision.ts): one word per state, written only when it changes,
 // only inside a home session, and a failing tmux call never fails the hook.
 import { expect, test } from 'claude-code/testing'
-import { homeArgv, stateArgv, stateAfterTurn, stateAfterMeasure, targetOf } from '../tab-state.ts'
+import { homeArgv, stateArgv, windowOf, stateAfterTurn, stateAfterMeasure, targetOf } from '../tab-state.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 
@@ -22,8 +22,14 @@ test('the target is the socket of $TMUX and the pane, or none outside tmux', () 
 
 test('the argv of the mark read and of the state write', () => {
   const target = { socket: SOCKET, pane: '%3' }
-  expect(homeArgv('tmux', target)).toEqual(['tmux', '-S', SOCKET, 'display-message', '-p', '-t', '%3', '#{@orchestrator-home}'])
+  expect(homeArgv('tmux', target)).toEqual(['tmux', '-S', SOCKET, 'display-message', '-p', '-t', '%3', '#{@orchestrator-home}|#{session_name}:#{window_id}.#{pane_id}'])
   expect(stateArgv('tmux', target, 'busy')).toEqual(['tmux', '-S', SOCKET, 'set-option', '-w', '-t', '%3', '@state', 'busy'])
+})
+
+test('the window is the answer when the session carries the mark, else none', () => {
+  expect(windowOf('1|home:@3.%7\n')).toBe('home:@3.%7')
+  expect(windowOf('|home:@3.%7\n')).toBeNull()
+  expect(windowOf('\n')).toBeNull()
 })
 
 test('a turn ends on the wait it wrote, else the gate, else idle', () => {
@@ -92,7 +98,7 @@ function fake(over: Over) {
           calls.push([...argv])
           const reading = argv[3] === 'display-message'
           if (over.fail === (reading ? 'home' : 'set')) throw new Error('tmux: no server running')
-          return { exitCode: 0, stdout: reading ? (over.home === false ? '\n' : '1\n') : '', stderr: '' }
+          return { exitCode: 0, stdout: reading ? (over.home === false ? '|plain:@0.%0\n' : '1|home:@3.%7\n') : '', stderr: '' }
         }
         if (argv[0] === 'mv' && files.has(argv[2])) {
           files.set(argv[3], files.get(argv[2])!)
@@ -169,6 +175,16 @@ test('gate when a measure puts a window at rest past its gate, idle when it is b
   fx.usage.context.tokens = 40000
   await drive(chains, 'session.measure', fx.dollar, {})
   expect(fx.states()).toEqual(['busy', 'gate', 'idle'])
+})
+
+test('the row names the window in a home session, and nothing outside one', async () => {
+  const chains = mounted()
+  const home = fake({ pane: '%18' })
+  await drive(chains, 'session.measure', home.dollar, {})
+  expect(JSON.parse(home.files.get(`${STATE}/store/sessions/s-one`)!).tmux).toBe('home:@3.%7')
+  const outside = fake({ pane: '%19', tmux: false })
+  await drive(chains, 'session.measure', outside.dollar, {})
+  expect(JSON.parse(outside.files.get(`${STATE}/store/sessions/s-one`)!).tmux ?? null).toBeNull()
 })
 
 test('a state is written when it changes, never twice in a row', async () => {
