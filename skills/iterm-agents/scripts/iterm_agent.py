@@ -26,6 +26,7 @@ import os
 import re
 import subprocess
 import sys
+import uuid
 import time
 
 
@@ -278,6 +279,51 @@ def verify_mode(dir_, launch_epoch, asked_mode, model, made, timeout=None, sleep
     elif mode != asked_mode:
         refuse_made(made, mode_refusal(asked_mode, mode, model))
     return "spawn: mode %s read on the transcript" % mode
+
+
+def transcript_of(session_id):
+    """`(path, size)` of a session's transcript, by its id, or ("", 0)."""
+    for path in glob.glob(os.path.join(PROJECTS_DIR, "*", "%s.jsonl" % session_id)):
+        try:
+            return path, os.path.getsize(path)
+        except OSError:
+            continue
+    return "", 0
+
+
+def verify_resumed(session_id, offset, asked_mode, model, made, timeout=None, sleep=time.sleep):
+    """The mode a resumed session came up in, read on what its transcript gained since the
+    launch (`offset`, its size then): the first mode it carries is the conversation's first
+    launch's, not this one's. Refused like a spawn's reading (§43)."""
+    timeout = MODE_TIMEOUT if timeout is None else timeout
+    waited, mode = 0, ""
+    while waited < timeout:
+        path, _ = transcript_of(session_id)
+        if path:
+            try:
+                with open(path) as fh:
+                    fh.seek(offset)
+                    for line in fh:
+                        try:
+                            entry = json.loads(line)
+                        except Exception:
+                            continue
+                        if isinstance(entry, dict) and entry.get("permissionMode"):
+                            mode = entry["permissionMode"]
+                            break
+            except OSError:
+                pass
+            if mode:
+                break
+        sleep(1)
+        waited += 1
+    if not mode:
+        refuse_made(made, "spawn: refused: the transcript of session %s gained no entry carrying "
+                    "a mode after %ss: the resume may be parked on a dialog or hung at start"
+                    % (session_id, timeout))
+    elif mode != asked_mode:
+        refuse_made(made, mode_refusal(asked_mode, mode, model))
+    return "spawn: mode %s read on the resumed transcript" % mode
 
 
 def closed_clause(closed, tty):
@@ -2375,6 +2421,15 @@ HOST_REFUSED = {"-p", "--print", "--bg", "--background", "--cloud", "--desktop",
                 "--no-session-persistence"}
 
 
+PLUGIN_ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                                            "..", ".."))
+
+
+def plugin_path(path):
+    """A path of the plugin's, as the plugin's root reads it: the same on every machine."""
+    return os.path.relpath(path, PLUGIN_ROOT)
+
+
 def home_socket(session_id):
     """The home server's socket name: the orchestrator's session id, its first characters."""
     return HOME_SOCKET_PREFIX + re.sub(r"[^0-9A-Za-z]", "", session_id)[:8]
@@ -2626,6 +2681,40 @@ def end_home(socket, what):
     return session_id, ttys
 
 
+def iterm_title(tty):
+    """The name iTerm2 shows for the session on `tty`, or None when it has none there."""
+    async def go(iterm2, connection):
+        app = await iterm2.async_get_app(connection)
+        _, _, sess = await find_tab(app, tty)
+        return None if sess is None else (await sess.async_get_variable("autoName") or "")
+    return run(go)
+
+
+def close_home_tab(tty, socket, expect):
+    """Close a tab that shows a home session: its title checked first, then the server
+    ended, every window of it proved gone, then the tab if it outlived its client. Prints
+    the close's contract line, then the server and the session window 0 ran, which a pause
+    records for the wake."""
+    if expect:
+        name = iterm_title(tty)
+        if name is None:
+            die("close: no session found on %s" % tty)
+        if stable_title(expect) not in stable_title(name):
+            die("close: refused: session on %s is titled '%s', which does not contain '%s'"
+                % (tty, name, expect))
+    session_id, ttys = end_home(socket, "close")
+    deadline = time.time() + CLOSE_TIMEOUT
+    while ITERM.find(tty):
+        if time.time() >= deadline:
+            ITERM.close(tty, "")
+            break
+        time.sleep(0.3)
+    print("closed 1 session on %s" % tty)
+    print("home: ended the server %s and its %d window(s)%s"
+          % (socket, len(ttys), ", session %s" % session_id if session_id else ""))
+    sys.stdout.flush()
+
+
 def cmd_home(argv):
     """Move a running orchestrator into a home session of its own, in its own place: a home
     server whose window 0 resumes the same conversation once the session has ended where it
@@ -2695,7 +2784,7 @@ def cmd_home(argv):
                              " ".join(shlex.quote(w) for w in [cli] + resume)))
     if DRY_RUN:
         print("home_server=%s" % socket)
-        print("home_conf=%s" % HOME_CONF)
+        print("home_conf=%s" % plugin_path(HOME_CONF))
         print("home_window0=%s" % args.name)
         print("home_launch=%s" % launch)
         print("home_tab=%s" % ("none" if no_tab else "right of %s" % own))
@@ -2845,7 +2934,7 @@ def host_cuts(role):
 
 def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_file="",
                   account_connectors=False, gate_tokens=0, effort="", keep_tools=(),
-                  drop_tools=(), keep_synced_skills=False):
+                  drop_tools=(), keep_synced_skills=False, session=()):
     """The command iTerm2 runs in the new tab. It is HANDED to the app, never typed, so
     its length and its bytes stop being a hazard. No model argument at all when neither a
     tier nor an explicit identifier says which: the host's own default is the right
@@ -2900,6 +2989,9 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
     if mcp_file:
         cli += ["--mcp-config", shq(mcp_file)]
     cli += ["--permission-mode", shq(mode)]
+    # The session an orchestrator's home server is named after: the one it resumes, or the id
+    # a new one is given, so the server's name is known before the session starts.
+    cli += [shq(word) for word in session]
     # An agent is driven by its orchestrator alone (§39): remote control comes up OFF for
     # everyone but a successor and an auditor, which the operator also drives from the
     # host's remote client (§52). The setting and the flag below are mutually exclusive —
@@ -3061,6 +3153,7 @@ def cmd_spawn(argv):
     p.add_argument("--resident", action="store_true", default=False)
     p.add_argument("--wake", action="store_true", default=False)
     p.add_argument("--open", dest="open_", action="store_true", default=False)
+    p.add_argument("--resume", default="")
     p.add_argument("--mcp", action="append", default=[])
     p.add_argument("--account-connectors", dest="account_connectors",
                     action="store_true", default=False)
@@ -3145,6 +3238,12 @@ def cmd_spawn(argv):
         if not args.model:
             die("spawn: refused: --wake needs the recorded model, --model <id>: a wake never "
                 "guesses the model its orchestrator ran on")
+    if args.resume and not args.wake:
+        die("spawn: refused: --resume is a wake's: it names the session a paused orchestrator "
+            "resumes")
+    if args.resume and not re.fullmatch(r"[0-9A-Za-z-]+", args.resume):
+        die("spawn: refused: --resume needs a session id, letters, digits and hyphens, got '%s'"
+            % args.resume)
     if args.open_:
         # A new orchestrator opened on the operator's order, by the coordinator or by an
         # orchestrator the coordinator relayed that order to on another machine: under its own
@@ -3433,9 +3532,24 @@ def cmd_spawn(argv):
     remote_control = title if ((args.successor and args.remote_control) or args.auditor
                                 or args.coordinator_successor or args.wake
                                 or args.open_) else ""
+    # A woken or opened orchestrator starts in window 0 of a home session of its own, shown by
+    # a tab right of the caller's: its server is named after its session, the one it resumes
+    # or the id it is given.
+    home = args.wake or args.open_
+    session_words, socket = (), ""
+    if home:
+        if args.resume:
+            session_words = ("--resume", args.resume)
+        else:
+            new_id = (os.environ.get("ORCHESTRATOR_NEW_SESSION_ID")
+                      or ("<new-session-id>" if DRY_RUN else str(uuid.uuid4())))
+            session_words = ("--session-id", new_id)
+        socket = home_socket(session_words[1]) if not session_words[1].startswith("<") \
+            else HOME_SOCKET_PREFIX + "<new>"
     launch = build_command(args.dir, title, model, args.mode, prompt_file, remote_control,
                            mcp_file, args.account_connectors, gate_tokens, effort,
-                           args.keep_tool, args.drop_tool, args.keep_synced_skills)
+                           args.keep_tool, args.drop_tool, args.keep_synced_skills,
+                           session_words)
 
     if DRY_RUN:
         print("launch=%s" % launch)
@@ -3467,6 +3581,12 @@ def cmd_spawn(argv):
         print("remote_control=%s" % ("yes" if remote_control else "no"))
         print("mode_check=skipped")
         print("program=%s -l <launch-file>" % LOGIN_SHELL)
+        if home:
+            print("home_server=%s" % socket)
+            print("home_conf=%s" % plugin_path(HOME_CONF))
+            print("home_window0=%s" % title)
+            print("home_tab=%s" % ("right of %s" % ("self" if anchor == own else anchor)
+                                   if anchor else "where the app puts it"))
         return
 
     script = write_launch_script(launch, title)
@@ -3482,11 +3602,22 @@ def cmd_spawn(argv):
 
     # Before the tab exists, so no transcript older than this launch can be taken for its.
     launch_epoch = time.time()
-    # The stable id is written into the chain only once the session is verified running: a
-    # spawn that dies unverified must leave the chain as it found it, and a successor that
-    # never started must not take the predecessor's agents.
-    new_tty, tab_id = term.create(command, title, place,
-                                  effect if own and effect != "none" else "", made)
+    _, resumed_from = transcript_of(args.resume) if args.resume else ("", 0)
+    if home:
+        # The host runs in window 0 and the tab shows the server: what is verified is window
+        # 0's tty, and a refusal ends the server with the tab.
+        pane_tty = make_home(socket, title, args.dir, command, "spawn")
+        tab_tty, made = open_home_tab(socket, title, place.anchor, "spawn")
+        made.update(home=socket, tty=pane_tty)
+        print("spawn: home server %s, window 0 on %s, shown in the tab on %s"
+              % (socket, pane_tty, tab_tty), file=sys.stderr)
+        new_tty, tab_id = pane_tty, ""
+    else:
+        # The stable id is written into the chain only once the session is verified running:
+        # a spawn that dies unverified must leave the chain as it found it, and a successor
+        # that never started must not take the predecessor's agents.
+        new_tty, tab_id = term.create(command, title, place,
+                                      effect if own and effect != "none" else "", made)
     if made.get("error"):
         refuse_made(made, "spawn: the tab was made, then the terminal failed: %s"
                     % made["error"])
@@ -3527,7 +3658,11 @@ def cmd_spawn(argv):
         # that runs and waits for a click is not. The mode asked for is carried on the
         # process line and honoured for some models and not others, so the mode the session
         # actually came up in is read on its own transcript (§43).
-        print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
+        if args.resume:
+            print(verify_resumed(args.resume, resumed_from, args.mode, model, made),
+                  file=sys.stderr)
+        else:
+            print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
     apply_chain_plan(term, own, new_tty, tab_id, effect, args.resident)
     print(new_tty)
     if misplaced:
@@ -3590,6 +3725,9 @@ def close_made(made):
     the operator reads, is worse than a spawn that failed. The close goes through the
     terminal that made it, and any chain entry naming the session goes with it."""
     closed = (made.get("terminal") or terminal()).close_made(made)
+    if made.get("home"):
+        # The home server goes with its tab: every window of it, the session in window 0.
+        closed = kill_home(made["home"]) and closed
     if closed and made.get("tab_id"):
         chain_drop_tab(made["tab_id"])
     return closed
@@ -3686,6 +3824,14 @@ def cmd_close(argv):
     if not args.keep_checkout:
         cwd = host_cli_cwd(args.tty)
         checkout = checkout_of(cwd) if cwd else None
+
+    # A tab that shows a home session: closing it alone would end the client and leave the
+    # server running unseen, its orchestrator and agents with it. The server is ended, every
+    # window it holds, and proved gone; then the tab, if it outlived its client.
+    socket = home_of_tab(args.tty)
+    if socket:
+        close_home_tab(args.tty, socket, args.expect)
+        return
 
     term = terminal_for(args.tty)
     closed_id = term.close(args.tty, args.expect)

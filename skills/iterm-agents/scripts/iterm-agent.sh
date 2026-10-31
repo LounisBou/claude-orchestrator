@@ -22,9 +22,11 @@
 #   iterm-agent.sh spawn --dir <path> --coordinator-successor --title "Coord : <subject>" (--prompt <text> | --prompt-file <path>)
 #     the coordinator's own successor: first place of the caller's window, its model,
 #     remote control on, no chain
-#   iterm-agent.sh spawn --dir <path> --wake --title "Orch : <subject>" --model <id> [--effort <level>] (--prompt <text> | --prompt-file <path>)
-#     a paused orchestrator relaunched: its recorded name, model and effort, immediately right
-#     of the caller, remote control on, no chain
+#   iterm-agent.sh spawn --dir <path> --wake --title "Orch : <subject>" --model <id> [--effort <level>] [--resume <session id>] (--prompt <text> | --prompt-file <path>)
+#     a paused orchestrator relaunched: its recorded name, model and effort, remote control on,
+#     no chain, in window 0 of a home session of its own shown by a tab immediately right of
+#     the caller; --resume brings back its recorded conversation
+#     (--open makes its home session the same way, the server named after the id it is given)
 #   iterm-agent.sh spawn --open --title "Orch : <subject>" --dir <path> [--tier <t> | --model <id> | --inherit-model] [--effort <level>] (--prompt <text> | --prompt-file <path>)
 #     a new orchestrator opened on the operator's order, by a coordinator or an orchestrator
 #     only: immediately right of the caller, the deep tier unless told, remote control on,
@@ -42,6 +44,8 @@
 #   iterm-agent.sh verify --tty /dev/ttysNNN [--pid <pid>]
 #   iterm-agent.sh resolve-tier <deep|standard|light>
 #   iterm-agent.sh close --tty /dev/ttysNNN [--expect-title <substring>] [--keep-checkout]
+#     a tab that shows a home session ends its whole server first, every window of it proved
+#     gone, and prints `home: ended the server <name> …, session <id>` after its first line
 #   iterm-agent.sh move --tty /dev/ttysNNN (--left-of <tty> | --right-of <tty> | --right-of self | --leftmost)
 #   iterm-agent.sh rotate --old-tty /dev/ttysNNN [--expect-title <s>] <spawn options...>
 #   iterm-agent.sh trust prune [--apply]
