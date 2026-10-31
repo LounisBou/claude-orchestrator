@@ -27,7 +27,8 @@
 # the end, and the prompt history keeps its lines naming the sandbox, which the script only
 # counts. The sandbox lives under ORCHESTRATOR_E2E_DIR (/tmp by default), a directory the host
 # already trusts: the script never accepts the trust question, and refuses to go on when a
-# host asks it. It skips itself without tmux, jq or the host.
+# host asks it. It skips itself without tmux, jq or the host. The banner's plan is the
+# operator's: ORCHESTRATOR_E2E_PLAN=Ultra on a machine whose banner reads so.
 
 set -uo pipefail
 
@@ -164,7 +165,10 @@ banner_or_exit() { # <pane>
   fi
 }
 
-prompt() { printf 'Reply with exactly %s and nothing else. Do not use any tool.' "$1"; }
+# The word asked for is written in lower case and replied in upper case, so the reply is the
+# only line of the screen that carries it: the prompt shown above it does not.
+prompt() { printf 'Reply with exactly %s in upper case and nothing else. Do not use any tool.' \
+  "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"; }
 agent() { # <title> <word>: an agent spawned as the orchestrator spawns one
   launcher 90 spawn --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "$1" \
     --prompt "$(prompt "$2")" --right-of self
