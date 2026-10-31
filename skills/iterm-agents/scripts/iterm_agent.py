@@ -2027,6 +2027,16 @@ class ItermTerminal(Terminal):
 ITERM = ItermTerminal()
 
 
+class NoTab:
+    """What made a woken or opened orchestrator that no tab shows (ORCHESTRATOR_HOME_NO_TAB):
+    a refusal has its server to end and nothing in the app to close."""
+    def close_made(self, made):
+        return True
+
+
+NO_TAB = NoTab()
+
+
 # --- a home session's windows ----------------------------------------------------------
 #
 # Inside a tmux session the home command marked, an agent is a window of that session, the
@@ -3531,6 +3541,9 @@ def cmd_spawn(argv):
                       "cannot be placed at the first place of your window; it lands where "
                       "the app puts it." % own, file=sys.stderr)
                 anchor = ""
+    if (args.wake or args.open_) and os.environ.get("ORCHESTRATOR_HOME_NO_TAB"):
+        # No tab shows the server: there is no place to probe, and the app is never asked.
+        anchor = ""
     if anchor and anchor not in ("self", "leftmost") and not DRY_RUN:
         anchor = anchor_after_probe(term.can_place(anchor, side), anchor, own)
     # BEFORE the tab exists, and BEFORE the prompt file is written: a refusal on the trust
@@ -3653,10 +3666,15 @@ def cmd_spawn(argv):
         # The host runs in window 0 and the tab shows the server: what is verified is window
         # 0's tty, and a refusal ends the server with the tab.
         pane_tty = make_home(socket, title, args.dir, command, "spawn")
-        tab_tty, made = open_home_tab(socket, title, place.anchor, "spawn")
-        made.update(home=socket, tty=pane_tty)
-        print("spawn: home server %s, window 0 on %s, shown in the tab on %s"
-              % (socket, pane_tty, tab_tty), file=sys.stderr)
+        if os.environ.get("ORCHESTRATOR_HOME_NO_TAB"):
+            made = {"terminal": NO_TAB, "home": socket, "tty": pane_tty}
+            print("spawn: home server %s, window 0 on %s, no tab: attach with %s -L %s attach"
+                  % (socket, pane_tty, TMUX_BIN, socket), file=sys.stderr)
+        else:
+            tab_tty, made = open_home_tab(socket, title, place.anchor, "spawn")
+            made.update(home=socket, tty=pane_tty)
+            print("spawn: home server %s, window 0 on %s, shown in the tab on %s"
+                  % (socket, pane_tty, tab_tty), file=sys.stderr)
         new_tty, tab_id = pane_tty, ""
     else:
         # The stable id is written into the chain only once the session is verified running:

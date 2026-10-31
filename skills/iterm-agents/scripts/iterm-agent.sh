@@ -98,7 +98,7 @@
 #   ORCHESTRATOR_TMUX            the tmux to run inside a home session (tmux)
 #   ORCHESTRATOR_HOME_WAIT       seconds window 0 waits for a moved session to end in its tab (120)
 #   ORCHESTRATOR_HOST_ARGV       a JSON list standing in for a process's own words (tests)
-#   ORCHESTRATOR_HOME_NO_TAB     `home` makes the server and no tab (the live tests, which have none)
+#   ORCHESTRATOR_HOME_NO_TAB     `home`, a wake and an open make the server and no tab (the live tests, which have none)
 #
 # When iTerm2 does not answer:
 #   - no AppleScript here is ever unbounded, the library's own cookie request included: the
