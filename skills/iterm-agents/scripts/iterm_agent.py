@@ -2348,9 +2348,10 @@ def terminal(agent=True):
     """The terminal this launcher drives: the one place that chooses.
 
     A caller in a home session gets its windows; any other gets iTerm2. Only an agent's
-    spawn is a window: the successor, the auditor, the coordinator's successor and a woken or
-    opened orchestrator are made as tabs, as they always were (`agent` False). The mark is
-    read once per run."""
+    spawn and an orchestrator's successor are windows (`agent` True): the successor takes the
+    predecessor's window 0 in the same session, where its agents are. The auditor, the
+    coordinator's successor and a woken or opened orchestrator are made as tabs (`agent`
+    False). The mark is read once per run."""
     if not agent:
         return ITERM
     if "terminal" not in _chosen:
@@ -2713,6 +2714,50 @@ def close_home_tab(tty, socket, expect):
     print("home: ended the server %s and its %d window(s)%s"
           % (socket, len(ttys), ", session %s" % session_id if session_id else ""))
     sys.stdout.flush()
+
+
+def cmd_takeover(argv):
+    """A successor's close of its predecessor inside their home session: the predecessor's
+    window 0 killed, guarded by its name and proved on the process table and the server, then
+    the successor's own window moved to index 0 without taking the operator's view; window 0
+    is selected only if the operator was on it."""
+    p = argparse.ArgumentParser(prog="takeover", add_help=False)
+    p.add_argument("--tty", default="")
+    p.add_argument("--expect-title", dest="expect", default="")
+    args, unknown = p.parse_known_args(argv)
+    if unknown:
+        die("takeover: unknown option %s" % unknown[0])
+    if not args.tty:
+        die("takeover: --tty is required")
+    if not in_home_session():
+        die("takeover: refused: this session is not in a home session; close the predecessor's "
+            "tab with close --tty")
+    term = TmuxTerminal()
+    own = self_tty() or ""
+    mine = term.window_of(own, "takeover")
+    pred = term.window_of(args.tty, "takeover")
+    if pred.window == mine.window:
+        die("takeover: refused: %s is this session's own window" % args.tty)
+    if pred.index != "0":
+        die("takeover: refused: the window on %s is window %s, not window 0: the predecessor's "
+            "is the orchestrator's place" % (args.tty, pred.index))
+    if args.expect and stable_title(args.expect) not in stable_title(pred.name):
+        die("takeover: refused: the window on %s is named '%s', which does not contain '%s'"
+            % (args.tty, pred.name, args.expect))
+    viewed = tmux_out(["display-message", "-p", "-t", pred.window, "#{window_active}"],
+                      "takeover").strip() == "1"
+    term.kill(pred.window, "takeover")
+    survivor = wait_gone(args.tty)
+    if survivor is not None:
+        die("takeover: the window %s was killed and %s still runs on %s; window 0 was not taken"
+            % (pred.window, survivor, args.tty))
+    if term.survives(term.stable_id(pred.window)):
+        die("takeover: the window %s is still there; window 0 was not taken" % pred.window)
+    chain_drop_tab(term.stable_id(pred.window))
+    tmux_out(["move-window", "-d", "-s", mine.window, "-t", "%s:0" % term.session()], "takeover")
+    if viewed:
+        tmux_out(["select-window", "-t", mine.window], "takeover")
+    print("took window 0: the predecessor's window %s on %s was closed" % (pred.window, args.tty))
 
 
 def cmd_home(argv):
@@ -3446,8 +3491,9 @@ def cmd_spawn(argv):
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
     # Chosen once, and only for a launch that reaches a terminal: a dry run asks none. Only an
-    # agent joins its caller's chain, and only an agent may be a window of a home session.
-    term = None if DRY_RUN else terminal(agent=effect == "append")
+    # agent joins its caller's chain and only a successor takes it, and only those two may be
+    # windows of a home session.
+    term = None if DRY_RUN else terminal(agent=effect in ("append", "transfer"))
     if auditor_successor:
         for flag, given in (("--tier", args.tier), ("--model", args.model),
                             ("--effort", args.effort),
@@ -4165,7 +4211,7 @@ COMMANDS = {
     "list": cmd_list, "spawn": cmd_spawn, "verify": cmd_verify, "close": cmd_close,
     "move": cmd_move, "rotate": cmd_rotate, "resolve-tier": cmd_resolve_tier,
     "screen": cmd_screen, "trust": cmd_trust, "tools": cmd_tools,
-    "home": cmd_home, "home-release": cmd_home_release,
+    "home": cmd_home, "home-release": cmd_home_release, "takeover": cmd_takeover,
 }
 
 
