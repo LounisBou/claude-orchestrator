@@ -6046,7 +6046,7 @@ takeover_setup() {
   reset_home
   printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	1	@1	%1	/dev/ttys901	Agent : one	✳ Agent : one' \
     '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
-  printf '/dev/ttys903 claude --name Orch : home\n' >> "$TR/ps"
+  printf '/dev/ttys903 %s --name Orch : home\n' "$(awk 'NR == 1 { print $2 }' "$TR/ps")" >> "$TR/ps"
   rm -f "$TR/calls"
 }
 takeover_setup
