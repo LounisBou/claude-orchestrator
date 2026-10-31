@@ -6109,6 +6109,15 @@ if command -v tmux >/dev/null 2>&1; then
   check "a server started on it marks its session, read the way the launcher reads it, and keeps its keys" \
     "1|always|csi-u|off|1" \
     "$(tmux -L "$CONFSRV" show -qv -t "$confpane" @orchestrator-home)|$(tmux -L "$CONFSRV" show -gv extended-keys)|$(tmux -L "$CONFSRV" show -gv extended-keys-format)|$(tmux -L "$CONFSRV" show -wgv automatic-rename)|$(tmux -L "$CONFSRV" list-keys -T prefix C-b | grep -c send-prefix)"
+  # The tab bar: two windows carry a state, the third none; the current one is bracketed. Read
+  # back through the status line's own expansion, the server being detached and drawing nothing.
+  tmux -L "$CONFSRV" new-window -d -t home: -n second 'sleep 20' 2>/dev/null
+  tmux -L "$CONFSRV" new-window -d -t home: -n third 'sleep 20' 2>/dev/null
+  tmux -L "$CONFSRV" set -w -t home:0 @state busy 2>/dev/null
+  tmux -L "$CONFSRV" set -w -t home:2 @state asks 2>/dev/null
+  check "the tab bar shows each window's state beside its name, the current one bracketed" \
+    "[0 sleep busy] 1 second 2 third asks" \
+    "$(tmux -L "$CONFSRV" display -p -t home:0 '#{W:#{E:window-status-format} ,#{E:window-status-current-format} }' 2>/dev/null | sed 's/ $//')"
   tmux -L "$CONFSRV" kill-server 2>/dev/null
 else
   echo "  skip the conf is not loaded: no tmux"
