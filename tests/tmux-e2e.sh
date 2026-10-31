@@ -108,7 +108,26 @@ trap cleanup EXIT
 
 # The host the launcher starts: the real one, without the user's settings.
 WRAPPER="$SANDBOX/bin/${HOST##*/}"
-printf '#!/bin/sh\nexec "%s" --setting-sources project "$@"\n' "$REAL_HOST" > "$WRAPPER"
+# No test session may come up in Remote Control, where the operator would see it: the wrapper
+# drops a --remote-control the launcher gives an orchestrator, and makes every launch carry
+# remoteControlAtStartup=false, merged into the launcher's own --settings when it has one.
+cat > "$WRAPPER" <<WSH
+#!/bin/sh
+real="$REAL_HOST"
+n=\$#; prev=; patched=0
+while [ \$n -gt 0 ]; do
+  a=\$1; shift; n=\$((n - 1))
+  case "\$prev" in
+    --remote-control) prev=; continue ;;
+    --settings) a=\$(printf '%s' "\$a" | jq -c '. + {remoteControlAtStartup: false}'); patched=1 ;;
+  esac
+  prev=\$a
+  [ "\$a" = --remote-control ] && continue
+  set -- "\$@" "\$a"
+done
+[ \$patched -eq 1 ] || set -- "\$@" --settings '{"remoteControlAtStartup":false}'
+exec "\$real" --setting-sources project "\$@"
+WSH
 chmod +x "$WRAPPER"
 # The launcher's own trust record names the work directory; the host trusts it through BASE.
 jq -n --arg dir "$WORKDIR" '{projects: {($dir): {hasTrustDialogAccepted: true}}}' > "$SANDBOX/trust.json"
@@ -248,6 +267,7 @@ launcher 20 list
 check "list shows window 0 as self and both agents, in the rows the stop gate parses" "0|1|1|1" \
   "$(rc)|$(out | grep -c "^w1/t0 | $OWN_TTY | .* | self\$")|$(out | grep -c "^w1/t1 | $ONE | .* | Agent : e2e one\$")|$(out | grep -c "^w1/t2 | $TWO | .* | Agent : e2e two\$")"
 if wait_reply "$ONE_PANE" E2E-ONE-READY 90; then ONE_REPLIED=1; else ONE_REPLIED=0; fi
+audit_rc
 check "the first agent replied within 90s" "1" "$ONE_REPLIED"
 launcher 20 screen --tty "$ONE" --lines 60
 check "screen reads the first agent's reply" "0|1" "$(rc)|$(out | grep -ciE "$(REPLY_RE E2E-ONE-READY)")"
@@ -276,6 +296,19 @@ W3=$(tm list-panes -s -t home -F '#{pane_tty} #{window_id}' | awk -v t="$THREE" 
 check "the chain holds the replacement's window alone" "tmux:$SOCKET:$W3 $THREE" \
   "$(chain | jq -r '"\(.tab_id) \(.tty)"' | paste -sd'|' -)"
 check "window 0 is still the current window" "0 orch 1" "$(windows | awk '$1 == 0 { print $1, $3, $4 }')"
+
+# Every test host's command line, read while it runs: none may lack remoteControlAtStartup=false
+# or carry --remote-control. Offenders accumulate; the last check reads them.
+RC_SEEN=0; RC_BAD=()
+audit_rc() {
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    RC_SEEN=$((RC_SEEN + 1))
+    case "$line" in *'"remoteControlAtStartup":false'*) ;; *) RC_BAD+=("no setting: ${line:0:90}") ;; esac
+    case "$line" in *--remote-control*) RC_BAD+=("remote control: ${line:0:90}") ;; esac
+  done < <(ps -axo command= 2>/dev/null | grep -- '--setting-sources project' | grep -v 'grep\|tmux-e2e')
+}
 
 # The session a host process on a tty registered, and how many live processes hold it.
 sid_on() { # <tty>
@@ -314,8 +347,8 @@ tm new-session -d -s plain -n coord -c "$WORKDIR" '/bin/bash --noprofile --norc'
 COORD_TTY=$(tm display -p -t plain:0 '#{pane_tty}')
 
 echo "== the move: a session moves into a home server of its own, the same conversation resumed in window 0 =="
-printf '#!/bin/sh\nexec %q --setting-sources project --model %q --permission-mode acceptEdits --name %q %q\n' \
-  "$REAL_HOST" "$MODEL" "Agent : e2e conv" "$(prompt E2E-CONV-READY)" > "$SANDBOX/run/conv.sh"
+printf '#!/bin/sh\nexec %q --setting-sources project --settings %q --model %q --permission-mode acceptEdits --name %q %q\n' \
+  "$REAL_HOST" '{"remoteControlAtStartup":false}' "$MODEL" "Agent : e2e conv" "$(prompt E2E-CONV-READY)" > "$SANDBOX/run/conv.sh"
 tm new-window -d -t plain: -n conv -c "$WORKDIR" "/bin/sh $SANDBOX/run/conv.sh"
 CONV_TTY=$(tm display -p -t plain:conv '#{pane_tty}')
 banner_or_exit plain:conv
@@ -340,6 +373,7 @@ check "window 0 replays the launch: its settings, model and mode, the session re
   "$(printf '%s' "$CLINE" | grep -c -- '--setting-sources project')|$(printf '%s' "$CLINE" | grep -c -- "--model $MODEL")|$(printf '%s' "$CLINE" | grep -c -- '--permission-mode acceptEdits')|$(printf '%s' "$CLINE" | grep -c -- "--resume $CSID")|$(printf '%s' "$CLINE" | grep -c -- '--name Orch : e2e conv$')"
 resumed_or_exit "$CHOME::home:0"
 if wait_reply "$CHOME::home:0" ready-conv-e2e 120; then CRECALL=1; else CRECALL=0; fi
+audit_rc
 check "the resumed session answers from its earlier exchange" "1" "$CRECALL"
 check "one live session holds the id, under the orchestrator's name, and its transcript went on" "1 Orch : e2e conv|$CSID|1" \
   "$(live_rows "$CSID")|$(sid_on "$CHOME_TTY")|$([ "$(lines_of "$CSID")" -gt "${CLINES:-0}" ] && echo 1 || echo 0)"
@@ -358,6 +392,7 @@ check "an open starts the orchestrator in window 0 of a home server named after 
   "$(rc)|$OHOME|$(home_tty "$OHOME")|$(tmux -L "$OHOME" display -p -t home:0 '#{window_name}' 2>/dev/null)|$(tmux -L "$OHOME" show -qv -t home @orchestrator-home 2>/dev/null)"
 banner_or_exit "$OHOME::home:0"
 if wait_reply "$OHOME::home:0" E2E-OPEN-READY 90; then OREPLIED=1; else OREPLIED=0; fi
+audit_rc
 check "the opened orchestrator replied within 90s" "1" "$OREPLIED"
 OLINES=$(lines_of "$OSID")
 # The pause ends the whole server; the tab's close around it is the suite's, over a recorder.
@@ -380,6 +415,7 @@ check "the wake resumes the recorded session in window 0 of a new home server" "
   "$(rc)|$(home_tty "$OHOME")|$(ps -t "${WAKE_TTY#/dev/}" -o command= 2>/dev/null | grep -c -- "--resume $OSID")"
 resumed_or_exit "$OHOME::home:0"
 if wait_reply "$OHOME::home:0" ready-open-e2e 120; then ORECALL=1; else ORECALL=0; fi
+audit_rc
 check "the woken orchestrator answers from its earlier exchange, one live session under its name, its transcript gone on" \
   "1|1 Orch : e2e open|1" \
   "$ORECALL|$(live_rows "$OSID")|$([ "$(lines_of "$OSID")" -gt "${OLINES:-0}" ] && echo 1 || echo 0)"
@@ -407,8 +443,13 @@ check "the takeover kills window 0 and gives the successor index 0, the operator
   "0|took window 0: the predecessor's window $W0 on $OWN_TTY was closed|0 $HEIR_WIN Orch : e2e lead 1|0" \
   "$(rc)|$(out)|$(windows | awk '$1 == 0')|$(windows | grep -c " $W0 ")"
 if wait_reply "$HEIR_PANE" E2E-HEIR-READY 90; then HREPLIED=1; else HREPLIED=0; fi
+audit_rc
 check "the successor replied within 90s, and the chain still holds the agent under it" "1|tmux:$SOCKET:$W3 $THREE" \
   "$HREPLIED|$(jq -r '"\(.tab_id) \(.tty)"' "$STATE/chains/${HEIR#/dev/}.jsonl" 2>/dev/null | paste -sd'|' -)"
+
+audit_rc
+check "no test host came up in Remote Control: each command line carries remoteControlAtStartup=false and none carries --remote-control" "0|ok" \
+  "$([ "$RC_SEEN" -ge 6 ] && echo 0 || echo "seen only $RC_SEEN")|$([ ${#RC_BAD[@]} -eq 0 ] && echo ok || printf '%s; ' "${RC_BAD[@]}")"
 
 echo "== the end =="
 tm kill-server 2>/dev/null
