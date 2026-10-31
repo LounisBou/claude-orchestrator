@@ -1971,9 +1971,235 @@ class ItermTerminal(Terminal):
 ITERM = ItermTerminal()
 
 
-def terminal():
-    """The terminal this launcher drives: the one place that chooses."""
-    return ITERM
+# --- a home session's windows ----------------------------------------------------------
+#
+# Inside a tmux session the home command marked, an agent is a window of that session, the
+# orchestrator sitting in window 0: the operator's tab stays a real terminal, and his agents
+# are one keystroke away in the same tab. Every call goes to the caller's own server, the one
+# its TMUX names, and is answered on the window's own ids: a pane's tty is recycled within a
+# minute of a window's death, measured, and a window id is never reused in a server's life.
+
+# The tmux to run, overridable so the suite can stand a recorder in for it.
+TMUX_BIN = os.environ.get("ORCHESTRATOR_TMUX") or "tmux"
+# The session option the home command sets on the session it makes.
+HOME_MARK = "@orchestrator-home"
+# One line per pane, tab-separated; the title is last because the host rewrites it freely.
+PANE_FORMAT = "\t".join(("#{session_id}", "#{window_index}", "#{window_id}", "#{pane_id}",
+                         "#{pane_tty}", "#{window_name}", "#{pane_title}"))
+Pane = collections.namedtuple("Pane", "session index window pane tty name title")
+
+
+def tmux_call(args):
+    """One tmux call, in UTF-8 whatever the caller's locale says: under a C locale tmux
+    hands back every byte past ASCII as `_`, the host's activity glyph included, and stores
+    a window name given with one the same way (measured). The finished call, or None when
+    tmux could not be run at all."""
+    try:
+        return subprocess.run([TMUX_BIN, "-u"] + list(args), capture_output=True, text=True,
+                              timeout=PROBE_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def tmux_out(args, what):
+    """What tmux printed for one call, or a death that says what it refused."""
+    done = tmux_call(args)
+    if done is None:
+        die("%s: tmux (%s) could not be run" % (what, TMUX_BIN))
+    if done.returncode != 0:
+        lines = [l for l in (done.stderr or "").strip().splitlines() if l.strip()]
+        die("%s: tmux refused %s: %s" % (what, args[0], lines[-1] if lines else
+                                           "exit %d" % done.returncode))
+    return done.stdout
+
+
+def in_home_session():
+    """Whether the caller runs in a session the home command marked, asked of the caller's
+    own pane on its own server. A tmux that cannot be run, a pane outside tmux and a session
+    the operator made by hand are all « no »: their spawns stay tabs, exactly as before."""
+    if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
+        return False
+    done = tmux_call(["show", "-qv", "-t", os.environ["TMUX_PANE"], HOME_MARK])
+    return done is not None and done.returncode == 0 and done.stdout.strip() == "1"
+
+
+class TmuxTerminal(Terminal):
+    """The windows of the caller's home session. A window takes the next free index and is
+    never selected, so the operator's view stays where he put it; window 0 is the
+    orchestrator's, and is neither placed before nor moved.
+
+    Its own key in `made`: `window`, the tmux id of the window it made."""
+
+    def __init__(self):
+        self.socket = os.environ.get("TMUX", "").split(",")[0]
+        self.pane = os.environ.get("TMUX_PANE", "")
+        self._session = None
+
+    def stable_id(self, window):
+        """A window id qualified by its server: `@1` exists in every server."""
+        return "tmux:%s:%s" % (self.socket, window)
+
+    def session(self):
+        """The id of the session the caller's pane is in: the home session."""
+        if self._session is None:
+            self._session = tmux_out(["display-message", "-p", "-t", self.pane,
+                                      "#{session_id}"], "tmux").strip()
+        return self._session
+
+    def panes(self, every=False):
+        """The home session's panes, or with `every` the whole server's."""
+        where = ["-a"] if every else ["-s", "-t", self.session()]
+        found = []
+        for line in tmux_out(["list-panes"] + where + ["-F", PANE_FORMAT], "tmux").splitlines():
+            fields = line.split("\t", 6)
+            if len(fields) == 7:
+                found.append(Pane(*fields))
+        return found
+
+    def lookup(self, tty):
+        """The home session's pane on `tty`, or None."""
+        for pane in self.panes():
+            if pane.tty == tty:
+                return pane
+        return None
+
+    def window_of(self, tty, what):
+        """The home session's pane on `tty`, or a death that says where the tty is instead:
+        a window of another session is not this home session's to read, close or move."""
+        pane = self.lookup(tty)
+        if pane is not None:
+            return pane
+        for other in self.panes(every=True):
+            if other.tty == tty:
+                die("%s: refused: %s is a window of another tmux session (%s), not of this "
+                    "home session" % (what, tty, other.session))
+        die("%s: no window of this home session runs on %s" % (what, tty))
+
+    def find(self, tty):
+        return self.lookup(tty) is not None
+
+    def can_place(self, anchor, side):
+        return self.lookup(anchor) is not None
+
+    def owner(self, own):
+        return tmux_owner()
+
+    def identity(self, tty, fresh=False):
+        pane = self.lookup(tty)
+        if pane is None:
+            return "", ""
+        return "tmux:%s:%s" % (self.socket, pane.pane), self.stable_id(pane.window)
+
+    def chain_anchor(self, own):
+        """Checked on the window id, never the tty, like the iTerm anchor; entries whose
+        window is gone are dropped on this read."""
+        live = {}
+        for pane in self.panes():
+            live.setdefault(self.stable_id(pane.window), pane.tty)
+        entries = chain_read(own)
+        kept = [e for e in chain_owned(entries, tmux_owner()) if e["tab_id"] in live]
+        if len(kept) != len(entries):
+            chain_write(own, kept)
+        return live[kept[-1]["tab_id"]] if kept else None
+
+    def create(self, command, title, place, chain, made):
+        # Named with -n: unnamed, tmux renames the window after the program it runs, which
+        # reads the host's version number. -d: the operator's window stays the current one.
+        if place.at == "first" or (place.at == "beside" and place.side == "left"):
+            print("spawn: a window of a home session takes the next free index; the new "
+                  "session is not placed %s." % ("first" if place.at == "first" else
+                                                 "left of %s" % place.anchor), file=sys.stderr)
+        out = tmux_out(["new-window", "-d", "-t", self.session() + ":", "-n", title, "-P",
+                        "-F", "#{window_id} #{pane_id} #{pane_tty}", command], "spawn")
+        fields = out.split()
+        if len(fields) != 3:
+            die("spawn: tmux made a window and answered '%s', not its ids and tty"
+                % out.strip())
+        window, _, tty = fields
+        made.update(window=window, tab_id=self.stable_id(window), tty=tty)
+        return tty, made["tab_id"]
+
+    def rows(self):
+        own = self_tty() or ""
+        return [row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
+                        bool(own) and p.tty == own, False) for p in self.panes()]
+
+    def screen(self, tty, lines):
+        pane = self.window_of(tty, "screen")
+        out = tmux_out(["capture-pane", "-p", "-t", pane.pane, "-S", "-%d" % max(lines, 0)],
+                       "screen")
+        return last_lines([l.rstrip() for l in out.split("\n")], lines)
+
+    def close(self, tty, expect):
+        """Guarded on the window's name, fixed at its making, rather than on a title the
+        host rewrites as it works."""
+        pane = self.window_of(tty, "close")
+        if expect and stable_title(expect) not in stable_title(pane.name):
+            die("close: refused: the window on %s is named '%s', which does not contain '%s'"
+                % (tty, pane.name, expect))
+        tmux_out(["kill-window", "-t", pane.window], "close")
+        return self.stable_id(pane.window)
+
+    def close_made(self, made):
+        """By the window's own id, never a tty another window could hold by then."""
+        window = made.get("window") or ""
+        if not window:
+            return False
+        try:
+            tmux_out(["kill-window", "-t", window], "spawn")
+        except SystemExit:
+            print("spawn: the refused session's window %s could not be killed" % window,
+                  file=sys.stderr)
+            return False
+        return True
+
+    def owns(self, tty, own):
+        pane = self.window_of(tty, "move")
+        if tty == own:
+            return True
+        mine = {e["tab_id"] for e in chain_owned(chain_read(own), tmux_owner())}
+        return self.stable_id(pane.window) in mine
+
+    def move(self, tty, anchor, right, leftmost):
+        """Before or after the anchor's window, the session's indexes closed up after; -d
+        keeps the operator's window current, which a bare move takes (measured)."""
+        source = self.window_of(tty, "move")
+        if source.index == "0":
+            die("move: refused: the window on %s is window 0, the orchestrator's, and it is "
+                "not moved" % tty)
+        if leftmost:
+            die("move: refused: the first place of a home session is window 0, and window 0 "
+                "is the orchestrator's")
+        target = self.window_of(anchor, "move")
+        if target.index == "0" and not right:
+            die("move: refused: window 0 is the orchestrator's: nothing is placed before it")
+        tmux_out(["move-window", "-d", "-a" if right else "-b", "-s", source.window,
+                  "-t", target.window], "move")
+        tmux_out(["move-window", "-r", "-t", self.session()], "move")
+        for pane in self.panes():
+            if pane.window == source.window:
+                return int(pane.index)
+        return None
+
+    def move_left_of(self, tty, anchor):
+        self.move(tty, anchor, False, False)
+
+
+_chosen = {}
+
+
+def terminal(agent=True):
+    """The terminal this launcher drives: the one place that chooses.
+
+    A caller in a home session gets its windows; any other gets iTerm2. Only an agent's
+    spawn is a window: the successor, the auditor, the coordinator's successor and a woken or
+    opened orchestrator are made as tabs, as they always were (`agent` False). The mark is
+    read once per run."""
+    if not agent:
+        return ITERM
+    if "terminal" not in _chosen:
+        _chosen["terminal"] = TmuxTerminal() if in_home_session() else ITERM
+    return _chosen["terminal"]
 
 
 # --- subcommands -----------------------------------------------------------------
@@ -2570,8 +2796,9 @@ def cmd_spawn(argv):
         side, anchor = "left", "leftmost"
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
-    # Chosen once, and only for a launch that reaches a terminal: a dry run asks none.
-    term = None if DRY_RUN else terminal()
+    # Chosen once, and only for a launch that reaches a terminal: a dry run asks none. Only an
+    # agent joins its caller's chain, and only an agent may be a window of a home session.
+    term = None if DRY_RUN else terminal(agent=effect == "append")
     if auditor_successor:
         for flag, given in (("--tier", args.tier), ("--model", args.model),
                             ("--effort", args.effort),
