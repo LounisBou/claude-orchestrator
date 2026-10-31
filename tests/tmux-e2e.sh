@@ -7,7 +7,8 @@
 #
 # NOT part of `run-tests.sh`, like `e2e.sh` and `pane-e2e.sh`: it starts six host sessions in
 # detached tmux servers of its own and kills every one at the end. The moved, opened and
-# woken orchestrators run with ORCHESTRATOR_HOME_NO_TAB, their servers shown by no tab: the
+# woken orchestrators run with ORCHESTRATOR_HOME_NO_TAB (honoured beside the test marker
+# ORCHESTRATOR_TEST_RUN, which this script sets), their servers shown by no tab: the
 # tab's side of those gestures is the suite's, over a recorder. The home session is made
 # the way the home command will make it: window 0 holds the caller (a shell here, where the
 # orchestrator would run), and the session carries the mark (`@orchestrator-home` = 1). Every
@@ -323,7 +324,7 @@ check "the session to move replied within 90s" "1" "$CONV_REPLIED"
 CSID=$(sid_on "$CONV_TTY"); CHOME="orch-$(printf '%s' "$CSID" | tr -cd '0-9A-Za-z' | cut -c1-8)"
 HOMES+=("$CHOME")
 CLINES=$(lines_of "$CSID")
-LT=plain:0; LENV=(ORCHESTRATOR_HOME_NO_TAB=1 "ORCHESTRATOR_HOST_CLI=$REAL_HOST")
+LT=plain:0; LENV=(ORCHESTRATOR_HOME_NO_TAB=1 ORCHESTRATOR_TEST_RUN=1 "ORCHESTRATOR_HOST_CLI=$REAL_HOST")
 launcher 30 home --session "$CSID" --name "Orch : e2e conv" --prompt "$(recall)"
 check "the move starts the home server named after the session, window 0 named after the orchestrator, the mark set by the conf" \
   "0|moved: $CHOME (no tab: attach with tmux -L $CHOME attach)|Orch : e2e conv|1" \
@@ -345,7 +346,7 @@ check "one live session holds the id, under the orchestrator's name, and its tra
 
 echo "== open, pause and wake, from the coordinator's own place =="
 jq -n --arg tty "$COORD_TTY" '{tty: $tty, name: "Coord : e2e"}' > "$STATE/coordinator.json"
-LENV=(ORCHESTRATOR_HOME_NO_TAB=1)
+LENV=(ORCHESTRATOR_HOME_NO_TAB=1 ORCHESTRATOR_TEST_RUN=1)
 launcher 120 spawn --open --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "Orch : e2e open" \
   --prompt "$(prompt E2E-OPEN-READY)"
 OPEN_TTY=$(out | tail -1)

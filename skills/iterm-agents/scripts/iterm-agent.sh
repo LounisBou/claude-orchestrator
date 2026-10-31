@@ -37,9 +37,10 @@
 #     its own (-L orch-<id>, -f the plugin's tmux/home.conf) whose window 0 resumes the same
 #     session once it has ended in its tab, and a tab right of that one showing it. Prints
 #     `moved: …` or `stay: <why>`; nothing is ended, and a failure leaves the session in place
-#   iterm-agent.sh home-release --tty /dev/ttysNNN --session-id <app session id>
-#     window 0's close of the tab a moved orchestrator left, guarded by that tab's own id
-#   iterm-agent.sh takeover --tty /dev/ttysNNN [--expect-title <substring>]
+#   iterm-agent.sh home-release --tty /dev/ttysNNN --session-id <app session id> --pane-tty /dev/ttysNNN --resumed <session id>
+#     window 0's watcher closing the tab a moved orchestrator left, once the resumed host is
+#     proved running on window 0's tty, guarded by that tab's own id
+#   iterm-agent.sh takeover --tty /dev/ttysNNN --expect-title <substring>
 #     a successor's close of its predecessor in their home session: the predecessor's window
 #     0 killed and proved gone, then the successor's window moved to index 0
 #   iterm-agent.sh tools [--transcript <path>]
@@ -98,7 +99,8 @@
 #   ORCHESTRATOR_TMUX            the tmux to run inside a home session (tmux)
 #   ORCHESTRATOR_HOME_WAIT       seconds window 0 waits for a moved session to end in its tab (120)
 #   ORCHESTRATOR_HOST_ARGV       a JSON list standing in for a process's own words (tests)
-#   ORCHESTRATOR_HOME_NO_TAB     `home`, a wake and an open make the server and no tab (the live tests, which have none)
+#   ORCHESTRATOR_HOME_NO_TAB     `home`, a wake and an open make the server and no tab (the live tests, which have none);
+#                                honoured only beside ORCHESTRATOR_TEST_RUN, which the test scripts set and no launch does
 #
 # When iTerm2 does not answer:
 #   - no AppleScript here is ever unbounded, the library's own cookie request included: the

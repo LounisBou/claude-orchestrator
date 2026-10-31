@@ -2028,8 +2028,8 @@ ITERM = ItermTerminal()
 
 
 class NoTab:
-    """What made a woken or opened orchestrator that no tab shows (ORCHESTRATOR_HOME_NO_TAB):
-    a refusal has its server to end and nothing in the app to close."""
+    """What made a woken or opened orchestrator that no tab shows (ORCHESTRATOR_HOME_NO_TAB, in
+    a test run): a refusal has its server to end and nothing in the app to close."""
     def close_made(self, made):
         return True
 
@@ -2402,7 +2402,28 @@ HOME_ENV_KEPT = ("HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "
 # The suite's stand-ins: a test's, never a home server's.
 HOME_ENV_DROPPED = ("ORCHESTRATOR_DRY_RUN", "ORCHESTRATOR_SELF_TTY", "ORCHESTRATOR_SELF_ID",
                     "ORCHESTRATOR_PS_TABLE", "ORCHESTRATOR_CWD_TABLE", "ORCHESTRATOR_HOST_ARGV",
-                    "ORCHESTRATOR_HOME_NO_TAB", "ORCHESTRATOR_NEW_SESSION_ID")
+                    "ORCHESTRATOR_HOME_NO_TAB", "ORCHESTRATOR_NEW_SESSION_ID",
+                    "ORCHESTRATOR_TEST_RUN")
+# Set by the suite and by the live test script, never by a launch: ORCHESTRATOR_HOME_NO_TAB
+# is honoured only beside it. Left in a shell alone, it would move an orchestrator into a
+# server no tab shows.
+TEST_MARK = "ORCHESTRATOR_TEST_RUN"
+_no_tab_said = []
+
+
+def home_no_tab():
+    """Whether a move, a wake or an open makes its server and no tab: asked for by
+    ORCHESTRATOR_HOME_NO_TAB and allowed by the test marker. The variable without the marker
+    is ignored, with one line on stderr."""
+    if not os.environ.get("ORCHESTRATOR_HOME_NO_TAB"):
+        return False
+    if os.environ.get(TEST_MARK):
+        return True
+    if not _no_tab_said:
+        _no_tab_said.append(True)
+        print("home: ORCHESTRATOR_HOME_NO_TAB is ignored: it is honoured only in a test run "
+              "(%s set); a tab will show the home server" % TEST_MARK, file=sys.stderr)
+    return False
 # The host's options, by what each takes, for the resume of a running session: its launch is
 # replayed, less what named the conversation or its first prompt. An option this table does
 # not know refuses the move: replayed blind, it could swallow the resume's own words.
@@ -2576,9 +2597,8 @@ def make_home(socket, title, cwd, program, what):
     tty = tmux_on(socket, ["display-message", "-p", "-t", HOME_SESSION + ":0",
                            "#{pane_tty}"], what).strip()
     if not tty.startswith("/dev/"):
-        kill_home(socket)
-        die("%s: the home server %s answered '%s' for window 0's tty; the server was ended"
-            % (what, socket, tty))
+        die("%s: the home server %s answered '%s' for window 0's tty; %s"
+            % (what, socket, tty, ended_clause(socket)))
     return tty
 
 
@@ -2588,6 +2608,13 @@ def kill_home(socket):
         return tmux_call(["-L", socket, "kill-server"]).returncode == 0
     except TmuxError:
         return False
+
+
+def ended_clause(socket):
+    """End the home server `socket` and say what became of it — only what is true."""
+    if kill_home(socket):
+        return "the server was ended"
+    return ("the server was NOT ended: end it with %s -L %s kill-server" % (TMUX_BIN, socket))
 
 
 def attach_program(socket, title):
@@ -2626,19 +2653,20 @@ def open_home_tab(socket, title, anchor, what):
     try:
         tty, _ = ITERM.create(attach_program(socket, title), title, place, "", made)
     except SystemExit:
-        kill_home(socket)
+        if not kill_home(socket):
+            print("%s: the server %s was NOT ended: end it with %s -L %s kill-server"
+                  % (what, socket, TMUX_BIN, socket), file=sys.stderr)
         raise
     if made.get("error") or not tty:
         closed = ITERM.close_made(made)
-        kill_home(socket)
-        die("%s: the tab for the home server %s %s; %s; the server was ended"
+        die("%s: the tab for the home server %s %s; %s; %s"
             % (what, socket, "failed: %s" % made["error"] if made.get("error")
-               else "returned no tty", closed_clause(closed, tty)))
+               else "returned no tty", closed_clause(closed, tty), ended_clause(socket)))
     if not client_on(socket, tty):
         closed = ITERM.close_made(made)
-        kill_home(socket)
-        die("%s: the tab on %s shows no client of the home server %s after %ds; %s; the "
-            "server was ended" % (what, tty, socket, SPAWN_TIMEOUT, closed_clause(closed, tty)))
+        die("%s: the tab on %s shows no client of the home server %s after %ds; %s; %s"
+            % (what, tty, socket, SPAWN_TIMEOUT, closed_clause(closed, tty),
+               ended_clause(socket)))
     return tty, made
 
 
@@ -2655,24 +2683,43 @@ def home_of_tab(tty):
     return ""
 
 
-def end_home(socket, what):
-    """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
-    server left on its socket. `(session id of window 0 or "", the ttys it held)`."""
-    panes = []
+def home_panes(socket):
+    """The panes of the home server `socket`: `([(window index, tty)], "")`, or `(None, why)`
+    when the server cannot be listed."""
     try:
         done = tmux_call(["-L", socket, "list-panes", "-a", "-F",
                           "#{window_index} #{pane_tty}"])
-        if done.returncode == 0:
-            panes = [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2]
-    except TmuxError:
-        pass
-    ttys = [tty for _, tty in panes]
+    except TmuxError as exc:
+        return None, "tmux could not be asked (%s)" % exc
+    if done.returncode != 0:
+        return None, "tmux refused to list its panes (%s)" % tmux_refusal(done)
+    return [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2], ""
+
+
+def end_home(socket, what, listed=None):
+    """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
+    server left on its socket. `(session id of window 0, the ttys it held)`. A server whose
+    window 0 session id cannot be read is NOT ended, and the death says why: a pause that
+    recorded no session would wake a fresh conversation, the orchestrator's own lost. `listed`
+    is `home_panes`' answer, when the caller has asked already."""
+    panes, why = listed if listed is not None else home_panes(socket)
     session_id = ""
-    for index, tty in panes:
-        if index == "0":
-            pid = cli_pid_on_tty(tty)
-            record = host_registry(pid) if pid else None
-            session_id = (record or {}).get("sessionId", "")
+    if panes is not None:
+        why = "no host of window 0 was found on the server"
+        for index, tty in panes:
+            if index == "0":
+                pid = cli_pid_on_tty(tty)
+                record = host_registry(pid) if pid else None
+                session_id = (record or {}).get("sessionId", "")
+                if session_id:
+                    break
+                why = "window 0 on %s runs no host whose session can be read" % tty
+    # A server answering with no pane at all holds no conversation to lose.
+    if not session_id and (panes is None or panes):
+        die("%s: refused: the session of the orchestrator in window 0 of the home server %s "
+            "cannot be read: %s; the server was NOT ended and the orchestrator stays where it "
+            "is: its conversation would be lost" % (what, socket, why))
+    ttys = [tty for _, tty in panes or []]
     kill_home(socket)
     survivors = [tty for tty in ttys if wait_gone(tty) is not None]
     if survivors:
@@ -2701,7 +2748,7 @@ def iterm_title(tty):
     return run(go)
 
 
-def close_home_tab(tty, socket, expect):
+def close_home_tab(tty, socket, expect, listed=None):
     """Close a tab that shows a home session: its title checked first, then the server
     ended, every window of it proved gone, then the tab if it outlived its client. Prints
     the close's contract line, then the server and the session window 0 ran, which a pause
@@ -2713,7 +2760,7 @@ def close_home_tab(tty, socket, expect):
         if stable_title(expect) not in stable_title(name):
             die("close: refused: session on %s is titled '%s', which does not contain '%s'"
                 % (tty, name, expect))
-    session_id, ttys = end_home(socket, "close")
+    session_id, ttys = end_home(socket, "close", listed)
     deadline = time.time() + CLOSE_TIMEOUT
     while ITERM.find(tty):
         if time.time() >= deadline:
@@ -2751,7 +2798,10 @@ def cmd_takeover(argv):
     if pred.index != "0":
         die("takeover: refused: the window on %s is window %s, not window 0: the predecessor's "
             "is the orchestrator's place" % (args.tty, pred.index))
-    if args.expect and stable_title(args.expect) not in stable_title(pred.name):
+    if not args.expect:
+        die("takeover: --expect-title is required: the predecessor's window is killed only "
+            "when its name holds the title `list` printed")
+    if stable_title(args.expect) not in stable_title(pred.name):
         die("takeover: refused: the window on %s is named '%s', which does not contain '%s'"
             % (args.tty, pred.name, args.expect))
     viewed = tmux_out(["display-message", "-p", "-t", pred.window, "#{window_active}"],
@@ -2814,7 +2864,7 @@ def cmd_home(argv):
     cli = shutil.which(HOST_CLI) or HOST_CLI
     socket = home_socket(args.session)
     own = self_tty() or ""
-    no_tab = bool(os.environ.get("ORCHESTRATOR_HOME_NO_TAB"))
+    no_tab = home_no_tab()
     # The old tab's own session id, read before anything is made: once the session ends, its
     # title is the shell's, and the id is what names that tab and no other.
     old_id = ""
@@ -2829,14 +2879,23 @@ def cmd_home(argv):
                 "place; the session stays where it is" % own)
     if DRY_RUN and not no_tab:
         old_id = "<old-tab-session-id>"
-    release = ("%s home-release --tty %s --session-id %s >> %s 2>&1; "
-               % (shq(LAUNCHER_SH), shq(own), shq(old_id),
-                  shq(os.path.join(STATE_DIR, "home-release.log"))) if old_id else "")
+    resume_line = " ".join(shlex.quote(w) for w in [cli] + resume)
+    # The old tab is released by a watcher of the launcher, started beside the resume and
+    # closing it only once the resumed host is proved running on this pane: a resume that
+    # fails leaves both tabs, and the pane says so and stays open.
+    release = ("pane=$(tty); %s home-release --tty %s --session-id %s --pane-tty \"$pane\" "
+               "--resumed %s >> %s 2>&1 & watcher=$!; "
+               % (shq(LAUNCHER_SH), shq(own), shq(old_id), shq(args.session),
+                  shq(os.path.join(STATE_DIR, "home-release.log")))) if old_id else ""
     launch = ("cd %s && i=0 && while kill -0 %s 2>/dev/null; do "
               "if [ $i -ge %d ]; then echo 'the session did not end in its old place: it "
               "goes on there'; sleep 10; exit 1; fi; sleep 0.2; i=$((i+1)); done; "
-              "%sexec %s" % (shq(cwd), pid, HOME_WAIT * 5, release,
-                             " ".join(shlex.quote(w) for w in [cli] + resume)))
+              "%s%s; rc=$?; [ $rc -eq 0 ] && exit 0; %sprintf 'the resume of session %%s failed "
+              "(exit %%s); resume it by hand: %%s\\n' %s \"$rc\" %s; "
+              "exec \"${SHELL:-/bin/sh}\" -l"
+              % (shq(cwd), pid, HOME_WAIT * 5, release, resume_line,
+                 "kill $watcher 2>/dev/null; " if old_id else "", shq(args.session),
+                 shq("cd %s && %s" % (shq(cwd), resume_line))))
     if DRY_RUN:
         print("home_server=%s" % socket)
         print("home_conf=%s" % plugin_path(HOME_CONF))
@@ -2853,19 +2912,37 @@ def cmd_home(argv):
     print("moved: %s, shown on %s" % (socket, tty))
 
 
+def resumed_host_running(pane_tty, session_id):
+    """Whether the resumed host runs: its process on window 0's tty, or the host's registry
+    entry for the session id naming a live process."""
+    if host_cli_on(pane_tty) is not None:
+        return True
+    pid, _ = session_record(session_id)
+    return bool(pid)
+
+
 def cmd_home_release(argv):
-    """Close the tab a moved orchestrator left, once its session has ended there: run by
-    window 0 of the home session before the resume. Guarded by the tab's own session id,
-    read before the move, and by the process table: a tab with a host still on it, or whose
-    session is another's by then, is left as it is."""
+    """Close the tab a moved orchestrator left, once its resumed session is proved running:
+    run by a watcher of window 0, beside the resume. Guarded by the proof (the resumed host on
+    window 0's tty, or in the host's registry), by the tab's own session id, read before the
+    move, and by the process table: a tab with a host still on it, or whose session is
+    another's by then, is left as it is."""
     p = argparse.ArgumentParser(prog="home-release", add_help=False)
     p.add_argument("--tty", default="")
     p.add_argument("--session-id", dest="session_id", default="")
+    p.add_argument("--pane-tty", dest="pane_tty", default="")
+    p.add_argument("--resumed", default="")
     args, _ = p.parse_known_args(argv)
-    if not args.tty or not args.session_id:
-        die("home-release: --tty and --session-id are required")
+    if not args.tty or not args.session_id or not args.pane_tty or not args.resumed:
+        die("home-release: --tty, --session-id, --pane-tty and --resumed are required")
     if host_cli_on(args.tty) is not None:
         die("home-release: a host still runs on %s; the tab is left open" % args.tty)
+    deadline = time.time() + SPAWN_TIMEOUT
+    while not resumed_host_running(args.pane_tty, args.resumed):
+        if time.time() >= deadline:
+            die("home-release: the resumed session %s never showed on %s after %ds; the tab on "
+                "%s is left open" % (args.resumed, args.pane_tty, SPAWN_TIMEOUT, args.tty))
+        time.sleep(0.3)
 
     async def go(iterm2, connection):
         app = await iterm2.async_get_app(connection)
@@ -3541,7 +3618,7 @@ def cmd_spawn(argv):
                       "cannot be placed at the first place of your window; it lands where "
                       "the app puts it." % own, file=sys.stderr)
                 anchor = ""
-    if (args.wake or args.open_) and os.environ.get("ORCHESTRATOR_HOME_NO_TAB"):
+    if (args.wake or args.open_) and home_no_tab():
         # No tab shows the server: there is no place to probe, and the app is never asked.
         anchor = ""
     if anchor and anchor not in ("self", "leftmost") and not DRY_RUN:
@@ -3666,7 +3743,7 @@ def cmd_spawn(argv):
         # The host runs in window 0 and the tab shows the server: what is verified is window
         # 0's tty, and a refusal ends the server with the tab.
         pane_tty = make_home(socket, title, args.dir, command, "spawn")
-        if os.environ.get("ORCHESTRATOR_HOME_NO_TAB"):
+        if home_no_tab():
             made = {"terminal": NO_TAB, "home": socket, "tty": pane_tty}
             print("spawn: home server %s, window 0 on %s, no tab: attach with %s -L %s attach"
                   % (socket, pane_tty, TMUX_BIN, socket), file=sys.stderr)
@@ -3869,6 +3946,29 @@ def close_note(tty, was_running):
     return ""
 
 
+def close_tab(tty, expect):
+    """The ordinary close of a tab or a window, proved on the process table and, where the
+    terminal can name what it closed, on the terminal; prints the contract line."""
+    term = terminal_for(tty)
+    closed_id = term.close(tty, expect)
+    # The close is not what was asked for, it is what the process table shows. The line
+    # below used to print the moment the request was acknowledged, over a session that
+    # kept running for minutes and had to be ended by hand (§46).
+    survivor = wait_gone(tty)
+    if survivor is not None:
+        die("close: the request was accepted but %s is still running on %s after %ds. "
+            "The session was NOT closed." % (survivor, tty, CLOSE_TIMEOUT))
+    # A tty is not the session: it can be handed to another within a minute. The terminal
+    # that can name what it closed proves that too.
+    if closed_id and term.survives(closed_id):
+        die("close: the request was accepted but %s is still there after the process on %s "
+            "ended. The session was NOT closed." % (closed_id, tty))
+    # Dropped once the process is proved gone, never before: a session that survived its
+    # close is still the agent its chain names.
+    if closed_id:
+        chain_drop_tab(closed_id)
+
+
 def cmd_close(argv):
     p = argparse.ArgumentParser(prog="close", add_help=False)
     p.add_argument("--tty", dest="tty")
@@ -3881,47 +3981,38 @@ def cmd_close(argv):
         print("close=%s expect_title=%s" % (args.tty, args.expect))
         return
 
+    # A tab that shows a home session runs no host of its own: the orchestrator runs in window
+    # 0 of the server behind it, and that pane is what the proof below is about.
+    socket = home_of_tab(args.tty)
+    listed = home_panes(socket) if socket else None
+    host_tty = args.tty
+    if listed and listed[0]:
+        host_tty = next((tty for index, tty in listed[0] if index == "0"), args.tty)
     # Read BEFORE the close: what the proof below is a proof ABOUT.
-    was_running = host_cli_on(args.tty)
+    was_running = host_cli_on(host_tty)
     # And the same for the checkout the session works in: once it is gone nothing says where.
     checkout = None
     if not args.keep_checkout:
-        cwd = host_cli_cwd(args.tty)
+        cwd = host_cli_cwd(host_tty)
         checkout = checkout_of(cwd) if cwd else None
 
-    # A tab that shows a home session: closing it alone would end the client and leave the
-    # server running unseen, its orchestrator and agents with it. The server is ended, every
-    # window it holds, and proved gone; then the tab, if it outlived its client.
-    socket = home_of_tab(args.tty)
+    note = close_note(host_tty, was_running)
     if socket:
-        close_home_tab(args.tty, socket, args.expect)
-        return
-
-    term = terminal_for(args.tty)
-    closed_id = term.close(args.tty, args.expect)
-    # The close is not what was asked for, it is what the process table shows. The line
-    # below used to print the moment the request was acknowledged, over a session that
-    # kept running for minutes and had to be ended by hand (§46).
-    survivor = wait_gone(args.tty)
-    if survivor is not None:
-        die("close: the request was accepted but %s is still running on %s after %ds. "
-            "The session was NOT closed." % (survivor, args.tty, CLOSE_TIMEOUT))
-    # A tty is not the session: it can be handed to another within a minute. The terminal
-    # that can name what it closed proves that too.
-    if closed_id and term.survives(closed_id):
-        die("close: the request was accepted but %s is still there after the process on %s "
-            "ended. The session was NOT closed." % (closed_id, args.tty))
-    # Dropped once the process is proved gone, never before: a session that survived its
-    # close is still the agent its chain names.
-    if closed_id:
-        chain_drop_tab(closed_id)
-    note = close_note(args.tty, was_running)
-    if note:
-        print(note, file=sys.stderr)
-    # The first line is the contract every skill, command and brief parses; the reading
-    # that qualifies it goes to stderr rather than changing it.
-    print("closed 1 session on %s" % args.tty)
-    sys.stdout.flush()
+        # Closing the tab alone would end the client and leave the server running unseen, its
+        # orchestrator and agents with it. The server is ended, every window it holds, and
+        # proved gone; then the tab, if it outlived its client. It prints the close's
+        # contract line itself.
+        close_home_tab(args.tty, socket, args.expect, listed)
+        if note:
+            print(note, file=sys.stderr)
+    else:
+        close_tab(args.tty, args.expect)
+        if note:
+            print(note, file=sys.stderr)
+        # The first line is the contract every skill, command and brief parses; the reading
+        # that qualifies it goes to stderr rather than changing it.
+        print("closed 1 session on %s" % args.tty)
+        sys.stdout.flush()
     # The session's purpose is over and its process is proved gone: its checkout goes with
     # it, unless it holds work (`workspace.sh delete` refuses that, and says why).
     if checkout:
