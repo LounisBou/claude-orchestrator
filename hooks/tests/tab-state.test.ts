@@ -56,7 +56,8 @@ test('a measure moves only a window at rest, onto the gate and back', () => {
 
 // --- the wiring over a faked $ ------------------------------------------------------------
 
-type Over = { tmux?: boolean; home?: boolean; fail?: 'set' | 'home'; pane: string; tokens?: number }
+// script: per call, in order, whether it fails (true) or succeeds; once exhausted, calls succeed.
+type Over = { tmux?: boolean; home?: boolean; fail?: 'set' | 'home'; script?: { home?: boolean[]; set?: boolean[] }; pane: string; tokens?: number }
 
 function fake(over: Over) {
   const files = new Map<string, string>()
@@ -98,6 +99,7 @@ function fake(over: Over) {
           calls.push([...argv])
           const reading = argv[3] === 'display-message'
           if (over.fail === (reading ? 'home' : 'set')) throw new Error('tmux: no server running')
+          if (over.script?.[reading ? 'home' : 'set']?.shift()) throw new Error('tmux: no server running')
           return { exitCode: 0, stdout: reading ? (over.home === false ? '|plain:@0.%0\n' : '1|home:@3.%7\n') : '', stderr: '' }
         }
         if (argv[0] === 'mv' && files.has(argv[2])) {
@@ -227,3 +229,54 @@ for (const fail of ['set', 'home'] as const) {
     expect(fx.logged.filter(l => l.includes('tab-state')).length).toBe(1)
   })
 }
+
+const tabLog = (fx: { logged: string[] }) => fx.logged.filter(l => l.includes('tab-state'))
+
+test('a failing home read is logged with its cause, and tried again at the next change', async () => {
+  const chains = mounted()
+  const fx = fake({ pane: '%22', fail: 'home' })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  expect(tabLog(fx).map(l => l.slice(l.indexOf('tab-state')))).toEqual(['tab-state: tmux: no server running'])
+  expect(fx.calls.filter(c => c[3] === 'display-message').length).toBe(1)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Done.'))
+  expect(fx.calls.filter(c => c[3] === 'display-message').length).toBe(2)
+})
+
+test('a home read that fails twice is not tried again for the session', async () => {
+  const chains = mounted()
+  const fx = fake({ pane: '%23', fail: 'home' })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Done.'))
+  const before = fx.calls.length
+  expect(before).toBe(2)
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  await drive(chains, 'session.measure', fx.dollar, {})
+  expect(fx.calls.length).toBe(before)
+  expect(tabLog(fx).length).toBe(1)
+})
+
+test('a failure is said again after a read succeeds', async () => {
+  const chains = mounted()
+  const fx = fake({ pane: '%24', script: { home: [true], set: [true] } })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  expect(tabLog(fx).length).toBe(1)
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Done.'))
+  expect(tabLog(fx).length).toBe(2)
+})
+
+test('a failure is said again after a write succeeds', async () => {
+  const chains = mounted()
+  const fx = fake({ pane: '%25', script: { set: [true, false, true] } })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Done.'))
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  expect(tabLog(fx).length).toBe(2)
+})
+
+test('a state whose write failed is written again when asked again', async () => {
+  const chains = mounted()
+  const fx = fake({ pane: '%26', script: { set: [true] } })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  expect(fx.states()).toEqual(['busy', 'busy'])
+})
