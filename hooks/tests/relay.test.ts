@@ -403,7 +403,7 @@ async function relayedQuestion(over: Parameters<typeof fake>[0] = {}) {
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
   // A coordinator on another machine acknowledges the entry it was sent: the question is then held.
   if (over.remote) await drive(chains, 'session.receive', fx.dollar, {
-    text: `<cross-session-message from="bridge:session_coord" from-name="Coord : ops [abc]">\n${ackLine(JSON.parse(fx.files.get(WAIT)!).pending)}\n</cross-session-message>`,
+    text: `<cross-session-message from="bridge:session_coord" from-name="Coord : ops [abc]">\n${ackLine(JSON.parse(fx.files.get(WAIT)!).pending, JSON.parse(fx.files.get(WAIT)!).waiting_since)}\n</cross-session-message>`,
     origin: { kind: 'peer' },
   })
   fx.sent.length = 0
@@ -1568,8 +1568,8 @@ const SENDER_AT = 'uds:/tmp/cc-socks/501.sock'
 const COORD_AT = 'bridge:session_coord'
 const COORD_ROW = `${HOME}/.claude/claude-orchestrator/store/sessions/s-coord`
 
-function coordinatorMachine() {
-  const fx = fake({ name: 'Coord : ops [abc]', role: 'coordinator' })
+function coordinatorMachine(over: Parameters<typeof fake>[0] = {}) {
+  const fx = fake({ name: 'Coord : ops [abc]', role: 'coordinator', ...over })
   fx.files.set(COORD_ROW, fx.files.get(ROW)!)
   fx.files.delete(ROW)
   fx.dollar.session.id = async () => 's-coord'
@@ -1604,7 +1604,7 @@ test('a remote wait becomes an entry on the coordinator\'s machine, and is acked
   expect(entries(coordinator).length).toBe(1)
   expect(entry).toEqual({ ...asked, at: entry.at, origin: { machine: 'unknown', address: SENDER_AT } })
   expect(coordinator.files.has(`${ROUND}/${asked.id}.json`)).toBe(true)
-  expect(acks(coordinator)).toEqual([{ to: SENDER_AT, text: ackLine(asked.id) }])
+  expect(acks(coordinator)).toEqual([{ to: SENDER_AT, text: ackLine(asked.id, since) }])
 })
 
 test('the ack sets relayed and clears pending on the sender', async () => {
@@ -1614,11 +1614,11 @@ test('the ack sets relayed and clears pending on the sender', async () => {
   await drive(chains, 'turn.complete', sender.dollar, ask)
   const id = waitOf(sender).pending
   // An acknowledgment of another entry keeps nothing.
-  const other = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine('s-one-9-abc')))
+  const other = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine('s-one-9-abc', waitOf(sender).waiting_since)))
   expect(typeof other.consumed).toBe('string')
   expect([waitOf(sender).pending, waitOf(sender).relayed ?? null]).toEqual([id, null])
   expect(sender.logged.filter(l => l.endsWith('| receive: an acknowledgment of s-one-9-abc matches no pending question')).length).toBe(1)
-  const consumed = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine(id)))
+  const consumed = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine(id, waitOf(sender).waiting_since)))
   expect(typeof consumed.consumed).toBe('string')
   expect([waitOf(sender).pending, waitOf(sender).relayed]).toEqual([null, fingerprint(parseWait(ask.answer)!)])
   expect([waitOf(sender).waiting, waitOf(sender).blocks]).toEqual(['operator', 'phase 3'])
@@ -1648,7 +1648,7 @@ test('no ack → resent at the next turn end, never twice entered', async () => 
   await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', again.text))
   expect(entries(coordinator).length).toBe(1)
   expect((JSON.parse(coordinator.files.get(path)!) as { marked?: boolean }).marked).toBe(true)
-  expect(acks(coordinator).map(a => [a.to, a.text])).toEqual([[SENDER_AT, ackLine(first.id)], [SENDER_AT, ackLine(first.id)]])
+  expect(acks(coordinator).map(a => [a.to, a.text])).toEqual([[SENDER_AT, ackLine(first.id, first.since)], [SENDER_AT, ackLine(first.id, first.since)]])
   await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', acks(coordinator)[1].text))
   expect(waitOf(sender).relayed).toBe(fingerprint(parseWait(ask.answer)!))
 })
@@ -1669,6 +1669,72 @@ test('an ask reaching a session that is not the coordinator is consumed and ente
   const refused = await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', `${ASK_MARKER}{"id":1}`))
   expect(typeof refused.consumed).toBe('string')
   expect([entries(coordinator), coordinator.sent]).toEqual([[], []])
+})
+
+// A throw inside the handling of a marked line is one log line and the line stays consumed: the
+// marker is the module's own, never a message for the model.
+for (const [label, over, step] of [
+  ['the round write fails', { roundWrite: 'fail' }, 'the entry write'],
+  ['the ack cannot be sent', { send: 'reject' }, 'the acknowledgment'],
+] as const) {
+  test(`a remote ask whose handling throws (${label}) is consumed, with one log line and nothing passed on`, async () => {
+    const chains = mounted()
+    const sender = fake({ remote: true })
+    const coordinator = coordinatorMachine(over)
+    await drive(chains, 'turn.complete', sender.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+    const id = waitOf(sender).pending
+    const result = await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
+    expect(typeof result.consumed).toBe('string')
+    expect(result.text).toBeUndefined()
+    const failures = coordinator.logged.filter(l => l.includes(`| receive: a remote question failed at ${step} (${id}):`))
+    expect(failures.length).toBe(1)
+  })
+}
+
+test('a remote ack whose handling throws is consumed, with one log line and nothing passed on', async () => {
+  const chains = mounted()
+  const sender = fake({ remote: true })
+  await drive(chains, 'turn.complete', sender.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  const id = waitOf(sender).pending
+  const since = sender.row().waiting_since!
+  const run = sender.dollar.process.run
+  sender.dollar.process.run = async (argv: readonly string[]) => argv[0] === 'mv' && argv[3] === WAIT ? { exitCode: 1, stdout: '', stderr: 'refused' } : run(argv)
+  const result = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine(id, since)))
+  expect(typeof result.consumed).toBe('string')
+  expect(result.text).toBeUndefined()
+  expect(sender.logged.filter(l => l.includes(`| receive: an acknowledgment failed at the wait write (${id}):`)).length).toBe(1)
+})
+
+test('a late ack of an older ask leaves a newer pending wait pending, resent at the next turn end', async () => {
+  const chains = mounted()
+  const sender = fake({ remote: true })
+  const ask = turnEnd(answerOf(QUESTION, QUESTION_LINE))
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  const id = waitOf(sender).pending
+  const older = sender.row().waiting_since!
+  // The same wait asked again later: the same id, a newer start, still pending.
+  const newer = new Date(Date.parse(older) + 60_000).toISOString()
+  sender.files.set(WAIT, JSON.stringify({ ...waitOf(sender), waiting_since: newer }) + '\n')
+  await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine(id, older)))
+  expect([waitOf(sender).pending, waitOf(sender).relayed ?? null]).toEqual([id, null])
+  expect(sender.logged.filter(l => l.includes(`| receive: an acknowledgment of ${id} matches no pending question`)).length).toBe(1)
+  await drive(chains, 'turn.start', sender.dollar, { text: '' })
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  expect(asks(sender).length).toBe(2)
+  expect(JSON.parse(asks(sender)[1].text.slice(ASK_MARKER.length)).since).toBe(newer)
+  await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', ackLine(id, newer)))
+  expect(waitOf(sender).relayed).toBe(fingerprint(parseWait(ask.answer)!))
+})
+
+test('a remote wait whose blocks carry a tab is entered on the coordinator\'s machine, the tab a space', async () => {
+  const chains = mounted()
+  const sender = fake({ remote: true })
+  const coordinator = coordinatorMachine()
+  await drive(chains, 'turn.complete', sender.dollar, turnEnd(answerOf(QUESTION, 'waiting: operator — blocks: phase\t3')))
+  expect(asks(sender).length).toBe(1)
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
+  expect(entries(coordinator).map(e => e.blocks)).toEqual(['phase 3'])
+  expect(acks(coordinator).length).toBe(1)
 })
 
 test('the same remote wait asked again urgent, or plain again, takes the mark on its entry and is acked', async () => {

@@ -86,13 +86,21 @@ for (const [label, line] of refusals) {
   })
 }
 
-test('the acknowledgment carries the id alone, of an entry id\'s shape', () => {
-  const id = asked().id
-  expect(ackLine(id)).toBe(`${ACK_MARKER}{"id":"${id}"}`)
-  expect(parseAck(ackLine(id))).toBe(id)
-  expect(parseAck(` ${ackLine(id)}\n`)).toBe(id)
+test('the acknowledgment names the ask it answers: its id and its since, checked as a stamp', () => {
+  const { id, since } = asked()
+  expect(ackLine(id, since)).toBe(`${ACK_MARKER}{"id":"${id}","since":"${since}"}`)
+  expect(parseAck(ackLine(id, since))).toEqual({ id, since })
+  expect(parseAck(` ${ackLine(id, since)}\n`)).toEqual({ id, since })
   for (const bad of [
-    `{"id":"${id}"}`, `${ACK_MARKER}{"id":"${id}","more":1}`, `${ACK_MARKER}{"id":"../x"}`, `${ACK_MARKER}{"id":7}`,
-    `${ACK_MARKER}{}`, `${ACK_MARKER}{"id":"${'a'.repeat(400)}-1-a"}`, `${ACK_MARKER}nope`,
+    `${ACK_MARKER}{"id":"${id}"}`, `${ACK_MARKER}{"id":"${id}","since":"yesterday"}`, `${ACK_MARKER}{"id":"${id}","since":7}`,
+    `${ACK_MARKER}{"id":"${id}","since":"${since}","more":1}`, `${ACK_MARKER}{"since":"${since}"}`,
+    `${ACK_MARKER}{"id":"${id}","since":"${since}\t"}`,
   ]) expect([bad, parseAck(bad)]).toEqual([bad, null])
+})
+
+test('control characters in what a wait blocks or who asks never make its ask refused', () => {
+  const entry = { ...asked(), blocks: 'phase\t3\nnext\u0001', from: 'Orch : be\tlt' }
+  const read = parseAsk(askLine(entry, 'far'))
+  expect(read?.entry.blocks).toBe('phase 3 next ')
+  expect(read?.entry.from).toBe('Orch : be lt')
 })
