@@ -1698,6 +1698,16 @@ class Terminal:
         """The tty of the caller's last agent still open beside it, or None."""
         raise NotImplementedError
 
+    def chain_state(self, own):
+        """`(chain_anchor, entries to write or None)`: a terminal never writes the chain, so
+        what its reading of the live sessions keeps is handed to the launcher, which does."""
+        return self.chain_anchor(own), None
+
+    def survives(self, stable_id):
+        """Whether the session `close` returned `stable_id` for is still there, asked of the
+        terminal itself; False where the process table is the only proof there is."""
+        return False
+
     def create(self, command, title, place, chain, made):
         """Make a session named `title` running `command` at `place`: (its tty, its stable id).
 
@@ -1989,38 +1999,67 @@ PANE_FORMAT = "\t".join(("#{session_id}", "#{window_index}", "#{window_id}", "#{
 Pane = collections.namedtuple("Pane", "session index window pane tty name title")
 
 
+class TmuxError(Exception):
+    """A tmux call that never finished: the cause, in words."""
+
+
 def tmux_call(args):
     """One tmux call, in UTF-8 whatever the caller's locale says: under a C locale tmux
     hands back every byte past ASCII as `_`, the host's activity glyph included, and stores
-    a window name given with one the same way (measured). The finished call, or None when
-    tmux could not be run at all."""
+    a window name given with one the same way (measured). The finished call, or a TmuxError
+    saying why tmux could not be run: it timed out, or its binary is absent or not
+    runnable."""
     try:
         return subprocess.run([TMUX_BIN, "-u"] + list(args), capture_output=True, text=True,
                               timeout=PROBE_TIMEOUT)
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except subprocess.TimeoutExpired:
+        raise TmuxError("timed out after %ds" % PROBE_TIMEOUT)
+    except OSError as exc:
+        raise TmuxError("%s could not be run (%s)" % (
+            TMUX_BIN, "binary absent" if isinstance(exc, FileNotFoundError)
+            else exc.strerror or type(exc).__name__))
+
+
+def tmux_refusal(done):
+    """What a finished tmux call that failed said: its last stderr line, else its exit code."""
+    lines = [l for l in (done.stderr or "").strip().splitlines() if l.strip()]
+    return lines[-1] if lines else "exit %d" % done.returncode
 
 
 def tmux_out(args, what):
     """What tmux printed for one call, or a death that says what it refused."""
-    done = tmux_call(args)
-    if done is None:
-        die("%s: tmux (%s) could not be run" % (what, TMUX_BIN))
+    try:
+        done = tmux_call(args)
+    except TmuxError as exc:
+        die("%s: tmux %s: %s" % (what, args[0], exc))
     if done.returncode != 0:
-        lines = [l for l in (done.stderr or "").strip().splitlines() if l.strip()]
-        die("%s: tmux refused %s: %s" % (what, args[0], lines[-1] if lines else
-                                           "exit %d" % done.returncode))
+        die("%s: tmux refused %s: %s" % (what, args[0], tmux_refusal(done)))
     return done.stdout
 
 
 def in_home_session():
     """Whether the caller runs in a session the home command marked, asked of the caller's
-    own pane on its own server. A tmux that cannot be run, a pane outside tmux and a session
-    the operator made by hand are all « no »: their spawns stay tabs, exactly as before."""
+    own pane on its own server. A pane outside tmux (no TMUX or TMUX_PANE) and a session the
+    operator made by hand are « no »: their spawns stay tabs, exactly as before.
+
+    A caller that IS in a tmux pane and whose tmux cannot answer — a timeout, a refusal, a
+    binary gone — is no « no »: the answer is unknown, and a tab spawned on an unknown would
+    leave the home session's agents scattered over two terminals. The call is made once more,
+    then the launch dies saying why."""
     if not (os.environ.get("TMUX") and os.environ.get("TMUX_PANE")):
         return False
-    done = tmux_call(["show", "-qv", "-t", os.environ["TMUX_PANE"], HOME_MARK])
-    return done is not None and done.returncode == 0 and done.stdout.strip() == "1"
+    cause = ""
+    for _ in range(2):
+        try:
+            done = tmux_call(["show", "-qv", "-t", os.environ["TMUX_PANE"], HOME_MARK])
+        except TmuxError as exc:
+            cause = str(exc)
+            continue
+        if done.returncode == 0:
+            return done.stdout.strip() == "1"
+        cause = "refused: %s" % tmux_refusal(done)
+    die("tmux: the home session's mark cannot be read from pane %s (%s); no iTerm2 tab is "
+        "made in its place" % (os.environ["TMUX_PANE"], cause))
 
 
 class TmuxTerminal(Terminal):
@@ -2042,18 +2081,34 @@ class TmuxTerminal(Terminal):
     def session(self):
         """The id of the session the caller's pane is in: the home session."""
         if self._session is None:
-            self._session = tmux_out(["display-message", "-p", "-t", self.pane,
-                                      "#{session_id}"], "tmux").strip()
+            found = tmux_out(["display-message", "-p", "-t", self.pane,
+                              "#{session_id}"], "tmux").strip()
+            # An empty id, or one that is no session's, would be passed on as `-t ':'`: the
+            # CURRENT session, which is whichever the operator last looked at.
+            if not found.startswith("$"):
+                die("tmux: the session of pane %s was answered '%s', not a session id"
+                    % (self.pane, found))
+            self._session = found
         return self._session
 
     def panes(self, every=False):
         """The home session's panes, or with `every` the whole server's."""
         where = ["-a"] if every else ["-s", "-t", self.session()]
-        found = []
-        for line in tmux_out(["list-panes"] + where + ["-F", PANE_FORMAT], "tmux").splitlines():
+        found, unread = [], []
+        listing = tmux_out(["list-panes"] + where + ["-F", PANE_FORMAT], "tmux")
+        for line in listing.splitlines():
             fields = line.split("\t", 6)
             if len(fields) == 7:
                 found.append(Pane(*fields))
+            elif line.strip():
+                unread.append(line)
+        if unread and not found:
+            die("tmux: the pane listing cannot be read: %d line(s), none with the %d fields "
+                "asked for (first: '%s')" % (len(unread), len(Pane._fields), unread[0]))
+        if unread:
+            print("tmux: %d line(s) of the pane listing were skipped, not in the %d fields "
+                  "asked for (first: '%s')" % (len(unread), len(Pane._fields), unread[0]),
+                  file=sys.stderr)
         return found
 
     def lookup(self, tty):
@@ -2090,17 +2145,34 @@ class TmuxTerminal(Terminal):
             return "", ""
         return "tmux:%s:%s" % (self.socket, pane.pane), self.stable_id(pane.window)
 
-    def chain_anchor(self, own):
-        """Checked on the window id, never the tty, like the iTerm anchor; entries whose
-        window is gone are dropped on this read."""
+    def chain_state(self, own):
+        """`(anchor tty, entries to write)`, checked on the window id, never the tty, like
+        the iTerm anchor. A terminal never writes the chain: the entries are the launcher's
+        to write, and are None when nothing is to change. Only an entry the caller wrote, whose
+        id is a tmux window's and whose window is gone, is dropped: an entry another occupant
+        wrote, or one naming an iTerm2 tab, is not this listing's to judge. A listing with
+        no pane in it proves nothing, and drops nothing."""
+        panes = self.panes()
         live = {}
-        for pane in self.panes():
+        for pane in panes:
             live.setdefault(self.stable_id(pane.window), pane.tty)
+        owner = tmux_owner()
         entries = chain_read(own)
-        kept = [e for e in chain_owned(entries, tmux_owner()) if e["tab_id"] in live]
-        if len(kept) != len(entries):
-            chain_write(own, kept)
-        return live[kept[-1]["tab_id"]] if kept else None
+        mine = chain_owned(entries, owner)
+
+        def gone(entry):
+            return (entry in mine and entry["tab_id"].startswith("tmux:")
+                    and entry["tab_id"] not in live)
+        kept = [e for e in entries if not gone(e)] if panes else entries
+        anchor = None
+        for entry in reversed(chain_owned(kept, owner)):
+            if entry["tab_id"] in live:
+                anchor = live[entry["tab_id"]]
+                break
+        return anchor, (kept if len(kept) != len(entries) else None)
+
+    def chain_anchor(self, own):
+        return self.chain_state(own)[0]
 
     def create(self, command, title, place, chain, made):
         # Named with -n: unnamed, tmux renames the window after the program it runs, which
@@ -2113,6 +2185,16 @@ class TmuxTerminal(Terminal):
                         "-F", "#{window_id} #{pane_id} #{pane_tty}", command], "spawn")
         fields = out.split()
         if len(fields) != 3:
+            # A window whose id was answered exists, whatever else was: killed before the
+            # death, so a refusal leaves no window running a session nobody will start.
+            if fields and fields[0].startswith("@"):
+                try:
+                    done = tmux_call(["kill-window", "-t", fields[0]])
+                    killed = done.returncode == 0
+                except TmuxError:
+                    killed = False
+                print("spawn: the window %s %s" % (fields[0], "was killed" if killed else
+                                                   "could not be killed"), file=sys.stderr)
             die("spawn: tmux made a window and answered '%s', not its ids and tty"
                 % out.strip())
         window, _, tty = fields
@@ -2137,8 +2219,28 @@ class TmuxTerminal(Terminal):
         if expect and stable_title(expect) not in stable_title(pane.name):
             die("close: refused: the window on %s is named '%s', which does not contain '%s'"
                 % (tty, pane.name, expect))
-        tmux_out(["kill-window", "-t", pane.window], "close")
+        self.kill(pane.window, "close")
         return self.stable_id(pane.window)
+
+    def kill(self, window, what):
+        """Kill a window by its id. A window tmux cannot find is already closed, which is
+        what was asked; any other refusal dies with its message."""
+        try:
+            done = tmux_call(["kill-window", "-t", window])
+        except TmuxError as exc:
+            die("%s: tmux kill-window: %s" % (what, exc))
+        if done.returncode == 0:
+            return
+        refusal = tmux_refusal(done)
+        if "can't find window" in refusal:
+            print("%s: window %s was already gone" % (what, window), file=sys.stderr)
+            return
+        die("%s: tmux refused kill-window: %s" % (what, refusal))
+
+    def survives(self, stable_id):
+        """Whether the window is still in the server's panes: the proof a close is made on,
+        a pane's tty being recycled within a minute of a window's death."""
+        return any(self.stable_id(p.window) == stable_id for p in self.panes(every=True))
 
     def close_made(self, made):
         """By the window's own id, never a tty another window could hold by then."""
@@ -2146,7 +2248,7 @@ class TmuxTerminal(Terminal):
         if not window:
             return False
         try:
-            tmux_out(["kill-window", "-t", window], "spawn")
+            self.kill(window, "spawn")
         except SystemExit:
             print("spawn: the refused session's window %s could not be killed" % window,
                   file=sys.stderr)
@@ -2177,11 +2279,17 @@ class TmuxTerminal(Terminal):
             die("move: refused: window 0 is the orchestrator's: nothing is placed before it")
         tmux_out(["move-window", "-d", "-a" if right else "-b", "-s", source.window,
                   "-t", target.window], "move")
-        tmux_out(["move-window", "-r", "-t", self.session()], "move")
+        try:
+            tmux_out(["move-window", "-r", "-t", self.session()], "move")
+        except SystemExit:
+            die("move: the window %s was already moved %s %s, but the session's indexes could "
+                "not be closed up after it" % (source.window, "after" if right else "before",
+                                                target.window))
         for pane in self.panes():
             if pane.window == source.window:
                 return int(pane.index)
-        return None
+        die("move: the window %s was moved %s %s, and is no longer in the session's listing"
+            % (source.window, "after" if right else "before", target.window))
 
     def move_left_of(self, tty, anchor):
         self.move(tty, anchor, False, False)
@@ -2202,6 +2310,19 @@ def terminal(agent=True):
     if "terminal" not in _chosen:
         _chosen["terminal"] = TmuxTerminal() if in_home_session() else ITERM
     return _chosen["terminal"]
+
+
+def terminal_for(tty):
+    """The terminal a command that names a tty acts on: found by the target, not by the
+    caller. A home caller still has iTerm2 tabs it did not make as windows — the
+    coordinator's, an auditor's, a woken orchestrator's — and a close, a read or a move of
+    one goes to the app, as before. A tty that is a pane of the caller's own server is a
+    window; any other tty is a tab."""
+    chosen = terminal()
+    if isinstance(chosen, TmuxTerminal) and not any(p.tty == tty for p in
+                                                    chosen.panes(every=True)):
+        return ITERM
+    return chosen
 
 
 # --- subcommands -----------------------------------------------------------------
@@ -2247,8 +2368,20 @@ async def list_rows(app):
 
 
 def cmd_list(_argv):
-    for line in terminal().rows() or []:
+    chosen = terminal()
+    for line in chosen.rows() or []:
         print(line)
+    if chosen is not ITERM:
+        # The tabs a home caller did not make as windows are still its to see: the
+        # coordinator's, an auditor's. An app that cannot answer does not hide the windows.
+        try:
+            lines = ITERM.rows() or []
+        except SystemExit:
+            print("list: the iTerm2 tabs could not be listed; only the home session's windows "
+                  "are shown", file=sys.stderr)
+            return
+        for line in lines:
+            print(line)
 
 
 def write_prompt_file(prompt, title):
@@ -2822,7 +2955,10 @@ def cmd_spawn(argv):
                 chain = chain_owned(chain_read(own), SELF_ID)
                 anchor = chain[-1]["tty"] if chain else "self"
             else:
-                anchor = term.chain_anchor(own) or own
+                anchor, kept = term.chain_state(own)
+                anchor = anchor or own
+                if kept is not None:
+                    chain_write(own, kept)
     elif anchor == "leftmost":
         if not own and not DRY_RUN:
             die("spawn: --coordinator-successor: cannot resolve this session's own tty")
@@ -2997,7 +3133,7 @@ def cmd_screen(argv):
     if not args.tty:
         die("screen: --tty is required")
 
-    for line in terminal().screen(args.tty, args.lines) or []:
+    for line in terminal_for(args.tty).screen(args.tty, args.lines) or []:
         print(line)
 
 
@@ -3136,7 +3272,8 @@ def cmd_close(argv):
         cwd = host_cli_cwd(args.tty)
         checkout = checkout_of(cwd) if cwd else None
 
-    closed_id = terminal().close(args.tty, args.expect)
+    term = terminal_for(args.tty)
+    closed_id = term.close(args.tty, args.expect)
     # The close is not what was asked for, it is what the process table shows. The line
     # below used to print the moment the request was acknowledged, over a session that
     # kept running for minutes and had to be ended by hand (§46).
@@ -3144,6 +3281,11 @@ def cmd_close(argv):
     if survivor is not None:
         die("close: the request was accepted but %s is still running on %s after %ds. "
             "The session was NOT closed." % (survivor, args.tty, CLOSE_TIMEOUT))
+    # A tty is not the session: it can be handed to another within a minute. The terminal
+    # that can name what it closed proves that too.
+    if closed_id and term.survives(closed_id):
+        die("close: the request was accepted but %s is still there after the process on %s "
+            "ended. The session was NOT closed." % (closed_id, args.tty))
     # Dropped once the process is proved gone, never before: a session that survived its
     # close is still the agent its chain names.
     if closed_id:
@@ -3229,7 +3371,7 @@ def cmd_move(argv):
         return
 
     # The guard rules BEFORE anything moves: a refusal must find the layout as it was.
-    term = terminal()
+    term = terminal_for(args.tty)
     owned = term.owns(args.tty, own)
     if owned is None:
         die("move: no session found on %s" % args.tty)
