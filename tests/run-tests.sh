@@ -5721,11 +5721,13 @@ case "$1" in
   show) [ -f "$d/mark" ] && cat "$d/mark"; exit 0 ;;
   display-message) printf '%s\n' "${REC_SESSION:-\$1}" ;;
   list-panes)
+    [ -n "${REC_PANES_RAW:-}" ] && { printf '%b' "$REC_PANES_RAW"; exit 0; }
     if [ "$2" = -a ]; then cat "$d/panes"; else awk -F'\t' -v s="$4" '$1 == s' "$d/panes"; fi ;;
   new-window)
     name=""; prev=""
     for a in "$@"; do [ "$prev" = -n ] && name="$a"; prev="$a"; done
     read -r win pane tty < "$d/new"
+    [ -n "${REC_NEW_RAW:-}" ] && { printf '%s\n' "$REC_NEW_RAW"; exit 0; }
     printf '$1\t9\t%s\t%s\t%s\t%s\t%s\n' "$win" "$pane" "$tty" "$name" "$name" >> "$d/panes"
     if [ -z "${REC_NO_HOST:-}" ]; then
       printf '%s claude --name %s\n' "$tty" "$name" >> "$d/ps"
@@ -5736,9 +5738,13 @@ case "$1" in
   capture-pane) cat "$d/screen" ;;
   kill-window)
     tty=$(awk -F'\t' -v w="$3" '$3 == w { print $5 }' "$d/panes")
-    awk -F'\t' -v w="$3" '$3 != w' "$d/panes" > "$d/panes.tmp" && mv "$d/panes.tmp" "$d/panes"
-    grep -v "^$tty " "$d/ps" > "$d/ps.tmp"; mv "$d/ps.tmp" "$d/ps" ;;
-  move-window) [ "$2" = -r ] && [ -f "$d/panes.moved" ] && mv "$d/panes.moved" "$d/panes" ;;
+    [ -z "${REC_KEEP_WINDOW:-}" ] && awk -F'\t' -v w="$3" '$3 != w' "$d/panes" > "$d/panes.tmp" && mv "$d/panes.tmp" "$d/panes"
+    grep -v "^$tty " "$d/ps" > "$d/ps.tmp"; mv "$d/ps.tmp" "$d/ps"
+    [ -n "${REC_KILL_ERR:-}" ] && { echo "$REC_KILL_ERR" >&2; exit 1; }
+    exit 0 ;;
+  move-window)
+    [ "$2" = -r ] && [ -n "${REC_RENUMBER_ERR:-}" ] && { echo "$REC_RENUMBER_ERR" >&2; exit 1; }
+    [ "$2" = -r ] && [ -f "$d/panes.moved" ] && mv "$d/panes.moved" "$d/panes" ;;
 esac
 exit 0
 SH
@@ -5763,7 +5769,7 @@ reset_home() { # the home session: the orchestrator in window 0, two agents, a s
     "$TSOCK" "$TSOCK" "$TSOCK" "$TSOCK" > "$TSTATE/chains/ttys900.jsonl"
 }
 home() { # <subcommand and options>: the launcher, called from window 0 of the home session
-  TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_TMUX="$TR/tmux" ORCHESTRATOR_OSASCRIPT="$TR/osascript" \
+  TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_TMUX="${REC_TMUX:-$TR/tmux}" ORCHESTRATOR_OSASCRIPT="$TR/osascript" \
     ORCHESTRATOR_SAMPLE=/usr/bin/false ORCHESTRATOR_APP_PID=1 ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_STATE_DIR="$TSTATE" ORCHESTRATOR_LOGIN_SHELL=/bin/sh \
     ORCHESTRATOR_PS_TABLE="$TR/ps" ORCHESTRATOR_PROJECTS_DIR="$TR/projects" REC_CWD="$(cd "$WORK" && pwd -P)" \
     ORCHESTRATOR_CLOSE_TIMEOUT=1 ORCHESTRATOR_SPAWN_TIMEOUT=2 ORCHESTRATOR_MODE_TIMEOUT=3 \
@@ -5794,20 +5800,25 @@ check "a mark that is not 1 keeps the tab" "ItermTerminal" \
 printf '1\n' > "$TR/mark"; rm -f "$TR/calls"
 check "outside tmux the tab is kept and tmux is never asked" "ItermTerminal|ItermTerminal|" \
   "$(unset TMUX TMUX_PANE; ORCHESTRATOR_TMUX="$TR/tmux" switch)|$(TMUX="$TSOCK,4242,1" ORCHESTRATOR_TMUX="$TR/tmux" switch)|$(calls)"
-check "a tmux that cannot be run keeps the tab" "ItermTerminal" \
-  "$(TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_TMUX="$WORK/no-such-tmux" switch)"
+# Inside a tmux pane, a tmux that cannot answer is no « not a home session »: the launch dies
+# saying why, and no tab is made in its place.
+out=$(TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_TMUX="$WORK/no-such-tmux" switch 2>&1)
+check "a tmux that cannot be run dies naming the cause, never keeping the tab" "1|1|0" \
+  "$(printf '%s' "$out" | grep -c '^ERROR: tmux: the home session.s mark cannot be read from pane %0 (.*binary absent)')|$(printf '%s\n' "$out" | grep -c '')|$(printf '%s' "$out" | grep -c 'ItermTerminal')"
 rm -f "$TR/mark"
 out=$(home list 2>&1)
 check "and an unmarked session's listing goes to iTerm2, not to tmux" "iterm|$SHOW" "$(asked)|$(calls)"
 rm -f "$TR/iterm-asked"
 
 reset_home
-out=$(home list 2>&1)
+rm -f "$TR/iterm-asked"
+out=$(home list 2>/dev/null)
 check "list: the home session's windows, in the shape the stop gate parses, the caller's own marked" \
   "w1/t0 | /dev/ttys900 | ✳ Orch : home | Orch : home | self⏎w1/t1 | /dev/ttys901 | ✳ Agent : one | Agent : one⏎w1/t2 | /dev/ttys902 | ⠂ Agent : two | Agent : two" \
   "$(printf '%s' "$out" | tr '\n' '⏎')"
-check "list asks the mark, the session, then its panes, and nothing of iTerm2" \
-  "${SHOW}⏎${SESS}⏎${LIST}|none" "$(calls | tr '\n' '⏎' | sed 's/⏎$//')|$(asked)"
+check "list asks the mark, the session, then its panes, then the app for the tabs it did not make" \
+  "${SHOW}⏎${SESS}⏎${LIST}|iterm" "$(calls | tr '\n' '⏎' | sed 's/⏎$//')|$(asked)"
+rm -f "$TR/iterm-asked"
 
 reset_home
 out=$(home spawn --dir "$WORK" --title "Agent : three" --prompt p --right-of self --no-verify 2>"$WORK/tspawn.err")
@@ -5838,9 +5849,11 @@ reset_home
 out=$(home close --tty /dev/ttys950 2>&1)
 check "nor is a window of another session" "1|0" \
   "$(printf '%s' "$out" | grep -c 'close: refused: /dev/ttys950 is a window of another tmux session')|$(calls | grep -c '\[kill-window\]')"
+rm -f "$TR/iterm-asked"
 out=$(home close --tty /dev/ttys999 2>&1)
-check "and a tty no window runs on is said" "1" \
-  "$(printf '%s' "$out" | grep -c 'close: no window of this home session runs on /dev/ttys999')"
+check "and a tty no window of the server runs on is an iTerm2 tab's, asked of the app" "iterm|0|0" \
+  "$(asked)|$(printf '%s' "$out" | grep -c 'no window of this home session runs on')|$(calls | grep -c '\[kill-window\]')"
+rm -f "$TR/iterm-asked"
 
 reset_home
 printf '%s\n' '$1	0	@0	%0	/dev/ttys900	orch	✳ Orch : home' \
@@ -5884,6 +5897,97 @@ check "a window whose session never started is killed by its own id, and the cha
   "1|[-u][kill-window][-t][@4]|2" \
   "$(printf '%s' "$out" | grep -c 'never started on /dev/ttys903 after 2s; the tab was closed')|$(calls | grep -F '[kill-window]')|$(chainf | wc -l | tr -d ' ')"
 check "nothing of iTerm2 was asked by any of these, in a marked session" "none" "$(asked)"
+
+# A home caller still reaches the iTerm2 tabs it did not make as windows (the coordinator's,
+# an auditor's): a command naming a tty that is no pane of the server goes to the app.
+for c in "close --tty /dev/ttys777" "screen --tty /dev/ttys777 --lines 5" \
+         "move --tty /dev/ttys777 --right-of /dev/ttys901 --force"; do
+  reset_home; rm -f "$TR/iterm-asked"
+  out=$(home $c 2>&1)
+  check "from a home session, ${c%% *} on an iTerm2 tab's tty goes to the app, tmux touching no window" "0|0" \
+    "$(calls | grep -cE '\[(kill-window|capture-pane|move-window)\]')|$(printf '%s' "$out" | grep -c 'of this home session\|window of another tmux')"
+  case "$c" in close*) check "and the app is what close asked" "iterm" "$(asked)";; esac
+done
+rm -f "$TR/iterm-asked"
+
+# With TMUX and TMUX_PANE set, a tmux that fails is never « not a home session ».
+printf '#!/bin/bash\necho x >> "%s/bad-calls"\necho "no server running on /tmp/x" >&2\nexit 1\n' "$TR" > "$TR/tmux-bad"
+printf '#!/bin/bash\nsleep 5\n' > "$TR/tmux-slow"
+chmod +x "$TR/tmux-bad" "$TR/tmux-slow"
+reset_home; rm -f "$TR/bad-calls" "$TR/iterm-asked"
+out=$(REC_TMUX="$TR/tmux-bad" home spawn --dir "$WORK" --title "Agent : bad" --prompt p --right-of self --no-verify 2>&1)
+check "a tmux that refuses is asked once more, then dies naming the refusal, and no tab is made" "2|1|none" \
+  "$(wc -l < "$TR/bad-calls" | tr -d ' ')|$(printf '%s' "$out" | grep -c 'ERROR: tmux: the home session.s mark cannot be read from pane %0 (refused: no server running')|$(asked)"
+out=$(ORCHESTRATOR_PROBE_TIMEOUT=1 REC_TMUX="$TR/tmux-slow" home spawn --dir "$WORK" --title "Agent : slow" --prompt p --right-of self --no-verify 2>&1)
+check "a tmux that times out dies naming the timeout, and no tab is made" "1|none" \
+  "$(printf '%s' "$out" | grep -c '(timed out after 1s)')|$(asked)"
+
+# The chain anchor reads; the launcher writes. Only the caller's entry whose window is gone is
+# dropped: an iTerm2 tab's entry and another occupant's stay, and a listing with nothing in
+# it proves nothing.
+chain_mixed() {
+  printf '%s\n' "{\"tab_id\": \"7\", \"tty\": \"/dev/ttys807\", \"owner\": \"tmux:$TSOCK:%0\"}" \
+    "{\"tab_id\": \"tmux:$TSOCK:@9\", \"tty\": \"/dev/ttys909\", \"owner\": \"tmux:$TSOCK:%0\"}" \
+    "{\"tab_id\": \"tmux:$TSOCK:@1\", \"tty\": \"/dev/ttys901\", \"owner\": \"tmux:$TSOCK:%0\"}" \
+    "{\"tab_id\": \"tmux:$TSOCK:@8\", \"tty\": \"/dev/ttys908\", \"owner\": \"tmux:$TSOCK:%7\"}" > "$TSTATE/chains/ttys900.jsonl"
+}
+reset_home; chain_mixed
+out=$(home spawn --dir "$WORK" --title "Agent : three" --prompt p --right-of self --no-verify 2>&1)
+check "a spawn drops the caller's gone window and keeps an iTerm2 tab's entry and another owner's" "0|1|1|1|1|0" \
+  "$(printf '%s' "$out" | grep -c '^ERROR')|$(chainf | grep -c '"tab_id": "7"')|$(chainf | grep -c '@1"')|$(chainf | grep -c '@8"')|$(chainf | grep -c '@4"')|$(chainf | grep -c '@9"')"
+reset_home; chain_mixed
+out=$(REC_PANES_RAW=' ' home spawn --dir "$WORK" --title "Agent : three" --prompt p --right-of self --no-verify 2>&1)
+check "a listing with no pane in it prunes nothing" "4" "$(chainf | grep -c 'tab_id' | awk '{ print $1 - 1 }')"
+
+# A listing that cannot be read is refused; one bad line among good ones is a warning.
+reset_home
+out=$(REC_PANES_RAW='garbage\nmore garbage\n' home list 2>&1)
+check "a pane listing no line of which parses dies" "1" "$(printf '%s' "$out" | grep -c 'ERROR: tmux: the pane listing cannot be read: 2 line(s)')"
+out=$(REC_PANES_RAW='$1\t0\t@0\t%0\t/dev/ttys900\torch\tOrch\ngarbage\n' home list 2>&1)
+check "one unparsable line among good ones is one warning, the good ones still listed" "1|1" \
+  "$(printf '%s' "$out" | grep -c '^tmux: 1 line(s) of the pane listing were skipped')|$(printf '%s' "$out" | grep -c '^w1/t0 | /dev/ttys900 ')"
+
+# A window whose answer does not split is killed by its id before the death.
+reset_home
+out=$(REC_NEW_RAW='@7 %7' home spawn --dir "$WORK" --title "Agent : odd" --prompt p --right-of self --no-verify 2>&1)
+check "a window made and answered in too few fields is killed by its id, then the spawn dies" "1|1" \
+  "$(calls | grep -c '^\[-u\]\[kill-window\]\[-t\]\[@7\]$')|$(printf '%s' "$out" | grep -c 'ERROR: spawn: tmux made a window and answered')"
+reset_home
+out=$(REC_NEW_RAW='weird' home spawn --dir "$WORK" --title "Agent : odd" --prompt p --right-of self --no-verify 2>&1)
+check "an answer with no window id kills nothing" "0" "$(calls | grep -c '\[kill-window\]')"
+
+# A window already gone is closed; any other refusal is a failure with its message.
+reset_home
+out=$(REC_KILL_ERR="can't find window: @1" home close --tty /dev/ttys901 2>&1)
+check "a window tmux cannot find is closed, and its chain entry dropped" "1|0" \
+  "$(printf '%s' "$out" | grep -c '^closed 1 session on /dev/ttys901')|$(chainf | grep -c '@1"')"
+reset_home
+out=$(REC_KILL_ERR="server exited unexpectedly" home close --tty /dev/ttys901 2>&1)
+check "any other refusal of the kill is a failure with its message" "1|1" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: close: tmux refused kill-window: server exited unexpectedly')|$(chainf | grep -c '@1"')"
+
+# A move that fails after the first says what already happened.
+reset_home
+out=$(REC_RENUMBER_ERR="no such session" home move --tty /dev/ttys902 --left-of /dev/ttys901 2>&1)
+check "a failed renumbering says the window was already moved, and where" "1" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: move: the window @2 was already moved before @1')"
+reset_home
+printf '%s\n' '$1	0	@0	%0	/dev/ttys900	orch	Orch' '$1	1	@1	%1	/dev/ttys901	Agent : one	one' > "$TR/panes.moved"
+out=$(home move --tty /dev/ttys902 --left-of /dev/ttys901 2>&1)
+check "a moved window missing from the listing afterwards dies with a message" "1" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: move: the window @2 was moved before @1, and is no longer in the session')"
+
+# The session is never the current one by accident.
+reset_home
+out=$(REC_SESSION=garbage home spawn --dir "$WORK" --title "Agent : three" --prompt p --right-of self --no-verify 2>&1)
+check "a session id that is none dies before any window is made" "1|0" \
+  "$(printf '%s' "$out" | grep -c "ERROR: tmux: the session of pane %0 was answered 'garbage'")|$(calls | grep -c '\[new-window\]')"
+
+# A close is proved on the window, the tty being recyclable.
+reset_home
+out=$(REC_KEEP_WINDOW=1 home close --tty /dev/ttys901 2>&1)
+check "a window still in the server after its process is gone is a close that did not happen" "1|0" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: close: the request was accepted but tmux:.*:@1 is still there')|$(printf '%s' "$out" | grep -c '^closed')"
 
 # Only an agent is a window: a successor, an auditor, the coordinator's successor, a woken or
 # an opened orchestrator are made as tabs, as they always were.
