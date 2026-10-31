@@ -108,7 +108,7 @@ passthrough=()
 env -i HOME="$HOME" USER="$USER" PATH="$EPATH" TERM=xterm-256color \
   ORCHESTRATOR_STATE_DIR="$STATE" ORCHESTRATOR_MODULE_DIR="$SANDBOX/module" \
   ORCHESTRATOR_HOST_CLI="$WRAPPER" ORCHESTRATOR_TRUST_FILE="$SANDBOX/trust.json" \
-  ORCHESTRATOR_TIER_LIGHT="$MODEL" ORCHESTRATOR_WORKSPACES="$SANDBOX" "${passthrough[@]}" \
+  ORCHESTRATOR_TIER_LIGHT="$MODEL" ORCHESTRATOR_WORKSPACES="$SANDBOX" ${passthrough[@]+"${passthrough[@]}"} \
   tmux -L "$SERVER" new-session -d -s home -n orch -x 160 -y 45 -c "$WORKDIR" '/bin/bash --noprofile --norc'
 tm set -t home @orchestrator-home 1 >/dev/null
 SOCKET=$(tm display -p -t home:0 '#{socket_path}')
