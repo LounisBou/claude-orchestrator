@@ -2426,38 +2426,61 @@ async function receiveAsk($: any, delivery: Delivery): Promise<{ consumed: strin
     await logLine($, `receive: a remote question was refused (${delivery.body.length} characters${from ? '' : ', no sender address'})`)
     return { consumed: 'orchestrator: a malformed remote question, refused' }
   }
-  if (await ownRole($) !== 'coordinator') {
-    await logLine($, `receive: a remote question reached a session that is no coordinator: ${asked.entry.id}`)
-    return { consumed: 'orchestrator: a remote question for no coordinator, dropped' }
+  // The line is the module's own: whatever throws below, it is consumed, never passed to a model.
+  let step = 'the role read'
+  try {
+    if (await ownRole($) !== 'coordinator') {
+      await logLine($, `receive: a remote question reached a session that is no coordinator: ${asked.entry.id}`)
+      return { consumed: 'orchestrator: a remote question for no coordinator, dropped' }
+    }
+    step = 'the entry read'
+    const path = roundPath(await stateDir($), asked.entry.id)
+    const known = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+    if (known?.since === asked.entry.since) {
+      if (known.status === 'open') {
+        step = 'the urgent mark'
+        await takeUrgent($, { path, entry: known }, asked.entry)
+      }
+    } else {
+      const entry: RoundEntry = { ...asked.entry, origin: { machine: asked.machine, address: from } }
+      step = 'the entry write'
+      await writeAtomic($, path, JSON.stringify(entry) + '\n')
+      await logLine($, `round: entered from ${asked.machine}: ${entry.id}`)
+      step = 'the supersede'
+      await supersede($, entry)
+      step = 'the deck refresh'
+      await refreshDeck($)
+    }
+    step = 'the acknowledgment'
+    const sent = await $.session.send({ to: from, text: ackLine(asked.entry.id, asked.entry.since) })
+    if (!sent?.isDelivered) await logLine($, `receive: the acknowledgment of ${asked.entry.id} was not delivered to ${from}: ${sent?.reason ?? 'no answer'}`)
+  } catch (err) {
+    await logLine($, `receive: a remote question failed at ${step} (${asked.entry.id}): ${(err as Error).message}`)
   }
-  const path = roundPath(await stateDir($), asked.entry.id)
-  const known = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
-  if (known?.since === asked.entry.since) {
-    if (known.status === 'open') await takeUrgent($, { path, entry: known }, asked.entry)
-  } else {
-    const entry: RoundEntry = { ...asked.entry, origin: { machine: asked.machine, address: from } }
-    await writeAtomic($, path, JSON.stringify(entry) + '\n')
-    await logLine($, `round: entered from ${asked.machine}: ${entry.id}`)
-    await supersede($, entry)
-    await refreshDeck($)
-  }
-  const sent = await $.session.send({ to: from, text: ackLine(asked.entry.id) })
-  if (!sent?.isDelivered) await logLine($, `receive: the acknowledgment of ${asked.entry.id} was not delivered to ${from}: ${sent?.reason ?? 'no answer'}`)
   return { consumed: 'orchestrator: a remote question, entered' }
 }
 
 // A coordinator's acknowledgment, consumed whatever it holds: the one of the entry this session's
-// wait holds as pending keeps its fingerprint, as a delivery's, and clears it. The wait is read
-// again just before, a turn's end may have written it. Any other is one log line.
+// wait holds as pending, and of the very ask it holds (the same start), keeps its fingerprint, as
+// a delivery's, and clears it. An older ask's, late, matches nothing: the newer one stays pending
+// and is sent again. The wait is read again just before, a turn's end may have written it. Any
+// other is one log line.
 async function receiveAck($: any, body: string): Promise<{ consumed: string }> {
-  const id = parseAck(body)
-  const sessionId = await $.session.id()
-  const now = id === null ? null : await readWait($, sessionId)
-  if (id === null || !now || now.pending !== id || typeof now.pending_key !== 'string') {
-    await logLine($, `receive: an acknowledgment ${id === null ? 'was refused' : `of ${id} matches no pending question`}`)
-    return { consumed: 'orchestrator: an acknowledgment, dropped' }
+  const ack = parseAck(body)
+  let step = 'the wait read'
+  try {
+    const sessionId = await $.session.id()
+    const now = ack === null ? null : await readWait($, sessionId)
+    if (ack === null || !now || now.pending !== ack.id || now.waiting_since !== ack.since || typeof now.pending_key !== 'string') {
+      await logLine($, `receive: an acknowledgment ${ack === null ? 'was refused' : `of ${ack.id} matches no pending question`}`)
+      return { consumed: 'orchestrator: an acknowledgment, dropped' }
+    }
+    step = 'the wait write'
+    await writeWait($, sessionId, { ...now, relayed: now.pending_key, pending: null, pending_key: null })
+  } catch (err) {
+    await logLine($, `receive: an acknowledgment failed at ${step}${ack ? ` (${ack.id})` : ''}: ${(err as Error).message}`)
+    return { consumed: 'orchestrator: an acknowledgment, failed' }
   }
-  await writeWait($, sessionId, { ...now, relayed: now.pending_key, pending: null, pending_key: null })
   return { consumed: 'orchestrator: an acknowledgment, recorded' }
 }
 

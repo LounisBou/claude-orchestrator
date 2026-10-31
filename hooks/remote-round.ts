@@ -41,7 +41,7 @@ const SKELETON = JSON.stringify({
 const JSON_ESCAPE = 6
 export const ASK_LINE_CAP = ASK_MARKER.length + SKELETON
   + JSON_ESCAPE * (ID_CAP + NAME_CAP + SESSION_CAP + 2 * STAMP_CAP + BLOCKS_CAP + 2 * QUESTION_CAP + MACHINE_CAP)
-const ACK_LINE_CAP = ACK_MARKER.length + JSON.stringify({ id: '' }).length + ID_CAP
+const ACK_LINE_CAP = ACK_MARKER.length + JSON.stringify({ id: '', since: '' }).length + ID_CAP + STAMP_CAP
 
 // The fields an ask carries: the entry's as roundEntry builds them, and the sender's machine.
 // No `origin`, which only the receiver writes, and no `movedFrom`, which only a succession does.
@@ -52,12 +52,14 @@ const ID_SHAPE = /^[A-Za-z0-9._-]+-\d{1,12}-[0-9a-f]{1,8}$/
 
 // The entry of a wait as the line carries it: its question cut at the cap known to cross and
 // the cut said (the operator's ruling 5.4), what it blocks cut as a row's is, and the machine
-// it was asked on.
+// it was asked on. A control character of what it blocks or of who asks is a space before the
+// cut: the receiver's line() refuses any, and a wait's text must never make its ask refused.
 export function askLine(entry: RoundEntry, machine: string): string {
   const { origin: _origin, movedFrom: _moved, ...sent } = entry
   return ASK_MARKER + JSON.stringify({
     ...sent,
-    blocks: sent.blocks === null ? null : sent.blocks.slice(0, BLOCKS_CAP),
+    from: spaced(sent.from),
+    blocks: sent.blocks === null ? null : spaced(sent.blocks).slice(0, BLOCKS_CAP),
     question: cutQuestion(sent.question),
     machine,
   })
@@ -96,15 +98,20 @@ export function parseAsk(body: string): { entry: RoundEntry; machine: string } |
   return { entry: { ...entry, ...parseChoices(entry.question) }, machine }
 }
 
-// The acknowledgment of an entry, by its id alone.
-export function ackLine(id: string): string {
-  return ACK_MARKER + JSON.stringify({ id })
+// The acknowledgment of an ask, by its id and the start of the wait it answers: a late one of an
+// older ask of the same id must not clear a newer pending wait.
+export function ackLine(id: string, since: string): string {
+  return ACK_MARKER + JSON.stringify({ id, since })
 }
 
-export function parseAck(body: string): string | null {
+export function parseAck(body: string): { id: string; since: string } | null {
   const o = markedObject(body, ACK_MARKER, ACK_LINE_CAP)
-  if (!o || Object.keys(o).length !== 1 || typeof o.id !== 'string' || o.id.length > ID_CAP || !ID_SHAPE.test(o.id)) return null
-  return o.id
+  if (!o || Object.keys(o).length !== 2 || typeof o.id !== 'string' || o.id.length > ID_CAP || !ID_SHAPE.test(o.id) || !stamp(o.since)) return null
+  return { id: o.id, since: o.since as string }
+}
+
+function spaced(text: string): string {
+  return text.replace(/[\u0000-\u001f]/g, ' ')
 }
 
 function markedObject(body: string, marker: string, cap: number): Record<string, unknown> | null {
