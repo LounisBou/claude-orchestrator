@@ -146,6 +146,18 @@ wait_for() { # <pane> <text> <seconds>
   return 1
 }
 
+# The host's reply: a line the host marks with its bullet and that carries the word, in
+# whatever case it answers.
+REPLY_RE() { printf '^[[:space:]]*⏺.*%s' "$1"; }
+wait_reply() { # <pane> <word> <seconds>
+  local i=0
+  while [ $i -lt $(($3 * 2)) ]; do
+    screen_of "$1" | grep -qiE "$(REPLY_RE "$2")" && return 0
+    sleep 0.5; i=$((i + 1))
+  done
+  return 1
+}
+
 # The subscription, read on a host's own banner: its first rows name the product and the plan,
 # and the API billing line anywhere on that screen refuses.
 banner_or_exit() { # <pane>
@@ -165,10 +177,10 @@ banner_or_exit() { # <pane>
   fi
 }
 
-# The word asked for is written in lower case and replied in upper case, so the reply is the
-# only line of the screen that carries it: the prompt shown above it does not.
-prompt() { printf 'Reply with exactly %s in upper case and nothing else. Do not use any tool.' \
-  "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"; }
+# The word is asked for in pieces, to be joined by hyphens: the reply is the only line of the
+# screen that carries the whole word, never the prompt shown above it.
+prompt() { printf 'Reply with these words joined by hyphens, in lower case, and nothing else: %s. Do not use any tool.' \
+  "$(printf '%s' "$1" | tr '[:upper:]-' '[:lower:] ')"; }
 agent() { # <title> <word>: an agent spawned as the orchestrator spawns one
   launcher 90 spawn --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "$1" \
     --prompt "$(prompt "$2")" --right-of self
@@ -204,9 +216,10 @@ echo "== list and screen =="
 launcher 20 list
 check "list shows window 0 as self and both agents, in the rows the stop gate parses" "0|1|1|1" \
   "$(rc)|$(out | grep -c "^w1/t0 | $OWN_TTY | .* | self\$")|$(out | grep -c "^w1/t1 | $ONE | .* | Agent : e2e one\$")|$(out | grep -c "^w1/t2 | $TWO | .* | Agent : e2e two\$")"
-wait_for "$ONE_PANE" E2E-ONE-READY 90
+if wait_reply "$ONE_PANE" E2E-ONE-READY 90; then ONE_REPLIED=1; else ONE_REPLIED=0; fi
+check "the first agent replied within 90s" "1" "$ONE_REPLIED"
 launcher 20 screen --tty "$ONE" --lines 60
-check "screen reads the first agent's reply" "0|1" "$(rc)|$(out | grep -c 'E2E-ONE-READY')"
+check "screen reads the first agent's reply" "0|1" "$(rc)|$(out | grep -ciE "$(REPLY_RE E2E-ONE-READY)")"
 
 echo "== close =="
 launcher 20 close --tty "$ONE" --expect-title "Agent : e2e two"
@@ -217,7 +230,8 @@ check "the first agent is closed, proved on the process table, its window and ch
   "$(rc)|$(out)|$(hosts_on "$ONE")|$(windows | grep -c ' Agent : e2e one ')|$(chain | grep -c "$W1")"
 
 echo "== rotate =="
-wait_for "$TWO_PANE" E2E-TWO-READY 90
+if wait_reply "$TWO_PANE" E2E-TWO-READY 90; then TWO_REPLIED=1; else TWO_REPLIED=0; fi
+check "the second agent replied within 90s" "1" "$TWO_REPLIED"
 launcher 120 rotate --old-tty "$TWO" --expect-title "Agent : e2e two" --dir "$WORKDIR" --tier light \
   --permission-mode acceptEdits --title "Agent : e2e three" --prompt "$(prompt E2E-THREE-READY)" --right-of self
 THREE=$(out | head -1)
