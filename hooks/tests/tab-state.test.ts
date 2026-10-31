@@ -273,10 +273,11 @@ test('a failure is said again after a write succeeds', async () => {
   expect(tabLog(fx).length).toBe(2)
 })
 
-test('a state whose write failed is written again when asked again', async () => {
+test('a state whose write failed leaves nothing remembered, so the last one is written again when asked', async () => {
   const chains = mounted()
-  const fx = fake({ pane: '%26', script: { set: [true] } })
+  const fx = fake({ pane: '%26', script: { set: [false, true] } })
   await drive(chains, 'turn.start', fx.dollar, { text: '' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Done.'))
   await drive(chains, 'turn.start', fx.dollar, { text: '' })
-  expect(fx.states()).toEqual(['busy', 'busy'])
+  expect(fx.states()).toEqual(['busy', 'idle', 'busy'])
 })
