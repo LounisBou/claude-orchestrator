@@ -5992,7 +5992,7 @@ check "a window still in the server after its process is gone is a close that di
 # An agent and an orchestrator's successor are windows: the successor takes the predecessor's
 # window 0 in the same session, where the agents are. An auditor, the coordinator's successor,
 # a woken or an opened orchestrator are made as tabs, as they always were.
-reset_home
+reset_home; rm -f "$TR/iterm-asked"
 out=$(home spawn --dir "$WORK" --successor --prompt p 2>"$WORK/tsucc.err")
 check "a successor spawned from a home session is a window of that session under the caller's name, and iTerm2 is never asked" \
   "/dev/ttys903|[-u][new-window][-d][-t][\$1:][-n][Orch : home][-P][-F][#{window_id} #{pane_id} #{pane_tty}][/bin/sh -l @STATE@/prompts/launch-Orch---home-@TIME@.sh]|none" \
@@ -6004,7 +6004,7 @@ rm -f "$TR/iterm-asked"
 
 # The successor's takeover, from its own window: the predecessor's window 0 killed, guarded by
 # its name, proved gone, then the successor moved to index 0 without taking the operator's view.
-succ() { # <subcommand and options>: the launcher, called from the successor's window
+heir() { # <subcommand and options>: the launcher, called from the successor's window
   TMUX="$TSOCK,4242,1" TMUX_PANE=%4 ORCHESTRATOR_TMUX="$TR/tmux" ORCHESTRATOR_OSASCRIPT="$TR/osascript" \
     ORCHESTRATOR_SAMPLE=/usr/bin/false ORCHESTRATOR_APP_PID=1 ORCHESTRATOR_SELF_TTY=/dev/ttys903 ORCHESTRATOR_STATE_DIR="$TSTATE" \
     ORCHESTRATOR_PS_TABLE="$TR/ps" ORCHESTRATOR_CLOSE_TIMEOUT=1 bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" "$@"; }
@@ -6015,7 +6015,7 @@ printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	1	@1	%1	
   '$1	2	@2	%2	/dev/ttys902	Agent : two	⠂ Agent : two' '$2	0	@3	%3	/dev/ttys950	other	✳ elsewhere' \
   '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
 rm -f "$TR/calls"
-out=$(succ takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
+out=$(heir takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
 check "takeover kills window 0 by its id, proved gone, and moves the successor to index 0 detached" \
   "took window 0: the predecessor's window @0 on /dev/ttys900 was closed|[-u][kill-window][-t][@0]|[-u][move-window][-d][-s][@4][-t][\$1:0]|0|0" \
   "$out|$(calls | grep -F '[kill-window]')|$(calls | grep -F '[move-window]')|$(calls | grep -c '\[select-window\]')|$(grep -c ttys900 "$TR/ps")"
@@ -6023,24 +6023,24 @@ reset_home
 printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
 printf '/dev/ttys903 claude --name Orch : home\n' >> "$TR/ps"
 rm -f "$TR/calls"
-out=$(REC_ACTIVE=1 succ takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
+out=$(REC_ACTIVE=1 heir takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
 check "and selects window 0 only when the operator was on it" "[-u][select-window][-t][@4]" "$(calls | grep -F '[select-window]')"
 reset_home
 printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	1	@1	%1	/dev/ttys901	Agent : one	✳ Agent : one' '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
 rm -f "$TR/calls"
-out=$(succ takeover --tty /dev/ttys900 --expect-title "Orch : other" 2>&1)
+out=$(heir takeover --tty /dev/ttys900 --expect-title "Orch : other" 2>&1)
 check "a window 0 whose name does not hold the expected words is not killed" "1|0" \
   "$(printf '%s' "$out" | grep -c "takeover: refused: the window on /dev/ttys900 is named 'Orch : home', which does not contain 'Orch : other'")|$(calls | grep -c '\[kill-window\]')"
 rm -f "$TR/calls"
-out=$(succ takeover --tty /dev/ttys901 2>&1)
+out=$(heir takeover --tty /dev/ttys901 2>&1)
 check "an agent's window is not the predecessor's place" "1|0" \
   "$(printf '%s' "$out" | grep -c 'takeover: refused: the window on /dev/ttys901 is window 1, not window 0')|$(calls | grep -c '\[kill-window\]')"
 rm -f "$TR/calls"
-out=$(succ takeover --tty /dev/ttys903 2>&1)
+out=$(heir takeover --tty /dev/ttys903 2>&1)
 check "nor is the successor's own window" "1|0" \
   "$(printf '%s' "$out" | grep -c "takeover: refused: /dev/ttys903 is this session's own window")|$(calls | grep -c '\[kill-window\]')"
 rm -f "$TR/mark"
-out=$(succ takeover --tty /dev/ttys900 2>&1)
+out=$(heir takeover --tty /dev/ttys900 2>&1)
 check "outside a home session the takeover is refused, the tab being closed as before" "1" \
   "$(printf '%s' "$out" | grep -c 'takeover: refused: this session is not in a home session')"
 printf '1\n' > "$TR/mark"
