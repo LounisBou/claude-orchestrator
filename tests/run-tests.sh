@@ -6263,7 +6263,9 @@ class FakeIterm(ia.Terminal):
     def find(self, tty):
         calls.append("find %s" % tty)
         return scenario == "tab-stays" and calls.count("find %s" % tty) < 99
-    def can_place(self, anchor, side): return True
+    def can_place(self, anchor, side):
+        if os.environ.get("LIFE_PROBES"): calls.append("can_place %s" % anchor)
+        return True
     def create(self, command, title, place, chain, made):
         calls.append("create %s %s %s %s" % (place.at, place.anchor, place.side, title))
         made["session_id"] = "NEW-SESSION"
@@ -6328,6 +6330,16 @@ reset_homerec
 res=$(life ok "[\"spawn\",\"--wake\",\"--dir\",\"$WORK\",\"--title\",\"Orch : w\",\"--model\",\"a-model\",\"--prompt\",\"p\",\"--no-verify\"]")
 check "a tab that shows no client of the woken orchestrator's server is closed and the server ended" "1|1|1" \
   "$(sfield "$res" exit)|$(hcalls | grep -c '\[kill-server\]')|$(sfield "$res" ERR | grep -c 'shows no client of the home server orch-0badc0de')"
+# Without a tab (ORCHESTRATOR_HOME_NO_TAB, as the move has it): the server alone, which a live
+# run drives without the app; a refusal then ends the server and asks the app nothing.
+reset_homerec
+res=$(LIFE_PROBES=1 ORCHESTRATOR_HOME_NO_TAB=1 life ok "[\"spawn\",\"--wake\",\"--dir\",\"$WORK\",\"--title\",\"Orch : w\",\"--model\",\"a-model\",\"--prompt\",\"p\",\"--resume\",\"abcdef12-3456-4789-8abc-def012345678\",\"--no-verify\"]")
+check "a wake without a tab starts its home server, makes no tab and says how to attach" "0|[-u][-L][orch-abcdef12][-f]||1|/dev/ttys960" \
+  "$(sfield "$res" exit)|$(hcalls | head -1 | sed 's/\[-f\].*$/[-f]/')|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'no tab: attach with .* -L orch-abcdef12 attach')|$(sfield "$res" OUT)"
+reset_homerec
+res=$(LIFE_PROBES=1 ORCHESTRATOR_HOME_NO_TAB=1 life never "[\"spawn\",\"--wake\",\"--dir\",\"$WORK\",\"--title\",\"Orch : w\",\"--model\",\"a-model\",\"--prompt\",\"p\",\"--resume\",\"abcdef12-3456-4789-8abc-def012345678\"]")
+check "and one that never starts ends the server, the app never asked" "1||1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(hcalls | grep -c '\[kill-server\]')"
 
 # The pause: the coordinator closes the paused orchestrator's tab by tty, and the tab shows a
 # home session: the server is ended, proved, then the tab.
