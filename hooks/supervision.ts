@@ -343,6 +343,12 @@ export function rowKey(id: string): string {
   return `rows/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
 }
 
+// The last answer of a coordinator on another machine this session took (`answered/<id>`, its
+// entry's id and start): the receive path is its one writer, and it goes with the session's row.
+export function answeredKey(id: string): string {
+  return `answered/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
+}
+
 // The successor an orchestrator learnt from its « takeover confirmed » (`successors/<id>`,
 // remote-row.ts): the receive path is its one writer, and it goes with the session's row.
 export function successorKey(id: string): string {
@@ -469,7 +475,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
 export async function deleteSession($: any, id: string): Promise<void> {
   const path = `${await storeOf($)}/${sessionKey(id)}`
   const store = await storeOf($)
-  const done = await $.process.run(['rm', '-f', path, `${store}/${waitKey(id)}`, `${store}/${gateKey(id)}`, `${store}/${rowKey(id)}`, `${store}/${successorKey(id)}`], { timeoutMs: 5000 }).catch(() => null)
+  const done = await $.process.run(['rm', '-f', path, `${store}/${waitKey(id)}`, `${store}/${gateKey(id)}`, `${store}/${rowKey(id)}`, `${store}/${successorKey(id)}`, `${store}/${answeredKey(id)}`], { timeoutMs: 5000 }).catch(() => null)
   if (!done || done.exitCode !== 0) await $.fs.write(path, '')
 }
 
@@ -2237,21 +2243,22 @@ async function sendAnswer($: any, path: string, entry: RoundEntry, text: string)
 }
 
 // The answers sent to another machine and not acknowledged, read at each round wake whether the
-// pane is open or not: one whose last send is ANSWER_RESEND_MS old is sent again, or, sent
-// ANSWER_SENDS times already, failed — the entry read again first and written whole once. A
-// failure of one entry is one log line, and the others are still read.
+// pane is open or not: one whose last send is ANSWER_RESEND_MS old, or left pending that long (its
+// module stopped before the send), is sent again, or, sent ANSWER_SENDS times already, failed — the
+// entry read again first and written whole once. A failure of one entry is one log line, and the
+// others are still read.
 async function resendAnswers($: any): Promise<void> {
   const now = Date.now()
   for (const { path, entry } of await readRound($)) {
     const delivery = entry.delivery
-    if (!entry.origin || !entry.answer || delivery?.state !== 'sent' || now - Date.parse(delivery.at) < ANSWER_RESEND_MS) continue
+    if (!entry.origin || !entry.answer || (delivery?.state !== 'sent' && delivery?.state !== 'pending') || now - Date.parse(delivery.at) < ANSWER_RESEND_MS) continue
     try {
       if (delivery.attempts < ANSWER_SENDS) {
         await sendAnswer($, path, entry, entry.status === 'closed' && entry.answer.text.startsWith(PANE_CLOSED) ? entry.answer.text.slice(PANE_CLOSED.length) : entry.answer.text)
         continue
       }
       const read = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
-      if (read?.delivery?.state !== 'sent' || read.delivery.attempts !== delivery.attempts) continue
+      if (read?.delivery?.state !== delivery.state || read.delivery.attempts !== delivery.attempts) continue
       const reason = `no acknowledgment after ${ANSWER_SENDS} sends`
       await writeAtomic($, path, JSON.stringify({ ...read, delivery: { state: 'failed', at: new Date().toISOString(), attempts: delivery.attempts, reason } }) + '\n')
       await logLine($, `round: the pane's answer to ${entry.from} on ${entry.origin.machine} failed: ${reason}`)
@@ -2546,15 +2553,16 @@ async function supersede($: any, entry: RoundEntry): Promise<void> {
   await tellSettled($, await withdrawStale($, entry.session, entry.id, `superseded by ${entry.id}`, standing))
 }
 
-// A remote orchestrator's ask (remote-round.ts), consumed whatever it holds. In the
-// coordinator's session alone, one that passes every check is entered in the round with where it
-// came from, its session's older entries superseded as a local one's are, and acknowledged to its
-// sender. The same entry sent again, its wait's start unchanged, is not entered twice while it is
-// open or its answer is on its way back: it is acknowledged again, its first acknowledgment having been lost, and an open one takes the urgent
-// mark it now carries or not, as a local wait asked again does. That rule keeps the choices of the
-// wait's text too: a note without choices under the same wait has the same id and the same start
-// (roundEntryId reads no question under a wait that blocks something), so it never replaces the
-// entry, as keptChoices keeps a local one's. Anything else is one log line.
+// A remote orchestrator's ask (remote-round.ts), consumed whatever it holds. In the coordinator's
+// session alone, one that passes every check is entered in the round with where it came from, its
+// session's older entries superseded as a local one's are, and acknowledged to its sender. The same
+// entry sent again, its wait's start unchanged, is never entered twice, whatever became of it
+// since: it is acknowledged again, its first acknowledgment having been lost, and an open one takes
+// the urgent mark it now carries or not, as a local wait asked again does. The same wait asked
+// again once answered is a new ask, of a new start (receiveAnswer). That rule keeps the choices of
+// the wait's text too: a note without choices under the same wait has the same id and the same
+// start (roundEntryId reads no question under a wait that blocks something), so it never replaces
+// the entry, as keptChoices keeps a local one's. Anything else is one log line.
 async function receiveAsk($: any, delivery: Delivery): Promise<{ consumed: string }> {
   const asked = parseAsk(delivery.body)
   const from = peerAddress(delivery)
@@ -2572,9 +2580,7 @@ async function receiveAsk($: any, delivery: Delivery): Promise<{ consumed: strin
     step = 'the entry read'
     const path = roundPath(await stateDir($), asked.entry.id)
     const known = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
-    // An entry settled since, its answer no longer on its way, is entered again: its sender asks it again.
-    const travelling = known?.delivery?.state === 'pending' || known?.delivery?.state === 'sent'
-    if (known?.since === asked.entry.since && (known.status === 'open' || travelling)) {
+    if (known?.since === asked.entry.since) {
       if (known.status === 'open') {
         step = 'the urgent mark'
         await takeUrgent($, { path, entry: known }, asked.entry)
@@ -2625,12 +2631,14 @@ async function receiveAck($: any, body: string): Promise<{ consumed: string }> {
 }
 
 // The coordinator's answer to this session's question (remote-round.ts), the marked line consumed
-// whatever happens. One that parses forgets the fingerprint its wait keeps when the wait's
-// acknowledged entry is that very one, of the same start, as forgetRelayed does on the
-// coordinator's machine, so the same question asked again is entered again; it is acknowledged to
-// the address it came from, and its readable line is passed to the model, the one part a model
-// reads. A throw is one log line and the readable line still passes. A refused one is one log line,
-// passed nowhere, never acknowledged.
+// whatever happens. One that parses is taken when the wait's entry is that very one, of the same
+// start — acknowledged (`relayed_id`), or still pending, its ask's acknowledgment lost: the wait
+// forgets its fingerprint, as forgetRelayed does on the coordinator's machine, its pending ask, and
+// its start, so the same wait asked again is a new ask, of a new start (waitPatch), entered again.
+// It is acknowledged to the address it came from, and its readable line is passed to the model, the
+// one part a model reads. The last one taken is kept (answeredKey): the same answer sent again, its
+// acknowledgment lost, is acknowledged again and passed nowhere. A throw is one log line and the
+// readable line still passes. A refused one is one log line, passed nowhere, never acknowledged.
 async function receiveAnswer($: any, delivery: Delivery): Promise<{ consumed: string } | { readable: string }> {
   const answer = parseAnswer(delivery.body)
   if (!answer) {
@@ -2640,10 +2648,15 @@ async function receiveAnswer($: any, delivery: Delivery): Promise<{ consumed: st
   let step = 'the wait read'
   try {
     const sessionId = await $.session.id()
-    const now = await readWait($, sessionId)
-    if (now && now.relayed_id === answer.id && now.waiting_since === answer.since) {
+    const taken = `${await storeOf($)}/${answeredKey(sessionId)}`
+    const last = parseAnswered(String(await $.fs.read(taken).catch(() => '')))
+    const again = last?.id === answer.id && last.since === answer.since
+    const now = again ? null : await readWait($, sessionId)
+    if (now && now.waiting_since === answer.since && (now.relayed_id === answer.id || now.pending === answer.id)) {
       step = 'the wait write'
-      await writeWait($, sessionId, { ...now, relayed: null, relayed_id: null })
+      await writeWait($, sessionId, { ...now, waiting_since: null, relayed: null, relayed_id: null, pending: null, pending_key: null })
+      step = 'the answer record'
+      await writeAtomic($, taken, JSON.stringify({ id: answer.id, since: answer.since }) + '\n')
     }
     step = 'the acknowledgment'
     const from = peerAddress(delivery)
@@ -2652,15 +2665,26 @@ async function receiveAnswer($: any, delivery: Delivery): Promise<{ consumed: st
       const sent = await $.session.send({ to: from, text: answerAckLine(answer.id, answer.since) })
       if (!sent?.isDelivered) await logLine($, `receive: the acknowledgment of the answer to ${answer.id} was not delivered to ${from}: ${sent?.reason ?? 'no answer'}`)
     }
+    if (again) return { consumed: 'orchestrator: an answer received already, acknowledged again' }
   } catch (err) {
     await logLine($, `receive: an answer failed at ${step} (${answer.id}): ${(err as Error).message}`)
   }
   return { readable: answer.readable }
 }
 
+// The last answer taken, as answeredKey's file holds it: null when it holds no id and start.
+function parseAnswered(text: string): { id: string; since: string } | null {
+  try {
+    const read = JSON.parse(text)
+    return read && typeof read.id === 'string' && typeof read.since === 'string' ? { id: read.id, since: read.since } : null
+  } catch {
+    return null
+  }
+}
+
 // A remote sender's acknowledgment of the answer sent to it, consumed whatever it holds: the
-// entry of that id and start, its answer sent or failed, is acknowledged and closed, and the pane
-// drawn again. Any other is one log line.
+// entry of that id and start, its answer pending, sent or failed, is acknowledged and closed, and
+// the pane drawn again. Any other is one log line.
 async function receiveAnswerAck($: any, body: string): Promise<{ consumed: string }> {
   const ack = parseAnswerAck(body)
   let step = 'the entry read'
@@ -2672,7 +2696,7 @@ async function receiveAnswerAck($: any, body: string): Promise<{ consumed: strin
     const path = roundPath(await stateDir($), ack.id)
     const entry = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
     const state = entry?.delivery?.state
-    if (!entry?.origin || !entry.delivery || entry.since !== ack.since || (state !== 'sent' && state !== 'failed')) {
+    if (!entry?.origin || !entry.delivery || entry.since !== ack.since || (state !== 'pending' && state !== 'sent' && state !== 'failed')) {
       await logLine($, `receive: an answer's acknowledgment of ${ack.id} matches no answer sent`)
       return { consumed: "orchestrator: an answer's acknowledgment, dropped" }
     }

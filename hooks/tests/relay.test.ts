@@ -1794,6 +1794,10 @@ const answers = (fx: ReturnType<typeof fake>) => fx.sent.filter(s => s.text.star
 const answerAcks = (fx: ReturnType<typeof fake>) => fx.sent.filter(s => s.text.startsWith(ANSWER_ACK_MARKER))
 const emptyPane = () => ({ opened: null, ticker: null, other: new Set<string>(), writing: null, undelivered: new Map(), answering: new Set<string>() })
 
+// Two turn ends of one test may fall in one millisecond: a new start is told apart from the old
+// one only once the clock has moved.
+const clockMoves = () => new Promise(resolve => setTimeout(resolve, 5))
+
 // A remote wait entered on the coordinator's machine and acknowledged on the sender's: the entry
 // as the coordinator's round holds it.
 async function enteredRemotely(over: Parameters<typeof fake>[0] = {}) {
@@ -1923,6 +1927,7 @@ test('an answered remote entry, the same wait again at the next turn end, is ent
   await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', answers(coordinator)[0].text))
   await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', answerAcks(sender)[0].text))
   expect(stored().status).toBe('closed')
+  await clockMoves()
   await drive(chains, 'turn.start', sender.dollar, { text: '' })
   await drive(chains, 'turn.complete', sender.dollar, ask)
   expect(asks(sender).length).toBe(2)
@@ -1940,4 +1945,96 @@ test('an answered remote entry whose answer is still travelling is not entered a
   await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
   expect(stored()).toEqual(travelling)
   expect(acks(coordinator).length).toBe(2)
+})
+
+test('an ask sent again, of the same start, never reopens its entry settled meanwhile, and is acked again', async () => {
+  const { chains, sender, coordinator, entry, stored } = await enteredRemotely()
+  const path = `${ROUND}/${entry.id}.json`
+  const again = () => drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
+  // Closed by a round-close while the ask's first acknowledgment was lost.
+  const closed = { ...stored(), status: 'closed', answer: { text: 'A', by: 'coordinator', at: entry.at } }
+  coordinator.files.set(path, JSON.stringify(closed) + '\n')
+  await again()
+  expect(stored()).toEqual(closed)
+  // Answered from the pane, its delivery failed after its sends.
+  const failed = { ...closed, status: 'answered', answer: { text: 'A : merge it', by: 'pane', at: entry.at }, delivery: { state: 'failed', at: entry.at, attempts: 3, reason: 'no acknowledgment after 3 sends' } }
+  coordinator.files.set(path, JSON.stringify(failed) + '\n')
+  await again()
+  expect(stored()).toEqual(failed)
+  expect(acks(coordinator).length).toBe(3)
+})
+
+test('an accepted answer forgets the wait\'s start: the same wait asked again is a new ask, of a new start', async () => {
+  const { chains, sender, coordinator, ask, entry } = await enteredRemotely()
+  await answerFromPane(coordinator.dollar, emptyPane(), entry, entry.choices[0])
+  await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', answers(coordinator)[0].text))
+  expect([waitOf(sender).waiting_since ?? null, waitOf(sender).relayed, waitOf(sender).relayed_id]).toEqual([null, null, null])
+  await clockMoves()
+  await drive(chains, 'turn.start', sender.dollar, { text: '' })
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  const asked = parseAsk(asks(sender)[1].text)!
+  expect(asked.entry.id).toBe(entry.id)
+  expect(asked.entry.since).not.toBe(entry.since)
+  expect(waitOf(sender).waiting_since).toBe(asked.entry.since)
+})
+
+test('an answer arriving before its ask\'s ack is taken: passed once, acked, and its ask never sent again', async () => {
+  const chains = mounted()
+  const sender = fake({ remote: true })
+  const coordinator = coordinatorMachine()
+  const ask = turnEnd(answerOf(`${QUESTION}\n- **A** : merge it\n- **B** : wait`, QUESTION_LINE))
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  // The ask is entered, its acknowledgment lost on the way back.
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
+  const [entry] = entries(coordinator)
+  expect(waitOf(sender).pending).toBe(entry.id)
+  await answerFromPane(coordinator.dollar, emptyPane(), entry, entry.choices[0])
+  const readable = parseAnswer(answers(coordinator)[0].text)!.readable
+  const passed = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', answers(coordinator)[0].text))
+  expect(passed.text).toBe(delivered(COORD_AT, 'Coord : ops [abc]', readable).text)
+  expect([waitOf(sender).pending, waitOf(sender).pending_key, waitOf(sender).waiting_since ?? null]).toEqual([null, null, null])
+  expect(answerAcks(sender)).toEqual([{ to: COORD_AT, text: answerAckLine(entry.id, entry.since) }])
+  await clockMoves()
+  await drive(chains, 'turn.start', sender.dollar, { text: '' })
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  // The answered ask is never sent again: the same wait at the next turn end is a new one.
+  expect(asks(sender).filter(s => parseAsk(s.text)!.entry.since === entry.since).length).toBe(1)
+})
+
+test('an answer sent again, its ack lost, is acked again and reaches the model once', async () => {
+  const { chains, sender, coordinator, entry } = await enteredRemotely()
+  await answerFromPane(coordinator.dollar, emptyPane(), entry, entry.choices[0])
+  const line = answers(coordinator)[0].text
+  const first = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', line))
+  expect(first.text).toBe(delivered(COORD_AT, 'Coord : ops [abc]', parseAnswer(line)!.readable).text)
+  const second = await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', line))
+  expect(typeof second.consumed).toBe('string')
+  expect(second.text).toBeUndefined()
+  expect(answerAcks(sender)).toEqual([0, 1].map(() => ({ to: COORD_AT, text: answerAckLine(entry.id, entry.since) })))
+})
+
+test('a delivery left pending is sent on the wake once aged, and an ack landing on pending closes the entry', async () => {
+  const { chains, coordinator, entry, stored } = await enteredRemotely()
+  await drive(chains, 'session.start', coordinator.dollar, { cwd: '/tmp/w', surface: 'terminal', isInteractive: true })
+  await answerFromPane(coordinator.dollar, emptyPane(), entry, entry.choices[0])
+  const path = `${ROUND}/${entry.id}.json`
+  const pending = (at: string) => coordinator.files.set(path, JSON.stringify({ ...stored(), delivery: { state: 'pending', at, attempts: 0 } }) + '\n')
+  // A module that stopped between the pending write and the send: the wake sends it once aged.
+  pending(new Date(Date.now() - 31_000).toISOString())
+  const armed = coordinator.later.filter(t => t.ms === 30000 && !t.cancelled)
+  await armed[armed.length - 1].fn()
+  expect([answers(coordinator).length, stored().delivery!.state, stored().delivery!.attempts]).toEqual([2, 'sent', 1])
+  pending(new Date().toISOString())
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', answerAckLine(entry.id, entry.since)))
+  expect([stored().status, stored().delivery!.state]).toEqual(['closed', 'acked'])
+})
+
+test('an answer ack of the right id and another start leaves the entry sent, with one log line', async () => {
+  const { chains, coordinator, entry, stored } = await enteredRemotely()
+  await answerFromPane(coordinator.dollar, emptyPane(), entry, entry.choices[0])
+  const sent = stored()
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', answerAckLine(entry.id, '2026-10-01T00:00:00.000Z')))
+  expect(stored()).toEqual(sent)
+  expect(stored().delivery!.state).toBe('sent')
+  expect(coordinator.logged.filter(l => l.includes(`| receive: an answer's acknowledgment of ${entry.id} matches no answer sent`)).length).toBe(1)
 })
