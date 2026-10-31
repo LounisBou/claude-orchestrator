@@ -30,6 +30,13 @@
 #     only: immediately right of the caller, the deep tier unless told, remote control on,
 #     no chain. `--open` comes right after `spawn`: that is the form the rule every
 #     `install.sh` run writes names
+#   iterm-agent.sh home --session <id> --name "Orch : <subject>" [--prompt <text>]
+#     run by the hooks module at the end of an orchestrator's naming turn: a home server of
+#     its own (-L orch-<id>, -f the plugin's tmux/home.conf) whose window 0 resumes the same
+#     session once it has ended in its tab, and a tab right of that one showing it. Prints
+#     `moved: …` or `stay: <why>`; nothing is ended, and a failure leaves the session in place
+#   iterm-agent.sh home-release --tty /dev/ttysNNN --session-id <app session id>
+#     window 0's close of the tab a moved orchestrator left, guarded by that tab's own id
 #   iterm-agent.sh tools [--transcript <path>]
 #     what a session is given and what each item costs per call, from a transcript
 #   iterm-agent.sh verify --tty /dev/ttysNNN [--pid <pid>]
@@ -82,6 +89,9 @@
 #   ORCHESTRATOR_PROBE_TIMEOUT   seconds the app has to answer before a rung gives up (8)
 #   ORCHESTRATOR_CLOSE_TIMEOUT   seconds a close waits for the process to leave the tty (10)
 #   ORCHESTRATOR_TMUX            the tmux to run inside a home session (tmux)
+#   ORCHESTRATOR_HOME_WAIT       seconds window 0 waits for a moved session to end in its tab (120)
+#   ORCHESTRATOR_HOST_ARGV       a JSON list standing in for a process's own words (tests)
+#   ORCHESTRATOR_HOME_NO_TAB     `home` makes the server and no tab (the live tests, which have none)
 #
 # When iTerm2 does not answer:
 #   - no AppleScript here is ever unbounded, the library's own cookie request included: the

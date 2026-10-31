@@ -2003,15 +2003,15 @@ class TmuxError(Exception):
     """A tmux call that never finished: the cause, in words."""
 
 
-def tmux_call(args):
+def tmux_call(args, env=None):
     """One tmux call, in UTF-8 whatever the caller's locale says: under a C locale tmux
     hands back every byte past ASCII as `_`, the host's activity glyph included, and stores
     a window name given with one the same way (measured). The finished call, or a TmuxError
     saying why tmux could not be run: it timed out, or its binary is absent or not
-    runnable."""
+    runnable. `env` replaces the caller's environment, for a call that starts a server."""
     try:
         return subprocess.run([TMUX_BIN, "-u"] + list(args), capture_output=True, text=True,
-                              timeout=PROBE_TIMEOUT)
+                              timeout=PROBE_TIMEOUT, env=env)
     except subprocess.TimeoutExpired:
         raise TmuxError("timed out after %ds" % PROBE_TIMEOUT)
     except OSError as exc:
@@ -2325,6 +2325,421 @@ def terminal_for(tty):
     return chosen
 
 
+# --- the orchestrator's home session ------------------------------------------------
+
+# Read by home servers alone, through -f: the operator's own tmux setup is never touched.
+HOME_CONF = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                                          "tmux", "home.conf"))
+HOME_SESSION = "home"
+# One server per orchestrator, named after its session id: a server's death ends one
+# orchestration and its agents, never every orchestration of the machine.
+HOME_SOCKET_PREFIX = "orch-"
+LAUNCHER_SH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "iterm-agent.sh")
+# How long window 0 waits for the session it resumes to end in its old place.
+HOME_WAIT = int(os.environ.get("ORCHESTRATOR_HOME_WAIT", "120"))
+# What a home server is started with: the operator's own variables, never the caller's whole
+# environment, which is a host's (a session's id, its nesting marks) and would pass to every
+# window of the server.
+HOME_ENV_KEPT = ("HOME", "USER", "LOGNAME", "PATH", "SHELL", "LANG", "LC_ALL", "LC_CTYPE",
+                 "TMPDIR", "TMUX_TMPDIR", "CLAUDE_CONFIG_DIR")
+# The suite's stand-ins: a test's, never a home server's.
+HOME_ENV_DROPPED = ("ORCHESTRATOR_DRY_RUN", "ORCHESTRATOR_SELF_TTY", "ORCHESTRATOR_SELF_ID",
+                    "ORCHESTRATOR_PS_TABLE", "ORCHESTRATOR_CWD_TABLE", "ORCHESTRATOR_HOST_ARGV",
+                    "ORCHESTRATOR_HOME_NO_TAB", "ORCHESTRATOR_NEW_SESSION_ID")
+# The host's options, by what each takes, for the resume of a running session: its launch is
+# replayed, less what named the conversation or its first prompt. An option this table does
+# not know refuses the move: replayed blind, it could swallow the resume's own words.
+HOST_ONE_VALUE = {
+    "--agent", "--agents", "--append-system-prompt", "--append-system-prompt-file",
+    "--autocompact", "--debug-file", "--effort", "--fallback-model", "--input-format",
+    "--json-schema", "--max-budget-usd", "--model", "--output-format", "--permission-mode",
+    "--permission-prompts", "--permission-prompt-tool", "--plugin-dir", "--plugin-url",
+    "--remote-control-session-name-prefix", "--setting-sources", "--settings",
+    "--system-prompt", "--system-prompt-file", "--system-prompt-snapshot"}
+HOST_MANY_VALUES = {"--add-dir", "--allowedTools", "--allowed-tools", "--disallowedTools",
+                    "--disallowed-tools", "--mcp-config", "--tools", "--betas", "--file"}
+HOST_OPTIONAL_VALUE = {"--remote-control", "--debug", "-d", "--prompt-suggestions"}
+HOST_FLAGS = {"--allow-dangerously-skip-permissions", "--dangerously-skip-permissions",
+              "--strict-mcp-config", "--verbose", "--ide", "--chrome", "--no-chrome",
+              "--ax-screen-reader", "--brief", "--disable-slash-commands",
+              "--exclude-dynamic-system-prompt-sections", "--forward-subagent-text",
+              "--include-hook-events", "--include-partial-messages", "--restricted",
+              "--safe-mode", "--bare"}
+# Dropped, the resume naming the conversation and the name itself.
+HOST_DROPPED_ONE = {"--name", "-n", "--session-id"}
+HOST_DROPPED_OPTIONAL = {"--resume", "-r"}
+HOST_DROPPED_FLAGS = {"--continue", "-c", "--fork-session"}
+# A session started so has no terminal of its own to move, or a place the move would lose.
+HOST_REFUSED = {"-p", "--print", "--bg", "--background", "--cloud", "--desktop", "--tmux",
+                "--worktree", "-w", "--teleport", "--from-pr", "--environment",
+                "--no-session-persistence"}
+
+
+def home_socket(session_id):
+    """The home server's socket name: the orchestrator's session id, its first characters."""
+    return HOME_SOCKET_PREFIX + re.sub(r"[^0-9A-Za-z]", "", session_id)[:8]
+
+
+def home_env():
+    """The environment a home server starts with, and so every window it makes: the
+    operator's own variables and this plugin's settings, the suite's stand-ins left out."""
+    env = {k: v for k, v in os.environ.items()
+           if k in HOME_ENV_KEPT or (k.startswith("ORCHESTRATOR_") and k not in HOME_ENV_DROPPED)}
+    env["TERM"] = "xterm-256color"
+    return env
+
+
+def resume_words(args, session_id, name, prompt):
+    """The words that resume `session_id` under `name` with `prompt`, from the words its
+    running process was started with (`args`, its program left out): the same options, the
+    model, the effort, the mode, the settings and the servers among them, less what named a
+    conversation or carried a first prompt. Raises ValueError naming an option it cannot
+    replay."""
+    kept, i = [], 0
+    while i < len(args):
+        word = args[i]
+        i += 1
+        if not word.startswith("-") or word == "-":
+            continue  # the first prompt: the conversation holds it already
+        option, eq, _ = word.partition("=")
+        if option in HOST_REFUSED:
+            raise ValueError("the session was started with %s, which a home session does not "
+                             "replay" % option)
+        if option in HOST_DROPPED_FLAGS:
+            continue
+        if option in HOST_DROPPED_ONE or option in HOST_DROPPED_OPTIONAL:
+            if not eq and i < len(args) and (option in HOST_DROPPED_ONE
+                                              or not args[i].startswith("-")):
+                i += 1
+            continue
+        if option in HOST_FLAGS:
+            kept.append(word)
+        elif option in HOST_ONE_VALUE:
+            kept.append(word)
+            if not eq:
+                if i >= len(args):
+                    raise ValueError("%s has no value" % option)
+                kept.append(args[i])
+                i += 1
+        elif option in HOST_OPTIONAL_VALUE:
+            kept.append(word)
+            if not eq and i < len(args) and not args[i].startswith("-"):
+                kept.append(args[i])
+                i += 1
+        elif option in HOST_MANY_VALUES:
+            kept.append(word)
+            while not eq and i < len(args) and not args[i].startswith("-"):
+                kept.append(args[i])
+                i += 1
+        else:
+            raise ValueError("the session was started with %s, an option the move does not "
+                             "know how to replay" % option)
+    return kept + ["--resume", session_id] + ([prompt] if prompt else []) + ["--name", name]
+
+
+def host_argv(pid):
+    """The words the process `pid` was started with, its program first, read from the kernel
+    (`ps` joins them with spaces, and a value holding one could not be told from two), or
+    None. ORCHESTRATOR_HOST_ARGV, a JSON list, stands in for the suite."""
+    stand_in = os.environ.get("ORCHESTRATOR_HOST_ARGV")
+    if stand_in:
+        return json.loads(stand_in)
+    if sys.platform != "darwin":
+        return None
+    import ctypes
+    import ctypes.util
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    ctl_kern, kern_argmax, kern_procargs2 = 1, 8, 49
+    argmax = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(argmax))
+    if libc.sysctl((ctypes.c_int * 2)(ctl_kern, kern_argmax), 2, ctypes.byref(argmax),
+                   ctypes.byref(size), None, 0) != 0:
+        return None
+    buf = ctypes.create_string_buffer(argmax.value)
+    size = ctypes.c_size_t(argmax.value)
+    if libc.sysctl((ctypes.c_int * 3)(ctl_kern, kern_procargs2, int(pid)), 3, buf,
+                   ctypes.byref(size), None, 0) != 0:
+        return None
+    raw = buf.raw[:size.value]
+    argc = int.from_bytes(raw[:4], sys.byteorder)
+    # The executable's path, its padding, then the words.
+    _, _, rest = raw[4:].partition(b"\0")
+    words = rest.lstrip(b"\0").split(b"\0")[:argc]
+    return [w.decode("utf-8", "replace") for w in words] if len(words) == argc else None
+
+
+def session_record(session_id):
+    """`(pid, record)` of the running process the host registered for `session_id`, or
+    (None, None)."""
+    folder = os.path.join(host_config_dir(), "sessions")
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return None, None
+    for entry in names:
+        pid = entry[:-len(".json")] if entry.endswith(".json") else ""
+        record = host_registry(pid)
+        if not record or record.get("sessionId") != session_id:
+            continue
+        try:
+            os.kill(int(pid), 0)
+        except (OSError, ValueError):
+            continue
+        return pid, record
+    return None, None
+
+
+def tmux_on(socket, args, what):
+    """One call to the home server `socket`: what it printed, or a death saying what tmux
+    refused."""
+    return tmux_out(["-L", socket] + list(args), what)
+
+
+def make_home(socket, title, cwd, program, what):
+    """Start the home server `socket` with its session, window 0 named `title` running
+    `program` in `cwd`; the tty of window 0. A server already there is refused by tmux
+    itself (its session already exists), and the death says so."""
+    try:
+        done = tmux_call(["-L", socket, "-f", HOME_CONF, "new-session", "-d", "-s",
+                          HOME_SESSION, "-n", title, "-c", cwd, program], env=home_env())
+    except TmuxError as exc:
+        die("%s: tmux new-session: %s" % (what, exc))
+    if done.returncode != 0:
+        die("%s: tmux refused to start the home server %s: %s"
+            % (what, socket, tmux_refusal(done)))
+    tty = tmux_on(socket, ["display-message", "-p", "-t", HOME_SESSION + ":0",
+                           "#{pane_tty}"], what).strip()
+    if not tty.startswith("/dev/"):
+        kill_home(socket)
+        die("%s: the home server %s answered '%s' for window 0's tty; the server was ended"
+            % (what, socket, tty))
+    return tty
+
+
+def kill_home(socket):
+    """End the home server `socket`, every window it holds with it; True when tmux did."""
+    try:
+        return tmux_call(["-L", socket, "kill-server"]).returncode == 0
+    except TmuxError:
+        return False
+
+
+def attach_program(socket, title):
+    """What the iTerm2 tab of a home session runs: the tmux client of its server, as a launch
+    file through the login shell like every tab the launcher makes (§22)."""
+    import shutil
+    command = ("printf '\\033]0;%%s\\007' %s && exec env -u TMUX -u TMUX_PANE %s -u -L %s "
+               "attach -t %s" % (shq(title), shq(shutil.which(TMUX_BIN) or TMUX_BIN),
+                                 shq(socket), HOME_SESSION))
+    return "%s -l %s" % (LOGIN_SHELL, write_launch_script(command, title, "attach"))
+
+
+def client_on(socket, tty):
+    """Whether a client of the home server `socket` runs on `tty`, waited for: the proof the
+    tab shows the home session."""
+    deadline = time.time() + SPAWN_TIMEOUT
+    while True:
+        try:
+            done = tmux_call(["-L", socket, "list-clients", "-F", "#{client_tty}"])
+            if done.returncode == 0 and tty in done.stdout.split():
+                return True
+        except TmuxError:
+            pass
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.3)
+
+
+def open_home_tab(socket, title, anchor, what):
+    """The iTerm2 tab that shows the home server, right of `anchor`, proved by its client:
+    `(its tty, what was made)`. Any failure ends the server and closes the tab, then dies:
+    a home session nobody can see is not left running."""
+    made = {"terminal": ITERM}
+    place = Place("beside", anchor, "right", False) if anchor else Place("anywhere", "",
+                                                                         "right", False)
+    try:
+        tty, _ = ITERM.create(attach_program(socket, title), title, place, "", made)
+    except SystemExit:
+        kill_home(socket)
+        raise
+    if made.get("error") or not tty:
+        closed = ITERM.close_made(made)
+        kill_home(socket)
+        die("%s: the tab for the home server %s %s; %s; the server was ended"
+            % (what, socket, "failed: %s" % made["error"] if made.get("error")
+               else "returned no tty", closed_clause(closed, tty)))
+    if not client_on(socket, tty):
+        closed = ITERM.close_made(made)
+        kill_home(socket)
+        die("%s: the tab on %s shows no client of the home server %s after %ds; %s; the "
+            "server was ended" % (what, tty, socket, SPAWN_TIMEOUT, closed_clause(closed, tty)))
+    return tty, made
+
+
+def home_of_tab(tty):
+    """The home server whose client runs on the tab `tty`, or "": read from the client's own
+    command line, which names its server with -L."""
+    for _, command in ps_rows(tty):
+        words = command.split()
+        if not words or os.path.basename(words[0]) != os.path.basename(TMUX_BIN):
+            continue
+        for i, word in enumerate(words[:-1]):
+            if word == "-L" and words[i + 1].startswith(HOME_SOCKET_PREFIX):
+                return words[i + 1]
+    return ""
+
+
+def end_home(socket, what):
+    """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
+    server left on its socket. `(session id of window 0 or "", the ttys it held)`."""
+    panes = []
+    try:
+        done = tmux_call(["-L", socket, "list-panes", "-a", "-F",
+                          "#{window_index} #{pane_tty}"])
+        if done.returncode == 0:
+            panes = [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2]
+    except TmuxError:
+        pass
+    ttys = [tty for _, tty in panes]
+    session_id = ""
+    for index, tty in panes:
+        if index == "0":
+            pid = cli_pid_on_tty(tty)
+            record = host_registry(pid) if pid else None
+            session_id = (record or {}).get("sessionId", "")
+    kill_home(socket)
+    survivors = [tty for tty in ttys if wait_gone(tty) is not None]
+    if survivors:
+        die("%s: the home server %s was asked to end, and a host still runs on %s"
+            % (what, socket, ", ".join(survivors)))
+    deadline = time.time() + CLOSE_TIMEOUT
+    while True:
+        try:
+            alive = tmux_call(["-L", socket, "has-session"]).returncode == 0
+        except TmuxError:
+            alive = False
+        if not alive:
+            break
+        if time.time() >= deadline:
+            die("%s: the home server %s still answers after %ds" % (what, socket, CLOSE_TIMEOUT))
+        time.sleep(0.3)
+    return session_id, ttys
+
+
+def cmd_home(argv):
+    """Move a running orchestrator into a home session of its own, in its own place: a home
+    server whose window 0 resumes the same conversation once the session has ended where it
+    runs now, and a tab right of the caller's that shows it. Run by the hooks module at the
+    end of the turn that named the session; prints `moved: <server>` (the module then ends
+    the session, and window 0 closes the old tab once the session is gone) or `stay: <why>`.
+    Nothing is ended here, and any failure leaves the session running where it is."""
+    p = argparse.ArgumentParser(prog="home", add_help=False)
+    p.add_argument("--session", default="")
+    p.add_argument("--name", default="")
+    p.add_argument("--prompt", default="")
+    args, unknown = p.parse_known_args(argv)
+    if unknown:
+        die("home: unknown option %s" % unknown[0])
+    if not args.session:
+        die("home: --session is required")
+    if not args.name.startswith("Orch : ") or not TITLE_SHAPE.match(args.name):
+        print("stay: only an orchestrator moves into a home session, and this session is "
+              "named '%s'" % args.name[:40])
+        return
+    if in_home_session():
+        print("stay: this session already runs in a home session")
+        return
+    pid, record = session_record(args.session)
+    if not pid:
+        die("home: no running process of session %s is in the host's registry; the session "
+            "stays where it is" % args.session)
+    words = host_argv(pid)
+    if not words:
+        die("home: the launch of process %s cannot be read; the session stays where it is"
+            % pid)
+    try:
+        resume = resume_words(words[1:], args.session, args.name, args.prompt)
+    except ValueError as exc:
+        die("home: %s; the session stays where it is" % exc)
+    cwd = record.get("cwd") or ""
+    if not os.path.isdir(cwd):
+        die("home: the session's directory '%s' is not there; the session stays where it is"
+            % cwd)
+    import shlex
+    import shutil
+    cli = shutil.which(HOST_CLI) or HOST_CLI
+    socket = home_socket(args.session)
+    own = self_tty() or ""
+    no_tab = bool(os.environ.get("ORCHESTRATOR_HOME_NO_TAB"))
+    # The old tab's own session id, read before anything is made: once the session ends, its
+    # title is the shell's, and the id is what names that tab and no other.
+    old_id = ""
+    if not no_tab and not DRY_RUN:
+        try:
+            old_id, _ = ITERM.identity(own)
+        except Exception as exc:
+            die("home: this session's tab cannot be read (%s); the session stays where it is"
+                % (str(exc).splitlines() or [type(exc).__name__])[0])
+        if not old_id:
+            die("home: this session is not a tab of iTerm2's (%s), so no tab can take its "
+                "place; the session stays where it is" % own)
+    if DRY_RUN and not no_tab:
+        old_id = "<old-tab-session-id>"
+    release = ("%s home-release --tty %s --session-id %s >> %s 2>&1; "
+               % (shq(LAUNCHER_SH), shq(own), shq(old_id),
+                  shq(os.path.join(STATE_DIR, "home-release.log"))) if old_id else "")
+    launch = ("cd %s && i=0 && while kill -0 %s 2>/dev/null; do "
+              "if [ $i -ge %d ]; then echo 'the session did not end in its old place: it "
+              "goes on there'; sleep 10; exit 1; fi; sleep 0.2; i=$((i+1)); done; "
+              "%sexec %s" % (shq(cwd), pid, HOME_WAIT * 5, release,
+                             " ".join(shlex.quote(w) for w in [cli] + resume)))
+    if DRY_RUN:
+        print("home_server=%s" % socket)
+        print("home_conf=%s" % HOME_CONF)
+        print("home_window0=%s" % args.name)
+        print("home_launch=%s" % launch)
+        print("home_tab=%s" % ("none" if no_tab else "right of %s" % own))
+        return
+    program = "%s -l %s" % (LOGIN_SHELL, write_launch_script(launch, args.name, "home"))
+    make_home(socket, args.name, cwd, program, "home")
+    if no_tab:
+        print("moved: %s (no tab: attach with %s -L %s attach)" % (socket, TMUX_BIN, socket))
+        return
+    tty, _ = open_home_tab(socket, args.name, own, "home")
+    print("moved: %s, shown on %s" % (socket, tty))
+
+
+def cmd_home_release(argv):
+    """Close the tab a moved orchestrator left, once its session has ended there: run by
+    window 0 of the home session before the resume. Guarded by the tab's own session id,
+    read before the move, and by the process table: a tab with a host still on it, or whose
+    session is another's by then, is left as it is."""
+    p = argparse.ArgumentParser(prog="home-release", add_help=False)
+    p.add_argument("--tty", default="")
+    p.add_argument("--session-id", dest="session_id", default="")
+    args, _ = p.parse_known_args(argv)
+    if not args.tty or not args.session_id:
+        die("home-release: --tty and --session-id are required")
+    if host_cli_on(args.tty) is not None:
+        die("home-release: a host still runs on %s; the tab is left open" % args.tty)
+
+    async def go(iterm2, connection):
+        app = await iterm2.async_get_app(connection)
+        _, _, sess = await find_tab(app, args.tty)
+        if sess is None:
+            return "gone"
+        if sess.session_id != args.session_id:
+            return "other"
+        await sess.async_close(force=True)
+        return "closed"
+    said = run(go)
+    if said == "other":
+        die("home-release: the tab on %s is no longer the one the move left (%s); it is left "
+            "open" % (args.tty, args.session_id))
+    print("home-release: the tab on %s was %s" % (args.tty, "already closed" if said == "gone"
+                                                  else "closed"))
+
+
 # --- subcommands -----------------------------------------------------------------
 
 def row_for(w, t, tty, title, name, is_self, hidden):
@@ -2524,7 +2939,7 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
     return " && ".join(parts)
 
 
-def write_launch_script(command, title):
+def write_launch_script(command, title, kind="launch"):
     """The launch goes to a FILE and the app is asked to run `<login shell> -l <file>`.
 
     The app executes what it is given as the session's program, splitting it into words
@@ -2533,7 +2948,7 @@ def write_launch_script(command, title):
     as SESSION_NOT_FOUND on the first live spawn. Quoting the whole thing for that
     tokenizer is the same losing game the typed version played. A path has no quoting."""
     os.makedirs(PROMPTS_DIR, exist_ok=True)
-    path = state_file_path("launch", title, "sh")
+    path = state_file_path(kind, title, "sh")
     with open(path, "w") as fh:
         fh.write("#!/bin/sh\n" + command + "\n")
     return path
@@ -3604,12 +4019,13 @@ COMMANDS = {
     "list": cmd_list, "spawn": cmd_spawn, "verify": cmd_verify, "close": cmd_close,
     "move": cmd_move, "rotate": cmd_rotate, "resolve-tier": cmd_resolve_tier,
     "screen": cmd_screen, "trust": cmd_trust, "tools": cmd_tools,
+    "home": cmd_home, "home-release": cmd_home_release,
 }
 
 
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
-        die("usage: iterm-agent.sh {list|spawn|verify|screen|resolve-tier|close|move|rotate|trust|tools} [options] (see header)")
+        die("usage: iterm-agent.sh {list|spawn|verify|screen|resolve-tier|close|move|rotate|trust|tools|home|home-release|takeover} [options] (see header)")
     COMMANDS[sys.argv[1]](sys.argv[2:])
 
 
