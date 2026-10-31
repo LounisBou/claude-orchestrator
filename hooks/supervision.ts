@@ -2998,13 +2998,14 @@ async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number }> 
 // What each window of a home session shows, kept by the window it is written on (the server's
 // socket and the pane): the home mark read once, the state last written, whether the context is
 // past its gate, and whether a failure was already said.
-type TabMemory = { home: boolean | null; window: string | null; shown: TabState | null; past: boolean; said: boolean }
+type TabMemory = { home: boolean | null; window: string | null; shown: TabState | null; past: boolean; said: boolean; misses: number }
 const tabs = new Map<string, TabMemory>()
 
 // This session's window, when it runs in a home session. The mark is read once per window: a
 // session carries it from the moment it is made. Outside tmux nothing is run; in a tmux session
-// without the mark, the one read. A read that fails is said once, and tried again at the next
-// change; the hook goes on.
+// without the mark, the one read. A read that fails is said once and tried again at the next
+// change; a second failure marks the window not-home for the session's life, so a hung or
+// absent tmux costs two processes, not one per event. The hook goes on.
 async function tabOf($: any): Promise<{ target: TabTarget; bin: string; memory: TabMemory } | null> {
   const target = targetOf(await $.env.get('TMUX'), await $.env.get('TMUX_PANE'))
   if (!target) return null
@@ -3012,7 +3013,7 @@ async function tabOf($: any): Promise<{ target: TabTarget; bin: string; memory: 
   const key = `${target.socket}|${target.pane}`
   let memory = tabs.get(key)
   if (!memory) {
-    memory = { home: null, window: null, shown: null, past: false, said: false }
+    memory = { home: null, window: null, shown: null, past: false, said: false, misses: 0 }
     tabs.set(key, memory)
   }
   if (memory.home === null) {
@@ -3021,7 +3022,10 @@ async function tabOf($: any): Promise<{ target: TabTarget; bin: string; memory: 
       if (!read || read.exitCode !== 0) throw new Error(`tmux exited ${read?.exitCode ?? 'without answer'} reading the home mark`)
       memory.window = windowOf(String(read.stdout ?? ''))
       memory.home = memory.window !== null
+      memory.said = false
     } catch (err) {
+      memory.misses += 1
+      if (memory.misses >= 2) memory.home = false
       await tabFailure($, memory, (err as Error).message)
       return null
     }
@@ -3043,7 +3047,9 @@ async function showTabState($: any, state: TabState): Promise<void> {
     const set = await $.process.run(stateArgv(tab.bin, tab.target, state), { timeoutMs: TMUX_TIMEOUT_MS })
     if (!set || set.exitCode !== 0) throw new Error(`tmux exited ${set?.exitCode ?? 'without answer'} writing ${state}`)
     tab.memory.shown = state
+    tab.memory.said = false
   } catch (err) {
+    tab.memory.shown = null
     await tabFailure($, tab.memory, (err as Error).message)
   }
 }
