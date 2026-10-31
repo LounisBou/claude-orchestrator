@@ -5613,6 +5613,94 @@ check "the AppleScript rung says it keeps no chain, and a refusal there closes b
   "1|['/dev/ttys902']|[('2', 'S-OWN')]|1|1" \
   "$(sfield "$res" exit)|$(sfield "$res" bytty)|$(sfield "$res" own)|$(sfield "$res" ERR | grep -c 'this rung keeps no chain, so the chain was not updated (the append was skipped)')|$(sfield "$res" ERR | grep -c 'the tab was closed')"
 
+# The seam's contract, over a terminal of the suite's own: the launcher writes and drops the
+# chain entries, from the stable id `create` returned and the owner the terminal names, and a
+# move's guard rules before the terminal is asked to move anything. Each of these was inside
+# the iTerm implementation, where a second terminal would have had to repeat it.
+cat > "$WORK/seam_probe.py" <<'PYEOF'
+import contextlib, io, json, os, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+scenario, workdir = sys.argv[2], sys.argv[3]
+calls = []
+class Fake(ia.Terminal):
+    def owner(self, own): calls.append("owner"); return "O-ME"
+    def identity(self, tty, fresh=False): calls.append("identity"); return ("O-NEW", "T-NEW") if tty == "/dev/ttys902" else ("O-ME", "T-ME")
+    def chain_anchor(self, own): return None
+    def can_place(self, anchor, side): return True
+    def create(self, command, title, place, chain, made):
+        calls.append("create %s %s %s" % (place.at, place.side, chain or "-"))
+        made["tab_id"] = "T-RET"
+        return "/dev/ttys902", "T-RET"
+    def close(self, tty, expect): calls.append("close"); return "T-OLD"
+    def owns(self, tty, own): calls.append("owns"); return scenario != "stranger"
+    def move(self, tty, anchor, right, leftmost): calls.append("move"); return 3
+fake = Fake()
+ia.terminal = lambda *a, **k: fake
+ia.time.sleep = lambda s: None
+ia.host_cli_on = lambda t: "4242"
+ia.wait_gone = lambda t, timeout=None: "4242" if scenario == "survivor" else None
+out, err = io.StringIO(), io.StringIO()
+code = 0
+try:
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        if scenario in ("survivor", "closed"):
+            ia.cmd_close(["--tty", "/dev/ttys901", "--keep-checkout"])
+        elif scenario in ("stranger", "mine"):
+            ia.cmd_move(["--tty", "/dev/ttys901", "--right-of", "/dev/ttys555"])
+        else:
+            ia.cmd_spawn(["--dir", workdir, "--prompt", "p", "--title", "Agent : x", "--no-verify"]
+                         + (["--right-of", "self"] if scenario == "beside" else []))
+except SystemExit as e:
+    code = e.code
+def chain():
+    try:
+        return [(e["tab_id"], e["owner"]) for e in map(json.loads, open(os.path.join(ia.CHAINS_DIR, "ttys900.jsonl")))]
+    except OSError:
+        return "absent"
+print("exit=%s" % code)
+print("calls=%s" % ",".join(calls))
+print("chain=%s" % chain())
+print("ERR:" + " ".join(err.getvalue().split()))
+PYEOF
+seamp() { local state="$WORK/seamstate-$1"; rm -rf "$state"; mkdir -p "$state/chains"
+  printf '{"tab_id":"T-OLD","tty":"/dev/ttys901","owner":"O-ME"}\n' > "$state/chains/ttys900.jsonl"
+  ORCHESTRATOR_STATE_DIR="$state" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE=/dev/null \
+    "$py" "$WORK/seam_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" "$WORK" 2>&1; }
+res=$(seamp append)
+check "a spawn's chain entry carries the stable id create returned, under the owner the terminal names" \
+  "0|[('T-OLD', 'O-ME'), ('T-RET', 'O-ME')]|create anywhere left append,owner" \
+  "$(sfield "$res" exit)|$(sfield "$res" chain)|$(sfield "$res" calls)"
+res=$(seamp beside)
+check "the place is a value: beside its anchor, on its side" "create beside right append,owner" "$(sfield "$res" calls)"
+res=$(seamp closed)
+check "a proved close drops the entry naming the id the terminal closed" "0|[]" \
+  "$(sfield "$res" exit)|$(sfield "$res" chain)"
+res=$(seamp survivor)
+check "a session that survived its close keeps its chain entry" "1|[('T-OLD', 'O-ME')]" \
+  "$(sfield "$res" exit)|$(sfield "$res" chain)"
+res=$(seamp stranger)
+check "a refused move asks the terminal who owns the tab, and never asks it to move" "1|owns|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'is neither this session.s tab nor in its chain')"
+res=$(seamp mine)
+check "an owned one is moved once the guard has ruled" "0|owns,move" "$(sfield "$res" exit)|$(sfield "$res" calls)"
+
+# PR 2's owner, reachable through the seam: a caller in a tmux pane is no tab of the app's, so
+# a lookup of its own tab finds nothing, and its agents are still found by the owner its pane
+# names — in every window, since it has none of its own.
+TSTUB="$MSTUB
+T.current_session = property(lambda s: s.sessions[0])
+app.windows.append(W([T('5', S('S-AG5', '/dev/ttys805'))]))
+"
+paneowned() { ORCHESTRATOR_STATE_DIR="$WORK/paneowner" TMUX=/private/tmp/tmux-501/home,1,0 TMUX_PANE=%0 "$py" -c "$TSTUB
+print(asyncio.run($1))" "$ROOT/skills/iterm-agents/scripts"; }
+mkdir -p "$WORK/paneowner/chains"
+printf '{"tab_id":"5","tty":"/dev/ttys805","owner":"tmux:/private/tmp/tmux-501/home:%%0"}\n{"tab_id":"2","tty":"/dev/ttys802","owner":"tmux:/private/tmp/tmux-501/home:%%7"}\n' > "$WORK/paneowner/chains/ttys950.jsonl"
+check "from a tmux pane, a tab its chain holds is the caller's to move, a sibling pane's is not" "True|False" \
+  "$(paneowned "ia.move_is_owned(app, '/dev/ttys805', '/dev/ttys950')")|$(paneowned "ia.move_is_owned(app, '/dev/ttys802', '/dev/ttys950')")"
+check "and its last agent anchors the next one, wherever the app put it" "/dev/ttys805" \
+  "$(paneowned "ia.chain_anchor(app, '/dev/ttys950')")"
+
 # `screen --lines N` returned the FIRST N lines of the tab, which on a tall terminal are
 # blank: the blocked agent's prompt sat at the bottom and three reads out of four came back
 # empty while the tooling reported success. Trailing blanks go, interior ones stay — a

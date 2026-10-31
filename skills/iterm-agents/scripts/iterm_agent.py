@@ -18,6 +18,7 @@ A spawn is not done until the host CLI is seen in `ps`.
 
 import argparse
 import asyncio
+import collections
 import glob
 import json
 import logging
@@ -1375,40 +1376,49 @@ def chain_repoint_tab(old_tab_id, new_tab_id, new_tty):
     return count
 
 
-async def move_is_owned(app, tty, own):
+async def move_is_owned(app, tty, own, owner=None):
     """Whether the tab on `tty` is the caller's own tab or one its session launched.
 
     Matched on the TAB id, never on the tty: a tty is recycled minutes after a close and
     the chain file named after it outlives its occupant, so an entry whose tty now belongs
     to a stranger's tab must not make that tab movable — the reading §26 already gave the
-    anchor. The owner is the session sitting on the caller's tty right now, read from the
-    app, which is the only thing that says who is there. A caller whose own tab cannot be
-    read owns nothing here: moving a stranger's tab is the harm this guard exists for, and
-    `--force` is how the operator overrides it."""
+    anchor. The owner is the caller's chain owner (`own_session_id`): the session sitting on
+    the caller's tty right now, read from the app, or the tmux pane the caller runs in, which
+    the app does not know. A caller whose owner cannot be read owns nothing here: moving a
+    stranger's tab is the harm this guard exists for, and `--force` is how the operator
+    overrides it."""
     if not own:
         return False
     if tty == own:
         return True
     _, tab, _ = await find_tab(app, tty)
-    _, _, own_sess = await find_tab(app, own)
-    if tab is None or own_sess is None:
+    if tab is None:
         return False
-    mine = {e["tab_id"] for e in chain_owned(chain_read(own), tmux_owner() or own_sess.session_id)}
+    if owner is None:
+        owner = await own_session_id(app, own)
+    if not owner:
+        return False
+    mine = {e["tab_id"] for e in chain_owned(chain_read(own), owner)}
     return tab.tab_id in mine
 
 
-async def chain_anchor(app, own_tty):
+async def chain_anchor(app, own_tty, owner=None):
     """The tty of the last agent still open in the orchestrator's window, or None.
 
     Checked on tab id, never on tty: a tty is recycled minutes after a close, and an entry
     whose tty now belongs to a stranger's tab must not anchor a launch on it. Entries whose
-    tab is gone are dropped on this read."""
-    win, _, own_sess = await find_tab(app, own_tty)
-    if win is None:
+    tab is gone are dropped on this read. A caller the app has no tab for (a tmux pane) has
+    no window of its own: its agents are looked for in every window, by the owner its pane
+    names, and a caller with no owner at all anchors on nothing."""
+    if owner is None:
+        owner = await own_session_id(app, own_tty)
+    win, _, _ = await find_tab(app, own_tty)
+    windows = [win] if win is not None else (app.windows if owner else [])
+    if not windows:
         return None
-    live = {t.tab_id: t for t in win.tabs}
+    live = {t.tab_id: t for w in windows for t in w.tabs}
     entries = chain_read(own_tty)
-    kept = [e for e in chain_owned(entries, tmux_owner() or own_sess.session_id) if e["tab_id"] in live]
+    kept = [e for e in chain_owned(entries, owner) if e["tab_id"] in live]
     if len(kept) != len(entries):
         chain_write(own_tty, kept)
     for e in reversed(kept):
@@ -1597,20 +1607,23 @@ async def move_left_of(iterm2, connection, tty, anchor):
     await win.async_set_tabs(tabs)
 
 
-def repair_auditor_place(auditor, caller):
+def repair_auditor_place(auditor, caller, term=None):
     """§52: read the listing `list` prints, repair with the launcher's own move, read again.
 
     Nothing in here may end the launch: the session is up and its tty is what the caller
     reads next. A reading or a move that fails, for whatever reason, is said on stderr in
     one line and the second reading decides; a repair that itself breaks leaves the place
-    unverified, and says so."""
+    unverified, and says so. The reading and the move go through the terminal that made the
+    auditor's session."""
+    term = term or terminal()
+
     def note(what, exc):
         reason = (" ".join(str(exc).split()) or type(exc).__name__) if exc else ""
         print("spawn: %s%s" % (what, ": " + reason if reason else ""), file=sys.stderr)
 
     def read():
         try:
-            return terminal().rows()
+            return term.rows()
         except SystemExit:
             return None
         except Exception as exc:
@@ -1619,7 +1632,7 @@ def repair_auditor_place(auditor, caller):
 
     def move(tty, anchor):
         try:
-            terminal().move_left_of(tty, anchor)
+            term.move_left_of(tty, anchor)
         except SystemExit:
             return False
         except Exception as exc:
@@ -1636,13 +1649,28 @@ def repair_auditor_place(auditor, caller):
 # --- the terminal seam ---------------------------------------------------------------
 #
 # Everything the launcher asks of the terminal goes through ONE object: find a session by its
-# tty, make one, list them, read a screen, close one, put one elsewhere. The subcommands
-# below call `terminal()` and never the app, so a second terminal can stand beside the iTerm
-# one by implementing the same methods; the choice is made in `terminal()` and nowhere else.
+# tty, make one, list them, read a screen, close one, put one elsewhere, and say who owns a
+# chain. The subcommands below call `terminal()` and never the app, so a second terminal can
+# stand beside the iTerm one by implementing the same methods; the choice is made in
+# `terminal()` and nowhere else.
 #
 # A chain entry's `tab_id` is whatever the terminal hands back for the session it made. The
 # launcher stores it, compares it and writes it as an opaque string; only the terminal that
-# issued it reads it as anything more.
+# issued it reads it as anything more. The chain FILE is the launcher's: a terminal reads it
+# to answer, and never writes an entry or drops one — the subcommand that made or closed the
+# session does, once it knows the outcome.
+#
+# `made` is what a refusal needs to close a session a spawn made, filled as soon as each part
+# is known. Its keys every terminal shares: `tty`, `tab_id` (the stable id `create` returns),
+# `error` (what failed once the session existed) and `terminal` (the one that made it, set by
+# the caller). Any other key belongs to the terminal that wrote it and is read by it alone.
+
+# Where `create` puts a new session. `at` is `beside` (on `side` of the session on `anchor`),
+# `first` (the first place of the window holding `anchor`) or `anywhere` (where the terminal
+# puts it). `read_back` says the caller reads the placement back and repairs it itself (an
+# auditor's, §52), so a terminal that cannot place it need not say so.
+Place = collections.namedtuple("Place", "at anchor side read_back")
+
 
 class Terminal:
     """What the launcher needs of a terminal. Every method answers for the terminal it is."""
@@ -1655,20 +1683,33 @@ class Terminal:
         """Whether a new session can be put on `side` of the one on `anchor`."""
         raise NotImplementedError
 
+    def owner(self, own):
+        """The chain owner the caller on `own` writes its entries under — the id its hooks
+        read for the same session — or "" when none names it."""
+        raise NotImplementedError
+
+    def identity(self, tty, fresh=False):
+        """`(chain owner, stable id)` of the session on `tty`, ("", "") when there is none.
+        `fresh`: the session was made a moment ago, and a terminal that attaches a new
+        session late is given the time to."""
+        raise NotImplementedError
+
     def chain_anchor(self, own):
         """The tty of the caller's last agent still open beside it, or None."""
         raise NotImplementedError
 
-    def create(self, command, anchor, side, own, effect, made, plan, auditor=False):
-        """Make a session running `command`: (its tty, its stable id).
+    def create(self, command, title, place, chain, made):
+        """Make a session named `title` running `command` at `place`: (its tty, its stable id).
 
-        `made` receives what a refusal needs to close it again; `plan` what the chain needs
-        once the session is verified. A tty is None when the session was made and then could
-        not be read, the reason being in `made["error"]`."""
+        `chain` is what the spawn will do to its caller's chain once the session is verified,
+        `append`, `transfer` or "" for nothing, so a terminal that can keep no chain says so
+        before it makes anything. A tty is None when the session was made and then could not
+        be read, the reason being in `made["error"]`; a stable id is "" when the terminal
+        cannot name the session, and then no chain entry can be written for it."""
         raise NotImplementedError
 
     def rows(self):
-        """One listing line per session."""
+        """One listing line per session, in the shape `row_for` writes."""
         raise NotImplementedError
 
     def screen(self, tty, lines):
@@ -1676,14 +1717,20 @@ class Terminal:
         raise NotImplementedError
 
     def close(self, tty, expect):
-        """Close the session on `tty`, after checking its title holds `expect`."""
+        """Close the session on `tty`, after checking its name holds `expect`: its stable id,
+        or "" when the terminal cannot name what it closed."""
         raise NotImplementedError
 
     def close_made(self, made):
         """Close the session a spawn just made; True only when it was closed."""
         raise NotImplementedError
 
-    def move(self, tty, anchor, right, leftmost, own, guard):
+    def owns(self, tty, own):
+        """Whether the session on `tty` is the caller's own or one its chain holds, matched on
+        the stable id; None when no session sits on `tty`."""
+        raise NotImplementedError
+
+    def move(self, tty, anchor, right, leftmost):
         """Put the session on `tty` beside `anchor` (or first); its new position."""
         raise NotImplementedError
 
@@ -1693,14 +1740,16 @@ class Terminal:
 
 
 class ItermTerminal(Terminal):
-    """iTerm2: the API rung and, where the API does not serve, the AppleScript rung."""
+    """iTerm2: the API rung and, where the API does not serve, the AppleScript rung.
+
+    Its own key in `made`: `session_id`, the app's id of the session it made."""
 
     def find(self, tty):
-        async def probe_leftmost(iterm2, connection):
+        async def probe(iterm2, connection):
             app = await iterm2.async_get_app(connection)
             win, _, _ = await find_tab(app, tty)
             return win is not None
-        return bool(run(probe_leftmost))
+        return bool(run(probe))
 
     def can_place(self, anchor, side):
         async def probe(iterm2, connection):
@@ -1709,34 +1758,52 @@ class ItermTerminal(Terminal):
             return win is not None
         return run(probe)
 
+    def owner(self, own):
+        async def owner(iterm2, connection):
+            return await own_session_id(await iterm2.async_get_app(connection), own)
+        return run(owner) or ""
+
+    def identity(self, tty, fresh=False):
+        async def ids(iterm2, connection):
+            # Read on a FRESH app each time: the tab handed back by a creation may be the
+            # stale copy whose `current_session` is still None.
+            for attempt in range(10 if fresh else 1):
+                app = await iterm2.async_get_app(connection)
+                _, tab, sess = await find_tab(app, tty)
+                if sess is not None:
+                    return sess.session_id, tab.tab_id
+                if fresh:
+                    await asyncio.sleep(0.3)
+            return "", ""
+        return run(ids) or ("", "")
+
     def chain_anchor(self, own):
         async def last(iterm2, connection):
             app = await iterm2.async_get_app(connection)
             return await chain_anchor(app, own)
         return run(last)
 
-    def create(self, command, anchor, side, own, effect, made, plan, auditor=False):
+    def create(self, command, title, place, chain, made):
         async def go(iterm2, connection):
             app = await iterm2.async_get_app(connection)
             index = None
-            if anchor == "leftmost":
+            if place.at == "first":
                 # No neighbour tab to resolve against: the target is the caller's own window,
                 # at its very first place, whatever tab happens to sit there today.
-                win, _, _ = await find_tab(app, own)
+                win, _, _ = await find_tab(app, place.anchor)
                 if win is None:
-                    die("spawn: no session found on %s" % own)
+                    die("spawn: no session found on %s" % place.anchor)
                 index = 0
-            elif anchor:
+            elif place.at == "beside":
                 # Resolved again on a fresh app: the probe above ran on another connection,
                 # and a window object is a cached copy (§14).
-                win, index = await anchor_position(app, anchor, side)
+                win, index = await anchor_position(app, place.anchor, place.side)
                 if win is None:
-                    die("spawn: no session found on %s" % anchor)
+                    die("spawn: no session found on %s" % place.anchor)
             else:
                 win = app.current_window
                 if win is None:
                     die("spawn: iTerm2 has no current window")
-            own_sess_id = await own_session_id(app, own)
             # select=False: the operator is working in another tab, and a spawn that pulls the
             # window to the new one interrupts them every time an agent is launched.
             tab = await win.async_create_tab(command=command, index=index, select=False)
@@ -1749,7 +1816,7 @@ class ItermTerminal(Terminal):
                 # The session is read on a FRESH app: the tab handed back by the creation may
                 # be the stale copy whose `current_session` is still None, and an id read
                 # there is an empty one — a refusal that then closes nothing.
-                new_sess, fresh = None, app
+                new_sess = None
                 for _ in range(10 if new else 0):
                     fresh = await iterm2.async_get_app(connection)
                     _, _, new_sess = await find_tab(fresh, new)
@@ -1759,14 +1826,6 @@ class ItermTerminal(Terminal):
                 made["session_id"] = (new_sess.session_id if new_sess is not None else
                                       tab.current_session.session_id if tab.current_session
                                       else "")
-                if own and new and effect != "none":
-                    plan.update(effect=effect, own_sess_id=own_sess_id, tab_id=tab.tab_id,
-                                new=new,
-                                new_sess_id=new_sess.session_id if new_sess is not None else "",
-                                own_tab_id="")
-                    if effect == "transfer":
-                        _, own_tab, _ = await find_tab(fresh, own)
-                        plan["own_tab_id"] = own_tab.tab_id if own_tab is not None else ""
             except Exception as exc:
                 # The tab exists: whatever failed after it, the refusal closes it.
                 made["error"] = (str(exc).splitlines() or [type(exc).__name__])[0]
@@ -1781,13 +1840,14 @@ class ItermTerminal(Terminal):
             the front and a focus flicker per move, which is what the API replaced. A tab that
             lands in the wrong place is an agent that runs; a placement bought at that price
             is not. Said out loud rather than assumed — the placement and the chain both."""
-            if anchor and not auditor:
+            if place.at != "anywhere" and not place.read_back:
                 print("spawn: this rung cannot place a tab; the new session lands where the "
-                      "terminal puts it, not beside %s." % anchor, file=sys.stderr)
-            if own and effect != "none":
+                      "terminal puts it, not beside %s."
+                      % ("leftmost" if place.at == "first" else place.anchor), file=sys.stderr)
+            if chain:
                 print("spawn: this rung keeps no chain, so the chain was not updated (the %s "
-                      "was skipped)%s." % (effect, "; your agents stay in your own chain"
-                                           if effect == "transfer" else ""), file=sys.stderr)
+                      "was skipped)%s." % (chain, "; your agents stay in your own chain"
+                                           if chain == "transfer" else ""), file=sys.stderr)
             return make()
 
         new_tty = served_by("spawn", {
@@ -1816,9 +1876,12 @@ class ItermTerminal(Terminal):
     def close(self, tty, expect):
         async def go(iterm2, connection):
             app = await iterm2.async_get_app(connection)
-            return await close_session(app, tty, expect)
+            _, tab, _ = await find_tab(app, tty)
+            await close_session(app, tty, expect)
+            return tab.tab_id
+        # The AppleScript rung names no tab, so what it closed drops no chain entry.
         return served_by("close", {"api": lambda: run(go),
-                                   "applescript": lambda: as_close(tty, expect)})
+                                   "applescript": lambda: as_close(tty, expect) and ""})
 
     def close_made(self, made):
         """By the session's own id, never a tty another session could hold by then. The tab's
@@ -1851,7 +1914,6 @@ class ItermTerminal(Terminal):
                     if hit:
                         for sess in hit:
                             await sess.async_close(force=True)
-                        chain_drop_tab(tab.tab_id)
                         return True
             return False
 
@@ -1862,13 +1924,21 @@ class ItermTerminal(Terminal):
                   % (str(exc).splitlines() or ["unknown error"])[0], file=sys.stderr)
             return False
 
-    def move(self, tty, anchor, right, leftmost, own, guard):
+    def owns(self, tty, own):
+        async def owned(iterm2, connection):
+            app = await iterm2.async_get_app(connection)
+            _, tab, _ = await find_tab(app, tty)
+            if tab is None:
+                return None
+            return await move_is_owned(app, tty, own)
+        return run(owned)
+
+    def move(self, tty, anchor, right, leftmost):
         async def go(iterm2, connection):
             app = await iterm2.async_get_app(connection)
             win, tab, _ = await find_tab(app, tty)
             if tab is None:
                 die("move: no session found on %s" % tty)
-            guard(await move_is_owned(app, tty, own))
             tabs = list(win.tabs)
             if leftmost:
                 tabs.remove(tab)
@@ -2500,6 +2570,8 @@ def cmd_spawn(argv):
         side, anchor = "left", "leftmost"
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
+    # Chosen once, and only for a launch that reaches a terminal: a dry run asks none.
+    term = None if DRY_RUN else terminal()
     if auditor_successor:
         for flag, given in (("--tier", args.tier), ("--model", args.model),
                             ("--effort", args.effort),
@@ -2521,12 +2593,12 @@ def cmd_spawn(argv):
                 chain = chain_owned(chain_read(own), SELF_ID)
                 anchor = chain[-1]["tty"] if chain else "self"
             else:
-                anchor = terminal().chain_anchor(own) or own
+                anchor = term.chain_anchor(own) or own
     elif anchor == "leftmost":
         if not own and not DRY_RUN:
             die("spawn: --coordinator-successor: cannot resolve this session's own tty")
         if not DRY_RUN:
-            if not terminal().find(own):
+            if not term.find(own):
                 # Same reading as anchor_after_probe's for "self": the caller is running
                 # outside the app (a multiplexer, a plain shell), so there is no window to
                 # place a first tab of — the new tab lands where the app puts it instead.
@@ -2535,7 +2607,7 @@ def cmd_spawn(argv):
                       "the app puts it." % own, file=sys.stderr)
                 anchor = ""
     if anchor and anchor not in ("self", "leftmost") and not DRY_RUN:
-        anchor = anchor_after_probe(terminal().can_place(anchor, side), anchor, own)
+        anchor = anchor_after_probe(term.can_place(anchor, side), anchor, own)
     # BEFORE the tab exists, and BEFORE the prompt file is written: a refusal on the trust
     # question must leave nothing behind — a prompt file written ahead of it survived every
     # refusal and piled up under the state directory's prompts/ for a directory that was
@@ -2620,15 +2692,21 @@ def cmd_spawn(argv):
     script = write_launch_script(launch, title)
     command = "%s -l %s" % (LOGIN_SHELL, script)
 
-    made = {}
-    # What this spawn does to the chain, read while the app is at hand and written only once
-    # the session is verified running: a spawn that dies unverified must leave the chain as
-    # it found it, and a successor that never started must not take the predecessor's agents.
-    plan = {}
+    made = {"terminal": term}
+    if anchor == "leftmost":
+        place = Place("first", own, side, args.auditor)
+    elif anchor:
+        place = Place("beside", anchor, side, args.auditor)
+    else:
+        place = Place("anywhere", "", side, args.auditor)
 
     # Before the tab exists, so no transcript older than this launch can be taken for its.
     launch_epoch = time.time()
-    new_tty, _ = terminal().create(command, anchor, side, own, effect, made, plan, args.auditor)
+    # The stable id is written into the chain only once the session is verified running: a
+    # spawn that dies unverified must leave the chain as it found it, and a successor that
+    # never started must not take the predecessor's agents.
+    new_tty, tab_id = term.create(command, title, place,
+                                  effect if own and effect != "none" else "", made)
     if made.get("error"):
         refuse_made(made, "spawn: the tab was made, then the terminal failed: %s"
                     % made["error"])
@@ -2640,7 +2718,7 @@ def cmd_spawn(argv):
     # soon as its tab exists, and said on stdout, where the orchestrator reads the launch.
     misplaced = 0
     if args.auditor:
-        line, misplaced = repair_auditor_place(new_tty, own)
+        line, misplaced = repair_auditor_place(new_tty, own, term)
         if line:
             print(line)
 
@@ -2670,7 +2748,7 @@ def cmd_spawn(argv):
         # process line and honoured for some models and not others, so the mode the session
         # actually came up in is read on its own transcript (§43).
         print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
-    apply_chain_plan(plan, own, args.resident)
+    apply_chain_plan(term, own, new_tty, tab_id, effect, args.resident)
     print(new_tty)
     if misplaced:
         sys.exit(misplaced)
@@ -2729,43 +2807,52 @@ def close_made(made):
     """Close the session a spawn just made, by its own id; True only when it was closed.
 
     A refusal after the tab exists must leave no tab: an agent nobody can use, in a window
-    the operator reads, is worse than a spawn that failed."""
-    return terminal().close_made(made)
+    the operator reads, is worse than a spawn that failed. The close goes through the
+    terminal that made it, and any chain entry naming the session goes with it."""
+    closed = (made.get("terminal") or terminal()).close_made(made)
+    if closed and made.get("tab_id"):
+        chain_drop_tab(made["tab_id"])
+    return closed
 
 
-def apply_chain_plan(plan, own, resident):
+def apply_chain_plan(term, own, new, tab_id, effect, resident):
     """Write what a verified spawn does to the chain (§34): an agent appended to its
     caller's, or a successor handed the caller's agents and the entry naming the caller's tab.
 
-    Called only once the session is verified running, or at once under --no-verify. A caller
-    the app has no session for writes nothing: an empty owner reads every entry of a chain
-    file, a recycled tty's strangers included, and a transfer would hand them all over."""
-    if not plan:
+    Called only once the session is verified running, or at once under --no-verify. The
+    stable id is the one `create` returned, and the owners are asked of the terminal that
+    made the session: an id it could not name writes nothing, the terminal having said why. A
+    caller the terminal has no owner for writes nothing either: an empty owner reads every
+    entry of a chain file, a recycled tty's strangers included, and a transfer would hand
+    them all over."""
+    if not own or effect == "none" or not tab_id:
         return
-    effect, new = plan["effect"], plan["new"]
-    if not plan.get("own_sess_id"):
+    own_owner = term.owner(own)
+    if not own_owner:
         print("spawn: this session is not a tab of the app's (%s), so no session id names "
               "its chain entries; the chain was not updated (the %s was skipped)."
               % (own, effect), file=sys.stderr)
         return
     if effect == "append":
-        chain_append(own, plan["tab_id"], new, plan["own_sess_id"], resident)
+        chain_append(own, tab_id, new, own_owner, resident)
         return
-    if not plan.get("new_sess_id"):
+    new_owner, _ = term.identity(new, fresh=True)
+    if not new_owner:
         # A gate that cannot measure lets the launch through and says so.
         print("spawn: the successor's session on %s could not be read, so the chain "
               "stays with %s; place its next agent with --right-of <last agent tty>."
               % (new, own), file=sys.stderr)
         return
-    n = chain_transfer(own, plan["own_sess_id"], new, plan["new_sess_id"])
+    n = chain_transfer(own, own_owner, new, new_owner)
     print("spawn: chain of %d agent(s) handed to the successor on %s" % (n, new),
           file=sys.stderr)
     # The caller's own entry in its orchestrator's chain follows the successor.
-    if not plan.get("own_tab_id"):
+    _, own_tab_id = term.identity(own)
+    if not own_tab_id:
         print("spawn: your own tab on %s could not be read, so no chain entry "
               "naming it was re-pointed to the successor." % own, file=sys.stderr)
         return
-    repointed = chain_repoint_tab(plan["own_tab_id"], plan["tab_id"], new)
+    repointed = chain_repoint_tab(own_tab_id, tab_id, new)
     if repointed:
         print("spawn: the entry naming your tab in %d chain(s) now names the "
               "successor on %s" % (repointed, new), file=sys.stderr)
@@ -2783,7 +2870,6 @@ async def close_session(app, tty, expect):
         die("close: refused: session on %s is titled '%s', which does not contain '%s'"
             % (tty, name, expect))
     await sess.async_close(force=True)
-    chain_drop_tab(tab.tab_id)
     return name
 
 
@@ -2821,7 +2907,7 @@ def cmd_close(argv):
         cwd = host_cli_cwd(args.tty)
         checkout = checkout_of(cwd) if cwd else None
 
-    terminal().close(args.tty, args.expect)
+    closed_id = terminal().close(args.tty, args.expect)
     # The close is not what was asked for, it is what the process table shows. The line
     # below used to print the moment the request was acknowledged, over a session that
     # kept running for minutes and had to be ended by hand (§46).
@@ -2829,6 +2915,10 @@ def cmd_close(argv):
     if survivor is not None:
         die("close: the request was accepted but %s is still running on %s after %ds. "
             "The session was NOT closed." % (survivor, args.tty, CLOSE_TIMEOUT))
+    # Dropped once the process is proved gone, never before: a session that survived its
+    # close is still the agent its chain names.
+    if closed_id:
+        chain_drop_tab(closed_id)
     note = close_note(args.tty, was_running)
     if note:
         print(note, file=sys.stderr)
@@ -2909,7 +2999,13 @@ def cmd_move(argv):
         print("move=%s %s=%s" % (args.tty, "right_of" if args.right_of else "left_of", anchor))
         return
 
-    idx = terminal().move(args.tty, anchor, bool(args.right_of), args.leftmost, own, guard)
+    # The guard rules BEFORE anything moves: a refusal must find the layout as it was.
+    term = terminal()
+    owned = term.owns(args.tty, own)
+    if owned is None:
+        die("move: no session found on %s" % args.tty)
+    guard(owned)
+    idx = term.move(args.tty, anchor, bool(args.right_of), args.leftmost)
     print("moved %s to position %s" % (args.tty, idx))
 
 
