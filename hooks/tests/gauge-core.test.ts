@@ -2,6 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 import { tripGate, parseMeasure, measureFilePath } from '../gauge-core.ts'
 import { driftAnnouncement, writeMeasure, takeDrift, register as registerGauge } from '../gauge.ts'
+import { logLineOf } from './fakes.ts'
 
 test('the gate trips at 80 percent of the window', () => {
   expect(tripGate(79, 79000, 100000).tripped).toBe(false)
@@ -208,4 +209,40 @@ test('an agent trips at the same token count on 1,000,000 and on 533,000, and by
 
 test('on 533,000 the words name the token gate, not the percentage', () => {
   expect(tripGate(57, 304000, 533000).words).toBe('304,000 tokens (gate 300,000 on a 533,000 window)')
+})
+
+test('a session end that cannot purge the measure file is said, and blocks nothing', async () => {
+  // The every-handler-logs rule: the end is never held on the store's own
+  // failure, but the failure is not swallowed either — one line, the gauge's
+  // own stamp naming the half that failed.
+  const handlers: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  const written: string[] = []
+  const $ = {
+    session: { id: async () => 's1' },
+    env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
+    fs: {
+      read: async () => '',
+      write: async (p: string, text: string) => {
+        throw new Error('EIO: the measure file cannot be written')
+      },
+    },
+    plugin: { name: 'orchestrator', root: '/plugins/orch-root' },
+    process: {
+      run: async (argv: readonly string[]) => {
+        const line = logLineOf(argv)
+        if (line !== null) written.push(line)
+        return { exitCode: 0, stdout: '', stderr: '' }
+      },
+    },
+  }
+  const e = { sessionId: 's1' }
+  const answer = await handlers['session.end']($, e, (x: unknown) => x)
+  expect(answer).toBe(e)
+  expect(written.length).toBe(1)
+  expect(written[0]).toContain('| gauge |')
+  expect(written[0]).toContain('EIO')
 })
