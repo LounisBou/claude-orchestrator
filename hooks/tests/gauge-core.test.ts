@@ -1,7 +1,7 @@
 // hooks/tests/gauge-core.test.ts
 import { expect, test } from 'claude-code/testing'
 import { tripGate, parseMeasure, measureFilePath } from '../gauge-core.ts'
-import { driftAnnouncement, writeMeasure, takeDrift, register as registerGauge } from '../gauge.ts'
+import { currentReading, driftAnnouncement, writeMeasure, takeDrift, register as registerGauge } from '../gauge.ts'
 import { logLineOf } from './fakes.ts'
 
 test('the gate trips at 80 percent of the window', () => {
@@ -160,6 +160,28 @@ test('a measure before the first answer writes nothing and logs nothing', async 
   const e = {}
   expect(await handlers['session.measure']($, e, (x: unknown) => x)).toBe(e)
   expect(writes).toEqual([])
+})
+
+test('a measure with figures fills the reading the pane and the store read', async () => {
+  const handlers: Record<string, Function> = {}
+  registerGauge((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    handlers[args[0]] = args[args.length - 1] as Function
+    return { catch: () => undefined }
+  })
+  const $ = {
+    session: {
+      usage: async () => ({ context: { tokens: 42000, window: 100000, percent: 42 } }),
+      model: async () => 'a-model',
+      id: async () => 's-reading',
+    },
+    fs: { write: async () => undefined },
+    env: { get: async (name: string) => (name === 'HOME' ? '/tmp/h' : undefined) },
+    ui: { toast: () => undefined, invalidate: () => undefined },
+  }
+  await handlers['session.measure']($, {}, (x: unknown) => x)
+  expect(currentReading()?.context_percent).toBe(42)
+  expect(currentReading()?.context_tokens).toBe(42000)
+  takeDrift()
 })
 
 test('a measure line without its figures reads as unmeasured', () => {
