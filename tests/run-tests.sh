@@ -3863,7 +3863,7 @@ check "an unresolvable tier stops the rotation, and nothing runs after it" \
 # The context gate's hook cases — the role lines verbatim, the unmeasured-once rule, the
 # model drift and its marker, the name reading both gates share, the wiring over a faked $ —
 # moved module-side with the gate itself: hooks/tests/context-gate.test.ts,
-# session-name.test.ts, gauge-core.test.ts and gauge-band.test.ts, run by the host's plugin
+# session-name.test.ts and gauge-core.test.ts, run by the host's plugin
 # test. The threshold sweep below stays: the numbers are the rulebook's, not the gate's
 # implementation, and they bind the module's gate the same as they bound the script's.
 
@@ -5277,7 +5277,7 @@ rm -rf "$WC/hosttmp"/* 2>/dev/null
 
 # The tap and the gauge script are gone with the cutover, and their cases with them: the
 # tap's writes, the freshness window, the transcript tier and the pruning are the module's
-# now, pinned in hooks/tests/gauge-core.test.ts and gauge-band.test.ts (run by the host's
+# now, pinned in hooks/tests/gauge-core.test.ts (run by the host's
 # plugin test), and the one file that survives — the measure file — is pinned there too.
 
 echo "== the mode a session came up in (§43) =="
