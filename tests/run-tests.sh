@@ -6015,6 +6015,29 @@ check "nothing but blanks reads as nothing" '[]' \
 check "the dry run skips the reading and says so" "1" \
   "$(shaped --title 'Agent : x' | grep -c '^mode_check=skipped$')"
 
+echo "== iterm-agents: the home server's configuration =="
+# Read by home servers alone, through `-f`: the keys the host needs (Shift-Enter as a newline
+# needs the extended keys, asked of the terminal), the names the launcher gives, the default
+# prefix, and the mark every session of the server carries. Loaded by a real tmux when there
+# is one, in a detached server of the suite's own, killed at once.
+HOMECONF="$ROOT/skills/iterm-agents/tmux/home.conf"
+check "the conf sets each option the home server needs" "1|1|1|1|1|1|1|1|1" \
+  "$(for l in '^set -g focus-events on$' '^set -g extended-keys always$' '^set -g extended-keys-format csi-u$' \
+      "^set -as terminal-features 'xterm\*:extkeys'\$" '^set -g automatic-rename off$' '^set -g mouse on$' \
+      '^set -g prefix C-b$' '^bind C-b send-prefix$' '^set-hook -g session-created "set-option @orchestrator-home 1"$'; do
+      grep -c -- "$l" "$HOMECONF"; done | paste -sd'|' -)"
+if command -v tmux >/dev/null 2>&1; then
+  CONFSRV="suite-conf-$$"
+  env -i HOME="$HOME" PATH="$PATH" tmux -L "$CONFSRV" -f "$HOMECONF" new-session -d -s home 'sleep 20' 2>/dev/null
+  confpane=$(tmux -L "$CONFSRV" display -p -t home:0 '#{pane_id}' 2>/dev/null)
+  check "a server started on it marks its session, read the way the launcher reads it, and keeps its keys" \
+    "1|always|csi-u|off|1" \
+    "$(tmux -L "$CONFSRV" show -qv -t "$confpane" @orchestrator-home)|$(tmux -L "$CONFSRV" show -gv extended-keys)|$(tmux -L "$CONFSRV" show -gv extended-keys-format)|$(tmux -L "$CONFSRV" show -wgv automatic-rename)|$(tmux -L "$CONFSRV" list-keys -T prefix C-b | grep -c send-prefix)"
+  tmux -L "$CONFSRV" kill-server 2>/dev/null
+else
+  echo "  skip the conf is not loaded: no tmux"
+fi
+
 echo "== install =="
 
 # The installer asks the host for its version before it touches anything, so every run
