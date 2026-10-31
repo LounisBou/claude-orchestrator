@@ -2292,13 +2292,14 @@ test('a typed answer to one question of several is kept with its number, and its
 })
 
 test('an entry whose sender withdrew it between two answers forgets the first, and its count goes with it', async () => {
-  const { fx, render } = await askingPane([twoQuestions()])
+  const { fx, render, stored } = await askingPane([twoQuestions()])
   await pick(await render(), 'A')
   fx.files.set(`${ROUND}/${twoQuestions().id}.json`, JSON.stringify({ ...twoQuestions(), status: 'withdrawn' }) + '\n')
   expect(texts(await render())[0]).toBe('Questions for you')
   // Asked again, it starts at its first question.
   fx.files.set(`${ROUND}/${twoQuestions().id}.json`, JSON.stringify(twoQuestions()) + '\n')
   expect(texts(cardOf(await render()))[0]).toBe('Orch : low · Question 3 / 4')
+  expect(stored(twoQuestions().id).partial).toBeUndefined()
 })
 
 test('without a picker (mobile) the same card draws one Button per choice, and answers question by question', async () => {
