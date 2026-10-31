@@ -43,6 +43,7 @@ import {
   askLine, ackLine, parseAsk, parseAck, isAsk, isAck,
   answerLine, parseAnswer, answerAckLine, parseAnswerAck, isAnswer, isAnswerAck,
 } from './remote-round.ts'
+import { targetOf, homeArgv, stateArgv, stateAfterTurn, stateAfterMeasure, TMUX_TIMEOUT_MS, type TabState, type TabTarget } from './tab-state.ts'
 import { deckOf, deckText, deckIsNews, DECK_FILE, type Deck, type DeckUsage } from './deck.ts'
 import { newBook, settle, ingest, rewind, forget, usageOf, appendedArgv, consumedOf, type Prices, type UsageBook } from './usage.ts'
 
@@ -1091,6 +1092,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           const sent = await withDeadline(sendRow($, sessionId), RELAY_BOUND_MS)
           if (isDegradedPass(sent)) await logLine($, `row: did not finish within ${RELAY_BOUND_MS} ms`)
         }
+        // The window's tab shows the gate crossed, or left.
+        await showGate($, reading)
         // An agent's measure past its gate: its orchestrator told once per crossing.
         if (walked.known && walked.tty && roleOf(walked.name) === 'agent') {
           const done = await withDeadline(reportGate($, sessionId, walked.name!, walked.tty, reading), RELAY_BOUND_MS)
@@ -1174,6 +1177,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     } catch (err) {
       await logLine($, `relay: ${(err as Error).message}`)
     }
+    // The wait the relay just wrote, or none, is what the window's tab shows.
+    if (!e.agentId) await showTurnEnd($)
     try {
       if (!e.agentId) {
         const done = await withDeadline(openOnFirstTurn($, pane), RELAY_BOUND_MS)
@@ -1193,6 +1198,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
 
   // A turn starts: the session works again, and a wait its row carried is over.
   on('turn.start', {}, async ($: any, e: any, next: (e: any) => any) => {
+    if (!e.agentId) await showTabState($, 'busy')
     try {
       const sessionId = await $.session.id()
       const wait = await readWait($, sessionId)
@@ -2983,6 +2989,83 @@ async function gateEnv($: any): Promise<{ gate?: number; gateTokens?: number }> 
   return {
     gate: threshold(await $.env.get('ORCHESTRATOR_CONTEXT_GATE')),
     gateTokens: threshold(await $.env.get('ORCHESTRATOR_CONTEXT_GATE_TOKENS')),
+  }
+}
+
+// What each window of a home session shows, kept by the window it is written on (the server's
+// socket and the pane): the home mark read once, the state last written, whether the context is
+// past its gate, and whether a failure was already said.
+type TabMemory = { home: boolean | null; shown: TabState | null; past: boolean; said: boolean }
+const tabs = new Map<string, TabMemory>()
+
+// This session's window, when it runs in a home session. The mark is read once per window: a
+// session carries it from the moment it is made. Outside tmux nothing is run; in a tmux session
+// without the mark, the one read. A read that fails is said once, and tried again at the next
+// change; the hook goes on.
+async function tabOf($: any): Promise<{ target: TabTarget; bin: string; memory: TabMemory } | null> {
+  const target = targetOf(await $.env.get('TMUX'), await $.env.get('TMUX_PANE'))
+  if (!target) return null
+  const bin = (await $.env.get('ORCHESTRATOR_TMUX')) || 'tmux'
+  const key = `${target.socket}|${target.pane}`
+  let memory = tabs.get(key)
+  if (!memory) {
+    memory = { home: null, shown: null, past: false, said: false }
+    tabs.set(key, memory)
+  }
+  if (memory.home === null) {
+    try {
+      const read = await $.process.run(homeArgv(bin, target), { timeoutMs: TMUX_TIMEOUT_MS })
+      if (!read || read.exitCode !== 0) throw new Error(`tmux exited ${read?.exitCode ?? 'without answer'} reading the home mark`)
+      memory.home = String(read.stdout ?? '').trim() === '1'
+    } catch (err) {
+      await tabFailure($, memory, (err as Error).message)
+      return null
+    }
+  }
+  return memory.home ? { target, bin, memory } : null
+}
+
+async function tabFailure($: any, memory: TabMemory, message: string): Promise<void> {
+  if (memory.said) return
+  memory.said = true
+  await logLine($, `tab-state: ${message}`)
+}
+
+// The state written on the window, only when it is not the one already shown.
+async function showTabState($: any, state: TabState): Promise<void> {
+  const tab = await tabOf($).catch(() => null)
+  if (!tab || tab.memory.shown === state) return
+  try {
+    const set = await $.process.run(stateArgv(tab.bin, tab.target, state), { timeoutMs: TMUX_TIMEOUT_MS })
+    if (!set || set.exitCode !== 0) throw new Error(`tmux exited ${set?.exitCode ?? 'without answer'} writing ${state}`)
+    tab.memory.shown = state
+  } catch (err) {
+    await tabFailure($, tab.memory, (err as Error).message)
+  }
+}
+
+// A turn ended: the wait it left in the session's wait file, else the gate, else rest.
+async function showTurnEnd($: any): Promise<void> {
+  try {
+    const tab = await tabOf($)
+    if (!tab) return
+    const wait = await readWait($, await $.session.id())
+    await showTabState($, stateAfterTurn(wait?.waiting, tab.memory.past))
+  } catch (err) {
+    await logLine($, `tab-state: ${(err as Error).message}`)
+  }
+}
+
+// A measure: the gate's side remembered for the turn's end, and shown at once on a window at rest.
+async function showGate($: any, reading: { context_percent: number; context_tokens: number; context_window: number }): Promise<void> {
+  try {
+    const tab = await tabOf($)
+    if (!tab) return
+    tab.memory.past = tripGate(reading.context_percent, reading.context_tokens, reading.context_window, await gateEnv($)).tripped
+    const next = stateAfterMeasure(tab.memory.shown, tab.memory.past)
+    if (next) await showTabState($, next)
+  } catch (err) {
+    await logLine($, `tab-state: ${(err as Error).message}`)
   }
 }
 
