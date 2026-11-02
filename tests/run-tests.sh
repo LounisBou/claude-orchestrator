@@ -6115,9 +6115,18 @@ if command -v tmux >/dev/null 2>&1; then
   tmux -L "$CONFSRV" new-window -d -t home: -n third 'sleep 20' 2>/dev/null
   tmux -L "$CONFSRV" set -w -t home:0 @state busy 2>/dev/null
   tmux -L "$CONFSRV" set -w -t home:2 @state asks 2>/dev/null
-  check "the tab bar shows each window's name and state in a padded block, the current one in bold, without index or session name" \
-    " sleep busy | second | third asks " \
+  check "the tab bar shows each window's name and state icon in a padded block, the current one in bold, without index or session name" \
+    " sleep ● | second | third ✋ " \
     "$(tmux -L "$CONFSRV" display -p -t home:0 '#{W:#{E:window-status-format}|,#{E:window-status-current-format}|}' 2>/dev/null | sed 's/#\[[^]]*\]//g; s/|$//' | tr -d '\n')"
+  # Each of the five states renders its own icon after the name, in the inactive block and in
+  # the current one; a state the module never writes renders none.
+  stateicons=""
+  for st in busy idle asks done gate bogus; do
+    tmux -L "$CONFSRV" set -w -t home:1 @state "$st" 2>/dev/null
+    stateicons="$stateicons$(tmux -L "$CONFSRV" display -p -t home:1 '#{E:window-status-format}|#{E:window-status-current-format}' 2>/dev/null | sed 's/#\[[^]]*\]//g; s/second//g; s/  */ /g')/"
+  done
+  check "each state renders its icon in both blocks, an unknown state none" \
+    " ● | ● / ○ | ○ / ✋ | ✋ / ✓ | ✓ / ⚠ | ⚠ / | /" "$stateicons"
   check "the status line shows no session name" "" "$(tmux -L "$CONFSRV" display -p -t home:0 '#{E:status-left}' 2>/dev/null)"
   check "the current window's format is bold" "1" \
     "$(tmux -L "$CONFSRV" show -gv window-status-current-format | grep -c 'bold')"
