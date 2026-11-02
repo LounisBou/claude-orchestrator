@@ -6115,9 +6115,16 @@ if command -v tmux >/dev/null 2>&1; then
   tmux -L "$CONFSRV" new-window -d -t home: -n third 'sleep 20' 2>/dev/null
   tmux -L "$CONFSRV" set -w -t home:0 @state busy 2>/dev/null
   tmux -L "$CONFSRV" set -w -t home:2 @state asks 2>/dev/null
-  check "the tab bar shows each window's state beside its name, the current one bracketed" \
-    "[0 sleep busy] 1 second 2 third asks" \
-    "$(tmux -L "$CONFSRV" display -p -t home:0 '#{W:#{E:window-status-format} ,#{E:window-status-current-format} }' 2>/dev/null | sed 's/ $//')"
+  check "the tab bar shows each window's name and state in a padded block, the current one in bold, without index or session name" \
+    " sleep busy | second | third asks " \
+    "$(tmux -L "$CONFSRV" display -p -t home:0 '#{W:#{E:window-status-format}|,#{E:window-status-current-format}|}' 2>/dev/null | sed 's/#\[[^]]*\]//g; s/|$//' | tr -d '\n')"
+  check "the status line shows no session name" "" "$(tmux -L "$CONFSRV" display -p -t home:0 '#{E:status-left}' 2>/dev/null)"
+  check "the current window's format is bold" "1" \
+    "$(tmux -L "$CONFSRV" show -gv window-status-current-format | grep -c 'bold')"
+  check "the windows are set apart by a separator that is not empty" "yes" \
+    "$([ -n "$(tmux -L "$CONFSRV" show -gv window-status-separator)" ] && echo yes || echo no)"
+  check "the bar, inactive, current and state colours are the chosen ones" "1|1|1|1" \
+    "$(tmux -L "$CONFSRV" show -gv status-style | grep -ci 'fg=#ffffff.*bg=#1c1c1c\|bg=#1c1c1c.*fg=#ffffff')|$(tmux -L "$CONFSRV" show -gv window-status-format | grep -ci 'fg=#e4e4e4.*bg=#303030\|bg=#303030.*fg=#e4e4e4')|$(tmux -L "$CONFSRV" show -gv window-status-current-format | grep -ci 'fg=#000000.*bg=#ffd75f\|bg=#ffd75f.*fg=#000000')|$(tmux -L "$CONFSRV" show -gv window-status-format | grep -ci 'fg=#87d7ff')"
   tmux -L "$CONFSRV" kill-server 2>/dev/null
 else
   echo "  skip the conf is not loaded: no tmux"
