@@ -6191,6 +6191,26 @@ check "window 0 waits for the old process, runs the resume on the launch's model
   "$(sfield "$out" home_launch)"
 check "and the dry run touched no tmux" "" "$(hcalls)"
 
+# An agent spawned by a caller that runs on a plugin directory runs on the same one: the
+# caller's --plugin-dir options and the enabledPlugins entries of its --settings travel into
+# the agent's launch, and nothing else of those settings.
+PLUGARGV='["/opt/x/host","--plugin-dir","/p/pin","--plugin-dir","/p/two","--settings","{\"enabledPlugins\":{\"orchestrator@lounisbou\":false},\"env\":{\"K\":\"v\"}}","--name","Orch : f"]'
+plugspawn() { # the caller's words in $1, then the spawn's own options
+  local words="$1"; shift
+  env CLAUDE_CONFIG_DIR="$HCONF" CLAUDE_CODE_SESSION_ID="$HSID" ORCHESTRATOR_HOST_ARGV="$words" ORCHESTRATOR_DRY_RUN=1 \
+    ORCHESTRATOR_STATE_DIR="$WORK/homestate" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_LOGIN_SHELL=/bin/sh \
+    ORCHESTRATOR_HOST_CLI=/opt/x/host bash "$AGENT" spawn --dir "$WORK" --title "Agent : plug" --prompt p "$@"; }
+out=$(plugspawn "$PLUGARGV" 2>&1)
+check "an agent's launch carries the caller's plugin directories and its enabledPlugins entries, no other key of its settings" \
+  "1|1|1|0" \
+  "$(printf '%s' "$out" | grep -c -- "--plugin-dir /p/pin --plugin-dir /p/two ")|$(printf '%s' "$out" | grep -c '"enabledPlugins":{"orchestrator@lounisbou":false}')|$(printf '%s' "$out" | sed -n 's/^launch=//p' | grep -c -- '--settings')|$(printf '%s' "$out" | grep -c '"K":"v"')"
+out=$(plugspawn '["/opt/x/host","--settings","{\"enabledPlugins\":{\"x@y\":false}}","--name","Orch : f"]' 2>&1)
+check "a caller without a plugin directory gets the launch it always got" "0|0" \
+  "$(printf '%s' "$out" | grep -c -- '--plugin-dir')|$(printf '%s' "$out" | grep -c 'enabledPlugins')"
+out2=$(plugspawn '[]' 2>/dev/null; echo "exit=$?")
+check "a caller whose launch cannot be read gets the launch it always got, said once on stderr, and is never refused" "1|1|0" \
+  "$(printf '%s' "$out2" | grep -c '^exit=0$')|$(plugspawn '[]' 2>&1 >/dev/null | grep -c 'cannot be read')|$(printf '%s' "$out2" | grep -c -- '--plugin-dir')"
+
 # The move itself, over the recorder and a terminal standing in for iTerm2.
 cat > "$WORK/home_probe.py" <<'PYEOF'
 import contextlib, io, os, sys
