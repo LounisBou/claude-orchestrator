@@ -2242,60 +2242,15 @@ test('an answer ack of the right id and another start leaves the entry sent, wit
 // --- an answer that reached the orchestrator by a message --------------------------------------
 
 const relayed = (text: string) => ({ text, origin: { kind: 'peer' } })
-const REPRESENTED = [
-  '**Question 1 of 1**',
-  '_Subject_ : the scraper pull request',
-  '_Context_ : it is green.',
-  '_Question_ : merge it now?',
-  '_Choices_ :',
-  '- **A** : merge',
-  '- **B** : hold',
-  '_Recommendation_ : A — it is green.',
-].join('\n')
-
-test('a turn the answer message opened ends elsewhere than on the question: the entry is withdrawn as answered elsewhere', async () => {
+test('a peer message that is not an answer leaves the question open through the sender\'s next turn end', async () => {
   const chains = mounted()
   const fx = fake()
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
-  const [asked] = entries(fx)
-  await drive(chains, 'session.receive', fx.dollar, relayed('the operator answered: merge'))
-  await drive(chains, 'turn.start', fx.dollar, { text: 'the operator answered: merge' })
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Merged the pull request, moving on to phase 4.'))
-  const [now] = entries(fx)
-  expect([now.id, now.status, now.answer?.text, now.answer?.by]).toEqual([asked.id, 'withdrawn', 'answered elsewhere', 'sender'])
-  expect(fx.logged.filter(l => l.includes(`round: withdrawn by the sender: ${asked.id}`)).length).toBe(1)
-})
-
-test('a turn no peer message opened leaves the question open, as does one a module notice opened', async () => {
-  const chains = mounted()
-  const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  await drive(chains, 'session.receive', fx.dollar, relayed('a status report from an agent'))
+  await drive(chains, 'turn.start', fx.dollar, { text: 'a status report from an agent' })
   await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on phase 4.'))
-  await drive(chains, 'session.receive', fx.dollar, relayed('[module] Settled elsewhere: another question'))
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on phase 4.'))
-  expect(entries(fx).map(e => e.status)).toEqual(['open'])
-})
-
-test('a turn that shows the question again, or ends on an operator wait, leaves it open', async () => {
-  const chains = mounted()
-  const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(REPRESENTED, QUESTION_LINE)))
-  await drive(chains, 'session.receive', fx.dollar, relayed('a status report'))
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(REPRESENTED))
-  await drive(chains, 'session.receive', fx.dollar, relayed('a status report'))
-  expect(entries(fx).map(e => e.status)).toEqual(['open'])
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Still waiting.', QUESTION_LINE)))
   expect(entries(fx).map(e => e.status)).toEqual(['open'])
   expect(fx.logged.some(l => l.includes('withdrawn by the sender'))).toBe(false)
-})
-
-test('the net leaves a done proposal of the session open', async () => {
-  const chains = mounted()
-  const fx = fake()
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Everything merged.', 'waiting: done')))
-  await drive(chains, 'session.receive', fx.dollar, relayed('anything else?'))
-  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on phase 4.'))
-  expect(entries(fx).map(e => [e.kind, e.status])).toEqual([['done', 'open']])
 })
 
 test('the orchestrator withdraws its own open question when it acts on an answer by message: answered, by message, with its author', async () => {

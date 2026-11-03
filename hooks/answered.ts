@@ -2,8 +2,8 @@
 // The orchestrator's tool for an answer that reached it by a message. The operator answers in
 // the coordinator's tab and the coordinator relays it: no hook sees that answer, so the entry
 // stays open unless the orchestrator says it acted on it. The call marks the session's open
-// question answered, by message, with the message's author; the turn-end net of relayTurnEnd
-// withdraws it for an orchestrator that forgets.
+// question answered, by message, with the message's author. An unanswered question never
+// leaves the round otherwise.
 import { answerByMessage } from './supervision.ts'
 import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
 
