@@ -6317,6 +6317,12 @@ check "list names the ended orchestrator of an orphaned agent, on a line no row 
   "orphan: /dev/ttys804 (w1/t4) is an agent of the orchestrator on /dev/ttys016, which has ended|4|0" \
   "$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:')|$(sfield "$res" rows | tr '~' '\n' | grep -c '^w1/t')|$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:' | grep -c ' | ')"
 
+res=$(ORCHESTRATOR_BACKEND=api ORCHESTRATOR_STATE_DIR="$WORK/placestate" ORCHESTRATOR_SELF_TTY=/dev/ttys801 \
+  ORCHESTRATOR_PS_TABLE="$WORK/ps-missing.txt" "$py" "$WORK/place_probe.py" "$ROOT/skills/iterm-agents/scripts" \
+  '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803,4:S-AG4:804' "$WORK" list 2>&1)
+check "list names no orphan when the process table cannot be read" "0|4" \
+  "$(sfield "$res" rows | tr '~' '\n' | grep -c '^orphan:')|$(sfield "$res" rows | tr '~' '\n' | grep -c '^w1/t')"
+
 # Chain files of dead or recycled ttys piled up. The next chain write removes every file
 # whose every entry is a dead tty; never one with an agent still running, even when its
 # orchestrator has ended (it is what `list` names the orphan's owner from), never the

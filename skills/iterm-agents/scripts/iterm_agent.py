@@ -3338,14 +3338,17 @@ def orphan_lines(listed):
     no live session claims, and nothing on screen tells whose they are. `listed` is
     `(place, tty, stable id)` per row. The line holds no ` | `, so a reader of the rows (the
     stop gate's) skips it."""
-    held, ended, lines = chain_holders(), {}, []
+    held, lines = chain_holders(), []
+    live = live_host_ttys()
+    if live is None:
+        # An unreadable process table proves nothing: reading it as « nobody runs » named
+        # every orchestrator ended.
+        return lines
     for place, tty, stable in listed:
         holder = held.get(stable)
         if not holder:
             continue
-        if holder not in ended:
-            ended[holder] = not host_cli_on(holder)
-        if ended[holder]:
+        if holder not in live:
             lines.append("orphan: %s (%s) is an agent of the orchestrator on %s, which has "
                          "ended" % (tty, place, holder))
     return lines
