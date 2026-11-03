@@ -6,7 +6,7 @@ Read before dispatching a review or comments round, before a verdict on a delive
 - Review on evidence — the checks, the record, the rebase once ready
 - Review rounds run in disposable sessions — review, publishing, comments
 - The cost of a round
-- Depth vs scope, and the rationalizations observed
+- Depth vs scope
 
 ## Thresholds a verdict never crosses
 
@@ -66,14 +66,6 @@ A round's wall clock is rarely the work. It is the cold start, the verification 
 
 None of this is bought by shortening the verification. The gate is the cheapest step to cut and the most expensive to have cut: a scoped selection must cover the tests of every file the change touches, not only the tests of the feature, and a change to a signature, a constructor or a service definition is never gated by a scoped run — those break callers no scoped path visits. Nor does a local coverage figure stand for the remote gate: the same command has read differently there, and the remote gate is the authority.
 
-## Depth vs scope, and the rationalizations observed
+## Depth vs scope
 
 - **Depth vs scope**: completing an ordered fix on its adjacent case (same rule, same class of failure) is YOUR call and belongs in the same N-bis. New functional scope is the USER's call: relay, never decide. **Arbitrations are relayed with their context**: what the thing is on the screen or in the data, the two readings, and what each costs — never a bare identifier.
-
-Rationalizations (all observed in real runs):
-
-| Excuse | Reality |
-|---|---|
-| "The agent's report is detailed, no need to re-check" | Reports describe intent; the diff, the test, `ps` and `ls` describe reality. Verify on the artifact. |
-| "`ready` is green, I can take it out of draft" | By default draft is his to lift: rebase, then tell him « ready »; the undraft and the squash-merge are his unless the project's own method decides otherwise. |
-| "The lower pull request is merged, a plain rebase on main will do" | After a squash-merge it replays the lower branch's commits as conflicts or duplicates. `rebase --onto` the main branch from the lower branch's old head, pushed with `--force-with-lease=<branch>:<sha>`. |

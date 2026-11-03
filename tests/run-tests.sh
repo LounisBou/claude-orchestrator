@@ -257,7 +257,9 @@ check "the lifecycle closes a predecessor started by hand like any other" "1|0" 
 check "ready leaves the pull request in draft" "1" "$(grep -c "Ready is the operator's turn, and the pull request stays in draft" "$ORCH_REFS/review.md")"
 check "ready includes the rebase and names the squash-merge trap" "1|1|1" \
   "$(grep -c "each pull request of a stack on the one below it" "$ORCH_REFS/review.md")|$(grep -c "git rebase --onto <main> <old head of the lower branch> <branch>" "$ORCH_REFS/review.md")|$(grep -c "the one force this rule allows" "$ORCH_REFS/review.md")"
-check "the undraft and the plain rebase have their rows" "1|1" \
+# The rationalizations table left review.md (rule 169 of the rules review): each row repeated a
+# rule kept elsewhere, the ready and the rebase --onto pinned just above.
+check "the review reference carries no rationalizations table" "0|0" \
   "$(grep -c "is green, I can take it out of draft" "$ORCH_REFS/review.md")|$(grep -c "a plain rebase on main will do" "$ORCH_REFS/review.md")"
 # « Red flags » and « Where the rest lives » left the rulebook (the operator's ruling on topic 7
 # of the rules review): each flag repeated a rule kept elsewhere, the force push refused by the
