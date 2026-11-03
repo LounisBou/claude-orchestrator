@@ -178,7 +178,7 @@ and the hooks module carries it: ask here, in the shape of `/orchestrator-decide
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
 It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
 of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
-answered, each turn re-presents it whole or records his answer: the stop gate refuses any other.
+answered, each turn re-presents it whole: the stop gate refuses any other.
 One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
 Its fields, in his language: `**Question i of N**`, `_Subject_ :`, `_Context_ :`,
