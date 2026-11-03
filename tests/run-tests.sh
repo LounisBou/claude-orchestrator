@@ -4640,7 +4640,7 @@ check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes
 check "the orchestrator skill no longer re-reads the checks at each idle notice" "no" "$(spells "$ORCH_REFS/review.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
 check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ORCH_REFS/review.md" "in a project whose method opts into auto-merge, nothing")"
 check "and by default it reports ready" "yes" "$(spells "$ORCH_REFS/review.md" 'otherwise report « ready » as above')"
-check "the orchestrator skill points to the review reference for the watch" "yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'read `references/review.md`, « Checks, in one background watch », and start the watch')"
+check "the orchestrator skill points to the review reference for the watch" "yes|yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when a pull request you own is opened or its head moves')|$(spells "$ROOT/skills/orchestrator/SKILL.md" '« Checks, in one background watch »')"
 check "the lifecycle never rotates an agent, nor spawns a session, to watch CI" "yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'is stood down, never rotated, and no session is spawned to watch CI')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent whose remaining work is waiting on CI is not rotated')"
 check "no date or hour is written from memory, and a journal line carries no hour" "yes|yes|yes|no|no" \
