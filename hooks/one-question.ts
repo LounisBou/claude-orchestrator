@@ -4,7 +4,8 @@
 // his answer, so a message holding two numbered question blocks or more breaks it. And a turn
 // that ends on a wait for him puts one: an operator wait with no block asks him nothing he can
 // see. The blocks are the ones round.ts's questionParts splits an entry on (`**Question 3 of 4**`,
-// in the sender's language): the numbering is read there, once.
+// in the sender's language): the numbering is read there, once. A heading inside a fenced code
+// block is a quoted example, never a block: both rules read the message without its fences.
 import { questionParts, entryQuestions } from './round.ts'
 import { MACHINE_LINE, blocksNothing, machineLine } from './stop-gate.ts'
 
@@ -19,9 +20,27 @@ export const NO_QUESTION =
   + 'step 2: `**Question i of N**`, then its fields. If you ask him nothing, end on the line that fits: '
   + '`waiting: tool — <what is watched>`, `waiting: deferred — <ids>`, `waiting: done`, or no machine line.'
 
+// The message without its fenced code blocks (``` or ~~~, the closing fence of the opening one's
+// marker and at least its length; one never closed runs to the end), the text both rules count
+// blocks in: a numbering line quoted as an example is no question.
+function outsideFences(message: string): string {
+  const kept: string[] = []
+  let fence: string | null = null
+  for (const line of message.split('\n')) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1] ?? null
+    if (fence === null) {
+      if (marker !== null) fence = marker
+      else kept.push(line)
+    } else if (marker !== null && marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) {
+      fence = null
+    }
+  }
+  return kept.join('\n')
+}
+
 // The refusal for a message with two question blocks or more; null for one block or none.
 export function oneQuestionRefusal(message: string): string | null {
-  return questionParts(message).length > 1 ? ONE_QUESTION : null
+  return questionParts(outsideFences(message)).length > 1 ? ONE_QUESTION : null
 }
 
 // The refusal for a message whose machine line is a wait for the operator (the urgent form
@@ -32,6 +51,6 @@ export function operatorWaitRefusal(message: string): string | null {
   const line = machineLine(message)
   // A wait that blocks nothing asks him nothing: the gate's own refusal of it names the line that fits.
   if (!MACHINE_LINE.exec(line)?.[1] || blocksNothing(line)) return null
-  const asked = entryQuestions({ question: message, choices: [], recommendation: null })
+  const asked = entryQuestions({ question: outsideFences(message), choices: [], recommendation: null })
   return asked.some(part => part.number !== null) ? null : NO_QUESTION
 }
