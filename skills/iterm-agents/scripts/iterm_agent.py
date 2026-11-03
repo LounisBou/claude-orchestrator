@@ -2908,17 +2908,36 @@ def trace_home(socket, ended, cause, tty):
               echo=False)
 
 
+def unmark_home(socket):
+    """Take back the file `kill_watched_home` left: the server was not ended, so its watcher
+    still has an end to say."""
+    try:
+        os.remove(home_end_marker(socket))
+    except OSError:
+        pass
+
+
 def kill_home(socket):
     """End the home server `socket`, every window it holds with it; True when tmux did."""
+    try:
+        return tmux_call(["-L", socket, "kill-server"]).returncode == 0
+    except TmuxError:
+        return False
+
+
+def kill_watched_home(socket):
+    """End the home server `socket` that a watcher watches, and leave the file that tells the
+    watcher this command traces the end: taken back when tmux did not end the server, so the
+    next real end is not silent. True when tmux ended it."""
     try:
         os.makedirs(os.path.dirname(home_end_marker(socket)), exist_ok=True)
         open(home_end_marker(socket), "w").close()
     except OSError:
         pass
-    try:
-        return tmux_call(["-L", socket, "kill-server"]).returncode == 0
-    except TmuxError:
-        return False
+    ended = kill_home(socket)
+    if not ended:
+        unmark_home(socket)
+    return ended
 
 
 def ended_clause(socket):
@@ -3116,7 +3135,7 @@ def end_home(socket, what, listed=None):
     # Read before the server is ended, as for a tab: a host the end of its pane does not end
     # is ended by its pid and start time.
     hosts = {tty: host_identity(tty) for tty in ttys}
-    kill_home(socket)
+    kill_watched_home(socket)
 
     def survives(tty):
         host = hosts.get(tty)
@@ -4436,7 +4455,8 @@ def close_made(made):
     closed = (made.get("terminal") or terminal()).close_made(made)
     if made.get("home"):
         # The home server goes with its tab: every window of it, the session in window 0.
-        closed = kill_home(made["home"]) and closed
+        closed = (kill_home(made["home"]) if made.get("terminal") is NO_TAB
+              else kill_watched_home(made["home"])) and closed
     if closed and made.get("tab_id"):
         chain_drop_tab(made["tab_id"])
     return closed

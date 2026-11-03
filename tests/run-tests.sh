@@ -5665,6 +5665,34 @@ else
   echo "  skip the end of a home server is not traced here: no tmux"
 fi
 
+echo "== iterm-agents: the ends of a home server that no watcher sees are traced too =="
+# The file `kill_home` leaves tells the server's watcher that a command traced the end. It must
+# not outlive a failed kill (the next real end would be silent), nor be left for a server that
+# no watcher watches (a server shown by no tab). Tmux is stood in for: no server is made here.
+HSTATE_R="$WORK/trace-state-r"; rm -rf "$HSTATE_R"; mkdir -p "$HSTATE_R"
+hpy() { ( export ORCHESTRATOR_STATE_DIR="$HSTATE_R" ORCHESTRATOR_TMUX=/usr/bin/true; ipy "
+class Done:
+    def __init__(self, rc): self.returncode = rc
+class Tab:
+    def close_made(self, made): return True
+$1
+" ); }
+check "a kill that fails takes back its file: the next real end is not silent" "False" \
+  "$(hpy "
+ia.tmux_call = lambda args: Done(1)
+ia.close_made(dict(terminal=Tab(), home='suite-kill-failed', tty='/dev/ttys970'))
+print(__import__('os').path.exists(ia.home_end_marker('suite-kill-failed')))")"
+check "a server shown by no tab leaves no file: no watcher would consume it" "False" \
+  "$(hpy "
+ia.tmux_call = lambda args: Done(0)
+ia.close_made(dict(terminal=ia.NO_TAB, home='suite-no-tab', tty='/dev/ttys971'))
+print(__import__('os').path.exists(ia.home_end_marker('suite-no-tab')))")"
+check "a server a watcher watches is ended with its file left for it" "True" \
+  "$(hpy "
+ia.tmux_call = lambda args: Done(0)
+ia.close_made(dict(terminal=Tab(), home='suite-watched', tty='/dev/ttys972'))
+print(__import__('os').path.exists(ia.home_end_marker('suite-watched')))")"
+
 # Armed by open_home_tab, at the one moment the tab's client is proved, and by nothing before:
 # a spawn, a wake, an open and a move all show their server through it, and a server shown by
 # no tab (ORCHESTRATOR_HOME_NO_TAB) is never armed, its operator attaching and detaching at will.
