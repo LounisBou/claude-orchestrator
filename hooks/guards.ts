@@ -806,7 +806,6 @@ function runUntil($: any, argv: readonly string[], until: number, cwd?: string):
   return $.process.run(argv, cwd ? { timeoutMs, cwd } : { timeoutMs })
 }
 
-// A quiet read's fallback shape.
 // Every entry of the round on this machine (supervision.ts readRound's reading, $ never crossing
 // an import): a file that does not parse, or a temporary one, is no entry; no directory, none.
 async function roundEntries($: any, state: string): Promise<RoundEntry[]> {
@@ -827,6 +826,7 @@ async function waitRead($: any, sessionId: string): Promise<WaitRead | null> {
   return parseWaitRecord(String(await $.fs.read(`${store}/${waitKey(sessionId)}`).catch(() => '')))
 }
 
+// A quiet read's fallback shape.
 async function quietly<T>($: any, work: () => Promise<T>, until: number, fallback: T): Promise<T> {
   const done = await inTime($, work, until)
   return done === null ? fallback : done
