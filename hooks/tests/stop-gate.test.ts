@@ -1801,8 +1801,8 @@ test('an entry owned by a tmux pane is counted for that pane only, not for a sib
 // (`<record>.owner`, written by dispatch-record.sh) names the orchestration; the gate reads a
 // record that is its session's own, or has no owner yet, and no other.
 test('an orchestration is its name without the reference, in the house shape', () => {
-  expect(orchestrationOf('Orch : Deploy Staging/Prod')).toBe('Orch : Deploy Staging/Prod')
-  expect(orchestrationOf('Orch : Deploy Staging/Prod [592d50]')).toBe('Orch : Deploy Staging/Prod')
+  expect(orchestrationOf('Orch : Shipping')).toBe('Orch : Shipping')
+  expect(orchestrationOf('Orch : Shipping [a1b2c3]')).toBe('Orch : Shipping')
   expect(orchestrationOf('Orch: belt')).toBe('Orch : belt')
   expect(orchestrationOf('  Orch :  belt  ')).toBe('Orch : belt')
   expect(orchestrationOf('Agent : belt')).toBeNull()
@@ -1810,8 +1810,8 @@ test('an orchestration is its name without the reference, in the house shape', (
 })
 
 test('an owner file names its owner on its first line, and a blank file names nobody', () => {
-  expect(ownerOf('Orch : geo-git-flow\n')).toBe('Orch : geo-git-flow')
-  expect(ownerOf('Orch: geo-git-flow [ab12cd]\nignored\n')).toBe('Orch : geo-git-flow')
+  expect(ownerOf('Orch : other\n')).toBe('Orch : other')
+  expect(ownerOf('Orch: other [a1b2c3]\nignored\n')).toBe('Orch : other')
   expect(ownerOf('\n  \n')).toBeNull()
   expect(ownerOf('')).toBeNull()
 })
@@ -1819,7 +1819,7 @@ test('an owner file names its owner on its first line, and a blank file names no
 test('a record is the session\'s own when it has no owner or the owner is the session\'s orchestration', () => {
   expect(isOwnRecord(null, 'Orch : belt')).toBe(true)
   expect(isOwnRecord('Orch : belt', 'Orch : belt')).toBe(true)
-  expect(isOwnRecord('Orch : geo-git-flow', 'Orch : belt')).toBe(false)
+  expect(isOwnRecord('Orch : other', 'Orch : belt')).toBe(false)
 })
 
 test('the records that hold an open row not deferred are the ones the refusal names', () => {
@@ -1839,26 +1839,26 @@ test('the refusals name the record or the goals file they read, when they are gi
 })
 
 // The end-to-end path: a full stop event, two orchestrations sharing one record directory.
-const GGF_RECORD = '/tmp/h/ggf/dispatch-record.jsonl'
-const GGF_ROWS = '{"id":35,"label":"to implement by Orch : geo-git-flow","state":"open"}\n'
-const GGF_GOALS = { exitCode: 1, stdout: goalsAnswer({ open: ['G1', 'G2'] }) }
+const FOREIGN_RECORD = '/tmp/h/other/dispatch-record.jsonl'
+const FOREIGN_ROWS = '{"id":35,"label":"to implement by Orch : other","state":"open"}\n'
+const FOREIGN_GOALS = { exitCode: 1, stdout: goalsAnswer({ open: ['G1', 'G2'] }) }
 
 test('a session is never made to answer for the rows and goals of a record another orchestration owns', async () => {
   const { handlers } = mounted()
-  // The session is « Orch : belt »; the record and the goals.md beside it belong to geo-git-flow.
-  const foreign = fakeDollar({ ...NO_ROWS, shared: [{ path: GGF_RECORD, text: GGF_ROWS, owner: 'Orch : geo-git-flow', goals: GGF_GOALS }] })
+  // The session is « Orch : belt »; the record and the goals.md beside it belong to other.
+  const foreign = fakeDollar({ ...NO_ROWS, shared: [{ path: FOREIGN_RECORD, text: FOREIGN_ROWS, owner: 'Orch : other', goals: FOREIGN_GOALS }] })
   const passed = await stop(handlers['classic.Stop'], foreign.dollar, stopEvent(DONE))
   expect(passed.answer).toBe(passed.passed)
   expect(foreign.ran.filter(line => line.startsWith('python3'))).toEqual([])
-  expect(foreign.written.join('\n')).toContain(`stop gate: ${GGF_RECORD} belongs to Orch : geo-git-flow: not read`)
+  expect(foreign.written.join('\n')).toContain(`stop gate: ${FOREIGN_RECORD} belongs to Orch : other: not read`)
 })
 
 test('the same record, owned by the session\'s own orchestration, is read and its refusals name its path', async () => {
   const { handlers } = mounted()
-  const own = fakeDollar({ ...NO_ROWS, shared: [{ path: GGF_RECORD, text: GGF_ROWS, owner: 'Orch : belt', goals: GGF_GOALS }] })
+  const own = fakeDollar({ ...NO_ROWS, shared: [{ path: FOREIGN_RECORD, text: FOREIGN_ROWS, owner: 'Orch : belt', goals: FOREIGN_GOALS }] })
   const held = await stop(handlers['classic.Stop'], own.dollar, stopEvent(DONE))
-  expect((held.answer as any).block).toContain(`row 35 (to implement by Orch : geo-git-flow) is open in ${GGF_RECORD}.`)
-  expect((held.answer as any).block).toContain('Not done against the spec: G1, G2 open in /tmp/h/ggf/goals.md.')
+  expect((held.answer as any).block).toContain(`row 35 (to implement by Orch : other) is open in ${FOREIGN_RECORD}.`)
+  expect((held.answer as any).block).toContain('Not done against the spec: G1, G2 open in /tmp/h/other/goals.md.')
 })
 
 test('a record with no owner yet is read as before, beside a foreign one that is not', async () => {
@@ -1866,7 +1866,7 @@ test('a record with no owner yet is read as before, beside a foreign one that is
   const mixed = fakeDollar({
     ...NO_ROWS,
     shared: [
-      { path: GGF_RECORD, text: GGF_ROWS, owner: 'Orch : geo-git-flow', goals: GGF_GOALS },
+      { path: FOREIGN_RECORD, text: FOREIGN_ROWS, owner: 'Orch : other', goals: FOREIGN_GOALS },
       { path: '/tmp/h/mine/dispatch-record.jsonl', text: '{"id":2,"label":"mine","state":"open"}\n' },
     ],
   })
@@ -1879,9 +1879,9 @@ test('a record with no owner yet is read as before, beside a foreign one that is
 test('the register\'s own record is held to its owner file too', async () => {
   const { handlers } = mounted()
   const ROW = '{"id":"r-12","label":"the report row","state":"open"}\n'
-  const foreign = fakeDollar({ records: [ROW], recordOwner: 'Orch : geo-git-flow' })
+  const foreign = fakeDollar({ records: [ROW], recordOwner: 'Orch : other' })
   const passed = await stop(handlers['classic.Stop'], foreign.dollar, stopEvent(DONE))
   expect(passed.answer).toBe(passed.passed)
-  const own = fakeDollar({ records: [ROW], recordOwner: 'Orch : belt [2b914e]' })
+  const own = fakeDollar({ records: [ROW], recordOwner: 'Orch : belt [a1b2c3]' })
   expect(((await stop(handlers['classic.Stop'], own.dollar, stopEvent(DONE))).answer as any).block).toContain('row r-12 (the report row) is open')
 })
