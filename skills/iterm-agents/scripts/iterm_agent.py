@@ -2776,8 +2776,31 @@ def open_home_tab(socket, title, anchor, what):
         die("%s: the tab on %s shows no client of the home server %s after %ds; %s; %s"
             % (what, tty, socket, SPAWN_TIMEOUT, closed_clause(closed, tty),
                ended_clause(socket)))
+    if not arm_home(socket, what):
+        closed = ITERM.close_made(made)
+        die("%s: the home server %s could not be told to exit with its tab, so closing the tab "
+            "would not end it; %s; %s" % (what, socket, closed_clause(closed, tty),
+                                         ended_clause(socket)))
     return tty, made
 
+
+def arm_home(socket, what):
+    """Tell the home server `socket` to exit once no client is attached: closing its tab then
+    ends the server, its orchestrator and every agent window (the operator's order: the tab's
+    close ends them all). Called only once the tab's client is proved attached. Set at the
+    start, the option would end the server before its tab attached; a takeover kills a window
+    with the tab still attached, and a server shown by no tab is never armed. True when tmux
+    took the option."""
+    try:
+        done = tmux_call(["-L", socket, "set-option", "-s", "exit-unattached", "on"])
+    except TmuxError as exc:
+        print("%s: tmux set-option: %s" % (what, exc), file=sys.stderr)
+        return False
+    if done.returncode != 0:
+        print("%s: tmux refused exit-unattached: %s" % (what, tmux_refusal(done)),
+              file=sys.stderr)
+        return False
+    return True
 
 
 def home_of_tab(tty):

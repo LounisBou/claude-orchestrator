@@ -5294,6 +5294,96 @@ check "a successor's takeover ends its predecessor's host before it takes window
   "$(printf '%s' "$out" | grep -c "SIGKILL sent to $st")|$(printf '%s' "$out" | grep -c '^took window 0')|$(alive "$st")"
 kill -9 "$sh0" "$sh1" "$st" "$sp" "$pp" 2>/dev/null
 
+echo "== iterm-agents: closing a home tab ends its server =="
+# The operator closes the tab of an orchestrator's home session and expects the orchestrator
+# and every agent window to end with it. With tmux's defaults the server outlived its only
+# client, unseen. Once the home tab's client is proved attached, the server is told to exit
+# when no client is left; before that moment (the detached start) it is not, and a takeover
+# kills a window while the tab stays attached. A server and a client of the suite's own; the
+# client runs on a pty whose master the probe holds, as the tab's terminal does, and closing
+# that master is closing the tab.
+if command -v tmux >/dev/null 2>&1; then
+  HSRV="suite-home-$$"
+  HMARK=$((3600 + $$ % 1000))
+  printf '%s\n' 'import os, pty, sys, time' \
+    'pid, fd = pty.fork()' \
+    'if pid == 0:' \
+    '    os.execvp(sys.argv[1], sys.argv[1:])' \
+    'while True:' \
+    '    try:' \
+    '        os.read(fd, 4096)' \
+    '    except OSError:' \
+    '        time.sleep(0.2)' > "$WORK/ptyclient.py"
+  hsrv() { env -u TMUX -u TMUX_PANE tmux -L "$HSRV" "$@"; }
+  hpanes() { pgrep -fx "sleep $HMARK" | wc -l | tr -d ' '; }
+  hserver() { hsrv has-session -t home 2>/dev/null && echo up || echo down; }
+  hsrv -f "$ROOT/skills/iterm-agents/tmux/home.conf" new-session -d -s home -n 'Orch : x' "sleep $HMARK" 2>/dev/null
+  hsrv new-window -d -t home: -n 'Agent : a' "sleep $HMARK" 2>/dev/null
+  hsrv new-window -d -t home: -n 'Agent : b' "sleep $HMARK" 2>/dev/null
+  sleep 1
+  check "a home server started detached is not ended for having no client yet" "up|3" "$(hserver)|$(hpanes)"
+  TERM=xterm-256color "$py" "$WORK/ptyclient.py" tmux -L "$HSRV" attach -t home >/dev/null 2>&1 &
+  hclient=$!
+  i=0; while [ "$(hsrv list-clients 2>/dev/null | wc -l | tr -d ' ')" = 0 ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  check "the client of the home tab attaches, and the server is armed" "1|True" \
+    "$(hsrv list-clients 2>/dev/null | wc -l | tr -d ' ')|$(ORCHESTRATOR_TMUX="$(command -v tmux)" ipy "print(ia.arm_home('$HSRV', 'suite'))")"
+  # A takeover kills window 0 while the tab stays attached: the server stays.
+  hsrv kill-window -t home:0 2>/dev/null
+  sleep 1
+  check "a takeover's kill of window 0 leaves the attached server running" "up|2" "$(hserver)|$(hpanes)"
+  { kill "$hclient"; wait "$hclient"; } 2>/dev/null
+  i=0; while [ "$(hserver)" = up ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  sleep 0.5
+  check "closing the tab ends the server and every window it held" "down|0" "$(hserver)|$(hpanes)"
+  hsrv kill-server 2>/dev/null
+  pkill -f "sleep $HMARK" 2>/dev/null
+else
+  echo "  skip a home server's end is not checked: no tmux"
+fi
+# Armed by open_home_tab, at the one moment the tab's client is proved, and by nothing before:
+# a spawn, a wake, an open and a move all show their server through it, and a server shown by
+# no tab (ORCHESTRATOR_HOME_NO_TAB) is never armed, its operator attaching and detaching at will.
+check "the home tab arms its server once its client is proved, and not before" "client,arm" \
+  "$(ipy "
+calls = []
+class Maker:
+    def create(self, program, title, place, prompt, made):
+        calls.append('create'); return '/dev/ttys968', None
+    def close_made(self, made): return True
+ia.ITERM = Maker()
+ia.client_on = lambda socket, tty: calls.append('client') or True
+ia.arm_home = lambda socket, what: calls.append('arm') or True
+ia.open_home_tab('orch-suite', 'Orch : x', '', 'spawn')
+print(','.join(calls[1:]))")"
+check "a server that cannot be armed is ended with its tab, and the open dies saying so" "1|closed|ended" \
+  "$(ipy "
+said = []
+class Maker:
+    def create(self, program, title, place, prompt, made): return '/dev/ttys968', None
+    def close_made(self, made): said.append('closed'); return True
+ia.ITERM = Maker()
+ia.client_on = lambda socket, tty: True
+ia.arm_home = lambda socket, what: False
+ia.kill_home = lambda socket: said.append('ended') or True
+try:
+    ia.open_home_tab('orch-suite', 'Orch : x', '', 'spawn')
+except SystemExit:
+    pass
+print(said and '|'.join(said))" 2>&1 | grep -c 'closing the tab would not end it')|$(ipy "
+said = []
+class Maker:
+    def create(self, program, title, place, prompt, made): return '/dev/ttys968', None
+    def close_made(self, made): said.append('closed'); return True
+ia.ITERM = Maker()
+ia.client_on = lambda socket, tty: True
+ia.arm_home = lambda socket, what: False
+ia.kill_home = lambda socket: said.append('ended') or True
+try:
+    ia.open_home_tab('orch-suite', 'Orch : x', '', 'spawn')
+except SystemExit:
+    pass
+print('|'.join(said))" 2>/dev/null)"
+
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
 # checkout it worked in is deleted — through `workspace.sh delete`, never `--discard`, so a
