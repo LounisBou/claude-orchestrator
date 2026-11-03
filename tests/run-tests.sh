@@ -8372,6 +8372,11 @@ check "an immediate rung with too few trials is offered, not skipped for the eli
   "$(rpick --class review-lens --record "$WORK/n-c.jsonl" | sed -n 2p)"
 check "a contract phase is never explored, measured or not" "2" \
   "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
+# The skill no longer lists the never-explored classes (rule 117 of the rules review): pick
+# refuses to offer an exploration for each of them, on a record that would offer one elsewhere.
+never_explored() { for c in orchestrator successor decision-round final-verification; do
+  hi3 "$c" > "$WORK/ne-$c.jsonl"; out=$(rpick --class "$c" --record "$WORK/ne-$c.jsonl"); echo "$?:$(printf '%s\n' "$out" | grep -c '^explore=')"; done | paste -sd'|' -; }
+check "the orchestrator, a successor, a decision round and the final verification are never explored" "0:0|0:0|0:0|0:0" "$(never_explored)"
 # A table written before the selection by equivalence: a floor, rungs with no new field.
 check "show --detail reads a table written before the tables by task, a missing figure as -" "1|1" \
   "$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^class=conversion-phase project=a-model/medium ')|$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^  rung pair=a-model/low tasks=- pass_rate=0.5 p_best=- median_usd=- ci=-..- expected_usd=- off_model=-$')"

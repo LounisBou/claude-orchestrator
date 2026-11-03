@@ -101,8 +101,6 @@ Two readings high or more raises the pair by **one** notch up the class's ladder
 
 `pick` prints `explore=<pair>` (`nbis=` stays last) when the record allows a try one notch below: take it only when the five readings show at most one high, and open the row `--explore`.
 
-The orchestrator, a successor, a decision round, a contract-defining phase and the final verification are never explored: nothing re-checks that work, so a failure there is paid N times.
-
 `summary` prints `frozen=<class>` after a failed exploration (the class reverts and is not explored again this build) and `promote=<class> <pair>` after three that closed in one round (dispatch the class on that pair, and fold it into the project's table with `routing.py calibrate <slug> --from-record <record>`).
 
 ## Escalate on evidence, one step, at a session boundary
