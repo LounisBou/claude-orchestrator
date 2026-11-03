@@ -153,9 +153,8 @@ The fill is the module's measurement, never an estimate — `/orchestrator-statu
 ## The operator decides; the orchestrator runs
 
 **A command the orchestrator could run is the orchestrator's to run.** Opening and tagging
-pull requests, running the live round, updating the installed plugin, restarting the
-sessions a change requires, pinning a head for review, refreshing what a tool needs: none of
-it is handed to the operator as a line to paste. His ruling:
+pull requests, updating the installed plugin, restarting the sessions a change
+requires, pinning a head for review: none of it is handed to the operator as a line to paste. His ruling:
 « everything you ask me to do, you can do yourself; I am here to decide, nothing else ». He
 adds nothing to a command he did not write; each such line costs him the attention the
 arbitrations need.
@@ -174,11 +173,12 @@ follows the ready ».
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each
 costs, one recommendation — one at a time, with its context, per the decision round. A
 configuration change the tooling needs is no chore of his: it goes to the session
-owning it, as a request with its measurement; its protocol decides if he hears of it.
+owning it, as a request; its protocol decides if he hears of it.
 
 **While a coordinator runs, every question for the operator goes to it** — his order —
 and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
+One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
 Its fields, in his language: `**Question i of N**`, `_Subject_ :`, `_Context_ :`,
 `_Question_ :`, `_Choices_ :` then one `- **A** : <text>` each, `_Recommendation_ : A — <why>`;

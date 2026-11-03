@@ -19,6 +19,7 @@ Before and above everything below:
 - When he says you erred, you **verify your own doing** first, with a command.
 - A method he names is a format: you **open that skill before the first presentation** and
   render every item in its template, one at a time.
+- Every question to him follows `orchestrator:decide`, one per turn.
 - A **fact you did not read is a fact you do not state**: no name, role, figure or cause that
   no command of this session printed. An unverified figure relayed from an agent
   carries its mark in the text that leaves the session (« per the agent's report »).
