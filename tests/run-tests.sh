@@ -5277,6 +5277,15 @@ ia.process_state = lambda pid: ('S0', 'Ss+')
 c = ia.process_gone('7', 'S0')
 ia.process_state = lambda pid: None
 print('%s|%s|%s|%s' % (a, b, c, ia.process_gone('7', 'S0')))")"
+# The exiting mark is read among all the flags, not only first: `UE`, `SE`, `?Es`; a zombie
+# `Z+` is gone; `Ss+` and `S+` are live.
+check "the exiting flag is read anywhere after the state letter" "True|True|True|True|False|False" \
+  "$(ipy "
+r = []
+for stat in ('UE', 'SE', '?Es', 'Z+', 'Ss+', 'S+'):
+    ia.process_state = lambda pid, stat=stat: ('S0', stat)
+    r.append(str(ia.process_gone('7', 'S0')))
+print('|'.join(r))")"
 check "a real zombie, read on the real table by pid and start, is gone" "Z|True" \
   "$(ipy "
 import os, time
