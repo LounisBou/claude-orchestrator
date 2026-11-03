@@ -4455,8 +4455,11 @@ def close_made(made):
     closed = (made.get("terminal") or terminal()).close_made(made)
     if made.get("home"):
         # The home server goes with its tab: every window of it, the session in window 0.
-        closed = (kill_home(made["home"]) if made.get("terminal") is NO_TAB
-              else kill_watched_home(made["home"])) and closed
+        watched = made.get("terminal") is not NO_TAB
+        ended = kill_watched_home(made["home"]) if watched else kill_home(made["home"])
+        if ended and watched:
+            trace_home(made["home"], "server", "spawn-failed", made.get("tty"))
+        closed = ended and closed
     if closed and made.get("tab_id"):
         chain_drop_tab(made["tab_id"])
     return closed

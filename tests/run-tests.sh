@@ -5692,6 +5692,8 @@ check "a server a watcher watches is ended with its file left for it" "True" \
 ia.tmux_call = lambda args: Done(0)
 ia.close_made(dict(terminal=Tab(), home='suite-watched', tty='/dev/ttys972'))
 print(__import__('os').path.exists(ia.home_end_marker('suite-watched')))")"
+check "a spawn refused after its tab opened writes the dated line: socket, cause spawn-failed, tty" "1|0|0" \
+  "$(grep -cE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: server suite-watched ended: cause=spawn-failed tty=/dev/ttys972\$" "$HSTATE_R/close.log")|$(grep -c "suite-kill-failed" "$HSTATE_R/close.log")|$(grep -c "suite-no-tab" "$HSTATE_R/close.log")"
 
 # Armed by open_home_tab, at the one moment the tab's client is proved, and by nothing before:
 # a spawn, a wake, an open and a move all show their server through it, and a server shown by
