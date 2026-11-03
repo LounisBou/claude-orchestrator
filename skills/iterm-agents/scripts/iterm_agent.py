@@ -2917,6 +2917,13 @@ def unmark_home(socket):
         pass
 
 
+def trace_home_unproved(socket, cause, why, tty):
+    """One dated line for an end of a home server that was asked and not proved: the kill went
+    out, and what was left to see says why the end cannot be called done."""
+    close_log("home", "server %s end not proved: cause=%s tty=%s (%s)"
+              % (socket, cause, tty or "-", why), echo=False)
+
+
 def kill_home(socket):
     """End the home server `socket`, every window it holds with it; True when tmux did."""
     try:
@@ -3108,12 +3115,13 @@ def home_panes(socket):
     return [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2], ""
 
 
-def end_home(socket, what, listed=None):
+def end_home(socket, what, listed=None, tab=""):
     """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
     server left on its socket. `(session id of window 0, the ttys it held)`. A server whose
     window 0 session id cannot be read is NOT ended, and the death says why: a pause that
     recorded no session would wake a fresh conversation, the orchestrator's own lost. `listed`
-    is `home_panes`' answer, when the caller has asked already."""
+    is `home_panes`' answer, when the caller has asked already. `tab` is the tab's tty, for the
+    line that says an end was not proved."""
     panes, why = listed if listed is not None else home_panes(socket)
     session_id = ""
     if panes is not None:
@@ -3144,6 +3152,7 @@ def end_home(socket, what, listed=None):
         return not end_host(host[0], host[1], tty, what) or bool(others_on(tty, host[0]))
     survivors = [tty for tty in ttys if survives(tty)]
     if survivors:
+        trace_home_unproved(socket, what, "a host still runs on %s" % ", ".join(survivors), tab)
         die("%s: the home server %s was asked to end, and a host still runs on %s"
             % (what, socket, ", ".join(survivors)))
     deadline = time.time() + CLOSE_TIMEOUT
@@ -3155,6 +3164,8 @@ def end_home(socket, what, listed=None):
         if not alive:
             break
         if time.time() >= deadline:
+            unmark_home(socket)
+            trace_home_unproved(socket, what, "the server still answers", tab)
             die("%s: the home server %s still answers after %ds" % (what, socket, CLOSE_TIMEOUT))
         time.sleep(0.3)
     return session_id, ttys
@@ -3181,7 +3192,7 @@ def close_home_tab(tty, socket, expect, listed=None):
         if stable_title(expect) not in stable_title(name):
             die("close: refused: session on %s is titled '%s', which does not contain '%s'"
                 % (tty, name, expect))
-    session_id, ttys = end_home(socket, "close", listed)
+    session_id, ttys = end_home(socket, "close", listed, tty)
     trace_home(socket, "server", "close", tty)
     deadline = time.time() + CLOSE_TIMEOUT
     while ITERM.find(tty):
