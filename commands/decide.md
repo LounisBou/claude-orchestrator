@@ -129,7 +129,7 @@ context, appended to the round. Never re-argue a ruled question inside another o
    which agent was told, what was launched — and the round ends.
 
 Rules that hold throughout: one question per message, the next one presented the moment
-the last is answered; nothing relayed, launched or reported inside a wave; nothing decided
-on their behalf.
+the last is answered; nothing relayed, launched or reported inside a wave; explanation
+before options; nothing decided on their behalf.
 
 $ARGUMENTS
