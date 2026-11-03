@@ -467,3 +467,21 @@ test('an entry moved to a successor between the read and the withdraw is not ove
   expect(after?.status).toBe('open')
   expect(after?.session).toBe('successor')
 })
+
+test('an entry naming no session, or from another machine, stays open though a row of that name is removed', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  // A row file named « » and one named « far », both emptied: this pass removes both.
+  files.set(`${SESSIONS}/`, '')
+  files.set(`${SESSIONS}/far`, '')
+  const list = dollar.fs.list
+  dollar.fs.list = async (dir: string) => {
+    const listed = await list(dir)
+    return dir === SESSIONS ? [...listed, { name: '', kind: 'file' }] : listed
+  }
+  const unnamed = openEntry(files, 'x', 'operator', { session: '' })
+  const remote = openEntry(files, 'far', 'operator', { origin: { machine: 'Elsewhere', address: 'x' } })
+  await readSessions(dollar)
+  expect(files.has(`${SESSIONS}/far`)).toBe(false)
+  expect(statusOf(files, unnamed)).toBe('open')
+  expect(statusOf(files, remote)).toBe('open')
+})
