@@ -711,6 +711,9 @@ as_session o-alpha-third summary "$OWR" --open >/dev/null 2>&1
 check "a read by the owner's successor registers the record" "$OWREAL" "$(cat "$OWST/records/o-alpha-third" 2>/dev/null)"
 as_session o-alpha-third goals "$OWR" status >/dev/null 2>&1
 check "a goals read by the owner registers it once" "1" "$(grep -c . "$OWST/records/o-alpha-third" 2>/dev/null)"
+host_session 108 o-alpha-check "Orch : alpha"
+as_session o-alpha-check goals "$OWR" check >/dev/null 2>&1
+check "a goals check by the owner registers the record alone" "$OWREAL" "$(cat "$OWST/records/o-alpha-check" 2>/dev/null)"
 OWU="$OW/unowned/dispatch.jsonl"; mkdir -p "$OW/unowned"
 bash "$REC" goals "$OWU" init --spec none >/dev/null; bash "$REC" open "$OWU" --class x --tier light >/dev/null
 as_session o-alpha-third summary "$OWU" >/dev/null 2>&1
