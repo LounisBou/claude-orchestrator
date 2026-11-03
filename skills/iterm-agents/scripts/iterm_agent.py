@@ -830,7 +830,8 @@ def process_gone(pid, start):
     state = process_state(pid)
     if state is None or state[0] != start:
         return True
-    return state[1][:1] in ("Z", "E")
+    # The table prints the exiting state as `?Es`: the mark is the first letter after the `?`.
+    return state[1].lstrip("?")[:1] in ("Z", "E")
 
 
 def close_log(what, line):

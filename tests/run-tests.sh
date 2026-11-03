@@ -5260,6 +5260,30 @@ check "the identity read before a close is the pid and the start time of the tab
 pid, start = ia.host_identity('/dev/ttys963')
 print('%s|%s' % (pid, 'yes' if start == ia.process_state(pid)[0] and start else 'no'))")"
 kill -9 "$sg" 2>/dev/null
+# « Gone » is read on the pid with its start time, never on the tty: a host killed under the
+# terminal's daemon stays in the table for days, its tty released (`??`), in the exiting
+# state `?Es` its parent never reaps, and a zombie is the same end. Both have exited and run
+# nothing more: they are gone. A live state, the same start, is not.
+check "an exited process its parent has not reaped is gone, a live one is not" "True|True|False|True" \
+  "$(ipy "
+ia.process_state = lambda pid: ('S0', '?Es')
+a = ia.process_gone('7', 'S0')
+ia.process_state = lambda pid: ('S0', 'Z+')
+b = ia.process_gone('7', 'S0')
+ia.process_state = lambda pid: ('S0', 'Ss+')
+c = ia.process_gone('7', 'S0')
+ia.process_state = lambda pid: None
+print('%s|%s|%s|%s' % (a, b, c, ia.process_gone('7', 'S0')))")"
+check "a real zombie, read on the real table by pid and start, is gone" "Z|True" \
+  "$(ipy "
+import os, time
+child = os.fork()
+if child == 0:
+    os._exit(0)
+time.sleep(0.5)
+start, stat = ia.process_state(child)
+print('%s|%s' % (stat[:1], ia.process_gone(str(child), start)))
+os.waitpid(child, 0)")"
 # A home server's close and a succession inside a home session go through the same end: the
 # host of each window is waited for, then escalated, never left to the server's end alone.
 sh0=$(stubborn); sh1=$(stubborn)
