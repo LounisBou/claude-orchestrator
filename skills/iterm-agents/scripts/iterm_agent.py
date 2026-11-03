@@ -1641,6 +1641,18 @@ def registered_coord_on(tty):
     return name if isinstance(name, str) and name else COORD_ROLE
 
 
+def opener_name():
+    """The name the calling session reads, for the rule that only a coordinator or an
+    orchestrator opens an orchestrator tab: the host registry or launch name, else the
+    coordinator's own record; empty when neither gives one."""
+    caller = session_name_on(self_tty() or "") or ""
+    if caller == UNREADABLE_NAME:
+        caller = ""
+    if not caller:
+        caller = registered_coord_on(self_tty() or "") or ""
+    return caller
+
+
 def chain_drop_tab(tab_id):
     """Every chain, every entry naming this tab. `close` does not know which orchestrator
     the tab belonged to, and a tab id names exactly one tab."""
@@ -3854,11 +3866,7 @@ def cmd_spawn(argv):
                 or re.search(r" \[[0-9A-Za-z]+\]\Z", args.title)):
             die('spawn: refused: --open needs the new orchestrator\'s name, --title '
                 '"Orch : <subject>" without a reference, got \'%s\'' % args.title)
-        caller = session_name_on(self_tty() or "") or ""
-        if caller == UNREADABLE_NAME:
-            caller = ""
-        if not caller:
-            caller = registered_coord_on(self_tty() or "") or ""
+        caller = opener_name()
         if not (caller.startswith("Orch : ") or caller.startswith(COORD_ROLE)):
             die("spawn: refused: --open is a coordinator's or an orchestrator's, and this "
                 "session reads '%s': an agent never opens an orchestrator"
@@ -3908,7 +3916,12 @@ def cmd_spawn(argv):
     if args.title.startswith("Orch :") and not args.open_:
         # --open already refuses every caller but a coordinator or an orchestrator. An
         # auditor's one successor is its own audit session, `--successor` without a title.
-        caller = audit_name_on(self_tty() or "")
+        # Read on the session's role, not on the `Audit :` prefix: an auditor named
+        # otherwise ("Audit neutre : ...") carries no such prefix and still is no orchestrator.
+        caller = session_name_on(self_tty() or "")
+        if caller == UNREADABLE_NAME or (caller and (caller.startswith("Orch : ")
+                                                     or caller.startswith(COORD_ROLE))):
+            caller = None
         if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
             caller = "unnamed"
         if caller:
@@ -3916,6 +3929,13 @@ def cmd_spawn(argv):
                 "orchestrator tab with --wake or an Orch title, and --open is a "
                 "coordinator's or an orchestrator's; its only successor is its own audit "
                 "session, --successor without --title" % caller[:40])
+    if args.wake:
+        # --open's caller rule, after the auditor's own refusal above has had its say.
+        caller = opener_name()
+        if not (caller.startswith("Orch : ") or caller.startswith(COORD_ROLE)):
+            die("spawn: refused: --wake is a coordinator's or an orchestrator's, and this "
+                "session reads '%s': an agent never wakes an orchestrator"
+                % (caller[:40] or "no name"))
     if not os.path.isdir(args.dir):
         die("spawn: directory not found: %s" % args.dir)
     if args.prompt and args.prompt_file:

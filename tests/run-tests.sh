@@ -3180,7 +3180,10 @@ CRDSTATE="$WORK/crdstate"; CRDCFG="$WORK/crdcfg"
 mkdir -p "$CRDSTATE/chains" "$CRDCFG/claude-orchestrator/measure"
 printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"crd-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$CRDCFG/claude-orchestrator/measure/s-crd.json"
 printf '{"tab_id":"7","tty":"/dev/ttys901","owner":"S-ME"}\n' > "$CRDSTATE/chains/ttys900.jsonl"
+# The caller reads as an orchestrator: a wake takes --open's caller rule.
+CRDCALLER="$WORK/ps-crdcaller.txt"; printf '/dev/ttys900 claude --name Orch : f\n' > "$CRDCALLER"
 crd() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_PS_TABLE="$CRDCALLER" \
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID=s-crd bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
 crdl() { crd "$@" | sed -n 's/^launch=//p'; }
 CRDOUT=$(crd --coordinator-successor --title 'Coord : ops')
@@ -6289,6 +6292,13 @@ check "an auditor whose name cannot be read is refused all the same, by the mark
   "$(ORCHESTRATOR_AUDITOR=1 orchp "$WORK/ps-unnamed.txt" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^launch=.*export ORCHESTRATOR_AUDITOR=1 && ')|$(orchp "$ORCHPS" --title 'Agent : x' | grep -c 'ORCHESTRATOR_AUDITOR')"
 check "an auditor's spawn stays out of the chain and left of its caller, a woken orchestrator's out of the chain" "1|1|1" \
   "$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^chain=none$')|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^side=left$')|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model | grep -c '^chain=none$')"
+NEUTRALPS="$WORK/ps-neutralcaller.txt"; AGENTPS="$WORK/ps-agentcaller.txt"
+printf '/dev/ttys900 claude --name Audit neutre : f\n' > "$NEUTRALPS"
+printf '/dev/ttys900 claude --name Agent : f\n' > "$AGENTPS"
+check "a wake from a session named otherwise is refused before any tab exists, the orchestrator's still goes" "1|0|1|0" \
+  "$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c '^launch=')|$(orchp "$AGENTPS" --title 'Orch : x' --wake --model a-model | grep -c "an agent never wakes an orchestrator")|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)"
+check "an auditor named otherwise opens no orchestrator tab as a successor either" "1" \
+  "$(orchp "$NEUTRALPS" --title 'Orch : x' --successor | grep -c "Audit neutre : f")"
 check "an auditor's --open is refused, as an agent's is" "1|1" \
   "$(orchp "$AUDPS" --title 'Orch : x' --open >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --open | grep -c 'an agent never opens an orchestrator')"
 check "while the auditor's own successor is launched" "0|Audit : f" \
