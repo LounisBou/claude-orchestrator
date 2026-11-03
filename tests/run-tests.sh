@@ -6128,6 +6128,7 @@ if command -v tmux >/dev/null 2>&1; then
   check "each state renders its icon in both blocks, an unknown state none" \
     " ● | ● / ○ | ○ / ✋ | ✋ / ✓ | ✓ / ⚠ | ⚠ / | /" "$stateicons"
   check "the status line shows no session name" "" "$(tmux -L "$CONFSRV" display -p -t home:0 '#{E:status-left}' 2>/dev/null)"
+  check "the status line shows nothing on its right: no pane title, no clock" "" "$(tmux -L "$CONFSRV" display -p -t home:0 '#{E:status-right}' 2>/dev/null)"
   check "the current window's format is bold" "1" \
     "$(tmux -L "$CONFSRV" show -gv window-status-current-format | grep -c 'bold')"
   check "the windows are set apart by a separator that is not empty" "yes" \
