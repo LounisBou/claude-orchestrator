@@ -281,7 +281,7 @@ check "the orchestrator rulebook stays at 10,500 bytes or fewer" "yes" \
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/commands/decide.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/hooks/stop-gate.ts" 'end on waiting: deferred — <ids>')|$(spells "$ROOT/commands/decide.md" 'dispatch-record.sh defer <record> <id> --ruling')"
 # Real load on a shared machine is stopped, and « under load » means emulated throttling: the
-# rulebook, the briefs reference and the phase brief template each carry the rule.
+# rulebook and the phase brief template each carry the rule.
 check "the rulebook stops real machine load an agent reports or plans" "yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'is stopped at once, its processes killed, and the work redone under emulated throttling')"
 # The pane draws each pull request reference of a blocks text as a link of its own, and a slash
@@ -289,7 +289,8 @@ check "the rulebook stops real machine load an agent reports or plans" "yes" \
 # them by a comma.
 check "the decision round splits the references of a blocks text by commas, never a slash" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'Split references in `blocks:` by `, `, never `/`.')"
-check "the standing rules read « under load » as emulated throttling" "yes" \
+# One copy for the agent, in its brief template (the operator's ruling on topic 16 of the rules review).
+check "the standing rules no longer copy the « under load » rule" "no" \
   "$(spells "$ORCH_REFS/briefs.md" '**« Under load » means emulated throttling, never real load on the machine.**')"
 check "the phase brief template reads « under load » as emulated throttling" "yes" \
   "$(spells "$ROOT/templates/agent-phase-brief.md" '« Under load » means emulated throttling, never real load on the machine')"
