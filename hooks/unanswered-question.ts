@@ -86,6 +86,12 @@ export function unansweredRefusal(message: string, pending: Pending | null): str
   return refusal(`**${asked.number}** — ${flat(question ?? pending.blocks)}`, pending.blocks)
 }
 
+// Whether a turn's final message shows a numbered question block (its `**Question i of N**`
+// line and labelled fields), outside code fences: the question is put to the operator again.
+export function showsQuestion(message: string): boolean {
+  return questionParts(outsideFences(message)).some(part => questionShape(part, parseChoices(part).choices)?.number)
+}
+
 // The text of a question's `Question` field, its label read in any case and emphasis.
 const questionField = (shape: QuestionShape) => shape.fields.find(field => /^question$/i.test(flat(field.label)))?.text
 

@@ -33,6 +33,7 @@ import {
   parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, cutQuestion, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
+import { showsQuestion } from './unanswered-question.ts'
 import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, waitsInTab, waitSummary, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, asksNothing, carriesChoices, type RoundAnswer, type RoundChoice, type RoundEntry, type RoundDelivery } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
@@ -893,6 +894,7 @@ async function shownToCoordinator($: any, id: string): Promise<boolean> {
 
 // The reason an entry withdrawn by the operator's prompt in its sender's own tab records.
 const TAB_ANSWER = "answered in the sender's own tab"
+const ELSEWHERE_ANSWER = 'answered elsewhere'
 
 // An entry settled in the pane or at its sender's turn end, closed by the module itself when the
 // coordinator on this machine was shown it: the answer it was closed with.
@@ -1123,6 +1125,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, undelivered: new Map(), answering: new Set() }
   // The entry whose recommended choice was last asked the focus: once per entry, never at a redraw.
   let focusedFor: string | null = null
+  // A peer's message reached the model since the last turn end that answered.
+  let messaged = false
   // This session's own repository, read once: its owner names the pull requests the pane links.
   let ownRepo: Promise<string | null> | null = null
   const stopTicker = () => {
@@ -1246,7 +1250,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   on('turn.complete', {}, async ($: any, e: any, next: (e: any) => any) => {
     try {
       if (!e.agentId && e.reason === 'answer') {
-        const done = await withDeadline(relayTurnEnd($, String(e.answer ?? '')), RELAY_BOUND_MS)
+        const byMessage = messaged
+        messaged = false
+        const done = await withDeadline(relayTurnEnd($, String(e.answer ?? ''), byMessage), RELAY_BOUND_MS)
         if (isDegradedPass(done)) await logLine($, `relay: did not finish within ${RELAY_BOUND_MS} ms`)
         // The wait just written is what the pane shows: the row follows it, when it is news.
         const sent = await withDeadline(sendRow($, await $.session.id()), RELAY_BOUND_MS)
@@ -1365,6 +1371,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         if (learnt) await learnCoordinator($, learnt)
         const successor = successorOf(delivery, Date.now())
         if (successor) await learnSuccessor($, successor)
+        // A peer's message for the model, the module's own notices apart: the next turn end may be
+        // the one that acted on an answer it carried (relayTurnEnd).
+        if (!delivery.body.startsWith('[module]')) messaged = true
       }
     } catch (err) {
       await logLine($, `receive: ${(err as Error).message}`)
@@ -1959,7 +1968,7 @@ async function dropMark($: any): Promise<void> {
 // other open entries as answered there.
 // A turn that ends on an operator wait whose text asks nothing is entered as its own entry and
 // never withdraws its session's open question with choices.
-export async function relayTurnEnd($: any, answer: string): Promise<void> {
+export async function relayTurnEnd($: any, answer: string, byMessage = false): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   let name = row?.name ?? null
@@ -2000,6 +2009,13 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
         swept = true
       }
     }
+  }
+  // An answer that reached the orchestrator by a message sets no mark: the turn a peer's message
+  // opened ends with neither the question shown again nor an operator wait, so the question it
+  // answered is withdrawn here, as answered elsewhere. Only the session's operator entries; a done
+  // proposal stays.
+  if (byMessage && !typed && !swept && role === 'orchestrator' && wait?.kind !== 'operator' && !showsQuestion(answer)) {
+    await tellSettled($, await withdrawStale($, sessionId, wait ? roundEntryId(sessionId, wait) : null, ELSEWHERE_ANSWER, entry => entry.kind !== 'operator'))
   }
   const read = await readWait($, sessionId)
   const before = read ? withoutMark(read) : null
@@ -2412,27 +2428,41 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
   return `[module] The operator answered from the coordinator's pane at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
 }
 
+// The orchestrator acted on an answer that reached it by a message (a relay from another session):
+// its open operator entries, or only `only` when named, are marked `answered`, by `message`, with
+// the message's author. Answers the ids still open, for the tool's reply, or null for a session
+// that is no orchestrator.
+export async function answerByMessage($: any, author: string, only: string | null): Promise<string[] | null> {
+  const sessionId = await $.session.id()
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
+  if (roleOf(row?.name ?? (await walkWithinBound($, sessionId)).name ?? null) !== 'orchestrator') return null
+  await tellSettled($, await withdrawStale($, sessionId, null, `answered by a message from ${author}`,
+    entry => entry.kind !== 'operator' || (only !== null && entry.id !== only), { author }))
+  return (await readRound($)).filter(({ entry }) => entry.session === sessionId && entry.kind === 'operator' && entry.status === 'open').map(({ entry }) => entry.id)
+}
+
 // An orchestrator's turn ended on a machine line other than the wait an open entry of its own
 // holds: that entry is no longer what it waits on, so it is withdrawn by the sender, leaves the
 // pane and its count, and its fingerprint is forgotten. A turn with no machine line says nothing
 // of its wait and withdraws nothing. The same withdrawal closes every open entry of a session
 // that is superseded by its new question, that ended, or that handed over (`current` null).
 // `current` is the id of the entry this turn's wait has, kept open; `why` the withdrawal's answer
-// text; `kept` the entries left open besides. An entry the coordinator on this machine was shown
-// is closed instead, its answer « withdrawn: <why> », and returned so the caller tells it once
+// text; `kept` the entries left open besides; `via` set, the answer reached the sender by a message
+// from that author: the entry is `answered`, by `message`, rather than withdrawn. An entry the
+// coordinator on this machine was shown is closed instead, its answer « withdrawn: <why> », and returned so the caller tells it once
 // every write is done. Each withdrawal is one log line; one that cannot be written is one too,
 // and the relay goes on.
-async function withdrawStale($: any, sessionId: string, current: string | null, why: string, kept?: (entry: RoundEntry) => boolean): Promise<Settled[]> {
+async function withdrawStale($: any, sessionId: string, current: string | null, why: string, kept?: (entry: RoundEntry) => boolean, via?: { author: string }): Promise<Settled[]> {
   const settled: Settled[] = []
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current || kept?.(entry)) continue
     try {
       const closed = await closesItself($, entry.id)
-      const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: 'sender', at: new Date().toISOString() }
+      const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: via ? 'message' : 'sender', at: new Date().toISOString(), ...via }
       // Re-read just before the write: a move to a successor in between is never overwritten.
       const fresh = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
       if (!fresh || fresh.status !== 'open' || fresh.session !== sessionId) continue
-      await writeAtomic($, path, JSON.stringify({ ...fresh, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
+      await writeAtomic($, path, JSON.stringify({ ...fresh, status: closed ? 'closed' : via ? 'answered' : 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)
       if (closed) settled.push({ entry, answer })

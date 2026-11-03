@@ -15,7 +15,7 @@ export type RoundChoice = { letter: string; text: string }   // letter: one of '
 // (`round-close`, `closed`), the operator in the sender's own tab or the sender itself — a later
 // turn waiting on something else, a newer question, its session's end or its hand-over
 // (`withdrawn`).
-export type RoundAnswer = { text: string; by: 'pane' | 'coordinator' | 'tab' | 'sender'; at: string }
+export type RoundAnswer = { text: string; by: 'pane' | 'coordinator' | 'tab' | 'sender' | 'message'; at: string; author?: string }
 export type RoundEntry = {
   id: string                    // `${sanitised session id}-${fingerprint(wait)}`, its wait unmarked, sanitised as supervision.ts sanitises store ids
   from: string                  // the sender's name (what relayText puts after « reply with SendMessage to: »), the answer's address when `session` is not live here
