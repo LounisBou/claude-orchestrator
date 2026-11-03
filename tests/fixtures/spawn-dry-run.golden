@@ -586,7 +586,7 @@ ERROR: spawn: refused: --resident marks an agent of your chain; a successor, an 
 exit=1
 ### auditor
 spawn: no server catalogue at @WORK@/state/mcp.json: the session loads no server
-launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && printf '\033]0;%s\007' 'Audit : tm' && exec @WORK@/bin/host-cli --model a-model --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orchestrator__end_session --strict-mcp-config --permission-mode auto --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Audit---tm-@TIME@.txt)" --name 'Audit : tm' --remote-control 'Audit : tm'
+launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && export ORCHESTRATOR_AUDITOR=1 && printf '\033]0;%s\007' 'Audit : tm' && exec @WORK@/bin/host-cli --model a-model --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orchestrator__end_session --strict-mcp-config --permission-mode auto --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Audit---tm-@TIME@.txt)" --name 'Audit : tm' --remote-control 'Audit : tm'
 prompt_file=@WORK@/state/prompts/prompt-Audit---tm-@TIME@.txt
 self=/dev/ttys900
 anchor=self
@@ -612,7 +612,7 @@ program=/bin/sh -l <launch-file>
 exit=0
 ### auditor, derived successor
 spawn: no server catalogue at @WORK@/state/mcp.json: the session loads no server
-launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && printf '\033]0;%s\007' 'Audit : f' && exec @WORK@/bin/host-cli --model a-model --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orchestrator__end_session --strict-mcp-config --permission-mode auto --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Audit---f-@TIME@.txt)" --name 'Audit : f' --remote-control 'Audit : f'
+launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && export ORCHESTRATOR_AUDITOR=1 && printf '\033]0;%s\007' 'Audit : f' && exec @WORK@/bin/host-cli --model a-model --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orchestrator__end_session --strict-mcp-config --permission-mode auto --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Audit---f-@TIME@.txt)" --name 'Audit : f' --remote-control 'Audit : f'
 prompt_file=@WORK@/state/prompts/prompt-Audit---f-@TIME@.txt
 self=/dev/ttys900
 anchor=self

@@ -3519,6 +3519,11 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
              "export ORCHESTRATOR_SPAWNED=1",
              "printf '\\033]0;%%s\\007' %s" % shq(title),
              None]
+    if title_role(title) == "Audit":
+        # A marker the session carries in its own environment. The auditor's name is read
+        # from the process table, which cannot give it back for a session launched without
+        # one, and that session must still be known for an auditor.
+        parts.insert(2, "export ORCHESTRATOR_AUDITOR=1")
     if not gate_tokens and title_role(title) == "Agent":
         gate_tokens = AGENT_GATE_TOKENS
     if gate_tokens:
@@ -3899,10 +3904,13 @@ def cmd_spawn(argv):
         # --open already refuses every caller but a coordinator or an orchestrator. An
         # auditor's one successor is its own audit session, `--successor` without a title.
         caller = audit_name_on(self_tty() or "")
+        if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
+            caller = "unnamed"
         if caller:
             die("spawn: refused: this session is an auditor's ('%s'): it opens no "
-                "orchestrator tab; its only successor is its own audit session, "
-                "--successor without --title" % caller[:40])
+                "orchestrator tab with --wake or an Orch title, and --open is a "
+                "coordinator's or an orchestrator's; its only successor is its own audit "
+                "session, --successor without --title" % caller[:40])
     if not os.path.isdir(args.dir):
         die("spawn: directory not found: %s" % args.dir)
     if args.prompt and args.prompt_file:
