@@ -9472,8 +9472,10 @@ check "the calibration reference states that a run can pass its cap by the trial
 check "the calibration reference states the selection by equivalence, its keys and the size stamp" "yes|yes|yes|yes" \
   "$(spells "$MRC" '{"selection": {"delta": <d>, "bar": <b>}}')|$(spells "$MRC" 'The entry**: the eligible pair with the lowest expected cost')|$(spells "$MRC" 'the files matching `test_globs` left out')|$(spells "$MRC" 'show [--detail] [<slug>...]')"
 check "the calibration reference no longer states a floor for the tables" "no" "$(spells "$MRC" 'The reliability floors')"
-check "the routing skill skips a notch found not equivalent, not one below a floor" "yes|no" \
-  "$(spells "$MR" 'measured and found not equivalent to the best')|$(spells "$MR" 'measured below the floor')"
+# The notch an exploration may take is ladder_down's to choose (its checks above refuse a notch
+# measured and found not equivalent): the skill names neither that rule nor a floor.
+check "the routing skill leaves the notch to pick, and names no floor" "yes|no|no" \
+  "$(spells "$MR" 'allows a try one notch below')|$(spells "$MR" 'measured and found not equivalent to the best')|$(spells "$MR" 'measured below the floor')"
 check "the skill passes the phase's size to pick: both options, and the two thresholds of the readings" "yes|yes|yes|yes" \
   "$(spells "$MR" '--files')|$(spells "$MR" '--lines')|$(spells "$MR" 'files > 3')|$(spells "$MR" 'lines > 50')"
 check "the skill says what beyond= means for the brief, and that a correction round runs at nbis=" "yes|yes|yes" \
