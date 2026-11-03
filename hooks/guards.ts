@@ -19,7 +19,7 @@ import {
   roleOf, walkName, hostOn, scanTail, hostBasenames, blockArgv, bytesOfBase64,
   type ReadRecord, type HostNames,
 } from './session-name.ts'
-import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
+import { tripGate, parseMeasure, measureFilePath, DEFAULT_GATE_TOKENS } from './gauge-core.ts'
 import { takeDrift } from './gauge.ts'
 import { isEnding } from './naming.ts'
 import { oneQuestionRefusal, operatorWaitRefusal } from './one-question.ts'
@@ -153,7 +153,7 @@ async function gateEnv($: { env: { get(name: string): Promise<string | undefined
 function unmeasuredAnnouncement(env: { gate?: number; gateTokens?: number }): string {
   const words = (n: number) => n.toLocaleString('en-US')
   const gate = env.gate ?? 80
-  const gateTokens = env.gateTokens ?? 300000
+  const gateTokens = env.gateTokens ?? DEFAULT_GATE_TOKENS
   return `CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (the smaller of ${words(gateTokens)} tokens and ${gate}% of the reported window) cannot be read; measure by hand before dispatching or rotating.`
 }
 

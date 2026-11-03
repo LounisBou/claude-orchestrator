@@ -180,7 +180,7 @@ test('an unmeasured session is told so once, after a turn has answered', async (
   const handlers = mounted()
   const first = await submit(handlers, dollar)
   expect(first).toMatchObject({
-    context: ['CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (the smaller of 300,000 tokens and 80% of the reported window) cannot be read; measure by hand before dispatching or rotating.'], // the gate: the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
+    context: ['CONTEXT GATE: unmeasured: the measure file carries no figure; the next turn fills it. The gate (the smaller of 200,000 tokens and 80% of the reported window) cannot be read; measure by hand before dispatching or rotating.'], // the gate: the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
   })
   // Once per session: the next prompt meets the same silence as a low fill.
   const second = await submit(handlers, dollar)

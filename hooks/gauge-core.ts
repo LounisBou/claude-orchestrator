@@ -8,6 +8,10 @@ export type MeasureReading = {
   model: string; updated_at: string
 }
 
+// Every role's token gate, an orchestrator's, the coordinator's and an agent's alike; a session's
+// own ORCHESTRATOR_CONTEXT_GATE_TOKENS replaces it.
+export const DEFAULT_GATE_TOKENS = 200000
+
 // The gate is a token count no reported window moves: the smaller of the session's gate in
 // tokens and its percentage of the reported window. The host's compaction window is the
 // operator's to set, so a session may report 533,000 and must hand over where it would on
@@ -17,7 +21,7 @@ export function tripGate(
   env: { gate?: number; gateTokens?: number } = {},
 ): { tripped: boolean; words: string } {
   const gate = env.gate ?? 80
-  const gateTokens = env.gateTokens ?? 300000
+  const gateTokens = env.gateTokens ?? DEFAULT_GATE_TOKENS
   const thousands = (n: number) => n.toLocaleString('en-US')
   const windowLabel = (n: number) => (n % 1000000 === 0 ? `${n / 1000000}M` : thousands(n))
   if (percent !== null && percent >= gate) return { tripped: true, words: `${percent}% (gate ${gate}%)` }

@@ -9,22 +9,22 @@ test('the gate trips at 80 percent of the window', () => {
   expect(tripGate(80, 80000, 100000).tripped).toBe(true)
 })
 
-test('the gate trips at 300,000 tokens on a window of 1,000,000 or more', () => {
-  expect(tripGate(29, 299999, 1000000).tripped).toBe(false)
-  expect(tripGate(30, 300000, 1000000).tripped).toBe(true)
-  expect(tripGate(31, 310000, 1200000).tripped).toBe(true)
+test('the gate trips at 200,000 tokens on a window of 1,000,000 or more', () => {
+  expect(tripGate(19, 199999, 1000000).tripped).toBe(false)
+  expect(tripGate(20, 200000, 1000000).tripped).toBe(true)
+  expect(tripGate(21, 210000, 1200000).tripped).toBe(true)
 })
 
-test('a 300,000 window, an agent compacting there, trips at 240,000 and a 1,000,000 window still at 300,000', () => {
-  expect(tripGate(79, 239999, 300000).tripped).toBe(false)
-  expect(tripGate(80, 240000, 300000).tripped).toBe(true)
-  expect(tripGate(29, 299999, 1000000).tripped).toBe(false)
-  expect(tripGate(30, 300000, 1000000).tripped).toBe(true)
+test('a 300,000 window trips at 200,000 and a 1,000,000 window at 200,000 too', () => {
+  expect(tripGate(66, 199999, 300000).tripped).toBe(false)
+  expect(tripGate(67, 200000, 300000).tripped).toBe(true)
+  expect(tripGate(19, 199999, 1000000).tripped).toBe(false)
+  expect(tripGate(20, 200000, 1000000).tripped).toBe(true)
 })
 
 test('a window under a million no longer defers the token gate', () => {
-  expect(tripGate(50, 300000, 400000).tripped).toBe(true)
-  expect(tripGate(50, 299999, 400000).tripped).toBe(false)
+  expect(tripGate(50, 200000, 400000).tripped).toBe(true)
+  expect(tripGate(49, 199999, 400000).tripped).toBe(false)
 })
 
 test('an unreadable reading never trips', () => {
@@ -33,7 +33,7 @@ test('an unreadable reading never trips', () => {
 
 test('the tripped words name what was read', () => {
   expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
-  expect(tripGate(30, 300000, 1000000).words).toBe('300,000 tokens (gate 300,000 on a 1M window)')
+  expect(tripGate(20, 200000, 1000000).words).toBe('200,000 tokens (gate 200,000 on a 1M window)')
 })
 
 test('env overrides move the thresholds', () => {
@@ -190,17 +190,17 @@ test('a measure line without its figures reads as unmeasured', () => {
   expect(parseMeasure('null')).toBeNull()
 })
 
-test('an orchestrator launched with a 75 percent gate trips at 300,000 tokens on either reading', () => {
+test('an orchestrator launched with a 75 percent gate trips at 200,000 tokens on either reading', () => {
   const env = { gate: 75 }
-  expect(tripGate(29, 299999, 1000000, env).tripped).toBe(false)
-  expect(tripGate(30, 300000, 1000000, env).tripped).toBe(true)
-  expect(tripGate(74, 299999, 400000, env).tripped).toBe(false)
-  expect(tripGate(75, 300000, 400000, env).tripped).toBe(true)
-  expect(tripGate(75, 300000, 400000, env).words).toBe('75% (gate 75%)')
+  expect(tripGate(19, 199999, 1000000, env).tripped).toBe(false)
+  expect(tripGate(20, 200000, 1000000, env).tripped).toBe(true)
+  expect(tripGate(49, 199999, 400000, env).tripped).toBe(false)
+  expect(tripGate(75, 200000, 400000, env).tripped).toBe(true)
+  expect(tripGate(75, 200000, 400000, env).words).toBe('75% (gate 75%)')
 })
 
-test('an explicit 75 percent gate trips at 300,000 tokens on a 400,000 window', () => {
-  expect(tripGate(75, 300000, 400000, { gate: 75 }).tripped).toBe(true)
+test('an explicit 75 percent gate trips at 200,000 tokens on a 400,000 window', () => {
+  expect(tripGate(75, 200000, 400000, { gate: 75 }).tripped).toBe(true)
   expect(tripGate(88, 350000, 400000, { gate: 75 }).tripped).toBe(true)
 })
 
@@ -212,25 +212,25 @@ const SMALL_GATE = SMALL_WINDOW * 4 / 5
 
 test('an orchestrator trips at the same token count on 1,000,000 and on 533,000, and by percentage on a small window', () => {
   for (const window of [1000000, 533000]) {
-    expect(tripGate(56, 299999, window).tripped).toBe(false)
-    expect(tripGate(56, 300000, window).tripped).toBe(true)
+    expect(tripGate(37, 199999, window).tripped).toBe(false)
+    expect(tripGate(37, 200000, window).tripped).toBe(true)
   }
   expect(tripGate(79, SMALL_GATE - 1, SMALL_WINDOW).tripped).toBe(false)
   expect(tripGate(80, SMALL_GATE, SMALL_WINDOW).tripped).toBe(true)
 })
 
 test('an agent trips at the same token count on 1,000,000 and on 533,000, and by percentage on a small window', () => {
-  const env = { gateTokens: 240000 }
+  const env = { gateTokens: 200000 }
   for (const window of [1000000, 533000]) {
-    expect(tripGate(45, 239999, window, env).tripped).toBe(false)
-    expect(tripGate(45, 240000, window, env).tripped).toBe(true)
+    expect(tripGate(37, 199999, window, env).tripped).toBe(false)
+    expect(tripGate(37, 200000, window, env).tripped).toBe(true)
   }
   expect(tripGate(79, SMALL_GATE - 1, SMALL_WINDOW, env).tripped).toBe(false)
   expect(tripGate(80, SMALL_GATE, SMALL_WINDOW, env).tripped).toBe(true)
 })
 
 test('on 533,000 the words name the token gate, not the percentage', () => {
-  expect(tripGate(57, 304000, 533000).words).toBe('304,000 tokens (gate 300,000 on a 533,000 window)')
+  expect(tripGate(40, 204000, 533000).words).toBe('204,000 tokens (gate 200,000 on a 533,000 window)')
 })
 
 test('a session end that cannot purge the measure file is said, and blocks nothing', async () => {
