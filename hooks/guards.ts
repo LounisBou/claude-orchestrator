@@ -563,7 +563,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         // figures that say whether the gate earns its cost are read there.
         await logLine($, `stop gate: check1 blocks ${wake.blocks}`)
       } else if (wake !== null && typeof wake === 'object' && 'tool' in wake) {
-        await logLine($, `stop gate: check1 tool ${wake.tool}`)
+        await logLine($, wake.notRunning ? `stop gate: warn tool-not-running ${wake.tool}` : `stop gate: check1 tool ${wake.tool}`)
       } else if (wake === 'read-what-is-left') {
         // The done line: the facts are read only now, as the shell gate read them lazily.
         const top = await projectTop($, String(e.cwd ?? ''), until)

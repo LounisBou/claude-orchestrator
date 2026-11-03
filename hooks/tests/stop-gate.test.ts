@@ -1554,7 +1554,7 @@ test('a stop that ends on no machine line while a background process of the sess
   expect(out.answer).toBe(out.passed)
 })
 
-test('waiting: tool passes while a background process of the session runs, and is refused when none does', async () => {
+test('waiting: tool passes while a background process of the session runs, and passes with a warn line when none does', async () => {
   const { handlers } = mounted()
   const message = { last_assistant_message: 'Deploys started.\nwaiting: tool — the deploy monitor' }
   const watched = fakeDollar({ ps: MONITOR_PS })
@@ -1562,21 +1562,19 @@ test('waiting: tool passes while a background process of the session runs, and i
   expect(passed.answer).toBe(passed.passed)
   expect(watched.written.some(l => l.endsWith('| stop gate: check1 tool the deploy monitor'))).toBe(true)
   const idle = fakeDollar({ ps: `  820     1 ${shellOf('sleep 9')}\n` })
-  const held = ((await stop(handlers['classic.Stop'], idle.dollar, stopEvent(message))).answer as any).block
-  expect(held).toContain('Nothing of yours runs in the background')
-  expect(held).toContain('waiting: operator — blocks: <what it blocks>')
-  expect(held).toContain('waiting: done')
+  const unseen = await stop(handlers['classic.Stop'], idle.dollar, stopEvent(message))
+  expect(unseen.answer).toBe(unseen.passed)
+  expect(idle.written.some(l => l.endsWith('| stop gate: warn tool-not-running the deploy monitor'))).toBe(true)
+  expect(idle.written.some(l => l.includes('check1 tool'))).toBe(false)
 })
 
 test('the tool line, decided over the facts', () => {
   const base = { agents: [], resident: false, delivered: [] }
   expect(checkWake({ ...base, message: 'x\n`waiting: tool — the deploy monitor`.', background: ['tail -f deploy.log'] })).toEqual({ tool: 'the deploy monitor' })
   expect(checkWake({ ...base, message: 'Waiting: Tool - ci-watch 12', watching: true })).toEqual({ tool: 'ci-watch 12' })
-  expect((checkWake({ ...base, message: 'waiting: tool — the deploy monitor' }) as any).case).toBe('tool-not-running')
-  // A busy agent is what wakes it: the line fits nothing, and the text says the turn ends on none.
-  const busy = checkWake({ ...base, agents: [AGENT_BUSY], message: 'waiting: tool — the monitor' }) as any
-  expect(busy.case).toBe('tool-not-running')
-  expect(busy.reason).toContain('An agent of yours is busy: end on no machine line')
+  expect(checkWake({ ...base, message: 'waiting: tool — the deploy monitor' })).toEqual({ tool: 'the deploy monitor', notRunning: true })
+  // A busy agent beside a tool line with nothing running: logged, not refused.
+  expect(checkWake({ ...base, agents: [AGENT_BUSY], message: 'waiting: tool — the monitor' })).toEqual({ tool: 'the monitor', notRunning: true })
   // A delivered idle agent is told first, as for every line but a blocking question.
   expect((checkWake({ ...base, agents: [AGENT_IDLE], delivered: ['Agent : idle-p3 (pull request #1, OPEN)'], message: 'waiting: tool — x', background: ['sleep 9'] }) as any).case).toBe('idle-delivered')
 })
@@ -1606,8 +1604,8 @@ test('a wait on the operator that blocks nothing is refused, the right line name
 test('a true tool line is accepted when the host pid could not be read', () => {
   const base = { agents: [], resident: false, delivered: [] }
   expect(checkWake({ ...base, message: 'waiting: tool — the deploy monitor', hostUnread: true })).toEqual({ tool: 'the deploy monitor' })
-  // A read host pid still refuses a tool line with nothing running.
-  expect((checkWake({ ...base, message: 'waiting: tool — the deploy monitor' }) as any).case).toBe('tool-not-running')
+  // A read host pid with nothing running is flagged for the log, not refused.
+  expect(checkWake({ ...base, message: 'waiting: tool — the deploy monitor' })).toEqual({ tool: 'the deploy monitor', notRunning: true })
 })
 
 test('the refusals offer the tool line only as what follows a launch, never as a line that fits now', () => {
@@ -1757,7 +1755,8 @@ test('the malformed-line text and the lines that fit name the deferred ending', 
   const NAMED = 'if the operator deferred it, his ruling recorded: waiting: deferred — <ids>'
   expect((checkWake({ ...base, message: 'waiting: operater blocks x' }) as any).reason).toContain(NAMED)
   expect((checkWake({ ...base, message: 'waiting: operator — blocks: nothing' }) as any).reason).toContain(NAMED)
-  expect((checkWake({ ...base, message: 'waiting: tool — the monitor' }) as any).reason).toContain(NAMED)
+  // A tool line with nothing running is no longer a refusal: it has no text to name the ending in.
+  expect((checkWake({ ...base, message: 'waiting: tool — the monitor' }) as any).reason).toBeUndefined()
   // While something runs, the line that fits is the tool line alone.
   expect((checkWake({ ...base, message: 'waiting: operator — blocks: nothing', background: ['sleep 9'] }) as any).reason).not.toContain(NAMED)
 })
