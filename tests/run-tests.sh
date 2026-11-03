@@ -8376,9 +8376,14 @@ check "a contract phase is never explored, measured or not" "2" \
   "$(printf '{"id":9,"class":"contract-phase","model":"a-model","effort":"high","rounds":1,"state":"closed"}\n%.0s' 1 2 3 > "$WORK/c.jsonl"; rpick --class contract-phase --record "$WORK/c.jsonl" | wc -l | tr -d ' ')"
 # The skill no longer lists the never-explored classes (rule 117 of the rules review): pick
 # refuses to offer an exploration for each of them, on a record that would offer one elsewhere.
-never_explored() { for c in orchestrator successor decision-round final-verification; do
-  hi3 "$c" > "$WORK/ne-$c.jsonl"; out=$(rpick --class "$c" --record "$WORK/ne-$c.jsonl"); echo "$?:$(printf '%s\n' "$out" | grep -c '^explore=')"; done | paste -sd'|' -; }
-check "the orchestrator, a successor, a decision round and the final verification are never explored" "0:0|0:0|0:0|0:0" "$(never_explored)"
+# Each class gets a measured pair with an effort to step down from, and behaviour-phase, on the
+# same table and the same record, is the control that does get its exploration: a class that
+# resolved to a bare model would offer none whatever the code says.
+never_explored() { local NE="$WORK/ne-state"; rm -rf "$NE"; cp -R "$PS" "$NE"
+  printf '{"scope":"project:laravel","entries":{%s}}' "$(for c in orchestrator successor decision-round final-verification behaviour-phase; do printf '"%s":{"pair":"a-model/high","models":["a-model-2"]},' "$c"; done | sed 's/,$//')" > "$NE/routing/tables/project-laravel.json"
+  for c in orchestrator successor decision-round final-verification behaviour-phase; do
+  hi3 "$c" > "$WORK/ne-$c.jsonl"; out=$(ORCHESTRATOR_STATE_DIR="$NE" ORCHESTRATOR_ROUTING_DEFAULTS="$DEF" python3 "$ROUTING" pick --repo "$T/laravel" --class "$c" --record "$WORK/ne-$c.jsonl"); echo "$?:$(printf '%s\n' "$out" | grep -c '^explore=')"; done | paste -sd'|' -; }
+check "the orchestrator, a successor, a decision round and the final verification are never explored" "0:0|0:0|0:0|0:0|0:1" "$(never_explored)"
 # A table written before the selection by equivalence: a floor, rungs with no new field.
 check "show --detail reads a table written before the tables by task, a missing figure as -" "1|1" \
   "$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^class=conversion-phase project=a-model/medium ')|$(ORCHESTRATOR_STATE_DIR="$PS" python3 "$ROUTING" show --detail laravel 2>&1 | grep -c '^  rung pair=a-model/low tasks=- pass_rate=0.5 p_best=- median_usd=- ci=-..- expected_usd=- off_model=-$')"
