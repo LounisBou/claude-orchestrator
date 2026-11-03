@@ -3839,18 +3839,18 @@ def cmd_spawn(argv):
     if args.resume and not re.fullmatch(r"[0-9A-Za-z-]+", args.resume):
         die("spawn: refused: --resume needs a session id, letters, digits and hyphens, got '%s'"
             % args.resume)
+    if (args.open_ or args.wake) and not DRY_RUN and (os.environ.get("ORCHESTRATOR_SELF_TTY")
+                                                      or os.environ.get("ORCHESTRATOR_PS_TABLE")):
+        # --open and --wake read their caller from the real process table: the two stand-ins
+        # the suite sets would let any session name itself an orchestrator or the coordinator.
+        die("spawn: refused: %s reads its caller from the real process table, and "
+            "ORCHESTRATOR_SELF_TTY or ORCHESTRATOR_PS_TABLE would stand in for it: both "
+            "are for tests and dry runs" % ("--open" if args.open_ else "--wake"))
     if args.open_:
         # A new orchestrator opened on the operator's order, by the coordinator or by an
         # orchestrator the coordinator relayed that order to on another machine: under its own
         # name, right of its caller, in no chain, under remote control like any orchestrator.
-        # Only a coordinator or an orchestrator opens one: an agent never does. The caller is
-        # read from the real process table: the two stand-ins the suite sets would let any
-        # session name itself the coordinator, so outside a dry run they refuse the opening.
-        if not DRY_RUN and (os.environ.get("ORCHESTRATOR_SELF_TTY")
-                            or os.environ.get("ORCHESTRATOR_PS_TABLE")):
-            die("spawn: refused: --open reads its caller from the real process table, and "
-                "ORCHESTRATOR_SELF_TTY or ORCHESTRATOR_PS_TABLE would stand in for it: both "
-                "are for tests and dry runs")
+        # Only a coordinator or an orchestrator opens one: an agent never does.
         for flag, given in (("--successor", args.successor), ("--auditor", args.auditor),
                             ("--coordinator-successor", args.coordinator_successor),
                             ("--wake", args.wake), ("--left-of", args.left_of),
