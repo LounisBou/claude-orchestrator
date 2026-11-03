@@ -3,7 +3,7 @@ type: llm
 focus: last_message
 ---
 
-Grades the coordinator's succession: at the gate — the smaller of 300,000 tokens and 80 %
+Grades the coordinator's succession: at the gate — the smaller of 200,000 tokens and 80 %
 of the reported window — with nothing in flight, it succeeds itself without
 offering the operator the choice, and once the successor is spawned it answers nothing
 new: it forwards what still reaches it until « handed over ».

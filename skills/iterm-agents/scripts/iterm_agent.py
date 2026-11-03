@@ -145,9 +145,9 @@ MOVE_ROLES = ("Orch", "Coord")
 # ships with a change to this list, and a launcher test keeps the keys passed.
 TOTAL_TOKENS_ENV = "CLAUDE_CODE_TOTAL_TOKENS_REMINDER"
 SILENT_TURN_ENV = "CLAUDE_CODE_SILENT_TURN_REMINDER"
-# The gate an agent runs under, below the 300 thousand default of an orchestrator. The host's
+# The gate an agent runs under, the same 200 thousand default as every other role. The host's
 # compaction window is the operator's to set in his own settings, never the launcher's.
-AGENT_GATE_TOKENS = 240000
+AGENT_GATE_TOKENS = 200000
 # The skills the account syncs from the web app are listed under this prefix, thirteen of
 # them on this machine, about 2.1 thousand tokens on every call, and no session has invoked
 # one. The host's `syncClaudeAiSkills: false`, passed in a launch's own --settings, hides
@@ -3734,7 +3734,7 @@ def cmd_spawn(argv):
         brief_prompt = ("Read and execute %s. Your orchestrator is %s."
                         % (brief_abs, args.orchestrator))
         if gate_tokens:
-            # So a brief's "past 300,000" is read against the session's real gate. The brief
+            # So a brief's "past 200,000" is read against the session's real gate. The brief
             # itself is not rewritten. The gate is the smaller of the option and the window's
             # percentage gate: the line says so, or a small-window session would be told a
             # gate that never trips. The literal breaks before its percent sign: the suite's
