@@ -27,20 +27,18 @@ word on a point outranks this brief and the rulebook both.
 4. **CLOSE ITS TAB, and prove it.** The operator's standing order: you ALWAYS close your
    predecessor, one the launcher did not open (the first coordinator, started by hand)
    included, and nothing is asked of him. The launcher's `list` must still show a session on
-   {{PREDECESSOR_TTY}} that is not `self`, named `Coord :` (the launcher reads a name taken
-   through `rename_session` from the host's registry). Then:
+   {{PREDECESSOR_TTY}} that is not `self`, named `Coord :`. Then:
 
    ```
    {{ITERM_AGENT_SH}} close --tty {{PREDECESSOR_TTY}} --expect-title "Coord :"
    ```
 
-   A predecessor the launcher did not open carries the host's own title: pass the title
-   `list` printed for it as `--expect-title` instead. Where the host refuses the close — it
-   may, for a tab the launcher did not open — message `{{PREDECESSOR}}` « call
-   mcp__orchestrator__end_session »: the module ends its session when its turn ends, past
-   any refusal; then tell the operator in one line that its tab holds only a shell.
-   Either way the proof is the tty, never `list`, which keeps the row of a tab left holding
-   a shell: the launcher's `verify --tty {{PREDECESSOR_TTY}}` fails,
+   A predecessor the launcher did not open: pass the title
+   `list` printed for it as `--expect-title` instead. Where the host refuses the close,
+   message `{{PREDECESSOR}}` « call
+   mcp__orchestrator__end_session »: the module ends its session when its turn ends;
+   then tell the operator in one line that its tab holds only a shell. The proof is the tty,
+   never `list`: `verify --tty {{PREDECESSOR_TTY}}` fails,
    `ps -t <that tty without /dev/>` shows no host CLI, and `ListAgents` no longer lists it.
 5. **THEN register**, under your name exactly as `ListAgents` printed it:
 
