@@ -146,10 +146,12 @@ skills/forbidden2.md" \
 # --expect-title on a rotation. The orchestrator's text once said « tty + title guard ».
 # The replacement lands at the end of the caller's chain, where --right-of self puts it.
 lc="$ROOT/skills/orchestrator/references/lifecycle.md"
-check "the rotation closes by tty with the acknowledgment as its guard" "1" \
-  "$(grep -c 'closes the old tab by its tty — the stood-down acknowledgment is the guard, and a rotation takes no title guard' "$lc")"
-check "the rotation names the replacement's place" "1" "$(grep -c 'rotate --right-of self` (it spawns the fresh session with the brief path as its startup prompt at the end of your chain' "$lc")"
+# The rotation's steps live once, in the iterm-agents skill (rule 207 of the rules review).
+check "the rotation closes by tty with the acknowledgment as its guard" "1|1|1" \
+  "$(grep -c '« Safety order for a live rotation »: stand the old agent down and wait for its acknowledgment, `rotate --right-of self`' "$lc")|$(grep -c 'In a rotation this acknowledgment IS the guard' "$ROOT/skills/iterm-agents/SKILL.md")|$(grep -c 'Do not pass `--expect-title` to a rotation' "$ROOT/skills/iterm-agents/SKILL.md")"
 check "no title guard left on a rotation" "0" "$(grep -c 'tty + title guard' "$lc")"
+# The launcher proves a close on its own (rule 96 of the rules review); the orchestrator still reads it.
+check "a close is verified with list and ps, not the exit code" "1" "$(grep -c 'Verify a close with `list` + `ps`, not with the exit code' "$lc")"
 check "a project's instantiation rule no longer carves out succession" "0" \
   "$(grep -c 'governs the FIRST instantiation, never the succession' "$lc")"
 
