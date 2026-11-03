@@ -1,7 +1,8 @@
 // hooks/tests/one-question.test.ts
-// The one-question-per-turn rule of the stop gate: a final message with two numbered question
-// blocks or more is refused, the refusal names the rule; one block or none passes. The blocks
-// are the ones round.ts's questionParts recognises, in whatever language it accepts.
+// The question rules of the stop gate. One question per turn: a final message with two numbered
+// question blocks or more is refused, the refusal names the rule; one block or none passes. And an
+// operator wait asks a question: a turn ending on one with no block is refused. The blocks are the
+// ones round.ts's questionParts recognises, in whatever language it accepts, outside code fences.
 import { expect, test } from 'claude-code/testing'
 import { oneQuestionRefusal, operatorWaitRefusal } from '../one-question.ts'
 import { TWO_QUESTIONS } from './fixtures.ts'
