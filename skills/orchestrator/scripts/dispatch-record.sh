@@ -163,7 +163,7 @@ CLAIMED=0
 # orchestrator. `.owner` holds this name today and the orchestration's id once it has one.
 orch_form() {
     local name
-    name=$(printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/ \[[^] [:space:]]+\]$//')
+    name=$(printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/ \[[^] [:space:]]+\]$//; s/[[:space:]]+$//')
     if [[ "$name" =~ ^Orch\ ?:\ *([^[:space:]].*)$ ]]; then printf 'Orch : %s' "${BASH_REMATCH[1]}"; else printf '%s' "$name"; fi
 }
 session_orchestration() {

@@ -755,6 +755,13 @@ bash "$REC" goals "$OWE" init --spec none >/dev/null; bash "$REC" open "$OWE" --
 check "an empty owner file is read as absent: the first write claims the record" "0|Orch : beta|1" \
   "$(as_session o-beta round "$OWE" 1 >/dev/null 2>&1; echo $?)|$(cat "$OWE.owner" 2>/dev/null)|$(as_session o-alpha round "$OWE" 1 >/dev/null 2>&1; echo $?)"
 
+# A name with two spaces before its reference is still the owner's name once the reference is off.
+host_session 107 o-spaced "Orch : delta  [ab12]"
+OWS="$OW/refspaced/dispatch.jsonl"; mkdir -p "$OW/refspaced"
+as_session o-spaced goals "$OWS" init --spec none >/dev/null 2>&1
+check "a reference set off by two spaces leaves no trailing space in the owner, and the owner writes" "Orch : delta|0" \
+  "$(cat "$OWS.owner" 2>/dev/null)|$(as_session o-spaced goals "$OWS" init --spec none --replace >/dev/null 2>&1; echo $?)"
+
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
 # `waiting: deferred — <ids>` once nothing else is open.
