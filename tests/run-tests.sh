@@ -21,6 +21,15 @@ trap 'rm -rf "$WORK"' EXIT
 pass=0
 fail=0
 
+# The real state directory, read BEFORE any case exports a sandbox of its own, resolved the way
+# the scripts under test resolve it. The suite lists it now and again at its end, and fails on any
+# file that appeared in between: a case that forgot its sandbox writes there, and nothing else
+# would notice (184 launch scripts piled up in prompts/ that way).
+REAL_STATE="${ORCHESTRATOR_STATE_DIR:-${CLAUDE_CONFIG_DIR:-$HOME/.claude}/claude-orchestrator}"
+state_files() { [ -d "$REAL_STATE" ] && find "$REAL_STATE" -type f 2>/dev/null | sort; }
+STATE_BEFORE="$WORK/real-state-before.txt"
+state_files > "$STATE_BEFORE"
+
 # The launcher refuses a directory the host has never opened, in a dry run as much as in a
 # real one: "what would happen" includes being refused. The suite declares the precondition
 # once, in a file of its own, so no test ever reads or writes the operator's configuration.
@@ -9926,6 +9935,11 @@ check "briefs.md carries the standing rule" "yes" \
   "$(flat_has "$ORCH_REFS/briefs.md" 'Draft and `Not Ready` until the orchestrator'"'"'s ready; `Ready` comes only from it')"
 check "SKILL.md and the design carry it" "yes|yes" \
   "$(flat_has "$ROOT/skills/orchestrator/SKILL.md" '`Ready` or `Not Ready` label')|$(flat_has "$ROOT/docs/design.md" '`Ready` or `Not Ready` label')"
+
+echo "== the suite leaves the real state directory alone =="
+state_files > "$WORK/real-state-after.txt"
+check "no file appeared in the real state directory during the run" "" \
+  "$(comm -13 "$STATE_BEFORE" "$WORK/real-state-after.txt" | head -5)"
 
 echo
 printf '%d passed, %d failed\n' "$pass" "$fail"
