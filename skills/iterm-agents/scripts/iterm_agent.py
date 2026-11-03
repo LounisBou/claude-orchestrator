@@ -842,8 +842,10 @@ def process_gone(pid, start):
         return False
     if state is None or state[0] != start:
         return True
-    # The table prints the exiting state as `?Es`: the mark is the first letter after the `?`.
-    return state[1].lstrip("?")[:1] in ("Z", "E")
+    # The table prints the exiting state as `?Es`, `UE` or `SE`: an `E` among the flags after
+    # the state letter. A `Z` as the state letter is a zombie.
+    flags = state[1].lstrip("?")
+    return flags[:1] in ("Z", "E") or "E" in flags[1:]
 
 
 def close_log(what, line):
