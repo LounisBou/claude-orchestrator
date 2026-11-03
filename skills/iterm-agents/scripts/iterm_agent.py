@@ -499,6 +499,10 @@ PROBE_TIMEOUT = int(os.environ.get("ORCHESTRATOR_PROBE_TIMEOUT", "8"))
 # failure. A host CLI takes a moment to unwind; ten seconds is room for that and nothing
 # like room for a session that is not going.
 CLOSE_TIMEOUT = int(os.environ.get("ORCHESTRATOR_CLOSE_TIMEOUT", "10"))
+# Once that wait is over, how long a host is given to die of SIGTERM before it is sent
+# SIGKILL, and then to leave the table after SIGKILL.
+TERM_GRACE = int(os.environ.get("ORCHESTRATOR_TERM_GRACE", "5"))
+KILL_GRACE = int(os.environ.get("ORCHESTRATOR_KILL_GRACE", "5"))
 BACKENDS = ("api", "applescript")
 # The rungs, in order. AppleScript is the fallback and the ONLY one: it drove this plugin
 # before the API existed and it covers what the API alone does not — the module missing, the
@@ -778,6 +782,111 @@ def wait_gone(tty, timeout=None):
         if time.time() >= deadline:
             return alive
         time.sleep(0.3)
+
+
+# --- the end of the host a close closes ---------------------------------------------
+#
+# The app's close used to be the whole of it: the tab went, the terminal hung up the tty, the
+# host saw the hangup and exited. Then a close was accepted, the tab went, and the host ran on
+# for a day: the terminal's session-keeping daemon still held the tty's master side, so no
+# hangup came, and the host, blocked since the close (a child it started then was never
+# reaped), ignored the SIGTERM sent by hand. Four sessions survived that way, a predecessor
+# among them, so a succession left two orchestrators. The launcher now ends the host itself:
+# the process read BEFORE the close, named by its pid AND its start time (a pid is handed out
+# again), is waited for, then sent SIGTERM, then SIGKILL, each step logged, and a close is
+# reported only once the process table shows that process gone. The title guard stays first:
+# the terminal refuses a session whose title does not match before anything is read or sent.
+
+def process_state(pid):
+    """`(start time, state)` of a process from the real process table, or None when the
+    table has no such pid."""
+    try:
+        out = subprocess.run(["ps", "-o", "stat=,lstart=", "-p", str(pid)],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+    except Exception:
+        return None
+    parts = out.split(None, 1)
+    if len(parts) != 2:
+        return None
+    return parts[1].strip(), parts[0]
+
+
+def host_identity(tty):
+    """`(pid, start time)` of the first host on a tty, read before a close, or None when no
+    host with a readable pid is there (the suite's tables without pids, a shell)."""
+    pid = host_cli_on(tty)
+    if not pid or not str(pid).isdigit():
+        return None
+    state = process_state(pid)
+    if not state:
+        return None
+    return str(pid), state[0]
+
+
+def process_gone(pid, start):
+    """Whether the process `pid` started at `start` is gone: no longer in the table, its pid
+    held by a process started at another time, or exited and only waiting for its parent to
+    reap it (a zombie, or the « exiting » state the terminal's daemon leaves unreaped)."""
+    state = process_state(pid)
+    if state is None or state[0] != start:
+        return True
+    return state[1][:1] in ("Z", "E")
+
+
+def close_log(what, line):
+    """Say one step of a host's end on stderr and append it, timestamped, to close.log in the
+    state directory, where a close that went wrong is read afterwards."""
+    print("%s: %s" % (what, line), file=sys.stderr)
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(os.path.join(STATE_DIR, "close.log"), "a") as fh:
+            fh.write("%s %s: %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                                      what, line))
+    except OSError:
+        pass
+
+
+def wait_process_gone(pid, start, timeout):
+    """Wait up to `timeout` seconds for a process to be gone; True when it is."""
+    deadline = time.time() + timeout
+    while not process_gone(pid, start):
+        if time.time() >= deadline:
+            return False
+        time.sleep(0.2)
+    return True
+
+
+def end_host(pid, start, tty, what):
+    """End the host `pid` started at `start`, once its session's close was accepted: waited
+    for, then SIGTERM, then SIGKILL. True once the process table shows it gone. A process
+    whose identity no longer matches is not signalled: it is gone, and its pid another's."""
+    import signal
+    if wait_process_gone(pid, start, CLOSE_TIMEOUT):
+        return True
+    close_log(what, "host %s (started %s) still running on %s after %ds"
+              % (pid, start, tty, CLOSE_TIMEOUT))
+    for sig, grace in ((signal.SIGTERM, TERM_GRACE), (signal.SIGKILL, KILL_GRACE)):
+        if process_gone(pid, start):
+            return True
+        try:
+            os.kill(int(pid), sig)
+        except ProcessLookupError:
+            return True
+        except OSError as exc:
+            close_log(what, "%s to %s refused: %s" % (sig.name, pid, exc))
+            return False
+        close_log(what, "%s sent to %s" % (sig.name, pid))
+        if wait_process_gone(pid, start, grace):
+            close_log(what, "host %s gone after %s" % (pid, sig.name))
+            return True
+    close_log(what, "host %s still running after SIGKILL and %ds" % (pid, KILL_GRACE))
+    return False
+
+
+def others_on(tty, ended):
+    """Host CLIs still on a tty once the host `ended` is proved gone, that one left out: the
+    stand-in table keeps listing a process the real one has dropped."""
+    return [p for p in host_clis_on(tty) if str(p) != str(ended)]
 
 
 # --- the checkout a close leaves behind (§61) --------------------------------------
@@ -2670,6 +2779,7 @@ def open_home_tab(socket, title, anchor, what):
     return tty, made
 
 
+
 def home_of_tab(tty):
     """The home server whose client runs on the tab `tty`, or "": read from the client's own
     command line, which names its server with -L."""
@@ -2720,8 +2830,17 @@ def end_home(socket, what, listed=None):
             "cannot be read: %s; the server was NOT ended and the orchestrator stays where it "
             "is: its conversation would be lost" % (what, socket, why))
     ttys = [tty for _, tty in panes or []]
+    # Read before the server is ended, as for a tab: a host the end of its pane does not end
+    # is ended by its pid and start time.
+    hosts = {tty: host_identity(tty) for tty in ttys}
     kill_home(socket)
-    survivors = [tty for tty in ttys if wait_gone(tty) is not None]
+
+    def survives(tty):
+        host = hosts.get(tty)
+        if not host:
+            return wait_gone(tty) is not None
+        return not end_host(host[0], host[1], tty, what) or bool(others_on(tty, host[0]))
+    survivors = [tty for tty in ttys if survives(tty)]
     if survivors:
         die("%s: the home server %s was asked to end, and a host still runs on %s"
             % (what, socket, ", ".join(survivors)))
@@ -2806,8 +2925,17 @@ def cmd_takeover(argv):
             % (args.tty, pred.name, args.expect))
     viewed = tmux_out(["display-message", "-p", "-t", pred.window, "#{window_active}"],
                       "takeover").strip() == "1"
+    # Read once the name is checked and before the kill: the process the succession ends.
+    host = host_identity(args.tty)
     term.kill(pred.window, "takeover")
-    survivor = wait_gone(args.tty)
+    if host:
+        if not end_host(host[0], host[1], args.tty, "takeover"):
+            die("takeover: the window %s was killed and %s still runs on %s after SIGTERM and "
+                "SIGKILL; window 0 was not taken" % (pred.window, host[0], args.tty))
+        others = others_on(args.tty, host[0])
+        survivor = others[0] if others else None
+    else:
+        survivor = wait_gone(args.tty)
     if survivor is not None:
         die("takeover: the window %s was killed and %s still runs on %s; window 0 was not taken"
             % (pred.window, survivor, args.tty))
@@ -4018,11 +4146,20 @@ def close_tab(tty, expect):
     """The ordinary close of a tab or a window, proved on the process table and, where the
     terminal can name what it closed, on the terminal; prints the contract line."""
     term = terminal_for(tty)
+    # Read before the close: once it is accepted, nothing else names the process to end.
+    host = host_identity(tty)
     closed_id = term.close(tty, expect)
     # The close is not what was asked for, it is what the process table shows. The line
     # below used to print the moment the request was acknowledged, over a session that
     # kept running for minutes and had to be ended by hand (§46).
-    survivor = wait_gone(tty)
+    if host:
+        if not end_host(host[0], host[1], tty, "close"):
+            die("close: the request was accepted but %s is still running on %s, after "
+                "SIGTERM and SIGKILL. The session was NOT closed." % (host[0], tty))
+        others = others_on(tty, host[0])
+        survivor = others[0] if others else None
+    else:
+        survivor = wait_gone(tty)
     if survivor is not None:
         die("close: the request was accepted but %s is still running on %s after %ds. "
             "The session was NOT closed." % (survivor, tty, CLOSE_TIMEOUT))

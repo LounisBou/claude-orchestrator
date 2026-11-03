@@ -5202,6 +5202,98 @@ check "a --pid that is no number is a usage error, not « not running »" "exit 
 check "the close note claims no more than the table showed" "1|0" \
   "$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'no process matching claude was found on /dev/ttys901')|$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'was running')"
 
+echo "== iterm-agents: a close ends the host it closes =="
+# The app accepted a close, the tab went, and the host kept running: the terminal's
+# session-keeping daemon held the tty open, no hangup ever reached the host, and the host
+# ignored the SIGTERM sent by hand. The launcher no longer leaves the end to the app: the pid
+# and start time read BEFORE the close are waited for, then sent SIGTERM, then SIGKILL, each
+# step logged, and the close is reported only once the process table shows that process gone.
+# The fake hosts are real processes of the suite's own, entered in the stand-in table on a
+# tty no session holds; the proof is read on the real process table, by pid.
+ESTATE="$WORK/end-state"
+mkdir -p "$ESTATE" "$WORK/end-cfg/sessions"
+# One that ignores SIGTERM, the way the stuck host did; one that dies of it.
+stubborn() { "$py" -c 'import signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+time.sleep(120)' >/dev/null 2>&1 & echo $!; }
+polite() { "$py" -c 'import time; time.sleep(120)' >/dev/null 2>&1 & echo $!; }
+alive() { kill -0 "$1" 2>/dev/null && echo alive || echo gone; }
+# A close of the tab on $1 whose host is pid $2, asked with --expect-title $3 of a session
+# titled $4, through a terminal of the probe's own that accepts the close and ends nothing.
+endclose() {
+  printf '/dev/%s %s /opt/x/claude --name Agent : fake\n' "$1" "$2" > "$WORK/ps-end.txt"
+  ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" \
+  ORCHESTRATOR_CLOSE_TIMEOUT=1 ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 \
+  CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
+class Accepting:
+    def close(self, tty, expect):
+        if expect and ia.stable_title(expect) not in ia.stable_title('$4'):
+            ia.die('close: refused: session on %s is titled $4' % tty)
+        return ''
+    def survives(self, closed_id): return False
+ia.terminal_for = lambda tty: Accepting()
+ia.close_tab('/dev/$1', '$3')
+print('proved gone')" 2>&1
+}
+: > "$ESTATE/close.log"
+sp=$(stubborn)
+out=$(endclose ttys961 "$sp" "Agent : fake" "Agent : fake")
+check "a host that ignores SIGTERM is sent SIGKILL, and the close is proved on its pid" "1|1|1|gone" \
+  "$(printf '%s' "$out" | grep -c "SIGTERM sent to $sp")|$(printf '%s' "$out" | grep -c "SIGKILL sent to $sp")|$(printf '%s' "$out" | grep -c '^proved gone$')|$(alive "$sp")"
+check "each step of the escalation is logged in the state directory" "1|1|1" \
+  "$(grep -c "still running on /dev/ttys961 after 1s" "$ESTATE/close.log")|$(grep -c "SIGTERM sent to $sp" "$ESTATE/close.log")|$(grep -c "SIGKILL sent to $sp" "$ESTATE/close.log")"
+pp=$(polite)
+out=$(endclose ttys962 "$pp" "Agent : fake" "Agent : fake")
+check "a host that dies of SIGTERM is never sent SIGKILL" "1|0|1|gone" \
+  "$(printf '%s' "$out" | grep -c "SIGTERM sent to $pp")|$(printf '%s' "$out" | grep -c 'SIGKILL')|$(printf '%s' "$out" | grep -c '^proved gone$')|$(alive "$pp")"
+# The title guard is first: a session whose title was not checked is sent nothing.
+sg=$(stubborn)
+out=$(endclose ttys963 "$sg" "Agent : other" "Agent : fake")
+check "a close refused by its title signals nothing" "1|0|alive" \
+  "$(printf '%s' "$out" | grep -c 'close: refused')|$(printf '%s' "$out" | grep -c 'SIG')|$(alive "$sg")"
+# A pid is a number the system hands out again: the start time read before the close is
+# what names the process, and a pid now started at another time is another process.
+check "a pid now held by a process started at another time is not signalled" "True|alive" \
+  "$(ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 ipy "print(ia.end_host('$sg', 'Thu Jan  1 00:00:00 1970', '/dev/ttys963', 'close'))" 2>&1)|$(alive "$sg")"
+check "the identity read before a close is the pid and the start time of the table" "$sg|yes" \
+  "$(printf '/dev/ttys963 %s /opt/x/claude\n' "$sg" > "$WORK/ps-end.txt"; ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
+pid, start = ia.host_identity('/dev/ttys963')
+print('%s|%s' % (pid, 'yes' if start == ia.process_state(pid)[0] and start else 'no'))")"
+kill -9 "$sg" 2>/dev/null
+# A home server's close and a succession inside a home session go through the same end: the
+# host of each window is waited for, then escalated, never left to the server's end alone.
+sh0=$(stubborn); sh1=$(stubborn)
+printf '{"pid":%s,"sessionId":"s-home-end"}\n' "$sh0" > "$WORK/end-cfg/sessions/$sh0.json"
+printf '/dev/ttys964 %s /opt/x/claude --name Orch : x\n/dev/ttys965 %s /opt/x/claude --name Agent : y\n' \
+  "$sh0" "$sh1" > "$WORK/ps-end.txt"
+out=$(ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 \
+  ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
+ia.kill_home = lambda socket: True
+print(ia.end_home('orch-suite-none-$$', 'close', ([('0', '/dev/ttys964'), ('1', '/dev/ttys965')], '')))" 2>&1)
+check "ending a home server ends the host of every window, SIGKILL included" "1|1|gone|gone" \
+  "$(printf '%s' "$out" | grep -c "SIGKILL sent to $sh0")|$(printf '%s' "$out" | grep -c "SIGKILL sent to $sh1")|$(alive "$sh0")|$(alive "$sh1")"
+st=$(stubborn)
+printf '/dev/ttys966 %s /opt/x/claude --name Orch : x\n' "$st" > "$WORK/ps-end.txt"
+out=$(ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 \
+  ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
+P = ia.Pane
+class Home:
+    def window_of(self, tty, what):
+        return P('home', '0', '@1', '%1', tty, 'Orch : x', '') if tty == '/dev/ttys966' \
+            else P('home', '2', '@3', '%3', tty, 'Orch : x', '')
+    def kill(self, window, what): pass
+    def survives(self, stable_id): return False
+    def stable_id(self, window): return 'tmux:s:' + window
+    def session(self): return 'home'
+ia.TmuxTerminal = Home
+ia.in_home_session = lambda: True
+ia.self_tty = lambda: '/dev/ttys967'
+ia.tmux_out = lambda args, what: '0'
+ia.cmd_takeover(['--tty', '/dev/ttys966', '--expect-title', 'Orch : x'])" 2>&1)
+check "a successor's takeover ends its predecessor's host before it takes window 0" "1|1|gone" \
+  "$(printf '%s' "$out" | grep -c "SIGKILL sent to $st")|$(printf '%s' "$out" | grep -c '^took window 0')|$(alive "$st")"
+kill -9 "$sh0" "$sh1" "$st" "$sp" "$pp" 2>/dev/null
+
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
 # checkout it worked in is deleted — through `workspace.sh delete`, never `--discard`, so a
