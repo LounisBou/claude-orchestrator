@@ -6135,6 +6135,180 @@ check "from a tmux pane, a tab its chain holds is the caller's to move, a siblin
 check "and its last agent anchors the next one, wherever the app put it" "/dev/ttys805" \
   "$(paneowned "ia.chain_anchor(app, '/dev/ttys950')")"
 
+echo "== iterm-agents: every tab beside its orchestrator =="
+# The contract: every agent tab the launcher opens sits in its orchestrator's group, to its
+# right; an orchestrator tab is opened only as a successor, an opened orchestrator or a woken
+# one; an orchestrator's agents follow it to its successor. An agent spawned with no place
+# landed at the window's end and was still written into its caller's chain; `--right-of self`
+# anchored after the last agent wherever that tab had been moved, beside another orchestrator.
+# Over a fake app whose window is a list of tabs, the caller on ttys801.
+cat > "$WORK/place_probe.py" <<'PYEOF'
+import asyncio, contextlib, io, json, os, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+layout, workdir, argv = sys.argv[2], sys.argv[3], sys.argv[4:]
+class S:
+    def __init__(s, sid, tty): s.session_id = sid; s.tty = tty
+    async def async_get_variable(s, k): return {"tty": s.tty, "autoName": ""}.get(k)
+class T:
+    def __init__(s, tid, sess): s.tab_id = tid; s.sessions = [sess]; s.all_sessions = [sess]
+    @property
+    def current_session(s): return s.sessions[0]
+class W:
+    def __init__(s, tabs): s.window_id = "w"; s.tabs = tabs
+    async def async_create_tab(s, command=None, index=None, select=True):
+        t = T("NEW", S("S-NEW", "/dev/ttys902"))
+        s.tabs.insert(len(s.tabs) if index is None else index, t)
+        return t
+class App:
+    def __init__(s, wins): s.windows = wins; s.current_window = wins[0]
+tabs = []
+for spec in layout.split(","):
+    tid, sid, tty = spec.split(":")
+    tabs.append(T(tid, S(sid, "/dev/ttys" + tty)))
+app = App([W(tabs)])
+class Api:
+    async def async_get_app(self, connection): return app
+ia.run = lambda fn: asyncio.run(fn(Api(), None))
+out, err = io.StringIO(), io.StringIO()
+code = 0
+try:
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        if argv[:1] == ["list"]:
+            ia.cmd_list([])
+        else:
+            ia.cmd_spawn(["--dir", workdir, "--prompt", "p", "--no-verify"] + argv)
+except SystemExit as e:
+    code = e.code
+print("exit=%s" % code)
+print("tabs=%s" % ",".join(t.tab_id for t in app.windows[0].tabs))
+print("rows=%s" % "~".join(out.getvalue().strip().splitlines()))
+print("ERR:" + " ".join(err.getvalue().split()))
+PYEOF
+PLACEPS="$WORK/ps-place.txt"
+printf '/dev/ttys801 claude --name Orch : own\n/dev/ttys802 claude --name Agent : a\n/dev/ttys803 claude --name Orch : other\n/dev/ttys804 claude --name Agent : b\n/dev/ttys902 claude --name Agent : x\n' > "$PLACEPS"
+pprobe() { local layout="$1" state="$WORK/placestate"; shift
+  ORCHESTRATOR_BACKEND=api ORCHESTRATOR_STATE_DIR="$state" ORCHESTRATOR_SELF_TTY=/dev/ttys801 \
+    ORCHESTRATOR_PS_TABLE="$PLACEPS" "$py" "$WORK/place_probe.py" "$ROOT/skills/iterm-agents/scripts" \
+    "$layout" "$WORK" "$@" 2>&1; }
+pchain() { rm -rf "$WORK/placestate"; mkdir -p "$WORK/placestate/chains"
+  [ -n "$1" ] && printf '%s\n' "$1" > "$WORK/placestate/chains/ttys801.jsonl"; return 0; }
+pchain ''
+res=$(pprobe '1:S-OWN:801,3:S-OTHER:803' --title "Agent : x")
+check "an agent given no place, its caller's chain empty, lands right of its caller, not at the window's end" \
+  "0|1,NEW,3" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}'
+res=$(pprobe '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803' --title "Agent : x")
+check "an agent given no place lands after its caller's last agent" \
+  "0|1,2,NEW,3" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}'
+res=$(pprobe '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803' --title "Agent : x" --right-of self)
+check "--right-of self lands after the last agent while it is contiguous with its caller's group" \
+  "0|1,2,NEW,3" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}'
+res=$(pprobe '1:S-OWN:801,3:S-OTHER:803,2:S-AG:802' --title "Agent : x" --right-of self)
+check "--right-of self lands directly right of its caller once the last agent sits apart from its group" \
+  "0|1,NEW,3,2" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}
+{"tab_id":"4","tty":"/dev/ttys804","owner":"S-OWN"}'
+res=$(pprobe '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803,4:S-AG4:804' --title "Agent : x")
+check "and so does an agent given no place, whose last agent is past a stranger's tab" \
+  "0|1,NEW,2,3,4" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+
+# An orchestrator tab has three ways in. The auditor's relaunch of an orchestrator, a plain
+# spawn under an `Orch :` title, landed at the window's end and became the auditor's agent.
+# The auditor's own successor runs on its model, read from the measure file the module writes.
+mkdir -p "$WORK/orchcfg/claude-orchestrator/measure"
+printf '{"model":"a-model"}\n' > "$WORK/orchcfg/claude-orchestrator/measure/s-orch.json"
+orchp() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/orchstate" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CONFIG_DIR="$WORK/orchcfg" CLAUDE_CODE_SESSION_ID=s-orch \
+  ORCHESTRATOR_PS_TABLE="$1" bash "$AGENT" spawn --dir "$WORK" --prompt p "${@:2}" 2>&1; }
+ORCHPS="$WORK/ps-orchcaller.txt"; AUDPS="$WORK/ps-audcaller.txt"
+printf '/dev/ttys900 claude --name Orch : f\n' > "$ORCHPS"
+printf '/dev/ttys900 claude --name Audit : f\n' > "$AUDPS"
+check "a plain spawn titled Orch is refused, naming the successor, the opening and the wake" "1|1" \
+  "$(orchp "$ORCHPS" --title 'Orch : x' >/dev/null 2>&1; echo $?)|$(orchp "$ORCHPS" --title 'Orch : x' | grep -c "an orchestrator's tab is opened only as a successor (--successor), an opened orchestrator (--open) or a woken one (--wake)")"
+check "and so is one under --title-free" "1" \
+  "$(orchp "$ORCHPS" --title 'Orch : x' --title-free >/dev/null 2>&1; echo $?)"
+check "an orchestrator's successor under an Orch title is still launched" "0|transfer" \
+  "$(orchp "$ORCHPS" --title 'Orch : g' --successor >/dev/null 2>&1; echo $?)|$(orchp "$ORCHPS" --title 'Orch : g' --successor | sed -n 's/^chain=//p')"
+check "an auditor's spawn titled Orch is refused as a successor and as a wake" "1|1|1" \
+  "$(orchp "$AUDPS" --title 'Orch : x' --successor >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --successor | grep -c "its only successor is its own audit session, --successor without --title")"
+check "while the auditor's own successor is launched" "0|Audit : f" \
+  "$(orchp "$AUDPS" --successor >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --successor | sed -n 's/^name=//p')"
+
+# A successor takes its predecessor's chain whole, and the predecessor's file goes, so no
+# chain is left that no live session owns.
+TRSTATE="$WORK/transferstate"; rm -rf "$TRSTATE"; mkdir -p "$TRSTATE/chains"
+printf '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OLD"}\n{"tab_id":"5","tty":"/dev/ttys805","owner":"S-GONE"}\n' > "$TRSTATE/chains/ttys801.jsonl"
+printf '{"tab_id":"4","tty":"/dev/ttys804","owner":"S-NEW"}\n{"tab_id":"6","tty":"/dev/ttys806","owner":"S-STALE"}\n' > "$TRSTATE/chains/ttys903.jsonl"
+res=$(ORCHESTRATOR_STATE_DIR="$TRSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys801 ORCHESTRATOR_PS_TABLE="$PLACEPS" "$py" -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+print(ia.chain_transfer('/dev/ttys801', 'S-OLD', '/dev/ttys903', 'S-NEW'))" "$ROOT/skills/iterm-agents/scripts" 2>&1)
+check "a successor's chain takes the predecessor's agents, and the predecessor's file goes" \
+  "1|2:S-NEW|absent" \
+  "$res|$(jq -r '"\(.tab_id):\(.owner)"' "$TRSTATE/chains/ttys903.jsonl" | paste -sd, -)|$([ -e "$TRSTATE/chains/ttys801.jsonl" ] && echo present || echo absent)"
+# The takeover in a home session hands over what the predecessor launched after the
+# succession's spawn took its chain, after the agents the successor launched itself.
+TKSTATE="$WORK/takeoverstate"; rm -rf "$TKSTATE"; mkdir -p "$TKSTATE/chains"
+printf '{"tab_id":"tmux:/s:@4","tty":"/dev/ttys804","owner":"tmux:/s:%%1"}\n' > "$TKSTATE/chains/ttys966.jsonl"
+printf '{"tab_id":"tmux:/s:@2","tty":"/dev/ttys802","owner":"tmux:/s:%%3"}\n' > "$TKSTATE/chains/ttys967.jsonl"
+printf '/dev/ttys967 claude --name Orch : x\n/dev/ttys802 claude --name Agent : a\n/dev/ttys804 claude --name Agent : b\n' > "$WORK/ps-takeover.txt"
+res=$(ORCHESTRATOR_STATE_DIR="$TKSTATE" ORCHESTRATOR_PS_TABLE="$WORK/ps-takeover.txt" TMUX=/s,1,0 TMUX_PANE=%3 "$py" -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+P = ia.Pane
+class Home:
+    def window_of(self, tty, what):
+        return P('home', '0', '@1', '%1', tty, 'Orch : x', '') if tty == '/dev/ttys966' \
+            else P('home', '2', '@3', '%3', tty, 'Orch : x', '')
+    def kill(self, window, what): pass
+    def survives(self, stable_id): return False
+    def stable_id(self, window): return 'tmux:/s:' + window
+    def session(self): return 'home'
+ia.TmuxTerminal = Home
+ia.in_home_session = lambda: True
+ia.self_tty = lambda: '/dev/ttys967'
+ia.tmux_out = lambda args, what: '0'
+ia.host_identity = lambda tty: None
+ia.wait_gone = lambda tty, timeout=None: None
+ia.cmd_takeover(['--tty', '/dev/ttys966', '--expect-title', 'Orch : x'])" "$ROOT/skills/iterm-agents/scripts" 2>&1)
+check "a takeover hands the predecessor's agents to the successor and removes the predecessor's chain" \
+  "1|tmux:/s:@2,tmux:/s:@4|absent" \
+  "$(printf '%s' "$res" | grep -c '^took window 0')|$(jq -r .tab_id "$TKSTATE/chains/ttys967.jsonl" | paste -sd, -)|$([ -e "$TKSTATE/chains/ttys966.jsonl" ] && echo present || echo absent)"
+
+# An orchestrator that ended before any successor took its chain leaves agents whose tabs
+# nobody else claims: the listing says whose each one was, on a line of its own that a reader
+# of the rows (the stop gate's) skips, and says nothing of an agent whose orchestrator runs.
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}'
+printf '{"tab_id":"4","tty":"/dev/ttys804","owner":"S-DEAD"}\n' > "$WORK/placestate/chains/ttys016.jsonl"
+res=$(pprobe '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803,4:S-AG4:804' list)
+check "list names the ended orchestrator of an orphaned agent, on a line no row reader takes for a row" \
+  "orphan: /dev/ttys804 (w1/t4) is an agent of the orchestrator on /dev/ttys016, which has ended|4|0" \
+  "$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:')|$(sfield "$res" rows | tr '~' '\n' | grep -c '^w1/t')|$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:' | grep -c ' | ')"
+
+# Chain files of dead or recycled ttys piled up. The next chain write removes every file
+# whose tty runs no host, or whose every entry is a dead tty; never a live one, never the
+# caller's own, and nothing at all when the process table cannot be read.
+PRSTATE="$WORK/prunestate"
+prune_seed() { rm -rf "$PRSTATE"; mkdir -p "$PRSTATE/chains"
+  printf '{"tab_id":"9","tty":"/dev/ttys809","owner":"S-X"}\n' > "$PRSTATE/chains/ttys015.jsonl"
+  printf '{"tab_id":"9","tty":"/dev/ttys809","owner":"S-X"}\n' > "$PRSTATE/chains/ttys803.jsonl"
+  printf '{"tab_id":"4","tty":"/dev/ttys804","owner":"S-X"}\n' > "$PRSTATE/chains/ttys802.jsonl"
+  printf '{"tab_id":"7","tty":"/dev/ttys807","owner":"S-OWN"}\n' > "$PRSTATE/chains/ttys801.jsonl"; }
+prune_run() { ORCHESTRATOR_STATE_DIR="$PRSTATE" ORCHESTRATOR_SELF_TTY=/dev/ttys801 ORCHESTRATOR_PS_TABLE="$1" "$py" -c "
+import sys; sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+ia.chain_append('/dev/ttys804', 'T', '/dev/ttys902', 'S-B')" "$ROOT/skills/iterm-agents/scripts" 2>&1
+  ls "$PRSTATE/chains" | paste -sd, -; }
+prune_seed
+check "a chain write prunes the dead tty's file and the one whose every agent is dead, never a live one or the caller's" \
+  "ttys801.jsonl,ttys802.jsonl,ttys804.jsonl" "$(prune_run "$PLACEPS")"
+prune_seed
+check "and prunes nothing when the process table cannot be read" \
+  "ttys015.jsonl,ttys801.jsonl,ttys802.jsonl,ttys803.jsonl,ttys804.jsonl" "$(prune_run "$WORK/no-such-ps-table")"
+
 echo "== iterm-agents: agents as windows of a home session =="
 # Inside a tmux session the home command marked (`@orchestrator-home` = 1), an agent is a
 # window of that session and every operation goes to tmux; anywhere else, a plain tab or a
