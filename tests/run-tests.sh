@@ -6800,6 +6800,17 @@ check "takeover kills window 0 by its id, proved gone, and moves the successor t
   "$out|$(calls | grep -F '[kill-window]')|$(calls | grep -F '[move-window]')|$(calls | grep -c '\[select-window\]')|$(grep -c ttys900 "$TR/ps")"
 check "a takeover writes its dated line: the socket, the cause takeover and the predecessor's tty" "1" \
   "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: window 0 of home ended: cause=takeover tty=/dev/ttys900$' "$TSTATE/close.log")"
+# A TMUX value that names no socket gives the takeover no socket to write: no line, rather than a
+# line that reads « window 0 of  ended ».
+reset_home
+printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
+printf '/dev/ttys903 claude --name Orch : home\n' >> "$TR/ps"
+rm -f "$TR/calls"
+out=$(TMUX=",4242,1" TMUX_PANE=%4 ORCHESTRATOR_TMUX="$TR/tmux" ORCHESTRATOR_OSASCRIPT="$TR/osascript" \
+    ORCHESTRATOR_SAMPLE=/usr/bin/false ORCHESTRATOR_APP_PID=1 ORCHESTRATOR_SELF_TTY=/dev/ttys903 ORCHESTRATOR_STATE_DIR="$TSTATE" \
+    ORCHESTRATOR_PS_TABLE="$TR/ps" ORCHESTRATOR_CLOSE_TIMEOUT=1 bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
+check "a takeover that knows no socket writes no line: the window is taken and close.log holds no empty name" "1|0" \
+  "$(printf '%s' "$out" | grep -c '^took window 0:')|$(cat "$TSTATE/close.log" 2>/dev/null | grep -c 'window 0 of  ended')"
 reset_home
 printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
 printf '/dev/ttys903 claude --name Orch : home\n' >> "$TR/ps"

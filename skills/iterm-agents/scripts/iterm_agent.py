@@ -3259,8 +3259,9 @@ def cmd_takeover(argv):
             % (pred.window, survivor, args.tty))
     if term.survives(term.stable_id(pred.window)):
         die("takeover: the window %s is still there; window 0 was not taken" % pred.window)
-    trace_home(os.path.basename(os.environ.get("TMUX", "").split(",")[0]), "window 0 of",
-               "takeover", args.tty)
+    home = os.path.basename(os.environ.get("TMUX", "").split(",")[0])
+    if home:
+        trace_home(home, "window 0 of", "takeover", args.tty)
     chain_drop_tab(term.stable_id(pred.window))
     # The predecessor's agents follow it to its successor: what it launched after the
     # succession's spawn handed its chain over would otherwise be nobody's.
