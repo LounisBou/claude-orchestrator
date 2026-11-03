@@ -42,6 +42,18 @@ test('an orchestrator whose last message asks two questions is refused before an
   expect(one.answer).toBe(one.passed)
 })
 
+test('a coordinator whose last message asks two questions is refused, an agent is not', async () => {
+  const { handlers } = mounted()
+  const block = (head: string) => [head, '_Subject_ : a thing', '- **A** : yes', '- **B** : no'].join('\n')
+  const two = [block('**Question 1 of 2**'), block('**Question 2 of 2**')].join('\n\n')
+  const coord = fakeDollar({ launchName: 'Coord : machine' })
+  const refused = await stop(handlers['classic.Stop'], coord.dollar, stopEvent({ last_assistant_message: two }))
+  expect((refused.answer as any).block).toContain('One question per turn')
+  const agent = fakeDollar({ launchName: 'Agent : belt' })
+  const passed = await stop(handlers['classic.Stop'], agent.dollar, stopEvent({ last_assistant_message: two }))
+  expect(passed.answer).toBe(passed.passed)
+})
+
 test('a busy own agent releases the stop — its idle notice will wake the orchestrator', () => {
   // Declared deviation from the brief's sketch, which expected 'block': stop_gate.py:363-364
   // returns the moment one of its own agents is busy, the shell wrapper's own header names

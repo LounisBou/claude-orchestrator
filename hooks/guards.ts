@@ -472,13 +472,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         await logLine($, `stop gate: the session's name cannot be read on ${tty}`)
         return next(e)
       }
-      if (roleOf(name) !== 'orchestrator') return next(e)
-      // One question per turn: read off the message alone, before any read the checks pay.
+      const role = roleOf(name)
+      if (role !== 'orchestrator' && role !== 'coordinator') return next(e)
+      // One question per turn, for the orchestrator and the coordinator alike: read off the
+      // message alone, before any read the checks pay.
       const crowded = oneQuestionRefusal(String(e.last_assistant_message ?? ''))
       if (crowded !== null) {
         await logLine($, 'stop gate: several questions in one turn')
         return refuse(crowded)
       }
+      if (role === 'coordinator') return next(e)
       const state = await stateDir($)
       const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
       let swept = false
