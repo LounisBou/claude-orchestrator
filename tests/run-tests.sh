@@ -5341,7 +5341,9 @@ if command -v tmux >/dev/null 2>&1; then
   hsrv() { env -u TMUX -u TMUX_PANE tmux -L "$HSRV" "$@"; }
   hpanes() { pgrep -fx "sleep $HMARK" | wc -l | tr -d ' '; }
   hserver() { hsrv has-session -t home 2>/dev/null && echo up || echo down; }
-  hsrv -f "$ROOT/skills/iterm-agents/tmux/home.conf" new-session -d -s home -n 'Orch : x' "sleep $HMARK" 2>/dev/null
+  # The server is started by the launcher's own make_home, as every home server is: armed
+  # there, it would exit at once, no client being attached yet.
+  ORCHESTRATOR_TMUX="$(command -v tmux)" ipy "ia.make_home('$HSRV', 'Orch : x', '$WORK', 'sleep $HMARK', 'suite')" >/dev/null 2>&1
   hsrv new-window -d -t home: -n 'Agent : a' "sleep $HMARK" 2>/dev/null
   hsrv new-window -d -t home: -n 'Agent : b' "sleep $HMARK" 2>/dev/null
   sleep 1
@@ -5360,7 +5362,13 @@ if command -v tmux >/dev/null 2>&1; then
   sleep 0.5
   check "closing the tab ends the server and every window it held" "down|0" "$(hserver)|$(hpanes)"
   hsrv kill-server 2>/dev/null
-  pkill -f "sleep $HMARK" 2>/dev/null
+  # Why the option waits for the client: armed with none attached, a server exits at once.
+  hsrv new-session -d -s home "sleep $HMARK" 2>/dev/null
+  ORCHESTRATOR_TMUX="$(command -v tmux)" ipy "ia.arm_home('$HSRV', 'suite')" >/dev/null 2>&1
+  i=0; while [ "$(hserver)" = up ] && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+  check "armed before any client attaches, a server exits at once" "down" "$(hserver)"
+  hsrv kill-server 2>/dev/null
+  pkill -fx "sleep $HMARK" 2>/dev/null
 else
   echo "  skip a home server's end is not checked: no tmux"
 fi
@@ -6460,8 +6468,8 @@ hprobe() { homecmd "$py" "$WORK/home_probe.py" "$ROOT/skills/iterm-agents/script
 reset_homerec; printf '/dev/ttys970\n' > "$HR/clients"
 res=$(hprobe ok)
 NEWS="[-u][-L][orch-abcdef12][-f][@ROOT@/skills/iterm-agents/tmux/home.conf][new-session][-d][-s][home][-n][Orch : conv][-c][@WORK@][/bin/sh -l @WORK@/homestate/prompts/home-Orch---conv-@TIME@.sh]"
-check "the move starts the home server with its conf, window 0 named after the orchestrator, then reads window 0's tty and the tab's client" \
-  "0|$NEWS|[-u][-L][orch-abcdef12][display-message][-p][-t][home:0][#{pane_tty}]|[-u][-L][orch-abcdef12][list-clients][-F][#{client_tty}]" \
+check "the move starts the home server with its conf, window 0 named after the orchestrator, then reads window 0's tty and the tab's client, then sets the server to exit with its tab" \
+  "0|$NEWS|[-u][-L][orch-abcdef12][display-message][-p][-t][home:0][#{pane_tty}]|[-u][-L][orch-abcdef12][list-clients][-F][#{client_tty}]|[-u][-L][orch-abcdef12][set-option][-s][exit-unattached][on]" \
   "$(sfield "$res" exit)|$(hcalls | paste -sd'|' -)"
 check "the old tab is read first, the new one is made right of it under the orchestrator's name, and the move says where" \
   "identity /dev/ttys900,create beside /dev/ttys900 right Orch : conv|moved: orch-abcdef12, shown on /dev/ttys970" \
