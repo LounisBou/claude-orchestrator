@@ -328,7 +328,7 @@ export function parseSessionRow(text: string): SessionRow | null {
 // yet, with the fingerprint its acknowledgment keeps (`pending_key`): an outbox, never drawn or
 // answered from here (remote-round.ts). `relayed_id` is the id of the entry that acknowledgment
 // kept, so the answer to it forgets `relayed` as forgetRelayed does on the coordinator's machine.
-export type WaitRecord = Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since' | 'relayed'> & { name: string | null; pid: string | null; last_waiting?: WaitKind | null; typed?: { blocks: string; since: string | null } | null; pending?: string | null; pending_key?: string | null; relayed_id?: string | null }
+export type WaitRecord = Pick<SessionRow, 'waiting' | 'blocks' | 'waiting_since' | 'relayed'> & { name: string | null; pid: string | null; last_waiting?: WaitKind | null; typed?: { blocks: string; since: string | null; withdrawn?: boolean } | null; pending?: string | null; pending_key?: string | null; relayed_id?: string | null }
 
 export function waitKey(id: string): string {
   return `waits/${id.replace(/[^A-Za-z0-9._-]/g, '_')}`
@@ -1908,7 +1908,8 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
     const sameWait = wait?.kind === 'operator' && wait.blocks === typed.blocks
     heldKey = (await readWait($, sessionId))?.relayed ?? null
     if (!sameWait) {
-      forgotten = await withdrawHeld($, sessionId, name, typed)
+      // Withdrawn already at prompt.submit, unless that withdrawal failed: tried again here.
+      forgotten = typed.withdrawn ? false : await withdrawHeld($, sessionId, name, typed)
       // He answered in this tab: a turn ending on another machine line, a wait or done, leaves
       // none of the session's other open entries waiting either.
       // A deferred ending is no wait, but it leaves none of them standing either.
@@ -1994,13 +1995,14 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 }
 
 // The operator typed a prompt (composer or bridge) in an orchestrator whose relayed question
-// is still on him. What he typed may be the answer or not — a word to the session about
-// something else — and only the turn's end tells (relayTurnEnd): here the question is only
-// marked in the session's wait file as held while he typed. Anything else does nothing, a slash
-// command included: it starts no turn, so nothing would read the mark. Without a coordinator
-// nothing is marked. A wait file that holds no question (the last turn ended on done) leaves the
-// round's own open entry of the session to be marked, the earliest when several, when the
-// coordinator runs on this machine. The wait is re-read before it is written back, a turn's start may have
+// is still on him. What he typed is taken as the answer: the question is withdrawn at once, as
+// answered in the tab, and its fingerprint forgotten, so the pane stops showing it while the turn
+// runs. The session's wait file keeps a mark of it for the turn's end (relayTurnEnd), which enters
+// it again when the turn ends on the same wait. Anything else does nothing, a slash command
+// included: it starts no turn, so nothing would read the mark. Without a coordinator nothing is
+// withdrawn. A wait file that holds no question (the last turn ended on done) leaves the round's
+// own open entry of the session to be withdrawn, the earliest when several, when the coordinator
+// runs on this machine. The wait is re-read before it is written back, a turn's start may have
 // written it.
 export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
   if (!typedByOperator(kind) || text.trimStart().startsWith('/')) return
@@ -2014,10 +2016,17 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
   if (!name || roleOf(name) !== 'orchestrator') return
   const coordinator = await coordinatorAddress($)
   if (!coordinator) return
-  const held = heldQuestion(await readWait($, sessionId)) ?? (coordinator.local ? await openQuestion($, sessionId) : null)
+  const prior = await readWait($, sessionId)
+  const held = heldQuestion(prior) ?? (coordinator.local ? await openQuestion($, sessionId) : null)
   if (!held) return
+  const heldKey = prior?.relayed ?? null
+  const withdrawn = await withdrawHeld($, sessionId, name, held)
   const now = await readWait($, sessionId)
-  if (now) await writeWait($, sessionId, { ...now, typed: held })
+  if (!now) return
+  // The fingerprint is forgotten with the withdrawal, as the turn's end did: the same question
+  // asked again is relayed again. A wait rewritten while the withdrawal was sent keeps its own.
+  const relayed = withdrawn && (now.relayed ?? null) === heldKey ? null : now.relayed ?? null
+  await writeWait($, sessionId, { ...now, relayed, typed: { ...held, withdrawn } })
 }
 
 // The session's open operator entry in the round, the earliest when several: the question a
@@ -2030,8 +2039,8 @@ async function openQuestion($: any, sessionId: string): Promise<{ blocks: string
   return open.length > 0 ? { blocks: open[0].blocks!, since: open[0].since } : null
 }
 
-// The held question withdrawn at the end of the turn the operator typed in: answered in the
-// sender's own tab. An entry in the round of a coordinator on this machine is marked, a
+// The held question withdrawn as the operator types in the tab (or at the end of the turn he
+// typed in, when that failed): answered in the sender's own tab. An entry in the round of a coordinator on this machine is marked, a
 // coordinator elsewhere is sent the withdrawal. True when it is done, so the question asked
 // again is relayed again; a send refused is one log line, and the fingerprint is kept.
 async function withdrawHeld($: any, sessionId: string, name: string, held: { blocks: string; since: string | null }): Promise<boolean> {
