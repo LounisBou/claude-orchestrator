@@ -224,9 +224,10 @@ check "the delivering briefs no longer ask for context_tokens in the final repor
 # then, for the review brief, by the name of the lens subagent type.
 check "the agent briefs stay within their trimmed sizes" "yes|yes|yes|yes" \
   "$(for pair in phase:8973 comments:6436 review:8143 rotation:2833; do [ "$(wc -c < "$ROOT/templates/agent-${pair%%:*}-brief.md" | tr -d ' ')" -le "${pair##*:}" ] && echo yes || echo no; done | paste -sd'|' -)"
-# A chained push (`&&`, `;`, `cd … &&`) falls outside the permission rules and is refused.
+# A chained push falls outside the host's permission rules and is refused there (rule 60 of the
+# rules review): the briefs keep the rule, not its reason.
 check "the phase and comments briefs say a push runs as one bare command" "yes|yes" \
-  "$(for t in phase comments; do spells "$ROOT/templates/agent-$t-brief.md" 'A push runs as one bare command, `git push -u origin {{BRANCH}}`, never chained to another command (`&&`, `;`, `cd … &&`): a chained push falls outside the permission rules and is refused.'; done | paste -sd'|' -)"
+  "$(for t in phase comments; do spells "$ROOT/templates/agent-$t-brief.md" 'A push runs as one bare command, `git push -u origin {{BRANCH}}`, never chained to another command.'; done | paste -sd'|' -)"
 check "the orchestrator succession brief still says how to find its session id and directory" "yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" '`printenv CLAUDE_CODE_SESSION_ID` prints the id, `printenv CLAUDE_CONFIG_DIR` the directory')"
 # review.md asks for each finding's proposed fix; the one-line finding keeps it as its last field.
