@@ -5617,6 +5617,54 @@ if command -v tmux >/dev/null 2>&1; then
 else
   echo "  skip a home server's end is not checked: no tmux"
 fi
+echo "== iterm-agents: every end of a home server is traced =="
+# A home server's end writes one dated line in close.log with the socket, the cause and the tty,
+# whoever ends it: the tab closed (the server exits by itself, so a watcher says it), a close
+# command, a takeover. Servers and clients of the suite's own, under sockets it names, ended by it.
+if command -v tmux >/dev/null 2>&1; then
+  TSTATE_E="$WORK/trace-state"; rm -rf "$TSTATE_E"; mkdir -p "$TSTATE_E"
+  TRSRV="suite-trace-$$"
+  TRMARK=$((4600 + $$ % 1000))
+  trsrv() { env -u TMUX -u TMUX_PANE tmux -L "$TRSRV" "$@"; }
+  tpy() { ORCHESTRATOR_STATE_DIR="$TSTATE_E" ORCHESTRATOR_TMUX="$(command -v tmux)" ipy "$1"; }
+  tpy "ia.make_home('$TRSRV', 'Orch : x', '$WORK', 'sleep $TRMARK', 'suite')" >/dev/null 2>&1
+  TERM=xterm-256color "$py" "$WORK/ptyclient.py" tmux -L "$TRSRV" attach -t home >/dev/null 2>&1 &
+  trclient=$!
+  i=0; while [ "$(trsrv list-clients 2>/dev/null | wc -l | tr -d ' ')" = 0 ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  tpy "ia.arm_home('$TRSRV', 'suite'); ia.start_home_watch('$TRSRV', '/dev/ttys977')" >/dev/null 2>&1
+  sleep 1
+  { kill "$trclient"; wait "$trclient"; } 2>/dev/null
+  i=0; while [ ! -s "$TSTATE_E/close.log" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
+  check "a tab closed ends its server and the watcher writes the dated line: socket, cause, tty" "1" \
+    "$(grep -cE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: server $TRSRV ended: cause=exit-unattached .* tty=/dev/ttys977\$" "$TSTATE_E/close.log")"
+  trsrv kill-server 2>/dev/null
+  pkill -fx "sleep $TRMARK" 2>/dev/null
+  # A close command ends the server itself: one line with the cause close, and no second one
+  # from the watcher, which is told by the file the command leaves.
+  : > "$TSTATE_E/close.log"
+  tpy "ia.make_home('$TRSRV', 'Orch : x', '$WORK', 'sleep $TRMARK', 'suite')" >/dev/null 2>&1
+  TERM=xterm-256color "$py" "$WORK/ptyclient.py" tmux -L "$TRSRV" attach -t home >/dev/null 2>&1 &
+  trclient=$!
+  i=0; while [ "$(trsrv list-clients 2>/dev/null | wc -l | tr -d ' ')" = 0 ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+  tpy "ia.arm_home('$TRSRV', 'suite'); ia.start_home_watch('$TRSRV', '/dev/ttys978')" >/dev/null 2>&1
+  sleep 1
+  tpy "
+class Gone:
+    def find(self, tty): return None
+ia.ITERM = Gone()
+ia.close_home_tab('/dev/ttys978', '$TRSRV', '', ([], ''))" >/dev/null 2>&1
+  { kill "$trclient"; wait "$trclient"; } 2>/dev/null
+  sleep 3
+  check "a close writes its own line, with the cause close and the tab's tty, and the watcher adds none" "1|1" \
+    "$(grep -cE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: server $TRSRV ended: cause=close tty=/dev/ttys978\$" "$TSTATE_E/close.log")|$(grep -c . "$TSTATE_E/close.log")"
+  trsrv kill-server 2>/dev/null
+  pkill -fx "sleep $TRMARK" 2>/dev/null
+  check "no server, no host and no watcher of the trace probes is left: the watcher ended with its server" "0|0" \
+    "$(trsrv ls 2>/dev/null | wc -l | tr -d ' ')|$(pgrep -f "$TRSRV|sleep $TRMARK" | wc -l | tr -d ' ')"
+else
+  echo "  skip the end of a home server is not traced here: no tmux"
+fi
+
 # Armed by open_home_tab, at the one moment the tab's client is proved, and by nothing before:
 # a spawn, a wake, an open and a move all show their server through it, and a server shown by
 # no tab (ORCHESTRATOR_HOME_NO_TAB) is never armed, its operator attaching and detaching at will.
@@ -6695,6 +6743,8 @@ out=$(heir takeover --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
 check "takeover kills window 0 by its id, proved gone, and moves the successor to index 0 detached" \
   "took window 0: the predecessor's window @0 on /dev/ttys900 was closed|[-u][kill-window][-t][@0]|[-u][move-window][-d][-s][@4][-t][\$1:0]|0|0" \
   "$out|$(calls | grep -F '[kill-window]')|$(calls | grep -F '[move-window]')|$(calls | grep -c '\[select-window\]')|$(grep -c ttys900 "$TR/ps")"
+check "a takeover writes its dated line: the socket, the cause takeover and the predecessor's tty" "1" \
+  "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: window 0 of home ended: cause=takeover tty=/dev/ttys900$' "$TSTATE/close.log")"
 reset_home
 printf '%s\n' '$1	0	@0	%0	/dev/ttys900	Orch : home	✳ Orch : home' '$1	9	@4	%4	/dev/ttys903	Orch : home	✳ Orch : home' > "$TR/panes"
 printf '/dev/ttys903 claude --name Orch : home\n' >> "$TR/ps"

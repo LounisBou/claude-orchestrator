@@ -893,10 +893,12 @@ def name_lingering(pids):
             close_log("close", "pid %s lingers (%s)" % (pid, state[1]))
 
 
-def close_log(what, line):
-    """Say one step of a host's end on stderr and append it, timestamped, to close.log in the
-    state directory, where a close that went wrong is read afterwards."""
-    print("%s: %s" % (what, line), file=sys.stderr)
+def close_log(what, line, echo=True):
+    """Say one step of a host's end on stderr (unless `echo` is off) and append it,
+    timestamped, to close.log in the state directory, where a close that went wrong is read
+    afterwards."""
+    if echo:
+        print("%s: %s" % (what, line), file=sys.stderr)
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(os.path.join(STATE_DIR, "close.log"), "a") as fh:
@@ -2888,8 +2890,31 @@ def make_home(socket, title, cwd, program, what):
     return tty
 
 
+# How long the watcher waits for a server that is not there yet before it gives up: a server
+# is up by the time its watcher starts.
+HOME_WATCH_UP = 3
+
+
+def home_end_marker(socket):
+    """The file a launcher command leaves before it ends the home server `socket`: the
+    server's watcher then knows the end was traced by that command and says nothing."""
+    return os.path.join(STATE_DIR, "home-ended", socket)
+
+
+def trace_home(socket, ended, cause, tty):
+    """One dated line in close.log for an end of a home server, or of its window 0: what
+    ended, on which socket, from which cause, on which tty."""
+    close_log("home", "%s %s ended: cause=%s tty=%s" % (ended, socket, cause, tty or "-"),
+              echo=False)
+
+
 def kill_home(socket):
     """End the home server `socket`, every window it holds with it; True when tmux did."""
+    try:
+        os.makedirs(os.path.dirname(home_end_marker(socket)), exist_ok=True)
+        open(home_end_marker(socket), "w").close()
+    except OSError:
+        pass
     try:
         return tmux_call(["-L", socket, "kill-server"]).returncode == 0
     except TmuxError:
@@ -2958,6 +2983,7 @@ def open_home_tab(socket, title, anchor, what):
         die("%s: the home server %s could not be told to exit with its tab, so closing the tab "
             "would not end it; %s; %s" % (what, socket, closed_clause(closed, tty),
                                          ended_clause(socket)))
+    start_home_watch(socket, tty)
     return tty, made
 
 
@@ -2978,6 +3004,63 @@ def arm_home(socket, what):
               file=sys.stderr)
         return False
     return True
+
+
+def start_home_watch(socket, tty):
+    """Start the watcher of the home server `socket`, shown by the tab `tty`: the server
+    exits by itself when its tab closes, with no launcher command to say so, and the watcher
+    is what writes that end. It outlives this command and ends with the server."""
+    try:
+        os.makedirs(os.path.dirname(home_end_marker(socket)), exist_ok=True)
+        if os.path.exists(home_end_marker(socket)):
+            os.remove(home_end_marker(socket))
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "home-watch", "--socket",
+                          socket, "--tty", tty], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as exc:
+        print("home: the end of the server %s will not be traced: %s" % (socket, exc),
+              file=sys.stderr)
+
+
+def cmd_home_watch(argv):
+    """Wait for the home server to end, then write its end when no launcher command did:
+    run in the background by the start of a home tab, never by hand."""
+    p = argparse.ArgumentParser(prog="home-watch", add_help=False)
+    p.add_argument("--socket", default="")
+    p.add_argument("--tty", default="")
+    args, _ = p.parse_known_args(argv)
+    if not args.socket:
+        die("home-watch: --socket is required")
+    poll = float(os.environ.get("ORCHESTRATOR_HOME_WATCH_POLL", "0.5"))
+    import socket as sockets
+    path = os.path.join(os.environ.get("TMUX_TMPDIR") or "/tmp", "tmux-%d" % os.getuid(),
+                        args.socket)
+
+    def alive():
+        """Whether the server still answers on its socket: asked of the socket itself, so
+        the watcher runs no tmux."""
+        probe = sockets.socket(sockets.AF_UNIX)
+        try:
+            probe.connect(path)
+            return True
+        except OSError:
+            return False
+        finally:
+            probe.close()
+    deadline = time.time() + HOME_WATCH_UP
+    while not alive():
+        if time.time() >= deadline:
+            return
+        time.sleep(poll)
+    while alive():
+        time.sleep(poll)
+    marker = home_end_marker(args.socket)
+    if os.path.exists(marker):
+        os.remove(marker)
+        return
+    trace_home(args.socket, "server", "exit-unattached (its tab closed; no launcher command "
+               "ended it)", args.tty)
 
 
 def home_of_tab(tty):
@@ -3080,6 +3163,7 @@ def close_home_tab(tty, socket, expect, listed=None):
             die("close: refused: session on %s is titled '%s', which does not contain '%s'"
                 % (tty, name, expect))
     session_id, ttys = end_home(socket, "close", listed)
+    trace_home(socket, "server", "close", tty)
     deadline = time.time() + CLOSE_TIMEOUT
     while ITERM.find(tty):
         if time.time() >= deadline:
@@ -3145,6 +3229,8 @@ def cmd_takeover(argv):
             % (pred.window, survivor, args.tty))
     if term.survives(term.stable_id(pred.window)):
         die("takeover: the window %s is still there; window 0 was not taken" % pred.window)
+    trace_home(os.path.basename(os.environ.get("TMUX", "").split(",")[0]), "window 0 of",
+               "takeover", args.tty)
     chain_drop_tab(term.stable_id(pred.window))
     # The predecessor's agents follow it to its successor: what it launched after the
     # succession's spawn handed its chain over would otherwise be nobody's.
@@ -4816,6 +4902,7 @@ COMMANDS = {
     "move": cmd_move, "rotate": cmd_rotate, "resolve-tier": cmd_resolve_tier,
     "screen": cmd_screen, "trust": cmd_trust, "tools": cmd_tools,
     "home": cmd_home, "home-release": cmd_home_release, "takeover": cmd_takeover,
+    "home-watch": cmd_home_watch,
 }
 
 
