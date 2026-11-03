@@ -1453,8 +1453,71 @@ def chain_read(tty):
         return []
 
 
+def live_host_ttys():
+    """The ttys a host session runs on, from one reading of the whole process table (or the
+    suite's stand-in for it); None when the table cannot be read, which proves nothing."""
+    table = os.environ.get("ORCHESTRATOR_PS_TABLE", "")
+    rows = []
+    try:
+        if table:
+            with open(table) as fh:
+                for l in fh:
+                    r = l.strip().split(None, 1)
+                    if len(r) != 2:
+                        continue
+                    rest = r[1].split(None, 1)
+                    if len(rest) == 2 and rest[0].isdigit():
+                        rows.append((r[0], rest[0], rest[1]))
+                    else:
+                        rows.append((r[0], "", r[1]))
+        else:
+            done = subprocess.run(["ps", "-A", "-o", "tty=,pid=,command="],
+                                  capture_output=True, text=True, timeout=10)
+            if done.returncode != 0 or not done.stdout.strip():
+                return None
+            for line in done.stdout.splitlines():
+                parts = line.strip().split(None, 2)
+                if len(parts) == 3:
+                    rows.append(tuple(parts))
+    except Exception:
+        return None
+    names = host_cli_names()
+    return {"/dev/" + tty.replace("/dev/", "") for tty, pid, command in rows
+            if tty not in ("??", "-") and is_host_process(pid, command, names)}
+
+
+_PRUNED = []
+
+
+def chain_prune(keep):
+    """Remove the chain files no live session owns, once per run: a file whose
+    tty runs no host, or whose every entry names a tty that runs none. Those piled up under
+    dead and recycled ttys, and a recycled tty's occupant read a stranger's agents as its own.
+    `keep`, the file being written and the caller's own, are never touched, nor is anything
+    when the process table cannot be read."""
+    if _PRUNED or not os.path.isdir(CHAINS_DIR):
+        return
+    _PRUNED.append(True)
+    live = live_host_ttys()
+    if live is None:
+        return
+    for name in os.listdir(CHAINS_DIR):
+        if not name.endswith(".jsonl"):
+            continue
+        tty = "/dev/" + name[:-len(".jsonl")]
+        if tty in keep:
+            continue
+        entries = chain_read(tty)
+        if tty not in live or all(e["tty"] not in live for e in entries):
+            try:
+                os.remove(chain_path(tty))
+            except OSError:
+                pass
+
+
 def chain_write(tty, entries):
     os.makedirs(CHAINS_DIR, exist_ok=True)
+    chain_prune({tty, self_tty() or ""})
     path = chain_path(tty)
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
@@ -1483,15 +1546,22 @@ def chain_transfer(old_tty, old_owner, new_tty, new_owner):
     A successor spawned after the last agent, and appended to the predecessor's chain as
     if it were one, inherited nothing: its own file was empty or a dead session's, so its
     first `--right-of self` landed left of the agents it had just taken over. The entries
-    the predecessor wrote move under the successor's tty and session id; what the
-    predecessor's file held from other occupants of its tty stays there; whatever a
-    recycled tty's file held on the successor's side is replaced, never appended to."""
-    entries = chain_read(old_tty)
-    moved = chain_owned(entries, old_owner)
-    kept = [e for e in entries if e not in moved]
-    chain_write(new_tty, [{"tab_id": e["tab_id"], "tty": e["tty"], "owner": new_owner,
-                           "resident": is_resident(e)} for e in moved])
-    chain_write(old_tty, kept)
+    the predecessor wrote move under the successor's tty and session id, after the entries
+    the successor already wrote itself (a takeover comes after the successor has launched
+    agents of its own); what a recycled tty's file held on the successor's side from earlier
+    occupants is dropped, never appended to. The predecessor's file is removed: its tty's
+    other occupants are gone, and a file left behind is a chain no live session owns."""
+    moved = chain_owned(chain_read(old_tty), old_owner)
+    own = chain_owned(chain_read(new_tty), new_owner) if new_owner else []
+    have = {e["tab_id"] for e in own}
+    chain_write(new_tty, own + [{"tab_id": e["tab_id"], "tty": e["tty"], "owner": new_owner,
+                                 "resident": is_resident(e)}
+                                for e in moved if e["tab_id"] not in have])
+    if old_tty != new_tty:
+        try:
+            os.remove(chain_path(old_tty))
+        except OSError:
+            pass
     return len(moved)
 
 
@@ -1649,7 +1719,7 @@ async def chain_anchor(app, own_tty, owner=None):
     names, and a caller with no owner at all anchors on nothing."""
     if owner is None:
         owner = await own_session_id(app, own_tty)
-    win, _, _ = await find_tab(app, own_tty)
+    win, own_tab, _ = await find_tab(app, own_tty)
     windows = [win] if win is not None else (app.windows if owner else [])
     if not windows:
         return None
@@ -1658,11 +1728,33 @@ async def chain_anchor(app, own_tty, owner=None):
     kept = [e for e in chain_owned(entries, owner) if e["tab_id"] in live]
     if len(kept) != len(entries):
         chain_write(own_tty, kept)
+    group = None
+    if win is not None:
+        group = chain_group(win.tabs, own_tab.tab_id, {e["tab_id"] for e in kept})
     for e in reversed(kept):
         tty = await tty_of(live[e["tab_id"]])
         if tty:
+            if group is not None and e["tab_id"] not in group:
+                # The last agent was moved away from its orchestrator, or the tabs between
+                # them are someone else's: after it, the new agent would sit beside another
+                # orchestrator. Directly right of the caller keeps the group whole.
+                return None
             return tty
     return None
+
+
+def chain_group(tabs, own_tab_id, mine):
+    """The tab ids of the caller's group: the run of the caller's own agents immediately
+    right of its tab, in the window's order. Empty when the caller's tab is not in `tabs`."""
+    ids = [t.tab_id for t in tabs]
+    if own_tab_id not in ids:
+        return set()
+    group = set()
+    for tab_id in ids[ids.index(own_tab_id) + 1:]:
+        if tab_id not in mine:
+            break
+        group.add(tab_id)
+    return group
 
 
 # --- the API ---------------------------------------------------------------------
@@ -2450,8 +2542,14 @@ class TmuxTerminal(Terminal):
 
     def rows(self):
         own = self_tty() or ""
-        return [row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
-                        bool(own) and p.tty == own, False) for p in self.panes()]
+        held, names = chain_holders(), {}
+        rows = []
+        for p in self.panes():
+            holder = held.get(self.stable_id(p.window))
+            rows.append(row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
+                                bool(own) and p.tty == own, False,
+                                owner_label(holder, names) if holder else ""))
+        return rows
 
     def screen(self, tty, lines):
         pane = self.window_of(tty, "screen")
@@ -3030,8 +3128,12 @@ def cmd_takeover(argv):
             % (args.tty, pred.name, args.expect))
     viewed = tmux_out(["display-message", "-p", "-t", pred.window, "#{window_active}"],
                       "takeover").strip() == "1"
-    # Read once the name is checked and before the kill: the process the succession ends.
+    # Read once the name is checked and before the kill: the process the succession ends,
+    # and the owner its chain entries carry, which the pane gone no longer names.
     host = host_identity(args.tty)
+    own_owner = tmux_owner()
+    pred_owner = ("tmux:%s:%s" % (os.environ.get("TMUX", "").split(",")[0], pred.pane)
+                  if own_owner else "")
     term.kill(pred.window, "takeover")
     if host:
         if not end_host(host[0], host[1], args.tty, "takeover"):
@@ -3047,6 +3149,13 @@ def cmd_takeover(argv):
     if term.survives(term.stable_id(pred.window)):
         die("takeover: the window %s is still there; window 0 was not taken" % pred.window)
     chain_drop_tab(term.stable_id(pred.window))
+    # The predecessor's agents follow it to its successor: what it launched after the
+    # succession's spawn handed its chain over would otherwise be nobody's.
+    if pred_owner and own_owner:
+        n = chain_transfer(args.tty, pred_owner, own, own_owner)
+        if n:
+            print("takeover: chain of %d agent(s) handed to this session on %s" % (n, own),
+                  file=sys.stderr)
     tmux_out(["move-window", "-d", "-s", mine.window, "-t", "%s:0" % term.session()], "takeover")
     if viewed:
         tmux_out(["select-window", "-t", mine.window], "takeover")
@@ -3196,7 +3305,7 @@ def cmd_home_release(argv):
 
 # --- subcommands -----------------------------------------------------------------
 
-def row_for(w, t, tty, title, name, is_self, hidden):
+def row_for(w, t, tty, title, name, is_self, hidden, owner=""):
     """One listing row, formatted and nothing else, so its shape is read without an app.
 
     The session name sits beside the tab title because they answer different questions:
@@ -3212,7 +3321,37 @@ def row_for(w, t, tty, title, name, is_self, hidden):
         row += " | self"
     if hidden:
         row += " | hidden"
+    if owner:
+        row += " | of %s" % owner
     return row
+
+
+def chain_holders():
+    """Every chain entry's tab id, mapped to the tty of the chain file that holds it."""
+    held = {}
+    if not os.path.isdir(CHAINS_DIR):
+        return held
+    for name in sorted(os.listdir(CHAINS_DIR)):
+        if name.endswith(".jsonl"):
+            tty = "/dev/" + name[:-len(".jsonl")]
+            for e in chain_read(tty):
+                held.setdefault(e["tab_id"], tty)
+    return held
+
+
+def owner_label(chain_tty, cache):
+    """Whose agent a listed tab is: the orchestrator's name while it runs, its tty when it
+    has none to read, and its tty marked ended once no host runs there. An orchestrator that
+    ended before a successor took its chain leaves agents nobody else's listing claims."""
+    if chain_tty not in cache:
+        name = session_name_on(chain_tty)
+        if name and name != UNREADABLE_NAME:
+            cache[chain_tty] = name
+        elif host_cli_on(chain_tty):
+            cache[chain_tty] = chain_tty
+        else:
+            cache[chain_tty] = "%s (ended)" % chain_tty
+    return cache[chain_tty]
 
 
 async def list_rows(app):
@@ -3224,6 +3363,7 @@ async def list_rows(app):
     orchestrator knows which tab is its own BEFORE it anchors, moves or closes anything —
     the reading a layout repair once went without (§38)."""
     own = self_tty() or ""
+    held, names = chain_holders(), {}
     lines = []
     for wi, w in enumerate(app.windows, 1):
         for ti, t in enumerate(w.tabs, 1):
@@ -3231,8 +3371,10 @@ async def list_rows(app):
             for s in t.all_sessions:
                 tty = await s.async_get_variable("tty")
                 title = await s.async_get_variable("autoName") or ""
+                holder = held.get(t.tab_id)
                 lines.append(row_for(wi, ti, tty, title, session_name_on(tty),
-                                     bool(own) and tty == own, s.session_id not in visible))
+                                     bool(own) and tty == own, s.session_id not in visible,
+                                     owner_label(holder, names) if holder else ""))
     return lines
 
 
@@ -3748,6 +3890,20 @@ def cmd_spawn(argv):
         # hands the chain over; the title says which of the two this is.
         die("spawn: refused: an orchestrator's title is a successor's; spawn it with "
             "--successor, which places it and hands it the chain")
+    if args.title.startswith("Orch :") and not (args.successor or args.open_ or args.wake):
+        # A plain spawn under an orchestrator's name landed at the window's end and was
+        # written into its caller's chain as an agent: an auditor's relaunch of an
+        # orchestrator became the auditor's agent. An orchestrator tab has three ways in.
+        die("spawn: refused: an orchestrator's tab is opened only as a successor "
+            "(--successor), an opened orchestrator (--open) or a woken one (--wake)")
+    if args.title.startswith("Orch :") and not args.open_:
+        # --open already refuses every caller but a coordinator or an orchestrator. An
+        # auditor's one successor is its own audit session, `--successor` without a title.
+        caller = audit_name_on(self_tty() or "")
+        if caller:
+            die("spawn: refused: this session is an auditor's ('%s'): it opens no "
+                "orchestrator tab; its only successor is its own audit session, "
+                "--successor without --title" % caller[:40])
     if not os.path.isdir(args.dir):
         die("spawn: directory not found: %s" % args.dir)
     if args.prompt and args.prompt_file:
@@ -3877,6 +4033,11 @@ def cmd_spawn(argv):
         side, anchor = "left", "leftmost"
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
+    if effect == "append" and not anchor:
+        # An agent given no place sits in its orchestrator's group, to its right: unanchored,
+        # it landed at the window's end, beside whoever sat there, and was still written into
+        # the caller's chain.
+        side, anchor = "right", "self"
     # Chosen once, and only for a launch that reaches a terminal: a dry run asks none. Only an
     # agent joins its caller's chain and only a successor takes it, and only those two may be
     # windows of a home session.
