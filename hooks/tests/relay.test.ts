@@ -10,6 +10,7 @@ import { paneQuestions, waitsInTab, roundEntry, type RoundEntry } from '../round
 import { answerFromPane, paneAnswerText, settledText, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
+import { ROW_MARKER } from '../remote-row.ts'
 import { ASK_MARKER, ACK_MARKER, ANSWER_MARKER, ANSWER_ACK_MARKER, askLine, ackLine, parseAsk, parseAnswer, answerAckLine } from '../remote-round.ts'
 
 const HOME = '/tmp/h'
@@ -507,8 +508,12 @@ test('a refused withdrawal is one log line per attempt (two: prompt submit, then
   const key = fx.row().relayed
   const send = fx.dollar.session.send
   fx.dollar.session.send = async () => ({ isDelivered: false, reason: 'nobody by that name' })
-  await typedTurn(chains, fx, 'Working.')
-  expect(fx.logged.filter(l => l.includes('withdraw: not delivered to Coord : ops [abc]: nobody by that name')).length).toBe(2)
+  const refused = () => fx.logged.filter(l => l.includes('withdraw: not delivered to Coord : ops [abc]: nobody by that name')).length
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(refused()).toBe(1)
+  await drive(chains, 'turn.start', fx.dollar, { text: 'yes' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working.'))
+  expect(refused()).toBe(2)
   expect(fx.row().relayed).toBe(key)
   fx.dollar.session.send = send
   await typedTurn(chains, fx, 'Working.')
@@ -903,11 +908,13 @@ test('a stale entry that cannot be written is one log line per attempt (two for 
   fx.files.clear()
   for (const [p, text] of first.files) fx.files.set(p, text)
   const later = turnEnd(answerOf('A new question?', 'waiting: operator — blocks: phase 4'))
+  const withdrawLines = () => fx.logged.filter(l => l.includes(`withdraw: the file ${ROUND}/${asked.id}.json could not be renamed into place`)).length
   await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(withdrawLines()).toBe(1)
   await drive(chains, 'turn.start', fx.dollar, { text: 'yes' })
   expect(await drive(chains, 'turn.complete', fx.dollar, later)).toBe(later)
   expect(fx.logged.filter(l => l.includes(`round: the file ${ROUND}/${asked.id}.json could not be renamed into place`)).length).toBe(1)
-  expect(fx.logged.filter(l => l.includes(`withdraw: the file ${ROUND}/${asked.id}.json could not be renamed into place`)).length).toBe(2)
+  expect(withdrawLines()).toBe(2)
   expect(entries(fx).find(e => e.id === asked.id)!.status).toBe('open')
   expect(entries(fx).filter(e => e.blocks === 'phase 4').map(e => e.status)).toEqual(['open'])
   expect(fx.row().blocks).toBe('phase 4')
@@ -931,18 +938,20 @@ test('after an answer from the pane, the same question asked again is entered ag
 test('an answer from the pane drops the mark of a typed prompt from the wait file', async () => {
   const { chains, fx } = await relayedQuestion()
   const [asked] = entries(fx)
-  const [wait, entry] = [fx.files.get(WAIT)!, fx.files.get(`${ROUND}/${asked.id}.json`)!]
+  // The withdrawal at submit fails for real: the round refuses the rename. The entry stays open,
+  // the fingerprint kept, and the mark says the withdrawal is still to do.
+  const run = fx.dollar.process.run
+  fx.dollar.process.run = async (argv: readonly string[]) =>
+    argv[0] === 'mv' && String(argv[3]).startsWith(`${ROUND}/`) ? { exitCode: 1, stdout: '', stderr: 'refused' } : run(argv)
   await drive(chains, 'prompt.submit', fx.dollar, typed('composer', 'what is the status of the build?'))
-  expect(JSON.parse(fx.files.get(WAIT)!).typed).toBeTruthy()
-  // The withdrawal at submit is the one that failed (a send refused, a write that threw): the
-  // entry is open and the fingerprint kept, as they were before the prompt.
-  fx.files.set(WAIT, JSON.stringify({ ...JSON.parse(wait), typed: { blocks: 'phase 3', since: asked.since, withdrawn: false } }) + '\n')
-  fx.files.set(`${ROUND}/${asked.id}.json`, entry)
+  fx.dollar.process.run = run
+  const mark = JSON.parse(fx.files.get(WAIT)!).typed
+  expect([mark.blocks, mark.since, mark.withdrawn]).toEqual(['phase 3', asked.since, false])
+  expect(entries(fx)).toEqual([asked])
   const pane = { opened: null, ticker: null, other: new Set<string>(), undelivered: new Map(), answering: new Set<string>() }
   await answerFromPane({ ...fx.dollar, ui: { invalidate: () => undefined } }, pane, asked, { letter: 'A', text: 'merge it' })
   expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
 })
-
 
 test('an answer from the pane leaves a wait file that holds another fingerprint as it is', async () => {
   const { fx } = await relayedQuestion()
@@ -999,10 +1008,15 @@ test('a mark left by a turn that ended without an answer does not make a later u
   await drive(chains, 'turn.start', fx.dollar, { text: 'what is the status of the build?' })
   await drive(chains, 'turn.complete', fx.dollar, { ...turnEnd(''), reason: 'interrupt', isAborted: true })
   expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+  const [sent, logged] = [fx.sent.length, fx.logged.length]
   await drive(chains, 'turn.start', fx.dollar, { text: '[module] a peer message' })
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Done.', 'waiting: done')))
   // The question was withdrawn at the prompt; the untyped turn's wait is entered open beside it.
   expect(entries(fx).map(e => [e.blocks, e.status])).toEqual([['phase 3', 'withdrawn'], [null, 'open']])
+  // Not withdrawn a second time: still the tab's answer, and no send and no withdrawal line since.
+  expect(entries(fx)[0].answer?.by).toBe('tab')
+  expect(fx.sent.length).toBe(sent)
+  expect(fx.logged.slice(logged).filter(l => l.includes('withdraw') || l.includes('no open entry matched'))).toEqual([])
 })
 
 
@@ -1031,10 +1045,14 @@ test('a coordinator on another machine is sent the withdrawal at the prompt, not
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf('Something else.', 'waiting: operator — blocks: phase 4')))
   // The withdrawal first, then the same wait asked again (nothing is held yet: its ack is not
   // back) and the new question: the report is the last ask.
-  const [withdrawal] = fx.sent
-  const report = fx.sent.filter(m => m.text.startsWith(ASK_MARKER)).pop()!
-  expect([withdrawal.to, withdrawal.text]).toEqual(['Coord : ops [abc]', withdrawalText('Orch : belt', 'phase 3', since)])
-  expect(parseAsk(report.text)!.entry.blocks).toBe('phase 4')
+  const shown = (m: { text: string }) => m.text.startsWith(ASK_MARKER) ? `ask: ${parseAsk(m.text)!.entry.blocks}`
+    : m.text.startsWith(ROW_MARKER) ? `row: ${JSON.parse(m.text.slice(ROW_MARKER.length)).blocks}` : m.text
+  expect(fx.sent.map(m => [m.to, shown(m)])).toEqual([
+    ['Coord : ops [abc]', withdrawalText('Orch : belt', 'phase 3', since)],
+    ['Coord : ops [abc]', 'ask: phase 3'],
+    ['Coord : ops [abc]', 'ask: phase 4'],
+    ['Coord : ops [abc]', 'row: phase 4'],
+  ])
 })
 
 for (const [label, line] of [['done', 'waiting: done']] as const) {
