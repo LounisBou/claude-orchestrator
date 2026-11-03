@@ -16,11 +16,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       await $.tool.register({
         name: ANSWERED_TOOL,
         isDeferred: false,
-        description: "Withdraws the session's own open question once the operator's answer reached it by a message (a relay from another session), marking it answered by message with the message's author. Only in an orchestrator session.",
+        description: "Call it when the session acts on an answer to its own open round question that reached it by a message from another session: it withdraws the question, marking it answered by message, with that session's name as author. Only in an orchestrator session.",
         inputSchema: {
           type: 'object',
           properties: {
-            author: { type: 'string', description: 'Who sent the message that carried the answer' },
+            author: { type: 'string', description: 'The name of the session that sent the message carrying the answer' },
             entry: { type: 'string', description: 'The id of the round entry; omitted, every open question of this session' },
           },
           required: ['author'],
