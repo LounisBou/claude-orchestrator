@@ -178,11 +178,6 @@ and the hooks module carries it: ask here, in the shape of `/orchestrator-decide
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
 One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
-Its fields, in his language: `**Question i of N**`, `_Subject_ :`, `_Context_ :`,
-`_Question_ :`, `_Choices_ :` then one `- **A** : <text>` each, `_Recommendation_ : A — <why>`;
-`waiting: operator (urgent) — blocks: <…>` only for a production fault, a detected
-regression, a real deadline. Split references in `blocks:` by `, `, never `/`.
-His answer returns verbatim, dated, via it or here.
 A pause it relays: its bullet in `references/lifecycle.md`.
 
 **When the orchestrator's own session lacks what the role needs — a PATH, a credential the

@@ -67,7 +67,7 @@ operator's pane draws these fields alone.
 - `_Recommendation_ : A — <its reason in one sentence>`: exactly one, after the choices.
 - Close with « You decide: A or B? » (the letters offered), then the machine line, plain
   text, as the message's last line: `waiting: operator — blocks: <the question>` — the
-  stop gate refuses a turn that ends on a bare question. END THE TURN. Nothing else in
+  stop gate refuses a turn that ends on a bare question. Split references in `blocks:` by `, `, never `/`. END THE TURN. Nothing else in
   that message but the « Recorded » line of the answer just given: no status, no other
   question, no agent report.
 

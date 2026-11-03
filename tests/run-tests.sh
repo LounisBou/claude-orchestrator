@@ -286,8 +286,8 @@ check "the rulebook stops real machine load an agent reports or plans" "yes" \
 # The pane draws each pull request reference of a blocks text as a link of its own, and a slash
 # glues two of them into a name it cannot resolve: the rulebook tells the orchestrator to split
 # them by a comma.
-check "the rulebook splits the references of a blocks text by commas, never a slash" "yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Split references in `blocks:` by `, `, never `/`.')"
+check "the decision round splits the references of a blocks text by commas, never a slash" "yes" \
+  "$(spells "$ROOT/commands/decide.md" 'Split references in `blocks:` by `, `, never `/`.')"
 check "the standing rules read « under load » as emulated throttling" "yes" \
   "$(spells "$ORCH_REFS/briefs.md" '**« Under load » means emulated throttling, never real load on the machine.**')"
 check "the phase brief template reads « under load » as emulated throttling" "yes" \
@@ -3339,8 +3339,8 @@ check "the decision round no longer looks the coordinator up or sends it the que
 # only once due — urgent, or no pane open — and never twice; whether the pane is open decides.
 # A hold on his word keeps the other questions open, and the urgent ones still signalled.
 check "the rulebooks say a question the pane shows is not asked twice, when it falls due, and how a wait is marked urgent" \
-  "yes|yes|yes|yes|yes|yes|yes|yes|yes|yes|yes|yes|yes" \
-  "$(spells "$COORDSKILL" '**A question the pane shows is not asked twice.**')|$(spells "$COORDSKILL" 'ended on `waiting: operator (urgent) — blocks: …`, or your pane is closed. Whether he keeps the')|$(spells "$COORDSKILL" 'he lifts that hold: they stay open, in the pane and in the round; an urgent one you signal in')|$(spells "$ROOT/commands/decide.md" 'compaction, in asking order: the urgent first (a production fault, a detected')|$(spells "$COORDSKILL" '(« [module] … now due in this tab »)')|$(spells "$COORDSKILL" 'tab while the pane still showed it, by one `round-close`; neither is presented again.')|$(spells "$ROOT/commands/decide.md" 'again only when urgent or no pane is open (his order of 2026-10-24: no question asked')|$(spells "$ROOT/commands/decide.md" 'end on `waiting: operator (urgent) — blocks: …` only for')|$(spells "$ROOT/commands/decide.md" '« already done: <evidence> », dropped from the count (N in the header drops with it),')|$(spells "$ROOT/commands/decide.md" 'a settled item is never asked.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" '`waiting: operator (urgent) — blocks: <…>` only for a production fault, a detected')|$(spells "$ROOT/docs/design.md" 'A question the pane shows is not asked twice, on the operator')|$(spells "$ROOT/docs/design.md" 'submits to its own session one « [module] … now due in this tab »')"
+  "yes|yes|yes|yes|yes|yes|yes|yes|yes|yes|yes|yes" \
+  "$(spells "$COORDSKILL" '**A question the pane shows is not asked twice.**')|$(spells "$COORDSKILL" 'ended on `waiting: operator (urgent) — blocks: …`, or your pane is closed. Whether he keeps the')|$(spells "$COORDSKILL" 'he lifts that hold: they stay open, in the pane and in the round; an urgent one you signal in')|$(spells "$ROOT/commands/decide.md" 'compaction, in asking order: the urgent first (a production fault, a detected')|$(spells "$COORDSKILL" '(« [module] … now due in this tab »)')|$(spells "$COORDSKILL" 'tab while the pane still showed it, by one `round-close`; neither is presented again.')|$(spells "$ROOT/commands/decide.md" 'again only when urgent or no pane is open (his order of 2026-10-24: no question asked')|$(spells "$ROOT/commands/decide.md" 'end on `waiting: operator (urgent) — blocks: …` only for')|$(spells "$ROOT/commands/decide.md" '« already done: <evidence> », dropped from the count (N in the header drops with it),')|$(spells "$ROOT/commands/decide.md" 'a settled item is never asked.')|$(spells "$ROOT/docs/design.md" 'A question the pane shows is not asked twice, on the operator')|$(spells "$ROOT/docs/design.md" 'submits to its own session one « [module] … now due in this tab »')"
 # The coordinator's own decision round takes every orchestrator's open questions in the order
 # `round --by-urgency` prints, points at decide.md for the round's shape, and relays each ruling.
 CDECIDE="$ROOT/commands/coordinator-decide.md"
