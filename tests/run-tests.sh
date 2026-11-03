@@ -4833,12 +4833,14 @@ while [ "${#OQ_BLOCK}" -lt 1500 ]; do OQ_BLOCK+=$'\n  Should the release wait fo
 OQ_BLOCK=${OQ_BLOCK:0:1500}
 OQ_BIG="$WORK/succession-oq-big.md"; oq_brief "$OQ_BIG" "$OQ_BLOCK"
 OQ_BIG_PLUS="$WORK/succession-oq-big-plus.md"
-{ cat "$OQ_BIG"; printf '%s\n' "$(head -c 600 /dev/zero | tr '\0' 'x')"; } > "$OQ_BIG_PLUS"
+# The padding brings the rest of the brief past the limit whatever the template's own size.
+OQ_PAD=$(( 10100 - $(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ') + 1500 ))
+{ cat "$OQ_BIG"; printf '%s\n' "$(head -c "$OQ_PAD" /dev/zero | tr '\0' 'x')"; } > "$OQ_BIG_PLUS"
 check "a succession brief whose open-questions value is a 1,500-character block, the rest within the limit, lints clean" "yes|0" \
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 10000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
 check "succeed.md says the open-questions value is outside the 10,000-character cap" "yes" \
   "$(spells "$ROOT/commands/succeed.md" '10,000 characters, the open-questions value apart')"
-check "the same brief with 600 characters added elsewhere is over the limit" "1|1" \
+check "the same brief with the rest padded past 10,000 characters is over the limit" "1|1" \
   "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 10000')"
 # The value is read from the label's first colon, on that line and on the lines after it up to
 # the next field of the Live state: a label worded otherwise, and a value that starts on the next
