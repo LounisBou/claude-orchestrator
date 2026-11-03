@@ -259,9 +259,11 @@ check "ready includes the rebase and names the squash-merge trap" "1|1|1" \
   "$(grep -c "each pull request of a stack on the one below it" "$ORCH_REFS/review.md")|$(grep -c "git rebase --onto <main> <old head of the lower branch> <branch>" "$ORCH_REFS/review.md")|$(grep -c "the one force this rule allows" "$ORCH_REFS/review.md")"
 check "the undraft and the plain rebase have their rows" "1|1" \
   "$(grep -c "is green, I can take it out of draft" "$ORCH_REFS/review.md")|$(grep -c "a plain rebase on main will do" "$ORCH_REFS/review.md")"
-check "the force push has its red flag" "1" \
-  "$(grep -c "a force push other than a rebase" "$ROOT/skills/orchestrator/SKILL.md")"
-check "the ungated pull request has its red flag" "1" "$(grep -c "A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before" "$ROOT/skills/orchestrator/SKILL.md")"
+# « Red flags » and « Where the rest lives » left the rulebook (the operator's ruling on topic 7
+# of the rules review): each flag repeated a rule kept elsewhere, the force push refused by the
+# push guard (hooks/tests/push-guard.test.ts).
+check "the rulebook carries no red-flag list and no pointer list" "0|0" \
+  "$(grep -c '^## Red flags' "$ROOT/skills/orchestrator/SKILL.md")|$(grep -c '^## Where the rest lives' "$ROOT/skills/orchestrator/SKILL.md")"
 # The rulebook is loaded whole at every start and every takeover: its size is bounded, and what
 # only one step needs lives in the reference that step names.
 # 21,000 until the operator's order routed every question for him through a running coordinator:

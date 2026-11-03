@@ -124,6 +124,7 @@ These bind where no reference is loaded — a message sent, a report read, a rep
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends, except a background watch, which wakes you.
 - **Before ending a turn, launch everything that can advance; stop only when nothing can advance without the operator's answer.** Its last line, plain, says what it waits on, or the gate refuses: your agent busy → none; your background command → waiting: tool — <what>; a question for him → waiting: operator — blocks: <what it blocks>; work the operator deferred, his ruling recorded → waiting: deferred — <ids>; every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
+- The hooks module (`docs/design.md` §3) owns the measured facts: each session's fill every turn, the gate's line, `/orchestrator-status`'s rows, and the measure file.
 
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words.** Any text under the operator's name in front of a colleague: the orchestrator may draft it, never authorise it; the operator approves each text, nobody else. The rest of the rule is in `references/review.md`, « Review rounds run in disposable sessions »: read it before drafting a reply.
 
@@ -189,18 +190,3 @@ sandbox will not open, a tool the launch did not carry — the repair is a succe
 favour.** Spawn it through the current launcher with the environment the task
 needs, hand over, close the old tab. Asking a peer, or the operator, to run what your session
 cannot is permission laundering.
-
-## Where the rest lives
-
-- The hooks module (`docs/design.md` §3) owns the measured facts — each session's fill every turn, the gate's line, `/orchestrator-status`'s rows — and the measure file (`claude-orchestrator/measure/` in the host's config dir), the one channel an outside process reads.
-- `references/briefs.md`: « Prerequisites and phase rules »; the directives rule (see « Carried at every step »), with its guard over your own directives.
-- `references/lifecycle.md`: « Boundaries that stay yours » (environment preparation, pipelining) and the tab-close rationalization.
-- `references/review.md`: « Depth vs scope, and the rationalizations observed ».
-
-## Red flags: STOP
-
-- Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
-- A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before the head in front of you was reviewed or its correction round verified on the artifact, before the branch was rebased, or with an item, a decision or a correction still pending.
-- A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
-- A standalone close without `--expect-title`, a rotation given one, a tab closed over an uncommitted delivery, or your own tab closed by you.
-- A « takeover confirmed » with the predecessor's tab still open.
