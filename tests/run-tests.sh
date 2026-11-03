@@ -6289,11 +6289,13 @@ check "list names the ended orchestrator of an orphaned agent, on a line no row 
   "$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:')|$(sfield "$res" rows | tr '~' '\n' | grep -c '^w1/t')|$(sfield "$res" rows | tr '~' '\n' | grep '^orphan:' | grep -c ' | ')"
 
 # Chain files of dead or recycled ttys piled up. The next chain write removes every file
-# whose tty runs no host, or whose every entry is a dead tty; never a live one, never the
+# whose every entry is a dead tty; never one with an agent still running, even when its
+# orchestrator has ended (it is what `list` names the orphan's owner from), never the
 # caller's own, and nothing at all when the process table cannot be read.
 PRSTATE="$WORK/prunestate"
 prune_seed() { rm -rf "$PRSTATE"; mkdir -p "$PRSTATE/chains"
   printf '{"tab_id":"9","tty":"/dev/ttys809","owner":"S-X"}\n' > "$PRSTATE/chains/ttys015.jsonl"
+  printf '{"tab_id":"9","tty":"/dev/ttys809","owner":"S-X"}\n{"tab_id":"3","tty":"/dev/ttys803","owner":"S-X"}\n' > "$PRSTATE/chains/ttys016.jsonl"
   printf '{"tab_id":"9","tty":"/dev/ttys809","owner":"S-X"}\n' > "$PRSTATE/chains/ttys803.jsonl"
   printf '{"tab_id":"4","tty":"/dev/ttys804","owner":"S-X"}\n' > "$PRSTATE/chains/ttys802.jsonl"
   printf '{"tab_id":"7","tty":"/dev/ttys807","owner":"S-OWN"}\n' > "$PRSTATE/chains/ttys801.jsonl"; }
@@ -6303,11 +6305,14 @@ import iterm_agent as ia
 ia.chain_append('/dev/ttys804', 'T', '/dev/ttys902', 'S-B')" "$ROOT/skills/iterm-agents/scripts" 2>&1
   ls "$PRSTATE/chains" | paste -sd, -; }
 prune_seed
-check "a chain write prunes the dead tty's file and the one whose every agent is dead, never a live one or the caller's" \
-  "ttys801.jsonl,ttys802.jsonl,ttys804.jsonl" "$(prune_run "$PLACEPS")"
+check "a chain write prunes every file whose agents are all dead, never a live one or the caller's" \
+  "ttys016.jsonl,ttys801.jsonl,ttys802.jsonl,ttys804.jsonl" "$(prune_run "$PLACEPS")"
+prune_seed
+check "an ended orchestrator's file with one agent still running is kept" "present" \
+  "$(prune_run "$PLACEPS" >/dev/null; [ -e "$PRSTATE/chains/ttys016.jsonl" ] && echo present || echo absent)"
 prune_seed
 check "and prunes nothing when the process table cannot be read" \
-  "ttys015.jsonl,ttys801.jsonl,ttys802.jsonl,ttys803.jsonl,ttys804.jsonl" "$(prune_run "$WORK/no-such-ps-table")"
+  "ttys015.jsonl,ttys016.jsonl,ttys801.jsonl,ttys802.jsonl,ttys803.jsonl,ttys804.jsonl" "$(prune_run "$WORK/no-such-ps-table")"
 
 echo "== iterm-agents: agents as windows of a home session =="
 # Inside a tmux session the home command marked (`@orchestrator-home` = 1), an agent is a

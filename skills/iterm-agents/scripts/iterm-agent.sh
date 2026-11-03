@@ -15,8 +15,8 @@
 #     A title "Orch : ..." is refused without --successor, --open or --wake, and from an
 #     auditor at all: its only successor is its own audit session.
 #     A successor, at its spawn and at `takeover`, takes the predecessor's whole chain and the
-#     predecessor's chain file is removed; chain files no live session owns are pruned on the
-#     next chain write, and `list` names the ended orchestrator of each orphaned agent.
+#     predecessor's chain file is removed; a chain file whose every agent has ended is pruned
+#     on the next chain write, and `list` names the ended orchestrator of each orphaned agent.
 #     --keep-tool / --drop-tool: take a tool out of, or add one to, the set the launch removes
 #     from the session (§65). Both repeat; an empty name, or one name on both, is refused.
 #     --keep-synced-skills: leave the account's synced skills in; the launch hides them otherwise.

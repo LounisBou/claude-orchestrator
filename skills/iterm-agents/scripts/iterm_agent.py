@@ -1490,9 +1490,9 @@ _PRUNED = []
 
 
 def chain_prune(keep):
-    """Remove the chain files no live session owns, once per run: a file whose
-    tty runs no host, or whose every entry names a tty that runs none. Those piled up under
-    dead and recycled ttys, and a recycled tty's occupant read a stranger's agents as its own.
+    """Remove the chain files whose every entry names a tty that runs no host, once per run.
+    Those piled up under dead and recycled ttys. A file with one agent still running is kept
+    even when its orchestrator has ended: it is what tells `list` whose orphan that agent is.
     `keep`, the file being written and the caller's own, are never touched, nor is anything
     when the process table cannot be read."""
     if _PRUNED or not os.path.isdir(CHAINS_DIR):
@@ -1508,7 +1508,7 @@ def chain_prune(keep):
         if tty in keep:
             continue
         entries = chain_read(tty)
-        if tty not in live or all(e["tty"] not in live for e in entries):
+        if all(e["tty"] not in live for e in entries):
             try:
                 os.remove(chain_path(tty))
             except OSError:
