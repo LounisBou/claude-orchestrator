@@ -62,9 +62,9 @@ function askedPart(entry: RoundEntry): { number: string; shape: QuestionShape; c
   return shape ? { number: part.number!, shape, choices: part.choices } : null
 }
 
-// A line that records the operator's answer, `Recorded: <his ruling>` in the sender's language
-// (« Enregistré », « Enregistrée »), its markup around the word allowed.
-const RECORDED = /^[\s>*_`«"-]*(?:recorded|enregistr[ée]e?s?)[\s*_`»"]*:/iu
+// A line that records the operator's answer, `Recorded: <his ruling>`, or its French form (the
+// word spelled with its accent, escaped here), its markup around the word allowed.
+const RECORDED = /^[\s>*_`\u00ab"-]*(?:recorded|enregistr[e\u00e9]e?s?)[\s*_`\u00bb"]*:/iu
 
 // A text as compared: its emphasis dropped, its spacing collapsed, its case kept.
 const flat = (text: string) => plainText(text).replace(/\s+/g, ' ').trim()

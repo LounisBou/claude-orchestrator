@@ -130,7 +130,8 @@ test('a « Recorded » line, in either language, rules on it and passes', () => 
   const pending = pendingQuestion(SESSION, [entry({ status: 'withdrawn', answer: tabAnswer })], typed)
   expect(unansweredRefusal('Recorded: A, the schema first.', pending)).toBeNull()
   expect(unansweredRefusal('**Recorded** : A.\n\nnext question…', pending)).toBeNull()
-  expect(unansweredRefusal('Enregistré : A, le schéma d\'abord.', pending)).toBeNull()
+  // The French form, its accent included: the Unicode handling of the line's word.
+  expect(unansweredRefusal('Enregistré : A.', pending)).toBeNull()
   expect(unansweredRefusal('« Enregistrée : A »', pending)).toBeNull()
   expect(unansweredRefusal('I recorded nothing yet.', pending)).not.toBeNull()
   expect(unansweredRefusal(['```', 'Recorded: A', '```'].join('\n'), pending)).not.toBeNull()
