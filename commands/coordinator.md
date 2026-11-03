@@ -45,12 +45,9 @@ Then:
    ```
 
    Your tab is `self`, so the move needs no `--force`. The launcher keeps the place yours:
-   `rotate` and `move` refuse a tab whose session is named `Coord :` unless `--force` — yours
-   from the end of step 1's turn, the launcher reading the name from the host's registry — and
+   `rotate` and `move` refuse a tab whose session is named `Coord :` unless `--force`, and
    the title is refused on any spawn but your successor's, `--coordinator-successor --title
-   "Coord : <subject>"`, which opens at the FIRST place of the window, the chain ignored, on
-   the caller's model and under remote control under its title, joins no chain, and refuses
-   `--successor`, `--auditor`, `--left-of` and `--right-of` beside it.
+   "Coord : <subject>"`, which opens at the FIRST place of the window.
 
 5. **Read the facts**: `coordinator.sh owners`, then `coordinator.sh facts`.
 6. **Announce.** Apply « Announcing newcomers » (`orchestrator:coordination`): a fresh

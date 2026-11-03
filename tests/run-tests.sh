@@ -3379,7 +3379,7 @@ check "the start renames itself before it registers" "1" \
 # the module refuses the spawn or the message made before it, then resumes the session.
 # A session the launcher cannot read a name for still succeeds: the title is passed by hand.
 check "succeed passes the current name as the title when the launcher reads none" "yes" \
-  "$(spells "$ROOT/commands/succeed.md" 'older convention — it says to type one: pass `--title "<this session'"'"'s current name>"`,')"
+  "$(spells "$ROOT/commands/succeed.md" 'it says to type one: pass `--title "<this session'"'"'s current')"
 check "the orchestrator ends the turn on its rename and the module resumes it under the name" "yes|no" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once, and END THE TURN: the name is taken when it ends, and the module resumes you under it; a spawn or a message before then is refused')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'so you dispatch from the next turn')"
 check "the coordinator ends the turn on its rename and the module resumes it" "yes|no" \
@@ -9533,7 +9533,7 @@ check "the calibrate command runs harvest, ready, bench on the cap and calibrate
 check "the calibrate command refuses without a cap and never picks one" "yes" \
   "$(spells "$CALCMD" '**No cap given, the command refuses and asks the operator for one: it never picks a cap itself**')"
 check "the calibrate command stops at the first failure and checks the judge's tier and the manifest's tests" "yes|yes|yes" \
-  "$(spells "$CALCMD" 'A non-zero exit is a failure')|$(spells "$CALCMD" '`bench` refuses a run with the `deep` tier unbound')|$(spells "$CALCMD" 'because `ready` and `bench` both refuse such a manifest')"
+  "$(spells "$CALCMD" 'A non-zero exit is a failure')|$(spells "$CALCMD" 'With no `deep` entry, stop here and say so')|$(spells "$CALCMD" '`test_command` or empty `test_globs` stops the command here**')"
 check "the calibrate command runs neither generalize nor export, and leaves them to the operator" "0|yes" \
   "$(grep -cE 'routing\.py (generalize|export)' "$CALCMD")|$(spells "$CALCMD" '**`generalize` and `export` are not run by this command.**')"
 check "the README, the routing skill and the calibration reference name the calibrate command" "yes|yes|yes" \
