@@ -509,8 +509,9 @@ BACKENDS = ("api", "applescript")
 # environment unbuilt, the API server switched off, a cookie refused.
 #
 # There is deliberately no third rung in another terminal (§48). One was built, in tmux, and
-# the operator struck it out: a session that is not an iTerm2 tab is not an agent he can see,
-# place or close in the window he reads, and a launcher that quietly hands him one has hidden
+# the operator struck it out: an agent is a window of its orchestrator's home session or an
+# iTerm2 tab, and no OTHER terminal is a rung, since a session elsewhere is not one he can see,
+# place or close in the window he reads. A launcher that quietly hands him one has hidden
 # the fault instead of repairing it. When BOTH rungs are down the app itself is wedged, and
 # that has a one-keystroke remedy — so the launcher NAMES it and stops. Stopping loudly on a
 # fault with a known remedy is the repair; routing around it is not.
