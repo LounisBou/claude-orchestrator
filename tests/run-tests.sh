@@ -6291,14 +6291,14 @@ check "an auditor's wake of an orchestrator is refused with a message naming the
   "$(orchp "$AUDPS" --title 'Orch : x' --wake --model a-model | grep -c "opens no orchestrator tab with --wake or an Orch title, and --open is a coordinator's or an orchestrator's; its only successor is its own audit session, --successor without --title")"
 printf '/dev/ttys900 claude\n' > "$WORK/ps-unnamed.txt"
 check "an auditor whose name cannot be read is refused all the same, by the marker its launch exports" "1|1|0" \
-  "$(ORCHESTRATOR_AUDITOR=1 orchp "$WORK/ps-unnamed.txt" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^launch=.*export ORCHESTRATOR_AUDITOR=1 && ')|$(orchp "$ORCHPS" --title 'Agent : x' | grep -c 'ORCHESTRATOR_AUDITOR')"
+  "$(ORCHESTRATOR_AUDITOR=1 orchp "$WORK/ps-unnamed.txt" --title 'Orch : x' --wake --model a-model | grep -c "this session is not an orchestrator's or a coordinator's")|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^launch=.*export ORCHESTRATOR_AUDITOR=1 && ')|$(orchp "$ORCHPS" --title 'Agent : x' | grep -c 'ORCHESTRATOR_AUDITOR')"
 check "an auditor's spawn stays out of the chain and left of its caller, a woken orchestrator's out of the chain" "1|1|1" \
   "$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^chain=none$')|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^side=left$')|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model | grep -c '^chain=none$')"
 NEUTRALPS="$WORK/ps-neutralcaller.txt"; AGENTPS="$WORK/ps-agentcaller.txt"
 printf '/dev/ttys900 claude --name Audit neutre : f\n' > "$NEUTRALPS"
 printf '/dev/ttys900 claude --name Agent : f\n' > "$AGENTPS"
 check "a wake from a session named otherwise is refused before any tab exists, the orchestrator's still goes" "1|0|1|0" \
-  "$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c '^launch=')|$(orchp "$AGENTPS" --title 'Orch : x' --wake --model a-model | grep -c "an agent never wakes an orchestrator")|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)"
+  "$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c "this session is not an orchestrator's or a coordinator's")|$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c '^launch=')|$(orchp "$AGENTPS" --title 'Orch : x' --wake --model a-model | grep -c "an agent never wakes an orchestrator")|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)"
 # A coordinator opened by hand and renamed carries a readable name that is not `Coord : `;
 # only its own record places it on the tty. The auditor guard reads that record too.
 RENSTATE="$WORK/orchstate-renamed"; mkdir -p "$RENSTATE/chains"
@@ -6309,6 +6309,8 @@ renamed() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$1" ORCHESTRATOR_SELF
   ORCHESTRATOR_PS_TABLE="$WORK/ps-renamedcoord.txt" bash "$AGENT" spawn --dir "$WORK" --prompt p "${@:2}" 2>&1; }
 check "a coordinator renamed away from Coord is no auditor to the guard: its record names it, a stranger of that name is still refused" "0|1" \
   "$(renamed "$RENSTATE" --title 'Orch : x' --successor >/dev/null 2>&1; echo $?)|$(renamed "$WORK/orchstate" --title 'Orch : x' --successor | grep -c "this session is")"
+check "the refusal names what the caller is not, whatever its name, and the tail naming the flags stays" "1|1|0" \
+  "$(renamed "$WORK/orchstate" --title 'Orch : x' --wake --model a-model | grep -c "this session is not an orchestrator's or a coordinator's ('geonative-fix')")|$(renamed "$WORK/orchstate" --title 'Orch : x' --wake --model a-model | grep -c "opens no orchestrator tab with --wake or an Orch title, and --open is a coordinator's or an orchestrator's; its only successor is its own audit session, --successor without --title")|$(renamed "$WORK/orchstate" --title 'Orch : x' --wake --model a-model | grep -c "an auditor's")"
 check "an auditor named otherwise opens no orchestrator tab as a successor either" "1" \
   "$(orchp "$NEUTRALPS" --title 'Orch : x' --successor | grep -c "Audit neutre : f")"
 check "an auditor's --open is refused, as an agent's is" "1|1" \

@@ -3928,10 +3928,10 @@ def cmd_spawn(argv):
         if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
             caller = "unnamed"
         if caller:
-            die("spawn: refused: this session is an auditor's ('%s'): it opens no "
-                "orchestrator tab with --wake or an Orch title, and --open is a "
-                "coordinator's or an orchestrator's; its only successor is its own audit "
-                "session, --successor without --title" % caller[:40])
+            die("spawn: refused: this session is not an orchestrator's or a coordinator's "
+                "('%s'): it opens no orchestrator tab with --wake or an Orch title, and "
+                "--open is a coordinator's or an orchestrator's; its only successor is its "
+                "own audit session, --successor without --title" % caller[:40])
     if args.wake:
         # --open's caller rule, after the auditor's own refusal above has had its say.
         caller = opener_name()
