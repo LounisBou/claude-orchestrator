@@ -735,6 +735,19 @@ host_session 105 o-colon "Orch: gamma"
 as_session o-colon goals "$OWQ" init --spec none >/dev/null 2>&1
 check "an owner is written in the house shape, « Orch : <subject> », whichever way the name is spelled" "Orch : gamma" "$(cat "$OWQ.owner" 2>/dev/null)"
 
+# Two first writers at once: the claim is made before the write, so one wins and the other is
+# refused with its write not made, never both through.
+OWRACE=""
+for n in 1 2 3 4 5 6 7 8; do
+  OWC="$OW/race$n/dispatch.jsonl"; mkdir -p "$OW/race$n"
+  bash "$REC" goals "$OWC" init --spec none >/dev/null; bash "$REC" open "$OWC" --class x --tier light >/dev/null
+  as_session o-alpha round "$OWC" 1 >/dev/null 2>&1 & pa=$!
+  as_session o-beta round "$OWC" 1 >/dev/null 2>&1 & pb=$!
+  wait "$pa"; ca=$?; wait "$pb"; cb=$?
+  OWRACE="$OWRACE $(( ca + cb )):$(jq -r 'select(.id==1)|.rounds' "$OWC")"
+done
+check "two first writers at once: one is refused, and only the winner's write is made" \
+  " 1:1 1:1 1:1 1:1 1:1 1:1 1:1 1:1" "$OWRACE"
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
 # `waiting: deferred — <ids>` once nothing else is open.

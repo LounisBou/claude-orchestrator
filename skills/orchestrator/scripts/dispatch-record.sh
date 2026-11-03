@@ -153,6 +153,8 @@ DATED_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}'
 REGISTER_ABSENT=0
 # Set by a write once it is allowed: a read neither registers nor claims the record.
 WRITING=0
+# Set when this run made the claim in guard_owner: a write that then fails gives it back.
+CLAIMED=0
 
 # The orchestration this session belongs to, as the host's record of the session names it
 # (`<config dir>/sessions/<pid>.json`, the newest record carrying this session id): « Orch :
@@ -186,10 +188,18 @@ session_orchestration() {
 # is accepted; inside one, only the owner's. Sets WRITING once the write is allowed.
 guard_owner() {
     local owner me
-    if [ -f "$OWNER_FILE" ] && [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+        me=$(session_orchestration)
         owner=$(orch_form "$(head -n 1 "$OWNER_FILE" 2>/dev/null)")
+        if [ -z "$owner" ] && [ -n "$me" ] && [ -d "$(dirname "$record")" ]; then
+            # No owner yet, or an empty file: claim now, before the write, so of two first writers
+            # one claim stands and the other reads the winner back and is refused.
+            if ( set -C; printf '%s\n' "$me" > "$OWNER_FILE" ) 2>/dev/null; then CLAIMED=1
+            elif [ ! -s "$OWNER_FILE" ]; then printf '%s\n' "$me" >| "$OWNER_FILE" 2>/dev/null && CLAIMED=1
+            fi
+            owner=$(orch_form "$(head -n 1 "$OWNER_FILE" 2>/dev/null)")
+        fi
         if [ -n "$owner" ]; then
-            me=$(session_orchestration)
             [ "$me" = "$owner" ] || die "$cmd: $record belongs to $owner, and this session is ${me:-no orchestration it can tell}: a record belongs to one orchestration, so open your own beside your briefs and hand $owner the work by message"
         fi
     fi
@@ -238,6 +248,9 @@ claim_record() {
 
 finish() {
     local status=$?
+    if [ "$status" -ne 0 ] && [ "$CLAIMED" = 1 ] && [ "$(orch_form "$(head -n 1 "$OWNER_FILE" 2>/dev/null)")" = "$(session_orchestration)" ]; then
+        rm -f "$OWNER_FILE"
+    fi
     register_record
     [ "$status" -ne 0 ] || claim_record
     return 0
