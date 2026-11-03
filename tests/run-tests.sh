@@ -4634,7 +4634,9 @@ echo "== stop gate: the prose and the pins that survive the module =="
 # succession figures, and the registration pins.
 check "the phase brief template ends the delivery at the push, no CI watch" "yes|no|no" \
   "$(spells "$ROOT/templates/agent-phase-brief.md" 'The delivery ends at the push')|$(spells "$ROOT/templates/agent-phase-brief.md" 'gh pr checks')|$(spells "$ROOT/templates/agent-phase-brief.md" 'in the foreground')"
-check "the standing rules say an agent never waits on CI" "yes|no" \
+# brief-lint.sh refuses a CI wait in a brief (rule 191 of the rules review): the standing rules no
+# longer copy it, and the delivery item says where the delivery ends.
+check "the standing rules leave the CI wait to the lint" "no|no" \
   "$(spells "$ROOT/skills/orchestrator/references/briefs.md" '**An agent never waits on CI.**')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'timeout 590 gh pr checks <n> --watch')"
 check "the orchestrator skill arms one background watch per pull request" "yes|yes|yes" \
   "$(spells "$ORCH_REFS/review.md" 'start `ci-watch.sh <n>`')|$(spells "$ORCH_REFS/review.md" 'with `run_in_background` and a timeout of 7 200 000 ms: one per pull request, never two')|$(spells "$ORCH_REFS/review.md" 'Moved: re-arm on the new head')"
