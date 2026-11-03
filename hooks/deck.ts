@@ -6,7 +6,7 @@
 // supervision (supervision.ts, writeDeck) on every change the pane would show, and at least
 // once per DECK_REFRESH_MS so a reader can tell a live file from a frozen one. Pure on
 // purpose, like round.ts: the handler holds the $ and passes its reads in here.
-import { tripGate } from './gauge-core.ts'
+import { tripGate, gateOfRow } from './gauge-core.ts'
 import { chainOwnerTty } from './relay.ts'
 import type { RemoteRow } from './remote-row.ts'
 import type { RoundEntry } from './round.ts'
@@ -202,12 +202,12 @@ export function deckIsNews(deck: Deck, last: { deck: Deck; at: number } | null, 
   return content(deck) !== content(last.deck)
 }
 
-function contextOf(row: { context_percent: number; context_tokens: number; window: number }, gate: DeckInput['gate']): DeckContext {
+function contextOf(row: { context_percent: number; context_tokens: number; window: number; gate?: number; gate_tokens?: number }, gate: DeckInput['gate']): DeckContext {
   return {
     percent: row.context_percent,
     tokens: row.context_tokens,
     window: row.window,
-    past_gate: tripGate(row.context_percent, row.context_tokens, row.window, gate ?? {}).tripped,
+    past_gate: tripGate(row.context_percent, row.context_tokens, row.window, gateOfRow(row, gate ?? {})).tripped,
   }
 }
 

@@ -17,7 +17,7 @@ const AT = new Date(NOW - 30_000).toISOString()
 function row(over: Partial<SessionRow> = {}): SessionRow {
   return {
     role: 'orchestrator', name: 'Orch : belt', pid: '501', repo: 'acme/app', tty: '/dev/ttys003',
-    context_percent: 21, context_tokens: 210000, window: 1000000, model: 'a-model', busy: false,
+    context_percent: 19, context_tokens: 190000, window: 1000000, model: 'a-model', busy: false,
     updated_at: AT, ...over,
   }
 }
@@ -114,12 +114,22 @@ test('an agent goes under the orchestrator its chain names; one no chain names i
   expect(deck.unattached_agents.map(a => a.name)).toEqual(['Agent : loose'])
 })
 
-test('the gate is the gauge\'s own: tokens past 300,000 on a wide window, the env\'s when given', () => {
+test('the gate is the gauge\'s own: tokens past 200,000 on a wide window, the env\'s when given', () => {
   const deck = deckOf(input())
   expect(deck.orchestrators[0].agents[0].context.past_gate).toBe(true)
   expect(deck.orchestrators[0].context.past_gate).toBe(false)
   const raised = deckOf(input({ gate: { gateTokens: 400000 } }))
   expect(raised.orchestrators[0].agents[0].context.past_gate).toBe(false)
+})
+
+test('each session is past its own gate: a row carries the gate its session runs under', () => {
+  const base = input()
+  const own = { gate_tokens: 400000 }
+  const withOwn = input({ local: { ...base.local, 'sessions/s-agent': { ...base.local['sessions/s-agent'], ...own } } })
+  expect(deckOf(withOwn).orchestrators[0].agents[0].context.past_gate).toBe(false)
+  const orchestratorGate = deckOf({ ...withOwn, gate: { gateTokens: 100000 } })
+  expect(orchestratorGate.orchestrators[0].agents[0].context.past_gate).toBe(false)
+  expect(orchestratorGate.orchestrators[0].context.past_gate).toBe(true)
 })
 
 test('a wait is carried with what it blocks, urgent when its open round entry is', () => {
