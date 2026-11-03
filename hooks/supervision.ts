@@ -1891,9 +1891,12 @@ async function dropMark($: any): Promise<void> {
 // is kept only once the entry is in place or the send is delivered. Nobody to send to: nothing
 // is sent. A write that fails or a send refused is one log line; the turn's end is never held
 // on it. The row itself is never written here: the measure is its one writer.
-// A prompt the operator typed while a question was held left a mark (withdrawOnTyped): the turn
-// that ends on the same wait leaves the question open, any other end withdraws it as answered
-// in the tab, and only such a turn withdraws the session's other open entries as answered there.
+// A prompt the operator typed while a question was held withdrew it at once and left a mark
+// (withdrawOnTyped). The turn that ends on the same wait enters it again, open and with a new start,
+// in the pane and to the coordinator, a coordinator on this machine that was told it closed being
+// told it is open again. Any other end leaves it withdrawn as answered in the tab (a withdrawal
+// that failed at the prompt is tried again here), and only such a turn withdraws the session's
+// other open entries as answered there.
 // A turn that ends on an operator wait whose text asks nothing is entered as its own entry and
 // never withdraws its session's open question with choices.
 export async function relayTurnEnd($: any, answer: string): Promise<void> {
@@ -1917,8 +1920,8 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   // wait, nothing entered or sent, the wait cleared like a tool wait's.
   const deferred = role === 'orchestrator' && deferredIds(machineLine(answer)) !== null
   // The mark of a prompt the operator typed while a question was held (withdrawOnTyped): it
-  // belongs to this turn alone and is never written back. Withdrawn before the wait is read:
-  // a fingerprint the withdrawal forgot stays forgotten.
+  // belongs to this turn alone and is never written back. The question is withdrawn already,
+  // unless that failed, and a fingerprint the withdrawal forgot stays forgotten.
   const typed = role === 'orchestrator' ? (await readWait($, sessionId))?.typed ?? null : null
   let forgotten = false
   let heldKey: string | null = null
@@ -2133,7 +2136,8 @@ async function handOver($: any, sessionId: string): Promise<void> {
 // The held question's entry in the round: that session's open operator question with the same
 // start and the same blocks, marked withdrawn, answered in its own tab, or closed so when the
 // coordinator was shown it (the entries to tell it of). None found, nothing is written and the
-// log says so; one that cannot be written throws, and the next typed prompt tries again.
+// log says so; one that cannot be written throws, and the next typed prompt tries again, and so
+// does the turn's end.
 async function withdrawEntry($: any, sessionId: string, name: string, held: { blocks: string; since: string | null }): Promise<Settled[]> {
   const settled: Settled[] = []
   let matched = 0
