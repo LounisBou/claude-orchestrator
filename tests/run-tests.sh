@@ -758,6 +758,14 @@ bash "$REC" goals "$OWE" init --spec none >/dev/null; bash "$REC" open "$OWE" --
 check "an empty owner file is read as absent: the first write claims the record" "0|Orch : beta|1" \
   "$(as_session o-beta round "$OWE" 1 >/dev/null 2>&1; echo $?)|$(cat "$OWE.owner" 2>/dev/null)|$(as_session o-alpha round "$OWE" 1 >/dev/null 2>&1; echo $?)"
 
+# Two host records for one session id: the newest (`updatedAt`) names the orchestration, whichever
+# file comes first.
+jq -nc '{pid:109,sessionId:"o-renamed",name:"Orch : new-name",updatedAt:900}' > "$OWCFG/sessions/109.json"
+jq -nc '{pid:110,sessionId:"o-renamed",name:"Orch : old-name",updatedAt:100}' > "$OWCFG/sessions/110.json"
+OWN="$OW/newest/dispatch.jsonl"; mkdir -p "$OW/newest"
+as_session o-renamed goals "$OWN" init --spec none >/dev/null 2>&1
+check "of two host records for one session, the newest names the orchestration" "Orch : new-name" "$(cat "$OWN.owner" 2>/dev/null)"
+
 # A name with two spaces before its reference is still the owner's name once the reference is off.
 host_session 107 o-spaced "Orch : delta  [ab12]"
 OWS="$OW/refspaced/dispatch.jsonl"; mkdir -p "$OW/refspaced"
