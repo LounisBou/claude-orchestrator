@@ -106,10 +106,10 @@
 # belongs to ONE orchestration: the first write names it in `<record>.owner` (the orchestration's
 # name as the host spells it, without its reference) and a write from any other is refused, naming
 # the record's path and its owner. A record with no owner file, every one written before this, is
-# claimed by its first write, and a read (`summary`, `goals status|check`) claims and registers
-# nothing.
+# claimed by its first write. A read (`summary`, `goals status|check`) claims nothing, and registers
+# the record only for its owner.
 #
-# Every write also registers the record's absolute path under the host session that ran
+# Every write, and every read by the owner, also registers the record's absolute path under the host session that ran
 # it, in `<state dir>/records/<CLAUDE_CODE_SESSION_ID>` (one path per line, no duplicate). An
 # order noted « to plan after the round » in prose alone was lost once: nothing read it back.
 # A row opened for it is read back by the stop gate (the module's own gate, over the Stop
@@ -196,12 +196,24 @@ guard_owner() {
     WRITING=1
 }
 
+# Whether this session belongs to the orchestration that owns the record: the same name, so
+# the owner's successor too. False for a record with no owner and for a session that is no
+# orchestration.
+reads_own_record() {
+    local owner me
+    [ -f "$OWNER_FILE" ] || return 1
+    owner=$(orch_form "$(head -n 1 "$OWNER_FILE" 2>/dev/null)")
+    me=$(session_orchestration)
+    [ -n "$owner" ] && [ "$me" = "$owner" ]
+}
+
 # Run on exit, so a record `open` has just created is registered with its directory in place.
-# Its status is the command's own: nothing here may change it. Only a write registers the
-# record under the session; a read leaves the register alone, so a summary never makes a
-# session answer for rows it did not write.
+# Its status is the command's own: nothing here may change it. A write registers the record
+# under the session, and so does a read by its owner (a successor taking over reads it first);
+# a read by anyone else leaves the register alone, so a summary never makes a session answer
+# for rows it did not write.
 register_record() {
-    [ "$WRITING" = 1 ] || return 0
+    [ "$WRITING" = 1 ] || reads_own_record || return 0
     [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
     [ -f "$record" ] || { [ "$REGISTER_ABSENT" = 1 ] && [ -d "$(dirname "$record")" ]; } || return 0
     local dir abs list

@@ -703,6 +703,22 @@ check "a shell outside any session writes an owned record, as the operator's own
   "$(env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$OWST" bash "$REC" escaped "$OWR" 1 >/dev/null 2>&1; echo $?)"
 check "an owner file is one line, the name alone" "1|Orch : alpha" "$(wc -l < "$OWR.owner" | tr -d ' ')|$(cat "$OWR.owner")"
 
+# A successor reads the record at takeover: a read by the owner (the same name, a new session)
+# registers it, so the gate answers for its rows from then on. A read by any other does not.
+host_session 106 o-alpha-third "Orch : alpha"
+OWREAL="$(cd "$OW" && pwd -P)/dispatch.jsonl"
+as_session o-alpha-third summary "$OWR" --open >/dev/null 2>&1
+check "a read by the owner's successor registers the record" "$OWREAL" "$(cat "$OWST/records/o-alpha-third" 2>/dev/null)"
+as_session o-alpha-third goals "$OWR" status >/dev/null 2>&1
+check "a goals read by the owner registers it once" "1" "$(grep -c . "$OWST/records/o-alpha-third" 2>/dev/null)"
+OWU="$OW/unowned/dispatch.jsonl"; mkdir -p "$OW/unowned"
+bash "$REC" goals "$OWU" init --spec none >/dev/null; bash "$REC" open "$OWU" --class x --tier light >/dev/null
+as_session o-alpha-third summary "$OWU" >/dev/null 2>&1
+check "a read of a record with no owner registers nothing" "1" "$(grep -c . "$OWST/records/o-alpha-third" 2>/dev/null)"
+as_session o-beta summary "$OWR" --open >/dev/null 2>&1; as_session o-agent summary "$OWR" >/dev/null 2>&1
+check "a read by another orchestration, or by a session that is no orchestration, registers nothing" "no|no" \
+  "$([ -e "$OWST/records/o-beta" ] && echo yes || echo no)|$([ -e "$OWST/records/o-agent" ] && echo yes || echo no)"
+
 # A record with no owner yet, every existing one: reads are free, the first write claims it.
 OWL="$OW/legacy/dispatch.jsonl"; mkdir -p "$OW/legacy"
 bash "$REC" goals "$OWL" init --spec none >/dev/null
