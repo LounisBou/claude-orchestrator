@@ -1820,6 +1820,8 @@ test('a record is the session\'s own when it has no owner or the owner is the se
   expect(isOwnRecord(null, 'Orch : belt')).toBe(true)
   expect(isOwnRecord('Orch : belt', 'Orch : belt')).toBe(true)
   expect(isOwnRecord('Orch : other', 'Orch : belt')).toBe(false)
+  expect(isOwnRecord('Orch : belt', null)).toBe(false)
+  expect(isOwnRecord(null, null)).toBe(true)
 })
 
 test('the records that hold an open row not deferred are the ones the refusal names', () => {
@@ -1874,6 +1876,14 @@ test('a record with no owner yet is read as before, beside a foreign one that is
   expect((held.answer as any).block).toContain('row 2 (mine) is open in /tmp/h/mine/dispatch-record.jsonl.')
   expect((held.answer as any).block).not.toContain('row 35')
   expect((held.answer as any).block).not.toContain('Not done against the spec')
+})
+
+test('an orchestrator whose name carries no subject owns no owned record, and answers for none of its rows', async () => {
+  const { handlers } = mounted()
+  const owned = fakeDollar({ ...NO_ROWS, launchName: 'Orch :', shared: [{ path: FOREIGN_RECORD, text: FOREIGN_ROWS, owner: 'Orch : belt', goals: FOREIGN_GOALS }] })
+  const passed = await stop(handlers['classic.Stop'], owned.dollar, stopEvent(DONE))
+  expect(passed.answer).toBe(passed.passed)
+  expect(owned.written.join('\n')).toContain(`stop gate: ${FOREIGN_RECORD} belongs to Orch : belt: not read`)
 })
 
 test('the register\'s own record is held to its owner file too', async () => {
