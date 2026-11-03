@@ -93,3 +93,10 @@ test('a fence closes only on its own marker, at least as long as the opening one
   const mixed = ['```', '~~~', BLOCK('**Question 1 of 1**'), '```', wait].join('\n')
   expect(operatorWaitRefusal(mixed)).not.toBeNull()
 })
+
+test('the refusal says what a block is: the numbering line followed by its labelled fields, a heading alone being refused', () => {
+  const reason = operatorWaitRefusal('the report\n\nwaiting: operator — blocks: the answer')
+  expect(reason).toContain('`**Question i of N**` line followed by its labelled fields')
+  for (const field of ['_Subject_ :', '_Context_ :', '_Question_ :', '_Choices_ :', '_Recommendation_ :']) expect(reason).toContain(field)
+  expect(reason).toContain('a heading alone is refused')
+})

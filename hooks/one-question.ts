@@ -17,7 +17,9 @@ export const ONE_QUESTION =
 export const NO_QUESTION =
   'This turn ends on a wait for the operator but holds no question block: he is shown a report, not a question, '
   + 'and what waits on his answer stays blocked. Put the question to him in the shape of orchestrator:decide '
-  + 'step 2: `**Question i of N**`, then its fields. If you ask him nothing, end on the line that fits: '
+  + 'step 2: a block is the `**Question i of N**` line followed by its labelled fields (`_Subject_ :`, '
+  + '`_Context_ :`, `_Question_ :`, `_Choices_ :`, `_Recommendation_ :`, in the operator\'s language): a heading '
+  + 'alone is refused. If you ask him nothing, end on the line that fits: '
   + '`waiting: tool — <what is watched>`, `waiting: deferred — <ids>`, `waiting: done`, or no machine line.'
 
 // The message without its fenced code blocks (``` or ~~~, the closing fence of the opening one's
