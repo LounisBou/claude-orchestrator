@@ -1032,15 +1032,22 @@ check "a screen with no data on the reference account is seeded, never skipped" 
   "$(grep -c 'A screen the reference account has no data for is not minor and not skipped' "$ROOT/skills/orchestrator/references/review.md")|$(grep -c 'A screen the reference account has no data for is never minor' "$ROOT/skills/orchestrator/references/briefs.md")|$(grep -c 'seed the data on the local environment, and if you cannot, STOP' "$ROOT/templates/agent-phase-brief.md")"
 check "the review brief reports the surface in one line" "1" \
   "$(grep -c 'frontend surface: yes|minor|no' "$ROOT/templates/agent-review-brief.md")"
-VAUDIT='edges aligned with their neighbours; icons and text centred in their controls; no stray text left in an input; nothing truncated and nothing overflowing; no unexpected extra row or space; each control consistent with the controls beside it; both viewports'
+# The checklist lives in one file, read by the implementer, the review round and the screenshots
+# agent (the operator's ruling on topic 12 of the rules review: duplicates should not exist).
+VFILE="$ROOT/skills/orchestrator/references/screenshot-checklist.md"
+VPATH='${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/references/screenshot-checklist.md'
+check "the one checklist file carries the seven points" "7" \
+  "$(grep -cE '^- (edges aligned with their neighbours|icons and text centred in their controls|no stray text left in an input|nothing truncated and nothing overflowing|no unexpected extra row or space|each control consistent with the controls beside it|both viewports)$' "$VFILE")"
+check "no other text copies the checklist" "" \
+  "$(cd "$ROOT" && git grep -l 'icons and text centred in their controls' -- skills templates agents commands | grep -v '^skills/orchestrator/references/screenshot-checklist.md$')"
 check "the phase brief orders the visual audit of every capture before delivery" "yes|yes|yes" \
-  "$(spells "$ROOT/templates/agent-phase-brief.md" "Before you deliver, audit every capture yourself, image by image, against this checklist: $VAUDIT.")|$(spells "$ROOT/templates/agent-phase-brief.md" 'Your report carries one line per image, `<image>: clean` or `<image>: <the defect>`.')|$(spells "$ROOT/templates/agent-phase-brief.md" 'A capture that shows a defect is not delivered: fix the defect, retake the capture, and audit it again.')"
+  "$(spells "$ROOT/templates/agent-phase-brief.md" "Before you deliver, audit every capture yourself, image by image, against the checklist in \`{{SCREENSHOT_CHECKLIST}}\`.")|$(spells "$ROOT/templates/agent-phase-brief.md" 'Your report carries one line per image, `<image>: clean` or `<image>: <the defect>`.')|$(spells "$ROOT/templates/agent-phase-brief.md" 'A capture that shows a defect is not delivered: fix the defect, retake the capture, and audit it again.')"
 check "the standing rule carries the audit, its checklist and the retake" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/references/briefs.md" "Every capture is audited by the implementer before delivery, image by image, against one checklist — $VAUDIT — and the report carries one line per image, clean or the defect it shows.")|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'A capture that shows a defect is not delivered: the defect is fixed and the capture retaken.')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'The orchestrator has each image audited again by the screenshots agent before its verdict')"
+  "$(spells "$ROOT/skills/orchestrator/references/briefs.md" "Every capture is audited by the implementer before delivery, image by image, against the one checklist, \`$VPATH\`, whose path fills \`{{SCREENSHOT_CHECKLIST}}\` in the phase and review briefs, and the report carries one line per image, clean or the defect it shows.")|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'A capture that shows a defect is not delivered: the defect is fixed and the capture retaken.')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'The orchestrator has each image audited again by the screenshots agent before its verdict')"
 check "the review brief audits every image and makes each defect a finding" "yes|yes" \
-  "$(spells "$ROOT/templates/agent-review-brief.md" "With \`yes\`, you also open and audit every image, one by one, against this checklist: $VAUDIT.")|$(spells "$ROOT/templates/agent-review-brief.md" 'and every defect is also a finding: a capture that shows a defect is never a pass')"
+  "$(spells "$ROOT/templates/agent-review-brief.md" "With \`yes\`, you also open and audit every image, one by one, against the checklist in \`{{SCREENSHOT_CHECKLIST}}\`.")|$(spells "$ROOT/templates/agent-review-brief.md" 'and every defect is also a finding: a capture that shows a defect is never a pass')"
 check "item 12: the screenshots agent audits each image, and a defect is a finding" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/references/review.md" "the checklist the briefs carry: $VAUDIT.")|$(spells "$ROOT/skills/orchestrator/references/review.md" 'A defect on a capture is a finding, and the pull request is not ready')|$(spells "$ROOT/skills/orchestrator/references/review.md" 'dispatch-record.sh audit <record> <id> --head <sha> --images <n> [--defect "<text>"]...')"
+  "$(spells "$ROOT/skills/orchestrator/references/review.md" "and the checklist file, \`$VPATH\`.")|$(spells "$ROOT/skills/orchestrator/references/review.md" 'A defect on a capture is a finding, and the pull request is not ready')|$(spells "$ROOT/skills/orchestrator/references/review.md" 'dispatch-record.sh audit <record> <id> --head <sha> --images <n> [--defect "<text>"]...')"
 check "the script's header and the design name the audit" "yes|yes" \
   "$(spells "$REC" '#   dispatch-record.sh audit   <record> <id> --head <sha> --images <n> [--defect "<text>"]...')|$(spells "$ROOT/docs/design.md" 'dispatch-record.sh audit <record> <id> --head <sha> --images <n> [--defect "<text>"]...')"
 check "the record's subcommands list surface" "1" \
@@ -9720,7 +9727,7 @@ check "the screenshots agent's tools line carries no writing tool" "1|0" \
 check "the screenshots agent carries the four line shapes of the reply contract" "yes|yes|yes|yes" \
   "$(spells "$SHOTS" 'images: <audited>/<in description> on <owner/repo>#<n> at <head>')|$(spells "$SHOTS" '<k>. <image alt text or file name>: clean')|$(spells "$SHOTS" '<k>. <image alt text or file name>: <the defect seen>')|$(spells "$SHOTS" 'unreadable: <image> — <why>')"
 check "the screenshots agent audits against the checklist and never counts" "yes|yes" \
-  "$(spells "$SHOTS" "$VAUDIT")|$(carries "$SHOTS" 'never counts')"
+  "$(spells "$SHOTS" "against every point of the checklist file.")|$(carries "$SHOTS" 'never counts')"
 check "item 12 dispatches the screenshots agent and keeps the one-image exception" "yes|yes|yes" \
   "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'dispatch `orchestrator:screenshots`')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'never open the batch yourself')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'open that one only')"
 check "item 12 says an unreadable line is an image not audited and ready refuses until it is" "yes" \

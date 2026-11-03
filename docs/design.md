@@ -52,6 +52,7 @@ skills/orchestrator/SKILL.md         the rulebook
 skills/orchestrator/references/briefs.md     the agent prompt recipe, the standing rules, the lint, the tier
 skills/orchestrator/references/review.md     review on evidence, disposable review sessions, the cost of a round, the rebase
 skills/orchestrator/references/lifecycle.md  launch, verify, control, terminate, replace; rotation; succession
+skills/orchestrator/references/screenshot-checklist.md  the one checklist every frontend capture is audited against
 skills/iterm-agents/SKILL.md         tab management on macOS
 skills/iterm-agents/references/commands.md   the script's commands, how it builds a tab, when iTerm2 does not answer
 skills/iterm-agents/scripts/iterm-agent.sh   entry point: resolves an interpreter
@@ -755,7 +756,7 @@ A session running in another terminal still has a tty, and the app simply has no
 
 ## 50. A repair is justified by what is broken
 
-A repair is justified by the thing that is broken and by nothing else, and a justification's direction is read before it is written: a rule that forbids something makes it rarer, not commoner. The rulebook carries both as rationalizations and a red flag (`skills/orchestrator/references/review.md`, « Depth vs scope, and the rationalizations observed »; `skills/orchestrator/SKILL.md`, « Red flags: STOP »); section 49 is the case that taught them.
+A repair is justified by the thing that is broken and by nothing else, and a justification's direction is read before it is written: a rule that forbids something makes it rarer, not commoner. Section 49 is the case that taught it.
 
 ## 51. A self-anchor the app cannot resolve is lost, not fatal
 
