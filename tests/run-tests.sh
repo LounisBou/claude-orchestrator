@@ -5211,6 +5211,9 @@ echo "== iterm-agents: a close ends the host it closes =="
 # The fake hosts are real processes of the suite's own, entered in the stand-in table on a
 # tty no session holds; the proof is read on the real process table, by pid.
 ESTATE="$WORK/end-state"
+# The host CLI is named a-host here, its stand-in rows matched on that name.
+host_cli_kept=$ORCHESTRATOR_HOST_CLI
+export ORCHESTRATOR_HOST_CLI=a-host
 mkdir -p "$ESTATE" "$WORK/end-cfg/sessions"
 # One that ignores SIGTERM, the way the stuck host did; one that dies of it.
 stubborn() { "$py" -c 'import signal, time
@@ -5221,7 +5224,7 @@ alive() { kill -0 "$1" 2>/dev/null && echo alive || echo gone; }
 # A close of the tab on $1 whose host is pid $2, asked with --expect-title $3 of a session
 # titled $4, through a terminal of the probe's own that accepts the close and ends nothing.
 endclose() {
-  printf '/dev/%s %s /opt/x/claude --name Agent : fake\n' "$1" "$2" > "$WORK/ps-end.txt"
+  printf '/dev/%s %s /opt/x/a-host --name Agent : fake\n' "$1" "$2" > "$WORK/ps-end.txt"
   ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" \
   ORCHESTRATOR_CLOSE_TIMEOUT=1 ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 \
   CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
@@ -5256,7 +5259,7 @@ check "a close refused by its title signals nothing" "1|0|alive" \
 check "a pid now held by a process started at another time is not signalled" "True|alive" \
   "$(ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 ipy "print(ia.end_host('$sg', 'Thu Jan  1 00:00:00 1970', '/dev/ttys963', 'close'))" 2>&1)|$(alive "$sg")"
 check "the identity read before a close is the pid and the start time of the table" "$sg|yes" \
-  "$(printf '/dev/ttys963 %s /opt/x/claude\n' "$sg" > "$WORK/ps-end.txt"; ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
+  "$(printf '/dev/ttys963 %s /opt/x/a-host\n' "$sg" > "$WORK/ps-end.txt"; ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
 pid, start = ia.host_identity('/dev/ttys963')
 print('%s|%s' % (pid, 'yes' if start == ia.process_state(pid)[0] and start else 'no'))")"
 kill -9 "$sg" 2>/dev/null
@@ -5288,7 +5291,7 @@ os.waitpid(child, 0)")"
 # host of each window is waited for, then escalated, never left to the server's end alone.
 sh0=$(stubborn); sh1=$(stubborn)
 printf '{"pid":%s,"sessionId":"s-home-end"}\n' "$sh0" > "$WORK/end-cfg/sessions/$sh0.json"
-printf '/dev/ttys964 %s /opt/x/claude --name Orch : x\n/dev/ttys965 %s /opt/x/claude --name Agent : y\n' \
+printf '/dev/ttys964 %s /opt/x/a-host --name Orch : x\n/dev/ttys965 %s /opt/x/a-host --name Agent : y\n' \
   "$sh0" "$sh1" > "$WORK/ps-end.txt"
 out=$(ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 \
   ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
@@ -5297,7 +5300,7 @@ print(ia.end_home('orch-suite-none-$$', 'close', ([('0', '/dev/ttys964'), ('1', 
 check "ending a home server ends the host of every window, SIGKILL included" "1|1|gone|gone" \
   "$(printf '%s' "$out" | grep -c "SIGKILL sent to $sh0")|$(printf '%s' "$out" | grep -c "SIGKILL sent to $sh1")|$(alive "$sh0")|$(alive "$sh1")"
 st=$(stubborn)
-printf '/dev/ttys966 %s /opt/x/claude --name Orch : x\n' "$st" > "$WORK/ps-end.txt"
+printf '/dev/ttys966 %s /opt/x/a-host --name Orch : x\n' "$st" > "$WORK/ps-end.txt"
 out=$(ORCHESTRATOR_PS_TABLE="$WORK/ps-end.txt" ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 \
   ORCHESTRATOR_TERM_GRACE=1 ORCHESTRATOR_KILL_GRACE=3 CLAUDE_CONFIG_DIR="$WORK/end-cfg" ipy "
 P = ia.Pane
@@ -5317,6 +5320,7 @@ ia.cmd_takeover(['--tty', '/dev/ttys966', '--expect-title', 'Orch : x'])" 2>&1)
 check "a successor's takeover ends its predecessor's host before it takes window 0" "1|1|gone" \
   "$(printf '%s' "$out" | grep -c "SIGKILL sent to $st")|$(printf '%s' "$out" | grep -c '^took window 0')|$(alive "$st")"
 kill -9 "$sh0" "$sh1" "$st" "$sp" "$pp" 2>/dev/null
+export ORCHESTRATOR_HOST_CLI="$host_cli_kept"
 
 echo "== iterm-agents: closing a home tab ends its server =="
 # The operator closes the tab of an orchestrator's home session and expects the orchestrator
