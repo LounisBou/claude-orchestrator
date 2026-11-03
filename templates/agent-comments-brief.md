@@ -38,16 +38,15 @@ You are the COMMENTS agent for this round. You assess every open review thread w
   evidence, proposed fix or reply text) BEFORE applying anything, agreement included. It answers with the option; you
   act only on that answer. Items in the decided list are applied directly — their verdict is already written, and
   arguing them again costs a round trip for nothing. Send several assessments in ONE message rather than one each.
-- **Start the quality gate the moment the last commit lands**, then write your report, diffs and reply texts while it
-  runs, and state its result as DONE with its exit code. Sequencing the report before the gate pays the gate twice in
-  wall clock. If the host caps the call and backgrounds the run, inspect the process and read the exit code from the
-  captured file — never call a run « going » when its process is gone.
+- **Start the quality gate the moment the last commit lands**, write your report, diffs and reply texts while it
+  runs, and state its result as DONE with its exit code. If the host caps the call and backgrounds the run, read the
+  exit code from the captured file — never call a run « going » when its process is gone.
 - Replies to the reviewer: a thread closed by a fix is answered BY THE FIX — draft nothing and post nothing there.
   Where something must be said that the code cannot say, propose the text and stop: publishing it needs the
   OPERATOR's approval, which the orchestrator cannot give on their behalf.
 - Resolve a thread only when the orchestrator's answer says so.
-- **Never push.** Commits stay local until the orchestrator has read the working tree and says « push ». A push runs as one bare command, `git push -u origin {{BRANCH}}`, never chained to another command (`&&`, `;`, `cd … &&`): a chained push falls outside the permission rules and is refused.
-- Every command runs synchronously in the tool call that waits for it; long runs are wrapped in a timeout and piped to `tail` in the same call. Never end a turn « waiting for » a run.
+- **Never push.** Commits stay local until the orchestrator has read the working tree and says « push ». A push runs as one bare command, `git push -u origin {{BRANCH}}`, never chained to another command.
+- Every command runs synchronously in the tool call that waits for it; long runs are wrapped in a timeout and piped to `tail` in the same call, under `set -o pipefail`. Never end a turn « waiting for » a run.
 
 ## 5. Forbidden
 

@@ -41,7 +41,7 @@ The findings are the report's substance and the orchestrator verifies each, so t
 
 Report cap: everything else in the report — what was read, a « what the readers could not show » line for anything the fixtures or the environment hid, which of the norms lens's two modes was done — is at most 1,000 characters. One line says anything you saw that is wrong or doubtful outside the findings — this line is never cut to fit the cap.
 
-End the report with one machine line and nothing after it: `norms-check: tool {{HEAD}}` when the command ran, `norms-check: none {{HEAD}}` when `{{NORMS_CHECK}}` reads `none`. That line is what the orchestrator records against this round, and the head in it is the head you read — a round whose report does not carry it leaves the delivery unable to pass the orchestrator's own gate.
+End the report with one machine line and nothing after it: `norms-check: tool {{HEAD}}` when the command ran, `norms-check: none {{HEAD}}` when `{{NORMS_CHECK}}` reads `none`.
 
 ## 5. Forbidden
 
