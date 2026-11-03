@@ -15,6 +15,7 @@ import {
 } from '../stop-gate.ts'
 import { register as registerGuards } from '../guards.ts'
 import { logLineOf, blockOf } from './fakes.ts'
+import { roundEntry } from '../round.ts'
 
 // A turn's question for the operator in the decide shape: the orchestrator's stop gate refuses an
 // operator wait with no such block, so the tests that need that wait to pass end on this one.
@@ -56,6 +57,48 @@ test('an orchestrator ending on an operator wait with no question block is refus
   const coord = fakeDollar({ launchName: 'Coord : machine' })
   const passed = await stop(handlers['classic.Stop'], coord.dollar, stopEvent({ last_assistant_message: report }))
   expect(passed.answer).toBe(passed.passed)
+})
+
+// --- a question still on the operator, shown in the orchestrator's own chat ----------------------
+
+// The orchestrator's question in the round, as the relay entered it at the end of the turn that asked it.
+const OPEN_QUESTION = ['**Question 1 of 1**', '_Subject_ : the deploy order', '_Question_ : which one ships first?', '_Choices_ :', '- **A** : the schema first', '- **B** : both at once', '_Recommendation_ : A — the reads need the column.'].join('\n')
+const OPEN_SINCE = '2026-11-03T10:00:00.000Z'
+const openEntry = (over: object = {}) => ({ ...roundEntry('a1b2c3', 'Orch : belt', { kind: 'operator', blocks: 'the deploy order', question: OPEN_QUESTION }, OPEN_SINCE, OPEN_SINCE), ...over })
+const roundOf = (entry: { id: string }) => ({ [`${entry.id}.json`]: `${JSON.stringify(entry)}\n` })
+
+test('an orchestrator turn that ends without its unanswered question in full is refused, the refusal naming it', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran } = fakeDollar({ round: roundOf(openEntry()) })
+  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'Agent belt-p3 delivered; reviewing next.' }))
+  expect((refused.answer as any).block).toContain('still unanswered')
+  expect((refused.answer as any).block).toContain('**Question 1 of 1** — which one ships first?')
+  expect(ran.filter(l => l.includes('iterm-agent.sh')).length).toBe(0)
+  const shown = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `Agent belt-p3 delivered.\n\n${OPEN_QUESTION}\n\nYou decide: A or B?\nwaiting: operator — blocks: the deploy order` }))
+  expect(shown.answer).toBe(shown.passed)
+})
+
+test('a question withdrawn as answered in the tab this turn is refused until shown again or recorded', async () => {
+  const { handlers } = mounted()
+  const withdrawn = openEntry({ status: 'withdrawn', answer: { text: "answered in the sender's own tab", by: 'tab', at: OPEN_SINCE } })
+  const wait = JSON.stringify({ waiting: 'operator', blocks: 'the deploy order', waiting_since: OPEN_SINCE, relayed: null, name: 'Orch : belt', pid: '123', typed: { blocks: 'the deploy order', since: OPEN_SINCE, withdrawn: true } })
+  const { dollar } = fakeDollar({ round: roundOf(withdrawn), wait })
+  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'The status you asked for: two agents busy.' }))
+  expect((refused.answer as any).block).toContain('still unanswered')
+  const recorded = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `Recorded: A, the schema first.\n\n${ASKED}\nwaiting: operator — blocks: the next one` }))
+  expect(recorded.answer).toBe(recorded.passed)
+})
+
+test('a question the operator answered from the pane, or a coordinator\'s turn, is never refused for it', async () => {
+  const { handlers } = mounted()
+  const answered = openEntry({ status: 'answered', answer: { text: 'A : the schema first', by: 'pane', at: OPEN_SINCE } })
+  const { dollar } = fakeDollar({ round: roundOf(answered) })
+  const report = `Recorded nothing.\n\n${ASKED}\nwaiting: operator — blocks: the next one`
+  const passed = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: report }))
+  expect(passed.answer).toBe(passed.passed)
+  const coord = fakeDollar({ launchName: 'Coord : machine', round: roundOf(openEntry()) })
+  const coordinator = await stop(handlers['classic.Stop'], coord.dollar, stopEvent({ last_assistant_message: 'the round is read.' }))
+  expect(coordinator.answer).toBe(coordinator.passed)
 })
 
 test('an orchestrator ending on an operator wait that blocks nothing gets the blocks-nothing refusal, not the no-question one', async () => {
@@ -365,6 +408,7 @@ const LAUNCHER = '/plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh'
 const WORKSPACE = '/plugins/orch-root/skills/orchestrator/scripts/workspace.sh'
 const GOALS_PY = '/plugins/orch-root/skills/orchestrator/scripts/goals.py'
 const GOALS_FILE = '/tmp/h/rec/goals.md'
+const WAIT_FILE = `${STATE}/store/waits/a1b2c3`
 
 const BUSY_ROW = 'w1/t2 | /dev/ttys002 | ⠋ Agent : belt | Agent : belt-p3'
 const IDLE_ROW = 'w1/t3 | /dev/ttys003 | ✳ Agent : idle | Agent : idle-p3'
@@ -417,6 +461,8 @@ type Setup = {
   selfBin?: string
   goals?: { exitCode: number; stdout: string } | 'hang'
   goalsShown?: string
+  round?: Record<string, string>
+  wait?: string
 }
 
 function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string }; inits: Record<string, any> } {
@@ -452,6 +498,8 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         }
         if (p === `${HOME}/.claude/sessions/77.json` && setup.hostRecord !== undefined) return setup.hostRecord
         if (p === `${S.root}/stop-gate/a1b2c3.goals` && setup.goalsShown !== undefined) return setup.goalsShown
+        if (p.startsWith(`${S.root}/round/`) && setup.round?.[p.slice(S.root.length + 7)] !== undefined) return setup.round[p.slice(S.root.length + 7)]
+        if (p === WAIT_FILE && setup.wait !== undefined) return setup.wait
         if (p.startsWith(`${S.ci}/`)) {
           // The owner file is read before its log: the log's own read is the one that fails.
           if (setup.failLogRead && !p.endsWith('.session')) throw new Error('EIO: the log cannot be read')
@@ -480,6 +528,9 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
           ))
         }
         if (p === PROJECTS) return []
+        if (p === `${S.root}/round`) {
+          return Object.entries(setup.round ?? {}).map(([name, text]) => ({ name, kind: 'file', size: text.length, mtimeMs: 0, isLink: false }))
+        }
         return []
       },
       exists: async (p: string) => p === GOALS_FILE && setup.goals !== undefined,
