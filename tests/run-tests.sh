@@ -3221,7 +3221,7 @@ coord_outside_routing() {
 check "the rulebook and the decision round name the coordinator only to route a question" "" \
   "$(cd "$ROOT" && coord_outside_routing skills/orchestrator/SKILL.md commands/decide.md)"
 check "the start command and the successor's brief explain the coordinator's placement" "yes|yes|yes|yes" \
-  "$(spells "$ROOT/commands/coordinator.md" '--coordinator-successor --title')|$(spells "$ROOT/commands/coordinator.md" 'refuse a tab whose session is named `Coord :` unless `--force`')|$(spells "$ROOT/templates/coordinator-succession-brief.md" '`--coordinator-successor`, which opens at the FIRST place of the window')|$(spells "$ROOT/templates/coordinator-succession-brief.md" 'refuse a `Coord :`')"
+  "$(spells "$ROOT/commands/coordinator.md" '--coordinator-successor --title')|$(spells "$ROOT/commands/coordinator.md" 'refuse a tab whose session is named `Coord :` unless `--force`')|$(spells "$ROOT/templates/coordinator-succession-brief.md" 'your own successor is spawned with')|$(spells "$ROOT/templates/coordinator-succession-brief.md" '`--coordinator-successor`, in the rulebook')"
 check "the entry point's header lists both new forms" "yes|yes" \
   "$(spells "$ITERMSH" '--coordinator-successor')|$(spells "$ITERMSH" '--leftmost')"
 

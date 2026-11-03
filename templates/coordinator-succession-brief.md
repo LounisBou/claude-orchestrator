@@ -67,11 +67,8 @@ once your predecessor is gone.
 
 ## Standing context — pointers, not status
 
-- Subject: `Coord : {{SUBJECT}}` — your tab is the leftmost of its window: your predecessor
-  spawned it with `--coordinator-successor`, which opens at the FIRST place of the window,
-  the chain ignored, on its model and under remote control under its title, and joins no
-  chain. `Coord :` is refused on any other spawn, and `rotate` and `move` refuse a `Coord :`
-  tab unless `--force`; your own successor is spawned the same way, in the rulebook's order.
+- Subject: `Coord : {{SUBJECT}}` — your own successor is spawned with
+  `--coordinator-successor`, in the rulebook's order.
 - State directory: `{{STATE_DIR}}` — the record and the notes.
 - Your context: the module measures it every turn — read the live state with
   /orchestrator-status, your own session's row included; if your session's row
