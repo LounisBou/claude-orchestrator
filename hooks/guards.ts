@@ -22,6 +22,7 @@ import {
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { takeDrift } from './gauge.ts'
 import { isEnding } from './naming.ts'
+import { oneQuestionRefusal } from './one-question.ts'
 import { detectForces } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
@@ -472,6 +473,12 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         return next(e)
       }
       if (roleOf(name) !== 'orchestrator') return next(e)
+      // One question per turn: read off the message alone, before any read the checks pay.
+      const crowded = oneQuestionRefusal(String(e.last_assistant_message ?? ''))
+      if (crowded !== null) {
+        await logLine($, 'stop gate: several questions in one turn')
+        return refuse(crowded)
+      }
       const state = await stateDir($)
       const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
       let swept = false

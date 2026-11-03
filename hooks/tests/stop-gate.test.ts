@@ -30,6 +30,18 @@ test('a summary with nothing holding the stop passes', () => {
   expect(wakeDecision({ busyOwnAgents: [], blockingQuestion: null, openRows: [] })).toEqual({ decision: 'pass' })
 })
 
+test('an orchestrator whose last message asks two questions is refused before anything is read', async () => {
+  const { handlers } = mounted()
+  const { dollar, ran } = fakeDollar({})
+  const block = (head: string) => [head, '_Subject_ : a thing', '- **A** : yes', '- **B** : no'].join('\n')
+  const two = [block('**Question 1 of 2**'), block('**Question 2 of 2**')].join('\n\n')
+  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: two }))
+  expect((refused.answer as any).block).toContain('One question per turn')
+  expect(ran.filter(l => l.includes('iterm-agent.sh')).length).toBe(0)
+  const one = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `${block('**Question 1 of 2**')}\nwaiting: operator — blocks: the answer` }))
+  expect(one.answer).toBe(one.passed)
+})
+
 test('a busy own agent releases the stop — its idle notice will wake the orchestrator', () => {
   // Declared deviation from the brief's sketch, which expected 'block': stop_gate.py:363-364
   // returns the moment one of its own agents is busy, the shell wrapper's own header names
