@@ -5721,7 +5721,7 @@ print(__import__('os').path.exists(ia.home_end_marker('suite-still-up')))" 2>/de
 # a spawn, a wake, an open and a move all show their server through it, and a server shown by
 # no tab (ORCHESTRATOR_HOME_NO_TAB) is never armed, its operator attaching and detaching at will.
 check "the home tab arms its server once its client is proved, and not before" "client,arm" \
-  "$(ipy "
+  "$(export ORCHESTRATOR_STATE_DIR="$HSTATE_R"; ipy "
 calls = []
 class Maker:
     def create(self, program, title, place, prompt, made):
@@ -5730,8 +5730,11 @@ class Maker:
 ia.ITERM = Maker()
 ia.client_on = lambda socket, tty: calls.append('client') or True
 ia.arm_home = lambda socket, what: calls.append('arm') or True
+ia.start_home_watch = lambda socket, tty: None
 ia.open_home_tab('orch-suite', 'Orch : x', '', 'spawn')
 print(','.join(calls[1:]))")"
+check "and starts no watcher of its own: the suite's stand-in server has none to watch" "0" \
+  "$(pgrep -f 'home-watch --socket orch-suite' | wc -l | tr -d ' ')"
 check "a server that cannot be armed is ended with its tab, and the open dies saying so" "1|closed|ended" \
   "$(ipy "
 said = []
