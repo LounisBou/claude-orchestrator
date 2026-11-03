@@ -3777,7 +3777,7 @@ check "without --gate-tokens an agent's launch exports the 240000 gate" "1" "$(g
 check "--gate-tokens on an agent wins over the 240000 default" "1|0" \
   "$(gspawn --prompt p --gate-tokens 150000 | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE_TOKENS=150000 && ')|$(gspawn --prompt p --gate-tokens 150000 | grep -c 'GATE_TOKENS=240000')"
 check "an orchestrator's, an auditor's and a coordinator's launch export no gate" "0|0|0" \
-  "$(gspawn --title 'Orch : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Coord : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')"
+  "$(orchv gspawn --title 'Orch : gate' --successor --no-remote-control --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')|$(gspawn --title 'Coord : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE_TOKENS')"
 for bad in 0 -5 abc 1.5 ""; do
   badout=$(gspawn --prompt p --gate-tokens "$bad"); badcode=$?
   check "--gate-tokens '$bad' is refused, nothing launched" "1|0|1" \
@@ -9960,7 +9960,7 @@ check "an agent's settings carry no compaction window, and no switch for the 1M 
 check "no role's settings carry a compaction window: the host's own setting applies" "0|0|0|0|0" \
   "$(orchv leanl --title 'Orch : x' --successor --no-remote-control | grep -c 'AUTO_COMPACT_WINDOW')|$(succ "$PSTAB" --successor | grep -c 'AUTO_COMPACT_WINDOW')|$(audl --auditor --title 'Audit : tm' | grep -c 'AUTO_COMPACT_WINDOW')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')"
 check "no role exports a percentage gate: the gate is a token count" "0|0|0|0|0" \
-  "$(gspawn --title 'Orch : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(succ "$PSTAB" --successor | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')"
+  "$(orchv gspawn --title 'Orch : gate' --successor --no-remote-control --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(succ "$PSTAB" --successor | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')"
 check "an orchestrator's settings cut the synced skills and the countdown" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
   "$(orchv leanl --title 'Orch : x' --successor --no-remote-control | leansettings)"
 check "a successor, an auditor and the coordinator's successor carry the cuts and no setting for remote control" '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
