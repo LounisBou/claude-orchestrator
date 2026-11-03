@@ -7,9 +7,6 @@ word on a point outranks this brief and the rulebook both.
 
 ## Your first task, in this exact order
 
-`register` refuses while the recorded coordinator's session still runs, so you register only
-once your predecessor is gone.
-
 1. **Read** the rulebook and the notes `{{NOTES_FILE}}` (the pull requests each orchestrator holds,
    the flags sent, and the sessions already announced to). That list is yours as it stands:
    « Announcing newcomers » compares against it from here on, so you do not re-send the start
