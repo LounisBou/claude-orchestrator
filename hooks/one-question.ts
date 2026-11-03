@@ -1,16 +1,37 @@
 // hooks/one-question.ts
-// The stop gate's one-question rule: an orchestrator puts one question to the operator per
-// turn, the next one only after his answer. A final message holding two numbered question
-// blocks or more breaks it. The blocks are the ones round.ts's questionParts splits an entry
-// on (`**Question 3 of 4**`, in the sender's language): the numbering is read there, once.
-import { questionParts } from './round.ts'
+// The stop gate's rules on the question a turn puts to the operator, both read off the final
+// message alone. One question per turn: an orchestrator puts one to him, the next only after
+// his answer, so a message holding two numbered question blocks or more breaks it. And a turn
+// that ends on a wait for him puts one: an operator wait with no block asks him nothing he can
+// see. The blocks are the ones round.ts's questionParts splits an entry on (`**Question 3 of 4**`,
+// in the sender's language): the numbering is read there, once.
+import { questionParts, entryQuestions } from './round.ts'
+import { MACHINE_LINE, blocksNothing, machineLine } from './stop-gate.ts'
 
 export const ONE_QUESTION =
   'One question per turn: this message holds several numbered question blocks. Put the first to the operator '
   + 'alone, in the shape of orchestrator:decide, and let the others wait for his answer: ask the next in the '
   + 'turn that follows it. The numbering « i of N » still says how many questions there are.'
 
+export const NO_QUESTION =
+  'This turn ends on a wait for the operator but holds no question block: he is shown a report, not a question, '
+  + 'and what waits on his answer stays blocked. Put the question to him in the shape of orchestrator:decide '
+  + 'step 2: `**Question i of N**`, then its fields. If you ask him nothing, end on the line that fits: '
+  + '`waiting: tool — <what is watched>`, `waiting: deferred — <ids>`, `waiting: done`, or no machine line.'
+
 // The refusal for a message with two question blocks or more; null for one block or none.
 export function oneQuestionRefusal(message: string): string | null {
   return questionParts(message).length > 1 ? ONE_QUESTION : null
+}
+
+// The refusal for a message whose machine line is a wait for the operator (the urgent form
+// included, its reason naming something) with no numbered question block above it; null for any other ending, or a block. A
+// block is a numbering line followed by labelled fields, the shape entryQuestions reads a number
+// from: questionParts alone answers the whole text for one block or none.
+export function operatorWaitRefusal(message: string): string | null {
+  const line = machineLine(message)
+  // A wait that blocks nothing asks him nothing: the gate's own refusal of it names the line that fits.
+  if (!MACHINE_LINE.exec(line)?.[1] || blocksNothing(line)) return null
+  const asked = entryQuestions({ question: message, choices: [], recommendation: null })
+  return asked.some(part => part.number !== null) ? null : NO_QUESTION
 }
