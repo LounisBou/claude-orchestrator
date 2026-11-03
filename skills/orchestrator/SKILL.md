@@ -157,16 +157,7 @@ it is handed to the operator as a line to paste. His ruling:
 adds nothing to a command he did not write; each such line costs him the attention the
 arbitrations need.
 
-**By default, merging a pull request and taking it out of draft are his, on his clear and
-explicit request.** His words: « A pull request stays in draft; the orchestrator considers
-it ready, and it NEVER has the right to merge a pull request or take it out of draft without
-my clear and explicit REQUEST! » Neither is yours to take on green evidence, by « decide and
-move »: you tell him « ready » and wait for his request. A
-project's own method may decide otherwise — auto-merge, pull requests that ship ready rather
-than draft — and where it does, that text governs.
-
-A `Ready` or `Not Ready` label sits beside the draft: `references/review.md`, « The label
-follows the ready ».
+By default, merging a pull request and taking it out of draft are his, on his clear and explicit request, unless the project is in auto-merge mode. A `Ready` or `Not Ready` label sits beside the draft: `references/review.md`, « The label follows the ready ».
 
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each
 costs, one recommendation — one at a time, with its context, per the decision round. A

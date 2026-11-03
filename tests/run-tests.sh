@@ -160,8 +160,8 @@ hits=$(cd "$ROOT" && git grep -nE 'merges, deploys|Opening, merging|merging and 
 check "no merge in a decide-and-move or orchestrator-runs list" "" "$hits"
 check "the rulebook keeps merge and undraft the operator's by default" "1" \
   "$(grep -c 'By default, merging a pull request and taking it out of draft are his, on his clear and' "$ROOT/skills/orchestrator/SKILL.md")"
-check "a project's own method may decide otherwise on merge and undraft" "1" \
-  "$(grep -c "project's own method may decide otherwise — auto-merge, pull requests that ship ready rather" "$ROOT/skills/orchestrator/SKILL.md")"
+check "a project in auto-merge mode decides otherwise on merge and undraft" "1" \
+  "$(grep -c "unless the project is in auto-merge mode" "$ROOT/skills/orchestrator/SKILL.md")"
 check "the coordinator keeps merge and undraft the operator's by default" "1" \
   "$(grep -c "Merging and undrafting are his by default; where a project's own method decides otherwise, that" "$ROOT/skills/coordination/SKILL.md")"
 # The host lists a plugin's skills in the slash menu as if they were commands. A skill only
