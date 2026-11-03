@@ -547,7 +547,7 @@ rec_with s-ready ready dispatch.jsonl 1 --head abcdef1234 --e2e "$E2EOK" >/dev/n
 rec_with s-escaped escaped dispatch.jsonl 1
 rec_with s-summary summary dispatch.jsonl >/dev/null
 rec_with s-close close dispatch.jsonl 1 --verdict ok
-for sid in s-round s-review s-fixed s-ready s-escaped s-summary s-close; do
+for sid in s-round s-review s-fixed s-ready s-escaped s-close; do
   check "${sid#s-} registers the record" "$RDREAL/dispatch.jsonl" "$(cat "$RS/records/$sid" 2>/dev/null)"
 done
 rec_with s-open summary dispatch.jsonl >/dev/null; rec_with s-open round dispatch.jsonl 1; ( cd "$RD" && CLAUDE_CODE_SESSION_ID=s-open ORCHESTRATOR_STATE_DIR="$RS" bash "$REC" summary "$RR" >/dev/null )
@@ -633,9 +633,10 @@ check "open warns on a goal in no phase, and prints the goals line with unplanne
 check "status prints the aim, the table and the goals line" "aim: $GAIM|goals met=0/5 ruled_out=0 open=G1,G2,G3,G4,G5 unplanned=G4" \
   "$(bash "$REC" goals "$GO" status | head -1)|$(bash "$REC" goals "$GO" status | tail -1)"
 
-# Every goals subcommand registers the record under the session, even before its first row.
+# Every goals write registers the record under the session, even before its first row. A read
+# (status, check) registers nothing for another orchestration, which the owner block below pins.
 GRS="$WORK/goals-rec-state"; GRD="$WORK/goals-rec"; GRDREAL=""
-for sub in "init --spec none" "status" "check"; do
+for sub in "init --spec none"; do
   sid="g-${sub%% *}"
   CLAUDE_CODE_SESSION_ID="$sid" ORCHESTRATOR_STATE_DIR="$GRS" bash "$REC" goals "$GRD/dispatch.jsonl" $sub >/dev/null 2>&1
   GRDREAL="$(cd "$GRD" && pwd -P)"
