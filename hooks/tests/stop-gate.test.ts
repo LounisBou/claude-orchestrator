@@ -58,6 +58,14 @@ test('an orchestrator ending on an operator wait with no question block is refus
   expect(passed.answer).toBe(passed.passed)
 })
 
+test('an orchestrator ending on an operator wait that blocks nothing gets the blocks-nothing refusal, not the no-question one', async () => {
+  const { handlers } = mounted()
+  const { dollar } = fakeDollar({})
+  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'the report\n\nwaiting: operator — blocks: nothing' }))
+  expect((refused.answer as any).block).toContain('Your wait on the operator blocks nothing')
+  expect((refused.answer as any).block).not.toContain('**Question i of N**')
+})
+
 test('a coordinator whose last message asks two questions is refused, an agent is not', async () => {
   const { handlers } = mounted()
   const block = (head: string) => [head, '_Subject_ : a thing', '- **A** : yes', '- **B** : no'].join('\n')
