@@ -7,7 +7,7 @@
 import { expect, test } from 'claude-code/testing'
 import { parseWait, waitPatch, fingerprint, relayText, coordinatorOf, waitLabel, waitParts, heldQuestion, withdrawalText, RELAY_CAP } from '../relay.ts'
 import { paneQuestions, waitsInTab, roundEntry, type RoundEntry } from '../round.ts'
-import { answerFromPane, paneAnswerText, settledText, reopenedText, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
+import { answerFromPane, paneAnswerText, settledText, reopenedText, withdrawOnTyped, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 import { ROW_MARKER } from '../remote-row.ts'
@@ -602,6 +602,72 @@ test('a coordinator on another machine is sent the withdrawal at prompt submit, 
 })
 
 // --- a question the prompt withdrew, asked again by the turn's end -----------------------------
+
+test('a second prompt of the turn withdraws no other open entry of the session and keeps the first mark', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  // Another open question of the session, older than the held one: the earliest the round holds.
+  const other: RoundEntry = { ...asked, id: 's-one-other', blocks: 'phase 4', since: '2026-10-14T10:00:00.000Z' }
+  fx.files.set(`${ROUND}/${other.id}.json`, JSON.stringify(other) + '\n')
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  const mark = JSON.parse(fx.files.get(WAIT)!).typed
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer', 'and another thing'))
+  expect(entries(fx).map(e => [e.id, e.status])).toEqual([[asked.id, 'withdrawn'], [other.id, 'open']])
+  expect(JSON.parse(fx.files.get(WAIT)!).typed).toEqual(mark)
+})
+
+test('the mark is written before the withdrawal is sent, and a send that outlives the turn writes none back', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  const send = fx.dollar.session.send
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let held = false
+  fx.dollar.session.send = async (args: { to: unknown; text: string }) => {
+    if (!held && args.text.startsWith('[module]')) {
+      held = true
+      await gate
+    }
+    return send(args)
+  }
+  const pending = withdrawOnTyped(fx.dollar, 'composer', 'yes')
+  await new Promise(resolve => setTimeout(resolve, 5))
+  // The send is still out: the turn's end finds the mark and knows the withdrawal is not done.
+  expect(JSON.parse(fx.files.get(WAIT)!).typed.withdrawn).toBe(false)
+  await drive(chains, 'turn.start', fx.dollar, { text: 'yes' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working.'))
+  expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+  release()
+  await pending
+  expect(JSON.parse(fx.files.get(WAIT)!).typed ?? null).toBeNull()
+})
+
+test('a wait rewritten while the withdrawal of the prompt is sent keeps the fingerprint it was written with', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  const other = fingerprint({ kind: 'operator', blocks: 'phase 4', question: '' })
+  const send = fx.dollar.session.send
+  fx.dollar.session.send = async (args: { to: unknown; text: string }) => {
+    const sent = await send(args)
+    fx.files.set(WAIT, JSON.stringify({ ...JSON.parse(fx.files.get(WAIT)!), relayed: other }) + '\n')
+    return sent
+  }
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  const wait = JSON.parse(fx.files.get(WAIT)!)
+  expect([wait.relayed, wait.typed.withdrawn]).toEqual([other, true])
+})
+
+test('a wait file that vanished while the withdrawal of the prompt was sent is not written back', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  const send = fx.dollar.session.send
+  fx.dollar.session.send = async (args: { to: unknown; text: string }) => {
+    const sent = await send(args)
+    fx.files.delete(WAIT)
+    return sent
+  }
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(fx.files.has(WAIT)).toBe(false)
+  // Left as it is, never by a throw the hook's catch logs.
+  expect(fx.logged.filter(l => l.includes('withdraw:'))).toEqual([])
+})
 
 test('the reopened notice names the entry and says it is open again', () => {
   const asked = roundEntry('s-one', 'Orch : belt', parseWait(answerOf(QUESTION, QUESTION_LINE))!, '2026-10-25T21:00:00.000Z', 'T')

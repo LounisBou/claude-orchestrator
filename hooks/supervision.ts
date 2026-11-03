@@ -2022,12 +2022,16 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
 // is still on him. What he typed is taken as the answer: the question is withdrawn at once, as
 // answered in the tab, and its fingerprint forgotten, so the pane stops showing it while the turn
 // runs. The session's wait file keeps a mark of it for the turn's end (relayTurnEnd), which enters
-// it again when the turn ends on the same wait. Anything else does nothing, a slash command
-// included: it starts no turn, so nothing would read the mark. Without a coordinator nothing is
-// withdrawn. A wait file that holds no question (the last turn ended on done) leaves the round's
-// own open entry of the session to be withdrawn, the earliest when several, when the coordinator
-// runs on this machine. The wait is re-read before it is written back, a turn's start may have
-// written it.
+// it again when the turn ends on the same wait. The mark is written before the withdrawal is
+// sent, as not done: the bound may abandon this work, and a turn that ends meanwhile reads it and
+// tries again. It is updated once the withdrawal is done, unless the turn's end has taken the mark
+// by then: a mark written after the turn would outlive it. Anything else does nothing, a slash
+// command included: it starts no turn, so nothing would read the mark. Without a coordinator
+// nothing is withdrawn. A wait file that holds no question (the last turn ended on done) leaves
+// the round's own open entry of the session to be withdrawn, the earliest when several, when the
+// coordinator runs on this machine, but only for the first prompt of a turn: a second one finds
+// the first one's mark and has no other entry of the session to withdraw. The wait is re-read
+// before it is written back, a turn's start may have written it.
 export async function withdrawOnTyped($: any, kind: string, text: string): Promise<void> {
   if (!typedByOperator(kind) || text.trimStart().startsWith('/')) return
   const sessionId = await $.session.id()
@@ -2041,12 +2045,13 @@ export async function withdrawOnTyped($: any, kind: string, text: string): Promi
   const coordinator = await coordinatorAddress($)
   if (!coordinator) return
   const prior = await readWait($, sessionId)
-  const held = heldQuestion(prior) ?? (coordinator.local ? await openQuestion($, sessionId) : null)
+  const held = heldQuestion(prior) ?? (coordinator.local && !prior?.typed ? await openQuestion($, sessionId) : null)
   if (!held) return
   const heldKey = prior?.relayed ?? null
+  if (prior) await writeWait($, sessionId, { ...prior, typed: { ...held, withdrawn: false } })
   const told = await withdrawHeld($, sessionId, name, held)
   const now = await readWait($, sessionId)
-  if (!now) return
+  if (!now?.typed) return
   // The fingerprint is forgotten with the withdrawal, as the turn's end did: the same question
   // asked again is relayed again. A wait rewritten while the withdrawal was sent keeps its own.
   const relayed = told !== null && (now.relayed ?? null) === heldKey ? null : now.relayed ?? null
