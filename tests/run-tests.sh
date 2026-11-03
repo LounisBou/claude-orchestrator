@@ -5979,7 +5979,11 @@ ia.as_spawn = lambda command: (app.windows[0].tabs.append(T("AS", S("S-AS", "/de
                                or "/dev/ttys902")
 ia.as_close = lambda tty, expect: closed_by_tty.append(tty) or "the made one"
 if scenario.startswith("raise"):
-    async def boom(tab, connection=None, tries=10): raise RuntimeError("the tab vanished")
+    real_tty_of = ia.tty_of
+    async def boom(tab, connection=None, tries=10):
+        if tab.tab_id != "NEW":
+            return await real_tty_of(tab, connection, tries)
+        raise RuntimeError("the tab vanished")
     ia.tty_of = boom
 out, err = io.StringIO(), io.StringIO()
 code = 0
@@ -6103,7 +6107,7 @@ seamp() { local state="$WORK/seamstate-$1"; rm -rf "$state"; mkdir -p "$state/ch
     "$py" "$WORK/seam_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" "$WORK" 2>&1; }
 res=$(seamp append)
 check "a spawn's chain entry carries the stable id create returned, under the owner the terminal names" \
-  "0|[('T-OLD', 'O-ME'), ('T-RET', 'O-ME')]|create anywhere left append,owner" \
+  "0|[('T-OLD', 'O-ME'), ('T-RET', 'O-ME')]|create beside right append,owner" \
   "$(sfield "$res" exit)|$(sfield "$res" chain)|$(sfield "$res" calls)"
 res=$(seamp beside)
 check "the place is a value: beside its anchor, on its side" "create beside right append,owner" "$(sfield "$res" calls)"
