@@ -1735,10 +1735,11 @@ async def chain_anchor(app, own_tty, owner=None):
         tty = await tty_of(live[e["tab_id"]])
         if tty:
             if group is not None and e["tab_id"] not in group:
-                # The last agent was moved away from its orchestrator, or the tabs between
+                # This agent was moved away from its orchestrator, or the tabs between
                 # them are someone else's: after it, the new agent would sit beside another
-                # orchestrator. Directly right of the caller keeps the group whole.
-                return None
+                # orchestrator. The last agent still in the group anchors instead, and with
+                # none there, directly right of the caller keeps the group whole.
+                continue
             return tty
     return None
 

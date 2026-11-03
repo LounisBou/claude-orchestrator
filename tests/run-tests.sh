@@ -6225,7 +6225,12 @@ pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}
 {"tab_id":"4","tty":"/dev/ttys804","owner":"S-OWN"}'
 res=$(pprobe '1:S-OWN:801,2:S-AG:802,3:S-OTHER:803,4:S-AG4:804' --title "Agent : x")
 check "and so does an agent given no place, whose last agent is past a stranger's tab" \
-  "0|1,NEW,2,3,4" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+  "0|1,2,NEW,3,4" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}
+{"tab_id":"4","tty":"/dev/ttys804","owner":"S-OWN"}'
+res=$(pprobe '1:S-OWN:801,3:S-OTHER:803,2:S-AG:802,4:S-AG4:804' --title "Agent : x")
+check "an agent given no place lands directly right of its caller when none of its agents is in the group" \
+  "0|1,NEW,3,2,4" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
 
 # An orchestrator tab has three ways in. The auditor's relaunch of an orchestrator, a plain
 # spawn under an `Orch :` title, landed at the window's end and became the auditor's agent.
