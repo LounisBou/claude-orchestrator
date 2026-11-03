@@ -2530,6 +2530,11 @@ check "the launch names the session after its title" "1" "$(printf '%s' "$cmd" |
 # operator read his window and could not tell one agent from another at a glance.
 # `--title-free` is the escape for a probe that names its tab otherwise, and the dry run
 # says when it is on.
+# An orchestrator's launch, read through its one plain door: its successor, spawned by an
+# orchestrator caller and without remote control, whose launch line is a plain spawn's.
+ORCHVPS="$WORK/ps-orch-vehicle.txt"
+printf '/dev/ttys900 claude --name Orch : f\n' > "$ORCHVPS"
+orchv() { ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE="$ORCHVPS" "$@"; }
 shaped() {
   case " $* " in
     *" --prompt "*|*" --prompt-file "*) set -- "$@" ;;
@@ -2540,7 +2545,7 @@ shaped() {
 check "a shaped title names the session" "1" \
   "$(shaped --title 'Agent : x' | sed -n 's/^launch=//p' | grep -c -- "--name 'Agent : x'")"
 check "and so does an orchestrator's" "1" \
-  "$(shaped --title 'Orch : x' | sed -n 's/^launch=//p' | grep -c -- "--name 'Orch : x'")"
+  "$(orchv shaped --title 'Orch : x' --successor --no-remote-control | sed -n 's/^launch=//p' | grep -c -- "--name 'Orch : x'")"
 check "and so does a probe's" "1" \
   "$(shaped --title 'Agent : anchor' | sed -n 's/^launch=//p' | grep -c -- "--name 'Agent : anchor'")"
 check "the dry run says which name it passes" "1" "$(shaped --title 'Agent : anchor' | grep -c '^name=Agent : anchor$')"
@@ -3948,7 +3953,7 @@ printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"mo
 inh() { local sid=$1; shift; CLAUDE_CODE_SESSION_ID="$sid" ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" CLAUDE_CONFIG_DIR="$ICFG" \
   bash "$AGENT" spawn --dir "$WORK" "$@" 2>&1; }
 check "inherit-model types the calling session's model" "1" \
-  "$(inh s-inh --title "Orch : heir" --inherit-model --prompt p | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
+  "$(orchv inh s-inh --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
 printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"override-root-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ISTATE/measure/s-ovr.json"
 check "the measure file is read under the config dir, not the state override" "1" \
   "$(inh s-ovr --inherit-model --prompt p | grep -cF "$ICFG/claude-orchestrator/measure/s-ovr.json")"
@@ -3958,7 +3963,7 @@ check "inherit-model with no measure file refuses and names the module" "1" \
 # model to type, and a succession must not start on a guess (§27).
 printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"unavailable","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-unav.json"
 check "inherit-model refuses the unavailable sentinel, as if no model were recorded" "0|1" \
-  "$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c -- '--model unavailable')|$(inh s-unav --title "Orch : heir" --inherit-model --prompt p | grep -c 'no model recorded for this session')"
+  "$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c -- '--model unavailable')|$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c 'no model recorded for this session')"
 check "inherit-model is exclusive with a tier" "1" \
   "$(inh s-inh --inherit-model --tier deep --prompt p | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
@@ -9872,7 +9877,7 @@ LEANMOVE="mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orches
 check "an agent loses the five unused tools and the three that move an orchestrator" "$LEANBASE $LEANMOVE" \
   "$(leanl --title 'Agent : x' | leanset)"
 check "an orchestrator loses the five and keeps the three" "$LEANBASE" \
-  "$(leanl --title 'Orch : x' | leanset)"
+  "$(orchv leanl --title 'Orch : x' --successor --no-remote-control | leanset)"
 check "a title of no role is read as an agent's: it loses all eight" "$LEANBASE $LEANMOVE" \
   "$(leanl --title-free --title probe | leanset)"
 check "an auditor loses all eight" "$LEANBASE $LEANMOVE" \
@@ -9884,7 +9889,7 @@ check "a successor keeps the three, as an orchestrator does" "$LEANBASE" \
 check "a woken orchestrator and an opened one keep the three" "$LEANBASE|$LEANBASE" \
   "$(crdl --wake --title 'Orch : alpha' --model a-model | leanset)|$(opn 'Coord : ops' --open --title 'Orch : sync logs' | sed -n 's/^launch=//p' | leanset)"
 check "the removed set is the dry run's too, and Artifact is never switched off by the host's own setting" "1|0" \
-  "$(lean --title 'Orch : x' | grep -c '^tools_removed=Artifact,SendFeedback,Workflow,ScheduleWakeup,ReportFindings$')|$(leanl --title 'Agent : x' | grep -c enableArtifact)"
+  "$(orchv lean --title 'Orch : x' --successor --no-remote-control | grep -c '^tools_removed=Artifact,SendFeedback,Workflow,ScheduleWakeup,ReportFindings$')|$(leanl --title 'Agent : x' | grep -c enableArtifact)"
 check "the removed set is followed by another option and comes before --permission-mode: never last, never next to the prompt" "1|1|0" \
   "$(leanl --title 'Agent : x' | grep -c -- '--disallowedTools [^-].* --permission-mode ')|$(leanl --title 'Agent : x' | leanset | grep -c .)|$(leanl --title 'Agent : x' | grep -c -- '--disallowedTools [^-]* "\$(cat ')"
 check "with a server file the removed set comes first and the pair is still closed by the mode" "1" \
@@ -9902,9 +9907,9 @@ check "--drop-tool given the same name twice removes it once, on the launch line
 check "--keep-tool of a name the default keeps is harmless, and the options repeat" "SendFeedback Workflow ScheduleWakeup ReportFindings $LEANMOVE WebSearch" \
   "$(leanl --title 'Agent : x' --keep-tool Artifact --keep-tool Bash --drop-tool WebSearch | leanset)"
 check "--drop-tool on a name the role keeps removes it" "$LEANBASE mcp__orchestrator__end_session" \
-  "$(leanl --title 'Orch : x' --drop-tool mcp__orchestrator__end_session | leanset)"
+  "$(orchv leanl --title 'Orch : x' --successor --no-remote-control --drop-tool mcp__orchestrator__end_session | leanset)"
 check "a spawn that keeps every default removes no tool, and the option is then left out" "0|none" \
-  "$(leanl --title 'Orch : x' --keep-tool Artifact --keep-tool SendFeedback --keep-tool Workflow --keep-tool ScheduleWakeup --keep-tool ReportFindings | grep -c -- '--disallowedTools')|$(lean --title 'Orch : x' --keep-tool Artifact --keep-tool SendFeedback --keep-tool Workflow --keep-tool ScheduleWakeup --keep-tool ReportFindings | sed -n 's/^tools_removed=//p')"
+  "$(orchv leanl --title 'Orch : x' --successor --no-remote-control --keep-tool Artifact --keep-tool SendFeedback --keep-tool Workflow --keep-tool ScheduleWakeup --keep-tool ReportFindings | grep -c -- '--disallowedTools')|$(orchv lean --title 'Orch : x' --successor --no-remote-control --keep-tool Artifact --keep-tool SendFeedback --keep-tool Workflow --keep-tool ScheduleWakeup --keep-tool ReportFindings | sed -n 's/^tools_removed=//p')"
 check "an empty name is refused for either option, before any tab exists" "1|1|1|1" \
   "$(lean --title 'Agent : x' --keep-tool '' >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --drop-tool '  ' >/dev/null 2>&1; echo $?)|$(lean --title 'Agent : x' --keep-tool '' | grep -c -- '--keep-tool needs a tool name')|$(lean --title 'Agent : x' --drop-tool '' | grep -c -- '--drop-tool needs a tool name')"
 check "the same name on both options is refused, and the refusal names it" "1|1" \
@@ -9933,15 +9938,15 @@ check "an agent's settings cut the synced skills, the recap, the countdown and t
 check "an agent's settings carry no compaction window, and no switch for the 1M window" "0|0" \
   "$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'DISABLE_1M_CONTEXT')"
 check "no role's settings carry a compaction window: the host's own setting applies" "0|0|0|0|0" \
-  "$(leanl --title 'Orch : x' | grep -c 'AUTO_COMPACT_WINDOW')|$(succ "$PSTAB" --successor | grep -c 'AUTO_COMPACT_WINDOW')|$(audl --auditor --title 'Audit : tm' | grep -c 'AUTO_COMPACT_WINDOW')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')"
+  "$(orchv leanl --title 'Orch : x' --successor --no-remote-control | grep -c 'AUTO_COMPACT_WINDOW')|$(succ "$PSTAB" --successor | grep -c 'AUTO_COMPACT_WINDOW')|$(audl --auditor --title 'Audit : tm' | grep -c 'AUTO_COMPACT_WINDOW')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'AUTO_COMPACT_WINDOW')|$(leanl --title 'Agent : x' | grep -c 'AUTO_COMPACT_WINDOW')"
 check "no role exports a percentage gate: the gate is a token count" "0|0|0|0|0" \
   "$(gspawn --title 'Orch : gate' --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(gspawn --title 'Audit : gate' --auditor --prompt p | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(succ "$PSTAB" --successor | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')|$(crdl --coordinator-successor --title 'Coord : ops' | grep -c 'ORCHESTRATOR_CONTEXT_GATE=')"
 check "an orchestrator's settings cut the synced skills and the countdown" '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
-  "$(leanl --title 'Orch : x' | leansettings)"
+  "$(orchv leanl --title 'Orch : x' --successor --no-remote-control | leansettings)"
 check "a successor, an auditor and the coordinator's successor carry the cuts and no setting for remote control" '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}|{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' \
   "$(succ "$PSTAB" --successor | sed -n 's/^launch=//p' | leansettings)|$(audl --auditor --title 'Audit : tm' | leansettings)|$(crdl --coordinator-successor --title 'Coord : ops' | leansettings)"
 check "the settings key for the host's own artifact switch is never passed, whatever the role" "0|0|0" \
-  "$(leanl --title 'Agent : x' --keep-tool Artifact | grep -c enableArtifact)|$(leanl --title 'Orch : x' | grep -c enableArtifact)|$(audl --auditor --title 'Audit : tm' | grep -c enableArtifact)"
+  "$(leanl --title 'Agent : x' --keep-tool Artifact | grep -c enableArtifact)|$(orchv leanl --title 'Orch : x' --successor --no-remote-control | grep -c enableArtifact)|$(audl --auditor --title 'Audit : tm' | grep -c enableArtifact)"
 check "--account-connectors still merges into the same JSON, before the cuts" '{"remoteControlAtStartup":false,"enableAllProjectMcpServers":true,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}' \
   "$(mcpd --account-connectors | sed -n 's/^launch=//p' | leansettings)"
 
