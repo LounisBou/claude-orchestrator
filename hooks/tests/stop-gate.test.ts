@@ -136,6 +136,15 @@ test('a last line « handed over » passes with a question still open: the succe
   expect(over.answer).toBe(over.passed)
 })
 
+test('a round or a wait file that does not answer in time lets the stop go on', async () => {
+  const { handlers } = mounted()
+  for (const hang of ['list', 'read'] as const) {
+    const fx = fakeDollar({ round: roundOf(openEntry()), roundHang: hang, env: { ORCHESTRATOR_STOP_GATE_DEADLINE: '0.2' } })
+    const out = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ last_assistant_message: 'Agent belt-p3 delivered; reviewing next.' }))
+    expect(String((out.answer as any)?.block ?? '')).not.toContain('still unanswered')
+  }
+})
+
 test('a question the operator answered from the pane, or a coordinator\'s turn, is never refused for it', async () => {
   const { handlers } = mounted()
   const answered = openEntry({ status: 'answered', answer: { text: 'A : the schema first', by: 'pane', at: OPEN_SINCE } })
@@ -510,6 +519,7 @@ type Setup = {
   goalsShown?: string
   round?: Record<string, string>
   wait?: string
+  roundHang?: 'list' | 'read'
 }
 
 function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string[]; wrote: Record<string, string>; stamp: { atRun?: string }; inits: Record<string, any> } {
@@ -545,6 +555,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         }
         if (p === `${HOME}/.claude/sessions/77.json` && setup.hostRecord !== undefined) return setup.hostRecord
         if (p === `${S.root}/stop-gate/a1b2c3.goals` && setup.goalsShown !== undefined) return setup.goalsShown
+        if (setup.roundHang === 'read' && (p.startsWith(`${S.root}/round/`) || p === WAIT_FILE)) return new Promise(() => undefined)
         if (p.startsWith(`${S.root}/round/`) && setup.round?.[p.slice(S.root.length + 7)] !== undefined) return setup.round[p.slice(S.root.length + 7)]
         if (p === WAIT_FILE && setup.wait !== undefined) return setup.wait
         if (p.startsWith(`${S.ci}/`)) {
@@ -576,6 +587,7 @@ function fakeDollar(setup: Setup): { dollar: any; written: string[]; ran: string
         }
         if (p === PROJECTS) return []
         if (p === `${S.root}/round`) {
+          if (setup.roundHang === 'list') return new Promise(() => undefined)
           return Object.entries(setup.round ?? {}).map(([name, text]) => ({ name, kind: 'file', size: text.length, mtimeMs: 0, isLink: false }))
         }
         return []
