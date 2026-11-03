@@ -649,6 +649,75 @@ for sub in "plan G1 --phase P1" "met G1 --evidence $GSPEC" "rule-out G2 --ruling
 done
 check "reopen puts the goal back open, its ruling cleared" "yes" "$(grep -q '^| G2 | open | .* |  |  |$' "$GRD/goals.md" && echo yes || echo no)"
 
+# A record belongs to one orchestration. The first write names it in `<record>.owner`, as the
+# host's record of the session names the orchestration (its name, no reference); a write from
+# another orchestration is refused, a read is free and registers nothing.
+OW="$WORK/owner-build"; OWR="$OW/dispatch.jsonl"; OWCFG="$WORK/owner-cfg"; OWST="$WORK/owner-state"
+mkdir -p "$OW" "$OWCFG/sessions" "$OWST"
+host_session() {  # <pid> <session id> <name>
+  jq -nc --argjson p "$1" --arg s "$2" --arg n "$3" '{pid:$p,sessionId:$s,name:$n,updatedAt:$p}' > "$OWCFG/sessions/$1.json"
+}
+host_session 101 o-alpha "Orch : alpha"
+host_session 102 o-beta "Orch : beta"
+host_session 103 o-alpha-next "Orch : alpha"
+host_session 104 o-agent "Agent : some task"
+as_session() {  # <session id> <dispatch-record.sh args...>
+  local sid="$1"; shift
+  CLAUDE_CODE_SESSION_ID="$sid" CLAUDE_CONFIG_DIR="$OWCFG" ORCHESTRATOR_STATE_DIR="$OWST" bash "$REC" "$@"
+}
+bash "$REC" goals "$OWR" init --spec none >/dev/null
+check "a session's read of an unowned record claims nothing" "no" \
+  "$(as_session o-alpha summary "$OWR" >/dev/null 2>&1; as_session o-alpha goals "$OWR" status >/dev/null 2>&1; [ -e "$OWR.owner" ] && echo yes || echo no)"
+check "the first write names the record's owner: the orchestration's name" "1|Orch : alpha" \
+  "$(as_session o-alpha open "$OWR" --class x --tier light --label mine 2>/dev/null)|$(cat "$OWR.owner" 2>/dev/null)"
+check "a read from another orchestration is free and registers nothing" "0|yes|no" \
+  "$(as_session o-beta summary "$OWR" >/dev/null 2>&1; echo $?)|$(as_session o-beta summary "$OWR" 2>/dev/null | grep -q '^open=1 label=mine' && echo yes || echo no)|$([ -e "$OWST/records/o-beta" ] && echo yes || echo no)"
+check "goals status and check from another orchestration are free and register nothing" "0|0|no" \
+  "$(as_session o-beta goals "$OWR" status >/dev/null 2>&1; echo $?)|$(as_session o-beta goals "$OWR" check >/dev/null 2>&1; echo $?)|$([ -e "$OWST/records/o-beta" ] && echo yes || echo no)"
+OWBEFORE="$(cksum < "$OWR")|$(cksum < "$OWR.owner")|$(cksum < "$OW/goals.md")"
+OWREFUSED=""
+for sub in "open $OWR --class x --tier light" "round $OWR 1" "review $OWR 1 --head abcdef1234 --norms none" \
+  "fixed $OWR 1 --head abcdef1234" "surface $OWR 1 --none" "audit $OWR 1 --head abcdef1234 --images 1" \
+  "ready $OWR 1 --head abcdef1234 --e2e E2E:none" "exempt $OWR --e2e x-2026-11-03" "close $OWR 1 --verdict v" \
+  "defer $OWR 1 --ruling r-2026-11-03" "undefer $OWR 1" "escaped $OWR 1" "cost $OWR 1 --session x" \
+  "goals $OWR init --spec none --replace" "goals $OWR plan G1 --phase P" "goals $OWR met G1 --evidence e" \
+  "goals $OWR rule-out G1 --ruling r" "goals $OWR defer G1 --ruling r-2026-11-03" "goals $OWR reopen G1"; do
+  # shellcheck disable=SC2086
+  out=$(as_session o-beta $sub 2>&1 >/dev/null); code=$?
+  case "$out" in *"$OWR"*"Orch : alpha"*) named=named ;; *) named=unnamed ;; esac
+  OWREFUSED="$OWREFUSED ${sub%% *}:$code:$named"
+done
+check "every write from another orchestration is refused, naming the record and its owner" \
+  " open:1:named round:1:named review:1:named fixed:1:named surface:1:named audit:1:named ready:1:named exempt:1:named close:1:named defer:1:named undefer:1:named escaped:1:named cost:1:named goals:1:named goals:1:named goals:1:named goals:1:named goals:1:named goals:1:named" \
+  "$OWREFUSED"
+check "a refused write leaves the record, its owner and its goals as they were, and registers nothing" "yes|no|Orch : alpha" \
+  "$([ "$OWBEFORE" = "$(cksum < "$OWR")|$(cksum < "$OWR.owner")|$(cksum < "$OW/goals.md")" ] && echo yes || echo no)|$([ -e "$OWST/records/o-beta" ] && echo yes || echo no)|$(cat "$OWR.owner")"
+check "the owner's successor (same name, new session) writes" "yes" \
+  "$(as_session o-alpha-next round "$OWR" 1 >/dev/null 2>&1 && jq -r 'select(.id==1)|.rounds' "$OWR" | grep -qx 1 && echo yes || echo no)"
+check "the owner's own write is accepted and the owner file is unchanged" "0|Orch : alpha" \
+  "$(as_session o-alpha close "$OWR" 1 --verdict ok >/dev/null 2>&1; echo $?)|$(cat "$OWR.owner")"
+check "a session whose orchestration cannot be told is refused on an owned record" "1|1" \
+  "$(as_session o-agent round "$OWR" 1 >/dev/null 2>&1; echo $?)|$(as_session o-unknown round "$OWR" 1 >/dev/null 2>&1; echo $?)"
+check "a shell outside any session writes an owned record, as the operator's own" "0" \
+  "$(env -u CLAUDE_CODE_SESSION_ID ORCHESTRATOR_STATE_DIR="$OWST" bash "$REC" escaped "$OWR" 1 >/dev/null 2>&1; echo $?)"
+check "an owner file is one line, the name alone" "1|Orch : alpha" "$(wc -l < "$OWR.owner" | tr -d ' ')|$(cat "$OWR.owner")"
+
+# A record with no owner yet, every existing one: reads are free, the first write claims it.
+OWL="$OW/legacy/dispatch.jsonl"; mkdir -p "$OW/legacy"
+bash "$REC" goals "$OWL" init --spec none >/dev/null
+bash "$REC" open "$OWL" --class x --tier light --label old >/dev/null
+check "a legacy record stays unowned for a read, a session with no name and a failed write" "no|no|no" \
+  "$(as_session o-beta summary "$OWL" >/dev/null 2>&1; [ -e "$OWL.owner" ] && echo yes || echo no)|$(as_session o-agent round "$OWL" 1 >/dev/null 2>&1; [ -e "$OWL.owner" ] && echo yes || echo no)|$(as_session o-beta close "$OWL" 99 --verdict v >/dev/null 2>&1; [ -e "$OWL.owner" ] && echo yes || echo no)"
+check "a legacy record's first write claims it for the writer; the other is then refused" "0|Orch : beta|1" \
+  "$(as_session o-beta round "$OWL" 1 >/dev/null 2>&1; echo $?)|$(cat "$OWL.owner" 2>/dev/null)|$(as_session o-alpha round "$OWL" 1 >/dev/null 2>&1; echo $?)"
+OWG="$OW/goalsfirst/dispatch.jsonl"
+as_session o-alpha goals "$OWG" init --spec none >/dev/null 2>&1
+check "goals init, before any row, claims the record" "Orch : alpha" "$(cat "$OWG.owner" 2>/dev/null)"
+OWQ="$OW/spaced/dispatch.jsonl"
+host_session 105 o-colon "Orch: gamma"
+as_session o-colon goals "$OWQ" init --spec none >/dev/null 2>&1
+check "an owner is written in the house shape, « Orch : <subject> », whichever way the name is spelled" "Orch : gamma" "$(cat "$OWQ.owner" 2>/dev/null)"
+
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
 # `waiting: deferred — <ids>` once nothing else is open.

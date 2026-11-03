@@ -141,14 +141,62 @@ EFFORTS="low medium high xhigh max"
 GOALS_PY="$(cd "$(dirname "$0")" && pwd)/goals.py"
 GOALS_FILE="$(dirname "$record")/goals.md"
 E2E_EXEMPT_FILE="$record.e2e-exempt"
+OWNER_FILE="$record.owner"
 # A waiver or an exemption is the operator's words with their date, or it is nobody's.
 DATED_RE='[0-9]{4}-[0-9]{2}-[0-9]{2}'
 # `goals` registers a record that has no row yet: its goals are written before the first open.
 REGISTER_ABSENT=0
+# Set by a write once it is allowed: a read neither registers nor claims the record.
+WRITING=0
+
+# The orchestration this session belongs to, as the host's record of the session names it
+# (`<config dir>/sessions/<pid>.json`, the newest record carrying this session id): « Orch :
+# <subject> », its reference left off, a hand-typed « Orch: x » put in the house shape. Empty for
+# a shell outside any session, a session the host kept no record of, and one that is no
+# orchestrator. `.owner` holds this name today and the orchestration's id once it has one.
+orch_form() {
+    local name
+    name=$(printf '%s' "$1" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//; s/ \[[^] [:space:]]+\]$//')
+    if [[ "$name" =~ ^Orch\ ?:\ *([^[:space:]].*)$ ]]; then printf 'Orch : %s' "${BASH_REMATCH[1]}"; else printf '%s' "$name"; fi
+}
+session_orchestration() {
+    [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
+    local f line newest name
+    for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
+        [ -f "$f" ] || continue
+        line=$(jq -r --arg s "$CLAUDE_CODE_SESSION_ID" \
+            'select(.sessionId == $s and (.name | type) == "string") | "\(.updatedAt // 0)\t\(.name)"' "$f" 2>/dev/null) || continue
+        [ -n "$line" ] || continue
+        [ -n "${newest:-}" ] && [ "${newest%%$'\t'*}" -ge "${line%%$'\t'*}" ] 2>/dev/null && continue
+        newest="$line"
+    done
+    [ -n "${newest:-}" ] || return 0
+    name=$(orch_form "${newest#*$'\t'}")
+    case "$name" in "Orch : "*) printf '%s' "$name" ;; esac
+}
+
+# A write is refused when the record belongs to another orchestration: rows and goals are read
+# back by the stop gate as the session's own, and a session made to answer for another's work
+# ends on a question that is not its own. Outside any session (the operator's own shell) a write
+# is accepted; inside one, only the owner's. Sets WRITING once the write is allowed.
+guard_owner() {
+    local owner me
+    if [ -f "$OWNER_FILE" ] && [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+        owner=$(orch_form "$(head -n 1 "$OWNER_FILE" 2>/dev/null)")
+        if [ -n "$owner" ]; then
+            me=$(session_orchestration)
+            [ "$me" = "$owner" ] || die "$cmd: $record belongs to $owner, and this session is ${me:-no orchestration it can tell}: a record belongs to one orchestration, so open your own beside your briefs and hand $owner the work by message"
+        fi
+    fi
+    WRITING=1
+}
 
 # Run on exit, so a record `open` has just created is registered with its directory in place.
-# Its status is the command's own: nothing here may change it.
+# Its status is the command's own: nothing here may change it. Only a write registers the
+# record under the session; a read leaves the register alone, so a summary never makes a
+# session answer for rows it did not write.
 register_record() {
+    [ "$WRITING" = 1 ] || return 0
     [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
     [ -f "$record" ] || { [ "$REGISTER_ABSENT" = 1 ] && [ -d "$(dirname "$record")" ]; } || return 0
     local dir abs list
@@ -159,7 +207,25 @@ register_record() {
     grep -qxF "$abs" "$list" 2>/dev/null || printf '%s\n' "$abs" >> "$list" 2>/dev/null
     return 0
 }
-trap register_record EXIT
+
+# The first write that succeeds names the record's owner: the orchestration that ran it. The
+# file is created or left alone, never replaced, so of two first writers one claim stands.
+claim_record() {
+    [ "$WRITING" = 1 ] && [ ! -e "$OWNER_FILE" ] || return 0
+    [ -f "$record" ] || { [ "$REGISTER_ABSENT" = 1 ] && [ -d "$(dirname "$record")" ]; } || return 0
+    local me
+    me=$(session_orchestration)
+    [ -z "$me" ] || ( set -C; printf '%s\n' "$me" > "$OWNER_FILE" ) 2>/dev/null
+    return 0
+}
+
+finish() {
+    local status=$?
+    register_record
+    [ "$status" -ne 0 ] || claim_record
+    return 0
+}
+trap finish EXIT
 
 next_id() { if [ -f "$record" ]; then jq -s 'if length==0 then 1 else ([.[].id]|max)+1 end' "$record"; else echo 1; fi; }
 
@@ -201,6 +267,11 @@ rewrite() {
     jq -c "$filter" --argjson i "$id" "$@" "$record" > "$tmp" || { rm -f "$tmp"; die "could not update $record"; }
     mv "$tmp" "$record"
 }
+
+case "$cmd" in
+    open|round|review|fixed|surface|audit|ready|exempt|close|defer|undefer|escaped|cost) guard_owner ;;
+    goals) case "${3:-}" in init|plan|met|rule-out|defer|reopen) guard_owner ;; esac ;;
+esac
 
 case "$cmd" in
 open)
