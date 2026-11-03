@@ -69,13 +69,12 @@ const OPEN_SINCE = '2026-11-03T10:00:00.000Z'
 const openEntry = (over: object = {}) => ({ ...roundEntry('a1b2c3', 'Orch : belt', { kind: 'operator', blocks: 'the deploy order', question: OPEN_QUESTION }, OPEN_SINCE, OPEN_SINCE), ...over })
 const roundOf = (entry: { id: string }) => ({ [`${entry.id}.json`]: `${JSON.stringify(entry)}\n` })
 
-test('an orchestrator turn that ends without its unanswered question in full is refused, the refusal naming it', async () => {
+test('an orchestrator turn that ends without its unanswered question in full passes, the log naming it', async () => {
   const { handlers } = mounted()
-  const { dollar, ran } = fakeDollar({ round: roundOf(openEntry()) })
-  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'Agent belt-p3 delivered; reviewing next.' }))
-  expect((refused.answer as any).block).toContain('still unanswered')
-  expect((refused.answer as any).block).toContain('**Question 1 of 1** — which one ships first?')
-  expect(ran.filter(l => l.includes('iterm-agent.sh')).length).toBe(0)
+  const { dollar, written } = fakeDollar({ round: roundOf(openEntry()) })
+  const left = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'Agent belt-p3 delivered; reviewing next.' }))
+  expect(String((left.answer as any)?.block ?? '')).not.toContain('still unanswered')
+  expect(written.some(l => l.includes('| stop gate: warn question-unshown ('))).toBe(true)
   const shown = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `Agent belt-p3 delivered.\n\n${OPEN_QUESTION}\n\nYou decide: A or B?\nwaiting: operator — blocks: the deploy order` }))
   expect(shown.answer).toBe(shown.passed)
 })
@@ -93,17 +92,19 @@ test('a question his prompt withdrew as answered in the tab is settled: the turn
 // session id has no question to read; its last line « handed over » is the hand-over itself.
 const UNSHOWN = 'Successor spawned; waiting for its « takeover confirmed ».'
 
-test('a session that handed over is never refused for a question still open', async () => {
+test('a session that handed over leaves no unshown-question line for a question still open', async () => {
   const { handlers } = mounted()
-  const { dollar } = fakeDollar({ round: roundOf(openEntry()) })
-  expect(((await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: UNSHOWN }))).answer as any).block).toContain('still unanswered')
+  const { dollar, written } = fakeDollar({ round: roundOf(openEntry()) })
+  await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: UNSHOWN }))
+  expect(written.filter(l => l.includes('warn question-unshown')).length).toBe(1)
   const spawn = { tool: 'Bash', tool_use_id: 't9', command: 'bash /plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh spawn --successor --title "Orch : belt"' }
   await handlers['tool.call'](dollar, spawn, async () => ({ result: { stdout: 'spawned' } }))
   const over = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: UNSHOWN }))
   expect(over.answer).toBe(over.passed)
+  expect(written.filter(l => l.includes('warn question-unshown')).length).toBe(1)
 })
 
-test('a session that asked to end is never refused for a question still open', async () => {
+test('a session that asked to end leaves no unshown-question line for a question still open', async () => {
   const { handlers } = mounted()
   const naming: Record<string, Function> = {}
   registerNaming((...args: any[]) => {
@@ -111,12 +112,14 @@ test('a session that asked to end is never refused for a question still open', a
     naming[tool === `mcp__orchestrator__${END_TOOL}` ? 'end' : args[0]] = args[args.length - 1]
     return { catch: () => undefined }
   })
-  const { dollar } = fakeDollar({ round: roundOf(openEntry()) })
-  expect(((await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'waiting: done' }))).answer as any).block).toContain('still unanswered')
+  const { dollar, written } = fakeDollar({ round: roundOf(openEntry()) })
+  await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'waiting: done' }))
+  expect(written.filter(l => l.includes('warn question-unshown')).length).toBe(1)
   await naming['end'](dollar, {})
   try {
     const ending = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'waiting: done' }))
     expect(ending.answer).toBe(ending.passed)
+    expect(written.filter(l => l.includes('warn question-unshown')).length).toBe(1)
   } finally {
     // The end asked is module memory: an interrupted turn drops it, for the tests after this one.
     await naming['turn.complete'](dollar, { isAborted: true }, (x: unknown) => x)

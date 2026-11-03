@@ -502,8 +502,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const pending = await quietly($, async () => pendingQuestion(sessionId, await roundEntries($, state), await waitRead($, sessionId)), until, null)
         const unshown = unansweredRefusal(message, pending)
         if (unshown !== null) {
-          await logLine($, `stop gate: an operator question left unshown (${pending?.entry?.id ?? pending?.blocks ?? '?'})`)
-          return refuse(unshown)
+          // Measured, not refused: a refusal made the turn rewrite the whole block each time. The pane
+          // keeps the question visible, and the log counts the turns that left it out.
+          await logLine($, `stop gate: warn question-unshown (${pending?.entry?.id ?? pending?.blocks ?? '?'})`)
         }
       }
       const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
