@@ -17,9 +17,7 @@ Preconditions, verify each before acting:
   `Agent :` or `Audit :`;
 - no live coordinator: `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh lookup`
   prints nothing. A name printed is a coordinator that runs: tell the operator which, and
-  stop;
-- the subject is at most 25 characters and neither begins nor ends with a space: the launcher
-  refuses any other shape of `Coord : <subject>`, and your successor's spawn would fail.
+  stop.
 
 Then:
 
