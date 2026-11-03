@@ -9505,8 +9505,10 @@ check "the README, the routing skill and the calibration reference name the cali
   "$(spells "$ROOT/README.md" '| `/orchestrator-calibrate` |')|$(spells "$MR" '`/orchestrator-calibrate <checkout> --max-usd <cap> --class <class> --pr <n>...` does it')|$(spells "$MRC" '`/orchestrator-calibrate` runs sections 1 to 5')"
 check "the routing skill no longer says no command does the calibration" "no" \
   "$(spells "$MR" 'No command or wrapper does it')"
-check "the rulebook no longer orders a routine idle-notice subscription after each message" "0|yes" \
-  "$(grep -c 'notify_when_idle' "$ROOT/skills/orchestrator/SKILL.md")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once re-instantiated, your first message re-announces your new address to every running agent')"
+# The re-announcement of a successor's address lives once, in step 3 of its own brief (rule 19
+# of the rules review, removed from the rulebook).
+check "the rulebook no longer orders a routine idle-notice subscription, and the succession brief re-announces the new address" "0|yes" \
+  "$(grep -c 'notify_when_idle' "$ROOT/skills/orchestrator/SKILL.md")|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'identify yourself as the new orchestrator BY YOUR EXACT `ListAgents` NAME AND REFERENCE')"
 
 # §65: a launched session is given a lean tool set, by role, and the spawn can change it.
 # `--disallowedTools` takes several values like `--mcp-config`, so it sits before another

@@ -113,8 +113,6 @@ plan → brief → launch → verify → review → terminate → replace. The r
 
 These bind where no reference is loaded — a message sent, a report read, a report to the operator, a re-instantiation — so they live here.
 
-**On your side**: once re-instantiated, your first message re-announces your new address to every running agent before you read anything else, and your succession brief carries both addresses.
-
 **Control.** The module reports an agent's question, blocker, delivery and gate crossing; act on each. An agent reporting « waiting » has stalled: check its working tree yourself. Read HOW an agent works, not only what it reports: a report or plan naming real load on a shared machine (CPU burners, N parallel browsers or suites, a stress tool) is stopped at once, its processes killed, and the work redone under emulated throttling. An agent's question for the operator, a scope beyond its brief included: relay it verbatim with its context and send his answer back verbatim, never your own.
 
 - **No date or hour is written from memory.** A state or journal line carries no hour; a brief or a memory is named by its subject only, never by a date; a dispatch record's `opened` is `dispatch-record.sh`'s to write, never typed. A time a message or a record must carry is a command's output (`date -u +%FT%TZ`) or the event's own git or `gh` timestamp, pasted, never typed — never « ~14:30 » or a date recalled: typed from memory, it has been wrong by hours and by days.
