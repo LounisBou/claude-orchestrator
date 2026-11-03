@@ -395,8 +395,8 @@ check "the hand-over moves the predecessor's own entries" "2" "$(transfer)"
 check "under the successor's tty and owner, the stale file replaced" \
   '{"tab_id": "8", "tty": "/dev/ttys908", "owner": "S-NEW"}|{"tab_id": "9", "tty": "/dev/ttys909", "owner": "S-NEW"}' \
   "$(paste -sd'|' "$CHAINS/ttys950.jsonl")"
-check "and leaves the predecessor only what was never its own" '{"tab_id": "7", "tty": "/dev/ttys907", "owner": "S-OTHER"}' \
-  "$(cat "$CHAINS/ttys900.jsonl")"
+check "and removes the predecessor's file, what was never its own included" 'absent' \
+  "$([ -e "$CHAINS/ttys900.jsonl" ] && echo present || echo absent)"
 check "a predecessor with no agents hands over an empty chain" "0|0" "$(transfer)|$(wc -l < "$CHAINS/ttys950.jsonl" | tr -d ' ')"
 # A RESIDENT agent stays idle by design while a background command of its own waits: the
 # stop gate must not count it as an agent to read or relaunch. `--resident` marks its entry;
@@ -6038,7 +6038,7 @@ check "a verified agent is appended to its caller's chain, and its tty printed l
   "0|['/dev/ttys902']|[('2', 'S-OWN'), ('NEW', 'S-OWN')]" \
   "$(sfield "$res" exit)|$(sfield "$res" stdout)|$(sfield "$res" own)"
 res=$(sprobe succ running /dev/ttys801 --successor --title "Orch : heir")
-check "a verified successor takes the chain" "0|[]|[('2', 'S-NEW')]" \
+check "a verified successor takes the chain" "0|absent|[('2', 'S-NEW')]" \
   "$(sfield "$res" exit)|$(sfield "$res" own)|$(sfield "$res" new)"
 res=$(sprobe transcript none /dev/ttys801 --title "Agent : x")
 check "a session that wrote its transcript has started, whatever the process table says" \
