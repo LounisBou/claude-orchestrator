@@ -2429,7 +2429,10 @@ async function withdrawStale($: any, sessionId: string, current: string | null, 
     try {
       const closed = await closesItself($, entry.id)
       const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: 'sender', at: new Date().toISOString() }
-      await writeAtomic($, path, JSON.stringify({ ...entry, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
+      // Re-read just before the write: a move to a successor in between is never overwritten.
+      const fresh = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+      if (!fresh || fresh.status !== 'open' || fresh.session !== sessionId) continue
+      await writeAtomic($, path, JSON.stringify({ ...fresh, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)
       if (closed) settled.push({ entry, answer })

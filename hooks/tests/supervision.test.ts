@@ -448,3 +448,22 @@ test('a row idle past the stale bound with no pid is removed, and its sender kee
   expect(files.has(`${SESSIONS}/idle`)).toBe(false)
   expect(statusOf(files, id)).toBe('open')
 })
+
+test('an entry moved to a successor between the read and the withdraw is not overwritten', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  await writeSession(dollar, 'killed', { role: 'orchestrator', name: 'Orch : killed', pid: '502' })
+  const id = openEntry(files, 'killed', 'operator')
+  const path = `${ROUND}/${id}.json`
+  const read = dollar.fs.read
+  let reads = 0
+  dollar.fs.read = async (p: string) => {
+    const text = await read(p)
+    // The sweep's two round reads see the entry under the dead sender; the move lands right after the second.
+    if (p === path && ++reads === 2) files.set(path, JSON.stringify({ ...JSON.parse(text), session: 'successor', from: 'Orch : next', movedFrom: 'killed' }) + '\n')
+    return text
+  }
+  await readSessions(dollar)
+  const after = parseRoundEntry(files.get(path)!)
+  expect(after?.status).toBe('open')
+  expect(after?.session).toBe('successor')
+})
