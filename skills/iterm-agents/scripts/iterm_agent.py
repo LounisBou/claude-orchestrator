@@ -4029,7 +4029,8 @@ def cmd_spawn(argv):
         side, anchor = "left", "leftmost"
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
-    if effect == "append" and not anchor:
+    defaulted = effect == "append" and not anchor
+    if defaulted:
         # An agent given no place sits in its orchestrator's group, to its right: unanchored,
         # it landed at the window's end, beside whoever sat there, and was still written into
         # the caller's chain.
@@ -4048,6 +4049,13 @@ def cmd_spawn(argv):
         # Read with the judgment of the session it replaces, whether or not --inherit-model
         # was typed, exactly like the auditor it succeeds (§52).
         model = inherited_model()
+    if anchor == "self" and defaulted and not own and not DRY_RUN:
+        # The default must not turn a spawn that worked into a refusal: a caller with no
+        # readable tty (a plain shell) gets the old placement, and is told why. An explicit
+        # --right-of self keeps dying below.
+        print("spawn: this session's own tty cannot be resolved, so the new tab cannot be "
+              "placed right of it; it lands at the window's end.", file=sys.stderr)
+        anchor = ""
     if anchor == "self":
         if not own and not DRY_RUN:
             die("spawn: --right-of self: cannot resolve this session's own tty")

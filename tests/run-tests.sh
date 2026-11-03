@@ -6159,6 +6159,8 @@ import asyncio, contextlib, io, json, os, sys
 sys.path.insert(0, sys.argv[1])
 import iterm_agent as ia
 layout, workdir, argv = sys.argv[2], sys.argv[3], sys.argv[4:]
+if os.environ.get("PROBE_NO_TTY"):
+    ia.self_tty = lambda: None
 class S:
     def __init__(s, sid, tty): s.session_id = sid; s.tty = tty
     async def async_get_variable(s, k): return {"tty": s.tty, "autoName": ""}.get(k)
@@ -6231,6 +6233,16 @@ pchain '{"tab_id":"2","tty":"/dev/ttys802","owner":"S-OWN"}
 res=$(pprobe '1:S-OWN:801,3:S-OTHER:803,2:S-AG:802,4:S-AG4:804' --title "Agent : x")
 check "an agent given no place lands directly right of its caller when none of its agents is in the group" \
   "0|1,NEW,3,2,4" "$(sfield "$res" exit)|$(sfield "$res" tabs)"
+
+# A caller with no readable tty: the default placement falls back to the window's end and says
+# so, while an explicit --right-of self keeps refusing.
+pchain ''
+res=$(PROBE_NO_TTY=1 pprobe '1:S-OWN:801,3:S-OTHER:803' --title "Agent : x")
+check "an agent given no place, its caller's tty unreadable, lands at the window's end and says why" \
+  "0|1,3,NEW|1" "$(sfield "$res" exit)|$(sfield "$res" tabs)|$(sfield "$res" ERR | grep -c "own tty cannot be resolved")"
+res=$(PROBE_NO_TTY=1 pprobe '1:S-OWN:801,3:S-OTHER:803' --title "Agent : x" --right-of self)
+check "while an explicit --right-of self is still refused" \
+  "1|1" "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -c "cannot resolve this session's own tty")"
 
 # An orchestrator tab has three ways in. The auditor's relaunch of an orchestrator, a plain
 # spawn under an `Orch :` title, landed at the window's end and became the auditor's agent.
