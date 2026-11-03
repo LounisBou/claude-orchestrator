@@ -62,9 +62,8 @@ to; it holds only what no command answers. After a compaction, read the live sta
 Once the start command has registered you, run `owners` and `facts`, then apply
 « Announcing newcomers » below — every running `Orch :` session is, at this first turn, one
 you have not yet announced to. Write into the notes what `owners` attributes to each
-orchestrator, then each answer, which overrides it; a silence is noted and never chased, and
-the facts' attribution stands for that orchestrator. A confirmation is a record, not a
-permission.
+orchestrator, then each answer, which overrides it; a silence is noted, never chased, and the
+facts' attribution stands. A confirmation is a record, not a permission.
 
 ## Announcing newcomers
 
@@ -102,8 +101,8 @@ every orchestrator sends you each question meant for him — its own arbitration
 agents' questions it relays — instead of asking him in its own tab. **Every relayed question
 goes through a decision round, by default**: the whole method of `/orchestrator-decide`, run
 without his asking and without his typing that command, even for a single question, so that
-he has every question, grouped by the orchestrator that asks. He runs several coordinators:
-every message of the round names you and the sender.
+he has every question, grouped by the orchestrator that asks. Every message of the round
+names you and the sender.
 
 **The turn ends of an orchestrator on this machine reach you in the round directory, not as
 messages.** The hooks module writes each as an entry, `<state dir>/round/<id>.json`: its
