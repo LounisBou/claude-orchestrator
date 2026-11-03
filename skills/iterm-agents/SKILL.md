@@ -79,8 +79,6 @@ An `Agent :` session also comes up without the away recap and the silent-turn re
 
 **A window or a tab is closed by its tty with `--expect-title`, never by title alone or by position** (in a home session the title checked is the window's name, which the launcher gave it and the host never rewrites) — the title read from `list` seconds before (« Safety order for a live rotation » says why a rotation takes none). The first character of a title is an activity glyph that flips on its own. Match on words, never on the glyph.
 
-**A close is proved on the process table, never on the app's acknowledgement.** The API answering a close request says the request was TAKEN, not that the session is gone. The launcher reads the host's pid and start time before the close, and once the close is accepted it waits for that process, then sends it SIGTERM, then SIGKILL, each step logged in `close.log` of the state directory; it reports the close only once the process is gone. Verify a close with `list` + `ps`, not with the exit code: the artifact, not the message, says whether the session is dead. A killed session leaves its process visible for a second or two.
-
 Prompt and launch files accumulate under the state directory's `prompts/`; they are small and they are the record of what each session was launched with. Delete a wave's when its review is closed, like any other artifact you produced.
 
 ## Safety order for a live rotation
