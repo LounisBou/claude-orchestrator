@@ -3913,7 +3913,7 @@ check "no context threshold other than the gate's rule remains in the tracked tr
 # The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window. A line
 # that states 80 % without the token half is a gate a large-window session would read as its own: every such line carries the rule
 # whole, in the same words.
-GATE_RULE='the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000'
+GATE_RULE='the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000'
 BARE_RE='([^0-9,.]|^)80 ?%|~ ?80([^0-9]|$)'
 check "every line stating the 80 % gate states the token gate with it" "" \
   "$(cd "$ROOT" && git grep -n -E "$BARE_RE" -- skills hooks templates commands README.md docs/design.md | grep -v -F "$GATE_RULE")"

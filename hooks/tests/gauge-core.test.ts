@@ -32,7 +32,7 @@ test('an unreadable reading never trips', () => {
 })
 
 test('the tripped words name what was read', () => {
-  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
+  expect(tripGate(80, 80000, 100000).words).toBe('80% (gate 80%)') // the gate: the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000
   expect(tripGate(30, 300000, 1000000).words).toBe('300,000 tokens (gate 300,000 on a 1M window)')
 })
 

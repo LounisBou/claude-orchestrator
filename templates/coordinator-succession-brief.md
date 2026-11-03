@@ -78,5 +78,5 @@ once your predecessor is gone.
   is not there yet, say so and give no figure rather than estimating — a row is
   written after a session's turns, and a first read can precede the first of
   them; at the gate —
-  the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000 —
+  the smaller of 200,000 tokens (20 %) and 80 % of the reported window: 200,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000 —
   you succeed yourself, in the rulebook's order.
