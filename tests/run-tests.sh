@@ -422,11 +422,14 @@ check "a hand-over keeps the mark" '{"tab_id": "9", "tty": "/dev/ttys909", "owne
 # ORCHESTRATOR's chain, not in the caller's, so the hand-over above never reaches it. It must
 # follow the successor, owner and mark kept, or the orchestrator reads a closed tab as its
 # resident agent.
-repoint() { ORCHESTRATOR_STATE_DIR="$WORK/istate" "$py" -c "
+# The agents these chains name run: a chain write prunes only the files whose agents are all dead.
+REPOINTPS="$WORK/ps-repoint.txt"
+printf '/dev/ttys940 claude\n/dev/ttys941 claude\n/dev/ttys942 claude\n/dev/ttys943 claude\n' > "$REPOINTPS"
+repoint() { ORCHESTRATOR_STATE_DIR="$WORK/istate" ORCHESTRATOR_PS_TABLE="$REPOINTPS" "$py" -c "
 import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as m
 print(m.chain_repoint_tab('41', '42', '/dev/ttys942'))" 2>&1; }
-dropt() { ORCHESTRATOR_STATE_DIR="$WORK/istate" "$py" -c "
+dropt() { ORCHESTRATOR_STATE_DIR="$WORK/istate" ORCHESTRATOR_PS_TABLE="$REPOINTPS" "$py" -c "
 import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as m
 m.chain_drop_tab('41')" 2>&1; }
