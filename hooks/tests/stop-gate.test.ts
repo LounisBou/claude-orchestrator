@@ -78,15 +78,13 @@ test('an orchestrator turn that ends without its unanswered question in full is 
   expect(shown.answer).toBe(shown.passed)
 })
 
-test('a question withdrawn as answered in the tab this turn is refused until shown again or recorded', async () => {
+test('a question his prompt withdrew as answered in the tab is settled: the turn passes without it', async () => {
   const { handlers } = mounted()
   const withdrawn = openEntry({ status: 'withdrawn', answer: { text: "answered in the sender's own tab", by: 'tab', at: OPEN_SINCE } })
-  const wait = JSON.stringify({ waiting: 'operator', blocks: 'the deploy order', waiting_since: OPEN_SINCE, relayed: null, name: 'Orch : belt', pid: '123', typed: { blocks: 'the deploy order', since: OPEN_SINCE, withdrawn: true } })
+  const wait = JSON.stringify({ waiting: null, last_waiting: 'operator', blocks: 'the deploy order', waiting_since: OPEN_SINCE, relayed: null, name: 'Orch : belt', pid: '123', typed: { blocks: 'the deploy order', since: OPEN_SINCE, withdrawn: true, told: [withdrawn.id] } })
   const { dollar } = fakeDollar({ round: roundOf(withdrawn), wait })
-  const refused = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'The status you asked for: two agents busy.' }))
-  expect((refused.answer as any).block).toContain('still unanswered')
-  const recorded = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `Recorded: A, the schema first.\n\n${ASKED}\nwaiting: operator — blocks: the next one` }))
-  expect(recorded.answer).toBe(recorded.passed)
+  const passed = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: `Recorded: A, the schema first.\n\n${ASKED}\nwaiting: operator — blocks: the next one` }))
+  expect(passed.answer).toBe(passed.passed)
 })
 
 test('a question the operator answered from the pane, or a coordinator\'s turn, is never refused for it', async () => {

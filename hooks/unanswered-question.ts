@@ -9,38 +9,31 @@ import { entryQuestions, questionParts, questionShape, parseChoices, plainText, 
 import { heldQuestion, type RelayedWait } from './relay.ts'
 import { outsideFences } from './one-question.ts'
 
-// The answer an entry withdrawn by the operator's prompt in its sender's own tab records.
-const TAB_ANSWER = "answered in the sender's own tab"
-
 // The session's wait file as this rule reads it: the wait, the fingerprint the coordinator
-// holds, a send not yet acknowledged by a coordinator on another machine, and the mark of a
-// prompt the operator typed in this turn while the question was held.
-export type WaitRead = RelayedWait & { pending?: string | null; typed?: { blocks: string; since: string | null } | null }
+// holds, and a send not yet acknowledged by a coordinator on another machine.
+export type WaitRead = RelayedWait & { pending?: string | null }
 
 // The question still on the operator: its round entry when this machine's round holds it, else
 // only what the wait file knows of it (its blocks and its start).
 export type Pending = { entry: RoundEntry | null; blocks: string; since: string | null }
 
 // The session's question the operator has not answered, the earliest when several (one question
-// per turn: the others wait behind it). An operator entry of the session still open; or one
-// withdrawn as answered in its own tab during this very turn (the wait file's mark of his prompt
-// names it): what he typed may have been about something else, and only a « Recorded » line
-// says he answered. An entry with no numbered question block asks nothing the chat could show
-// again and is passed over. With no such entry in this machine's round, the wait file's operator
-// wait relayed to a coordinator elsewhere (held, sent and not yet acknowledged, or marked by his
-// prompt) is the question; an entry of the same wait in the round, whatever its status, rules
-// instead: an answer from the pane or the coordinator settles it.
+// per turn: the others wait behind it): an operator entry of the session still open. His answer
+// settles it wherever he gives it: in the pane or to the coordinator, or typed in the sender's own
+// tab, which withdraws it at once (supervision.ts withdrawOnTyped); a turn that ends on the same
+// wait opens it again, and it is pending again. An entry with no numbered question block asks
+// nothing the chat could show again and is passed over. With no such entry in this machine's
+// round, the wait file's operator wait relayed to a coordinator elsewhere (held, or sent and not
+// yet acknowledged) is the question; an entry of the same wait in the round, whatever its status,
+// rules instead.
 export function pendingQuestion(sessionId: string, entries: readonly RoundEntry[], wait: WaitRead | null): Pending | null {
-  const typed = wait?.typed ?? null
-  const markedByPrompt = (entry: RoundEntry) => typed !== null && entry.blocks === typed.blocks && entry.since === typed.since
-    && (entry.answer?.by === 'tab' || (entry.answer?.text ?? '').includes(TAB_ANSWER))
   const own = entries.filter(entry => entry.session === sessionId && entry.kind === 'operator')
   const open = own
-    .filter(entry => entry.status === 'open' || markedByPrompt(entry))
+    .filter(entry => entry.status === 'open')
     .filter(entry => askedPart(entry) !== null)
     .sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0))
   if (open.length > 0) return { entry: open[0], blocks: open[0].blocks ?? '', since: open[0].since }
-  const held = wait ? heldQuestion(wait) ?? sentQuestion(wait) ?? typed : null
+  const held = wait ? heldQuestion(wait) ?? sentQuestion(wait) : null
   if (!held || held.blocks === '') return null
   if (own.some(entry => entry.blocks === held.blocks && entry.since === held.since)) return null
   return { entry: null, blocks: held.blocks, since: held.since }
@@ -62,15 +55,11 @@ function askedPart(entry: RoundEntry): { number: string; shape: QuestionShape; c
   return shape ? { number: part.number!, shape, choices: part.choices } : null
 }
 
-// A line that records the operator's answer, `Recorded: <his ruling>`, or its French form (the
-// word spelled with its accent, escaped here), its markup around the word allowed.
-const RECORDED = /^[\s>*_`\u00ab"-]*(?:recorded|enregistr[e\u00e9]e?s?)[\s*_`\u00bb"]*:/iu
-
 // A text as compared: its emphasis dropped, its spacing collapsed, its case kept.
 const flat = (text: string) => plainText(text).replace(/\s+/g, ' ').trim()
 
 // The refusal for a turn that ends while the session's question is still on the operator and
-// shows him neither that question in full nor a « Recorded » line ruling on it; null otherwise.
+// does not show him that question in full; null otherwise.
 // In full: a numbered block of the message, outside code fences, with the same numbering, every
 // labelled field of the entry's question with its label and its text, every choice with its
 // letter and text, and the recommendation. With only the wait file's knowledge of the question,
@@ -78,7 +67,6 @@ const flat = (text: string) => plainText(text).replace(/\s+/g, ' ').trim()
 export function unansweredRefusal(message: string, pending: Pending | null): string | null {
   if (pending === null) return null
   const text = outsideFences(message)
-  if (text.split('\n').some(line => RECORDED.test(line))) return null
   const shown = questionParts(text).map(part => {
     const { choices } = parseChoices(part)
     return { shape: questionShape(part, choices), choices }
@@ -103,6 +91,5 @@ function refusal(named: string, blocks: string): string {
     + 'in the coordinator\'s round, at every turn\'s end until he answers it (his ruling of 2026-11-03). Present it again '
     + 'IN FULL in this message, in the shape of orchestrator:decide step 2 — its `**Question i of N**` line and every '
     + 'labelled field, its choices and its recommendation, as you asked it — and end the turn on its wait line again, '
-    + `\`waiting: operator — blocks: ${blocks}\`. If he answered it in this tab, write the « Recorded: <his ruling> » line `
-    + 'instead, as step 4 says.'
+    + `\`waiting: operator — blocks: ${blocks}\`.`
 }

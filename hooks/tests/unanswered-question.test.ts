@@ -1,7 +1,7 @@
 // hooks/tests/unanswered-question.test.ts
 // The stop gate's rule on a question still on the operator (his ruling of 2026-11-03): an
 // orchestrator's turn that ends while one of its operator questions is unanswered shows it again
-// in full in its own chat, or records his answer. Which question is still on him is read off the
+// in full in its own chat. Which question is still on him is read off the
 // round and the session's wait file; whether the turn shows it, off the final message.
 import { expect, test } from 'claude-code/testing'
 import { pendingQuestion, unansweredRefusal, type WaitRead } from '../unanswered-question.ts'
@@ -29,7 +29,7 @@ const entry = (over: Partial<RoundEntry> = {}, question = QUESTION): RoundEntry 
   ...over,
 })
 const tabAnswer = { text: "answered in the sender's own tab", by: 'tab' as const, at: SINCE }
-const typed: WaitRead = { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: null, typed: { blocks: BLOCKS, since: SINCE } }
+const relayedWait: WaitRead = { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: fingerprint({ kind: 'operator', blocks: BLOCKS, question: '' }) }
 
 // --- which question is still on him --------------------------------------------------------------
 
@@ -46,21 +46,19 @@ test('an entry answered from the pane, closed by the coordinator, or another ses
   expect(pendingQuestion(SESSION, [entry({ kind: 'done', blocks: null })], null)).toBeNull()
 })
 
-test('an entry withdrawn as answered in its own tab during this turn stays pending', () => {
-  const withdrawn = entry({ status: 'withdrawn', answer: tabAnswer })
-  expect(pendingQuestion(SESSION, [withdrawn], typed)?.entry?.id).toBe(withdrawn.id)
+test('an entry his prompt withdrew as answered in its own tab is settled, as is one withdrawn by the sender', () => {
+  // His answer withdraws it as it arrives (withdrawOnTyped); the wait file keeps no fingerprint of it.
+  const forgotten: WaitRead = { ...relayedWait, waiting: null, last_waiting: 'operator', relayed: null }
+  expect(pendingQuestion(SESSION, [entry({ status: 'withdrawn', answer: tabAnswer })], forgotten)).toBeNull()
   const closed = entry({ status: 'closed', answer: { ...tabAnswer, text: `withdrawn: ${tabAnswer.text}` } })
-  expect(pendingQuestion(SESSION, [closed], typed)?.entry?.id).toBe(closed.id)
+  expect(pendingQuestion(SESSION, [closed], forgotten)).toBeNull()
+  const sender = entry({ status: 'withdrawn', answer: { text: 'handed over to its successor', by: 'sender', at: SINCE } })
+  expect(pendingQuestion(SESSION, [sender], null)).toBeNull()
 })
 
-test('a tab withdrawal no prompt of this turn marked is settled, as is one by the sender', () => {
-  expect(pendingQuestion(SESSION, [entry({ status: 'withdrawn', answer: tabAnswer })], null)).toBeNull()
-  // The mark names another question, which the pane answered meanwhile.
-  const other: WaitRead = { ...typed, typed: { blocks: 'another question', since: SINCE } }
-  const answered = entry({ id: 'other', blocks: 'another question', status: 'answered', answer: { text: 'B', by: 'pane', at: SINCE } })
-  expect(pendingQuestion(SESSION, [entry({ status: 'withdrawn', answer: tabAnswer }), answered], other)).toBeNull()
-  const sender = entry({ status: 'withdrawn', answer: { text: 'handed over to its successor', by: 'sender', at: SINCE } })
-  expect(pendingQuestion(SESSION, [sender], typed)).toBeNull()
+test('the same wait asked again after his prompt is open again, and pending again', () => {
+  const reopened = entry({ since: '2026-11-03T10:05:00.000Z' })
+  expect(pendingQuestion(SESSION, [reopened], null)?.entry?.since).toBe('2026-11-03T10:05:00.000Z')
 })
 
 test('the earliest of several open questions is the pending one', () => {
@@ -73,16 +71,13 @@ test('an open wait that asks nothing in the decide shape is passed over', () => 
 })
 
 test('with no entry in this round, the wait file\'s relayed operator wait is the pending question', () => {
-  const relayed: WaitRead = { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: fingerprint({ kind: 'operator', blocks: BLOCKS, question: '' }) }
-  expect(pendingQuestion(SESSION, [], relayed)).toEqual({ entry: null, blocks: BLOCKS, since: SINCE })
+  expect(pendingQuestion(SESSION, [], relayedWait)).toEqual({ entry: null, blocks: BLOCKS, since: SINCE })
   const sent: WaitRead = { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: null, pending: 'an-id' }
   expect(pendingQuestion(SESSION, [], sent)).toEqual({ entry: null, blocks: BLOCKS, since: SINCE })
-  expect(pendingQuestion(SESSION, [], typed)).toEqual({ entry: null, blocks: BLOCKS, since: SINCE })
 })
 
 test('a wait file whose question the round answered, or that was never relayed, holds no pending question', () => {
-  const relayed: WaitRead = { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: fingerprint({ kind: 'operator', blocks: BLOCKS, question: '' }) }
-  expect(pendingQuestion(SESSION, [entry({ status: 'answered', answer: { text: 'A', by: 'pane', at: SINCE } })], relayed)).toBeNull()
+  expect(pendingQuestion(SESSION, [entry({ status: 'answered', answer: { text: 'A', by: 'pane', at: SINCE } })], relayedWait)).toBeNull()
   expect(pendingQuestion(SESSION, [], { waiting: 'operator', blocks: BLOCKS, waiting_since: SINCE, relayed: null })).toBeNull()
   expect(pendingQuestion(SESSION, [], { waiting: null, blocks: null, waiting_since: null, relayed: null })).toBeNull()
 })
@@ -97,7 +92,7 @@ test('a turn that does not show the pending question is refused, the refusal nam
   expect(reason).toContain('own chat')
   expect(reason).toContain('IN FULL')
   expect(reason).toContain(WAIT_LINE)
-  expect(reason).toContain('Recorded')
+  expect(reason).not.toContain('Recorded')
   expect(reason).toContain('2026-11-03')
 })
 
@@ -126,15 +121,10 @@ test('a question quoted in a code fence is not shown', () => {
   expect(unansweredRefusal(['```', QUESTION, '```'].join('\n'), pending)).not.toBeNull()
 })
 
-test('a « Recorded » line, in either language, rules on it and passes', () => {
-  const pending = pendingQuestion(SESSION, [entry({ status: 'withdrawn', answer: tabAnswer })], typed)
-  expect(unansweredRefusal('Recorded: A, the schema first.', pending)).toBeNull()
-  expect(unansweredRefusal('**Recorded** : A.\n\nnext question…', pending)).toBeNull()
-  // The French form, its accent included: the Unicode handling of the line's word.
-  expect(unansweredRefusal('Enregistré : A.', pending)).toBeNull()
-  expect(unansweredRefusal('« Enregistrée : A »', pending)).toBeNull()
-  expect(unansweredRefusal('I recorded nothing yet.', pending)).not.toBeNull()
-  expect(unansweredRefusal(['```', 'Recorded: A', '```'].join('\n'), pending)).not.toBeNull()
+test('a « Recorded » line frees no question still open: only his answer settles it', () => {
+  const pending = pendingQuestion(SESSION, [entry()], null)
+  expect(unansweredRefusal('Recorded: A, the schema first.', pending)).not.toBeNull()
+  expect(unansweredRefusal('**Recorded** : A.\n\nnext question…', pending)).not.toBeNull()
 })
 
 test('no pending question passes whatever the turn says', () => {
@@ -155,7 +145,7 @@ test('the question of an entry asking several is its first one the pane has not 
 })
 
 test('with only the wait file\'s knowledge, any numbered block in the decide shape passes, none is refused naming its blocks', () => {
-  const pending = pendingQuestion(SESSION, [], typed)
+  const pending = pendingQuestion(SESSION, [], relayedWait)
   expect(unansweredRefusal(`${QUESTION}\n${WAIT_LINE}`, pending)).toBeNull()
   const reason = unansweredRefusal('the report', pending)
   expect(reason).toContain(`« blocks: ${BLOCKS} »`)
