@@ -5309,6 +5309,21 @@ ia.subprocess.run = real
 print('|'.join(str(r) for r in res), end='|')" 2>/dev/null)$(alive "$lp")"
 check "a pid the table does not know (empty answer, exit 1) is gone" "True" \
   "$(ipy "print(ia.process_gone('999999', 'Thu Jan  1 00:00:00 1970'))")"
+# A refused signal: the host may be gone by then, and when it is not, the caller says the
+# refusal, not a SIGKILL that was never sent.
+rp=$(polite)
+check "a refused SIGTERM over a live host fails with the refusal named, over a gone one succeeds" "False|True|1|0" \
+  "$(ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 ORCHESTRATOR_TERM_GRACE=1 ipy "
+import os
+start, _ = ia.process_state($rp)
+def refuse(pid, sig): raise PermissionError(1, 'Operation not permitted')
+os.kill = refuse
+live = ia.end_host('$rp', start, '/dev/ttys967', 'close')
+msg = ia.end_failure('$rp', '/dev/ttys967')
+ia.process_state = lambda pid: None
+gone = ia.end_host('$rp', start, '/dev/ttys967', 'close')
+print('%s|%s|%d|%d' % (live, gone, 'refused' in msg, 'SIGKILL' in msg))" 2>/dev/null)"
+kill "$lp" "$rp" 2>/dev/null
 check "a real zombie, read on the real table by pid and start, is gone" "Z|True" \
   "$(ipy "
 import os, time

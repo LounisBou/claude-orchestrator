@@ -868,11 +868,23 @@ def wait_process_gone(pid, start, timeout):
     return True
 
 
+# Why the last end_host of a pid returned False, where it is not « still running after SIGKILL ».
+_END_FAILURES = {}
+
+
+def end_failure(pid, tty):
+    """The tail of the message of a host that was not ended: what the launcher did and saw, so
+    that a signal never sent is not reported as sent."""
+    return _END_FAILURES.get(str(pid)) or "after SIGTERM and SIGKILL"
+
+
 def end_host(pid, start, tty, what):
     """End the host `pid` started at `start`, once its session's close was accepted: waited
     for, then SIGTERM, then SIGKILL. True once the process table shows it gone. A process
-    whose identity no longer matches is not signalled: it is gone, and its pid another's."""
+    whose identity no longer matches is not signalled: it is gone, and its pid another's.
+    When it returns False, `end_failure` says why."""
     import signal
+    _END_FAILURES.pop(str(pid), None)
     if wait_process_gone(pid, start, CLOSE_TIMEOUT):
         return True
     close_log(what, "host %s (started %s) still running on %s after %ds"
@@ -883,6 +895,8 @@ def end_host(pid, start, tty, what):
         if process_state(pid) == UNREADABLE:
             # The identity cannot be checked: nothing is signalled, and nothing is reported ended.
             close_log(what, "the process table could not be read for %s: not signalled" % pid)
+            _END_FAILURES[str(pid)] = ("and its entry in the process table could not be read, "
+                                       "so nothing was signalled")
             return False
         try:
             os.kill(int(pid), sig)
@@ -890,6 +904,10 @@ def end_host(pid, start, tty, what):
             return True
         except OSError as exc:
             close_log(what, "%s to %s refused: %s" % (sig.name, pid, exc))
+            # Read again: the host may have gone while the signal was refused.
+            if process_gone(pid, start):
+                return True
+            _END_FAILURES[str(pid)] = "and %s was refused (%s)" % (sig.name, exc)
             return False
         close_log(what, "%s sent to %s" % (sig.name, pid))
         if wait_process_gone(pid, start, grace):
@@ -2969,8 +2987,8 @@ def cmd_takeover(argv):
     term.kill(pred.window, "takeover")
     if host:
         if not end_host(host[0], host[1], args.tty, "takeover"):
-            die("takeover: the window %s was killed and %s still runs on %s after SIGTERM and "
-                "SIGKILL; window 0 was not taken" % (pred.window, host[0], args.tty))
+            die("takeover: the window %s was killed and %s still runs on %s, %s; window 0 was "
+                "not taken" % (pred.window, host[0], args.tty, end_failure(host[0], args.tty)))
         others = others_on(args.tty, host[0])
         survivor = others[0] if others else None
     else:
@@ -4193,8 +4211,8 @@ def close_tab(tty, expect):
     # kept running for minutes and had to be ended by hand (§46).
     if host:
         if not end_host(host[0], host[1], tty, "close"):
-            die("close: the request was accepted but %s is still running on %s, after "
-                "SIGTERM and SIGKILL. The session was NOT closed." % (host[0], tty))
+            die("close: the request was accepted but %s is still running on %s, %s. The "
+                "session was NOT closed." % (host[0], tty, end_failure(host[0], tty)))
         others = others_on(tty, host[0])
         survivor = others[0] if others else None
     else:
