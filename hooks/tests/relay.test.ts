@@ -7,7 +7,7 @@
 import { expect, test } from 'claude-code/testing'
 import { parseWait, waitPatch, fingerprint, relayText, coordinatorOf, waitLabel, waitParts, heldQuestion, withdrawalText, RELAY_CAP } from '../relay.ts'
 import { paneQuestions, waitsInTab, roundEntry, type RoundEntry } from '../round.ts'
-import { answerFromPane, paneAnswerText, settledText, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
+import { answerFromPane, paneAnswerText, settledText, reopenedText, parseSessionRow, paneRows, withWait, writeSession, readSessions, type SessionRow } from '../supervision.ts'
 import { register } from '../register.ts'
 import { logLineOf } from './fakes.ts'
 import { ROW_MARKER } from '../remote-row.ts'
@@ -599,6 +599,45 @@ test('a coordinator on another machine is sent the withdrawal at prompt submit, 
   // A second prompt in the same tab finds nothing held: nothing is sent again.
   await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
   expect(sentWithdrawals()).toEqual(withdrawal)
+})
+
+// --- a question the prompt withdrew, asked again by the turn's end -----------------------------
+
+test('the reopened notice names the entry and says it is open again', () => {
+  const asked = roundEntry('s-one', 'Orch : belt', parseWait(answerOf(QUESTION, QUESTION_LINE))!, '2026-10-25T21:00:00.000Z', 'T')
+  expect(reopenedText(asked)).toBe(`[module] Reopened: Orch : belt's question since 2026-10-25T21:00:00.000Z (entry ${asked.id}) — its turn ended on the same wait. `
+    + 'Open again: the settled notice before it no longer holds, present it as any open question.')
+})
+
+test('an entry the coordinator was told closed at the prompt is told open again when the turn ends on the same wait', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+  await drive(chains, 'prompt.submit', fx.dollar, typed('composer'))
+  expect(entries(fx).map(e => e.status)).toEqual(['closed'])
+  const settled = settledText(asked, entries(fx)[0].answer!)
+  expect(fx.sent.map(m => m.text)).toEqual([settled])
+  await drive(chains, 'turn.start', fx.dollar, { text: 'yes' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  const [reopened] = entries(fx)
+  expect([entries(fx).length, reopened.status, reopened.answer]).toEqual([1, 'open', null])
+  // The coordinator's model is last told what the pane shows.
+  expect(fx.sent.map(m => m.text)).toEqual([settled, reopenedText(reopened)])
+})
+
+test('an entry told closed at the prompt is told nothing more when the turn ends on another wait', async () => {
+  const { chains, fx } = await relayedQuestion()
+  const [asked] = entries(fx)
+  fx.files.set(LISTED, JSON.stringify([asked.id]) + '\n')
+  await typedTurn(chains, fx, answerOf('Something else.', 'waiting: operator — blocks: phase 4'))
+  expect(fx.sent.map(m => m.text.slice(0, '[module] Settled'.length))).toEqual(['[module] Settled'])
+})
+
+test('an entry the coordinator was never shown is withdrawn at the prompt and opened again, and tells it nothing', async () => {
+  const { chains, fx } = await relayedQuestion()
+  await typedTurn(chains, fx, answerOf(QUESTION, QUESTION_LINE))
+  expect(entries(fx).map(e => e.status)).toEqual(['open'])
+  expect(fx.sent).toEqual([])
 })
 
 // --- a coordinator on this machine reads the round; one elsewhere is sent the message ---------
