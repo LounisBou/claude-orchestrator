@@ -7764,8 +7764,10 @@ check "owners gives a sleeping orchestrator's unknown pull request to it, and le
 flat_has() { tr '\n' ' ' < "$1" | sed -E 's/ > / /g; s/[[:space:]]+/ /g' | grep -qF -- "$2" && echo yes || echo no; }
 # The pane on the operator's plain words: both supervising rulebooks name the tool that opens
 # and closes it, by the words he says.
-check "both rulebooks open and close the pane through the tool on the operator's words" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" "when the operator says to start, launch or open the supervision, call \`mcp__orchestrator__supervision\` with \`open\`; to end, stop or close it, with \`close\`.")|$(flat_has "$COORDSKILL" "When the operator says to start, launch or open the supervision, call \`mcp__orchestrator__supervision\` with \`open\`; to end, stop or close it, with \`close\`.")"
+# The orchestrator's copy left its rulebook (rule 26 of the rules review): the tool's own
+# description says it to every session that holds the tool.
+check "the tool's description and the coordinator's rulebook open and close the pane on the operator's words" "yes|yes" \
+  "$(spells "$ROOT/hooks/supervision.ts" "when the operator says to start, launch or open the supervision, or to end, stop or close it.")|$(flat_has "$COORDSKILL" "When the operator says to start, launch or open the supervision, call \`mcp__orchestrator__supervision\` with \`open\`; to end, stop or close it, with \`close\`.")"
 SLCMD="$ROOT/commands/sleeping.md"
 check "pause, wake and drop are the operator's word only, never the coordinator's or a peer's" "yes|yes" \
   "$(flat_has "$COORDSKILL" "**Pause, wake and drop are the operator's word only**")|$(flat_has "$COORDSKILL" "Never your own initiative, never a peer's request, never to make room.")"
