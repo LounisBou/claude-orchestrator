@@ -99,13 +99,11 @@ Two readings high or more raises the pair by **one** notch up the class's ladder
 
 ## Explore one notch, never more
 
-`pick` prints a second line, `explore=<pair>` (`nbis=` stays last), when the record shows three one-round closes at the class's pair, no escaped defect there, and no failed exploration of the class. The pair is **one notch** below: the immediate cheaper pair of the class's ladder, unless it was measured and found not equivalent to the best (a pair not measured on every task is offered); without a ladder to read it from, the effort one level down on the same family; at the lowest effort, the next lighter family in the map at the same effort. Take it only when the five readings show at most one high, and open the row `--explore`.
+`pick` prints `explore=<pair>` (`nbis=` stays last) when the record allows a try one notch below: take it only when the five readings show at most one high, and open the row `--explore`.
 
 The orchestrator, a successor, a decision round, a contract-defining phase and the final verification are never explored: nothing re-checks that work, so a failure there is paid N times.
 
-`summary` prints `frozen=<class>` after an exploration that cost a corrective round or let a defect escape: the class reverts to its pair and is not explored again this build. It prints `promote=<class> <pair>` after three explorations closed in one round: dispatch the class on that pair for the rest of the build, and fold it into the project's table with `routing.py calibrate <slug> --from-record <record>`.
-
-An exploration is not a cascade. A cascade retries the same work one notch below and is forbidden on phases; an exploration dispatches the work once, at the lower pair, and its failure is paid by the normal correction round.
+`summary` prints `frozen=<class>` after a failed exploration (the class reverts and is not explored again this build) and `promote=<class> <pair>` after three that closed in one round (dispatch the class on that pair, and fold it into the project's table with `routing.py calibrate <slug> --from-record <record>`).
 
 ## Escalate on evidence, one step, at a session boundary
 
@@ -117,25 +115,13 @@ Triggers, each a thing you have read:
 
 An escalation IS a rotation — fresh session, resume brief, one notch up the class's ladder, the brief carrying the evidence that triggered it. **Never de-escalate inside a phase**: a drop applies to the next dispatch of that class.
 
-## Cascade where a retry is cheap — and only there
-
-A cascade tries one notch below the class's pair and escalates when the result does not hold. It pays only where a failed attempt is cheap to detect and to throw away. For a phase it is not — a failed attempt costs a review round plus a rework round — so **never cascade a phase**. Three classes qualify:
-
-| Class | What detects the failure | What a retry costs |
-|---|---|---|
-| A review lens | its report is empty, vague, or dies on the first verification you run | one reader, re-run |
-| A read-only search subagent | it returns nothing where you know something is | one search |
-| An N-bis narrow enough that the gate judges it | the project's own quality gate | one short session |
-
-Dispatch one notch below and mark it — `dispatch-record.sh open … --cascade`; if it costs a round, re-dispatch at the class's pair and close the marked row `--verdict escalated`. `summary` reports `cascade=<class> at <pair>: N of M paid` and says `stop cascading` when fewer than half pay over at least two attempts. One notch below, never two. An N-bis cascades from its `nbis=` pair: its notch is read below that pair, not under the `n-bis` class's own entry.
-
 ## The false economy
 
 **A pair drop that produces a second corrective round is reverted for that class, and the reversion is recorded, unless you name the mechanism, other than the pair, that cost the round.** A rework round plus its review round costs more than the phase one notch up.
 
 ## A second reader, armed by evidence
 
-A strong judge rarely invents a defect but misses some, and a miss leaves no trace in the round that missed it. When a later round finds a defect in work already approved, record it: `dispatch-record.sh escaped <record> <id>`. `summary` then prints `signal=double-read <class> at <pair or tier>`, and that class's next round gets a **second reader with a DIFFERENT lens**; a finding is kept only when both see it. Not from a hunch, and never a second reader on the same lens.
+A defect found later in work already approved is recorded with `dispatch-record.sh escaped <record> <id>`: `summary` then prints `signal=double-read <class> at <pair or tier>`, and that class's next round gets a second reader with a DIFFERENT lens, a finding kept only when both see it.
 
 ## The record
 
@@ -165,11 +151,3 @@ The summary groups rows by class and pair, with `cost_avg=<usd>` over the closed
 ```
 signal=n-bis at light averages 2 rounds: the drop did not pay, revert it for this class
 ```
-
-## The costliest mistakes
-
-- A pair chosen from how hard the phase feels, or two notches at once — run `pick`, take the five readings.
-- A large phase run on a pair measured on small work: `--files` and `--lines` not given to `pick`, or a `beyond=` left out of the brief.
-- A wave dispatched without reading the map or the summary, or a signal in it left standing.
-- A class explored that is never explored, or explored again after `frozen=`.
-- A phase cascaded, or an escalation attempted inside a live session instead of as a rotation.
