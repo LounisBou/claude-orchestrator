@@ -102,9 +102,14 @@
 # lower pair (`promote=`). Rows written before pairs existed read as tier rows, unchanged.
 #
 # The record belongs to the PROJECT being built, not to this plugin: the default table
-# ships here, a project's corrections belong with that project's state.
+# ships here, a project's corrections belong with that project's state. Inside it a record
+# belongs to ONE orchestration: the first write names it in `<record>.owner` (the orchestration's
+# name as the host spells it, without its reference) and a write from any other is refused, naming
+# the record's path and its owner. A record with no owner file, every one written before this, is
+# claimed by its first write, and a read (`summary`, `goals status|check`) claims and registers
+# nothing.
 #
-# Every subcommand also registers the record's absolute path under the host session that ran
+# Every write also registers the record's absolute path under the host session that ran
 # it, in `<state dir>/records/<CLAUDE_CODE_SESSION_ID>` (one path per line, no duplicate). An
 # order noted « to plan after the round » in prose alone was lost once: nothing read it back.
 # A row opened for it is read back by the stop gate (the module's own gate, over the Stop
@@ -117,8 +122,8 @@
 # ever opened for them. So `open` refuses while no `goals.md` sits beside the record (a build
 # with no spec says `goals <record> init --spec none`), warns on every open goal no phase
 # carries, and the stop gate refuses `waiting: done` while a goal is open, lacks evidence, or
-# was ruled out without the operator's words. `goals` registers the record even before its
-# first row, so the gate finds the goals from the first command.
+# was ruled out without the operator's words. `goals init` registers the record even before its
+# first row, so the gate finds the goals from the first write.
 
 set -uo pipefail
 
