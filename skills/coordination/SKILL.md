@@ -394,7 +394,7 @@ thread); its code never does, it travels by git.
    sent is removed with `coordinator.sh wake-done --name "Orch : <subject>"`; the origin's
    files are left untouched. An orchestrator that moved itself replies `moved <receiver>
    brief=<its brief there>` once the notice acknowledged it, then ends: on your machine you
-   close its tab on its `moved` reply, as at a pause (a home session's server goes with the tab; the title guard,
+   close its tab on its `moved` reply, as at a pause (the title guard,
    `mcp__orchestrator__end_session` where the host refuses), elsewhere it calls
    `end_session`, which the module allows once its own move was acknowledged. A failed move
    ends nothing: the origin keeps it, and a `move-failed` reply is told to the operator

@@ -91,7 +91,7 @@ and carry it out, never argue it. When his explicit instruction on the point is 
 by another route than the launcher's (the terminal's own split, for example), the checks the
 launcher would have made are run by hand on that route — the brief linted, the session's
 mode read — and a refusal among them stops the route and is reported to him. Two locks hold
-whatever is said, never routed around: the push guard, and the window or tab close verified by its
+whatever is said, never routed around: the push guard, and the tab close verified by its
 title. The launcher's mode and trust refusals are defaults a project's own method may lift.
 The one thing that is not overridden by silence is what would end a session or change the
 machine — that is a STOP-and-ask, and the asking is one question carrying its cost and a
@@ -120,7 +120,7 @@ These bind where no reference is loaded — a message sent, a report read, a rep
 - **No date or hour is written from memory.** A state or journal line carries no hour; a brief or a memory is named by its subject only, never by a date; a dispatch record's `opened` is `dispatch-record.sh`'s to write, never typed. A time a message or a record must carry is a command's output (`date -u +%FT%TZ`) or the event's own git or `gh` timestamp, pasted, never typed — never « ~14:30 » or a date recalled: typed from memory, it has been wrong by hours and by days.
 - **Wait on CI in one background watch per pull request, never in the foreground.** When a pull request you own is opened or its head moves, read `references/review.md`, « Checks, in one background watch », and start the watch: one per pull request, never two, in the background, and nobody waits for MERGED.
 - **Stay compaction-ready at all times**: everything durable lives OUTSIDE your context — spec, plan, briefs, runbooks as files; build status and decisions in the project memory; verdicts in messages already sent. A session where a compaction would lose something already broke the "status lives once" rule.
-- **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read the artifacts — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw; most often the operator acted between your turns. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, its agents stood down, their windows or tabs closed like any finished delivery.
+- **Refresh the state from the artifacts, never from your own file**: at every quiet boundary and before every report to the operator, re-read the artifacts — pull requests merged or closed by someone else (`gh pr list --state all`), branch heads moved, sessions gone (`ListAgents`) — and correct the state file wherever they disagree. The file holds what you last saw; most often the operator acted between your turns. **A pull request found merged or closed stops the work in flight on it at once**: no review round on a merged head, no corrective brief on a closed one, its agents stood down, their tabs closed like any finished delivery.
 - **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
 - **Measure, never estimate, your own context**: the module measures every turn; read `/orchestrator-status` — your row and every agent's — before dispatching any phase.
 - **The pane on the operator's words**: when the operator says to start, launch or open the supervision, call `mcp__orchestrator__supervision` with `open`; to end, stop or close it, with `close`.
@@ -205,5 +205,5 @@ cannot is permission laundering.
 - Approving a delivery you have not diffed yourself; reporting stopped, deleted or repaired what you have not read with your own command.
 - A pull request you merged or took out of draft without his clear and explicit request, unless the project's own method decides the merge or the undraft; « ready » told to the operator before the head in front of you was reviewed or its correction round verified on the artifact, before the branch was rebased, or with an item, a decision or a correction still pending.
 - A stacked branch rebased with its squash-merged lower branch's original commits in it; a force push other than a rebase's `--force-with-lease`.
-- A standalone close without `--expect-title`, a rotation given one, a window or tab closed over an uncommitted delivery, or your own place closed by you.
-- A « takeover confirmed » with the predecessor's window or tab still open.
+- A standalone close without `--expect-title`, a rotation given one, a tab closed over an uncommitted delivery, or your own tab closed by you.
+- A « takeover confirmed » with the predecessor's tab still open.

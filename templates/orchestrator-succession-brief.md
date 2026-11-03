@@ -68,4 +68,4 @@ This section is the hand-over copy of the live part of the project state file `{
 - User rules that bind you: {{USER_RULES}}
 - Deadlines: {{DEADLINES}}
 - Dispatch record (class, tier, rounds to close, verdict — the table's corrections for this build): `{{DISPATCH_RECORD}}`. Read it before routing anything. The method is `orchestrator:model-routing`.
-- Layout: in a home session you are window 0 and your agents are its windows after yours (a successor takes window 0); on a tab layout your tab sits immediately left of your implementer's tab.
+- Layout: window 0 of your home session, your agents after you, else your tab left of theirs.
