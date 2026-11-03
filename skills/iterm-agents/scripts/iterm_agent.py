@@ -3918,9 +3918,11 @@ def cmd_spawn(argv):
         # auditor's one successor is its own audit session, `--successor` without a title.
         # Read on the session's role, not on the `Audit :` prefix: an auditor named
         # otherwise ("Audit neutre : ...") carries no such prefix and still is no orchestrator.
+        # An orchestrator, the coordinator and a plain agent are not read as auditors here.
         caller = session_name_on(self_tty() or "")
         if caller == UNREADABLE_NAME or (caller and (caller.startswith("Orch : ")
-                                                     or caller.startswith(COORD_ROLE))):
+                                                     or caller.startswith(COORD_ROLE)
+                                                     or title_role(caller) == "Agent")):
             caller = None
         if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
             caller = "unnamed"
