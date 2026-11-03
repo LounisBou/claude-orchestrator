@@ -29,7 +29,7 @@ import {
   listing, chainEntries, chainOwner, ownAgents, hostStatusOf, pullRequestOf, openRows, deferredRows, deferredIds, machineLine, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchedNumbers,
   checkWake, checkWakeDone, checkCi, isSuccessorSpawn, processTable, ownBackground, logTell,
-  noticeFrom, awaitingAny, goalsPaths, parseGoalsCheck, presentGoals, goalsShownPath, type GoalsReading,
+  noticeFrom, awaitingAny, goalsPaths, parseGoalsCheck, presentGoals, goalsShownPath, endsOnHandOver, type GoalsReading,
 } from './stop-gate.ts'
 import { logArgv, moduleDirOf, LOG_TIMEOUT_MS } from './module-log.ts'
 import { pendingQuestion, unansweredRefusal, type WaitRead } from './unanswered-question.ts'
@@ -493,11 +493,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       }
       const state = await stateDir($)
       // A question still on the operator is shown again in the orchestrator's own chat at every
-      // turn's end until he answers it (his ruling of 2026-11-03), unless the session handed over:
-      // its successor holds the questions. Read off the round and the wait file, within the deadline.
-      if (sessionId !== '' && handedOverIn !== sessionId && !isEnding()) {
+      // turn's end until he answers it (his ruling of 2026-11-03), unless the session handed over,
+      // or ends on its last word `handed over`: its successor holds the questions. Read off the round
+      // and the wait file, within the deadline.
+      const message = String(e.last_assistant_message ?? '')
+      if (sessionId !== '' && handedOverIn !== sessionId && !isEnding() && !endsOnHandOver(message)) {
         const pending = await quietly($, async () => pendingQuestion(sessionId, await roundEntries($, state), await waitRead($, sessionId)), until, null)
-        const unshown = unansweredRefusal(String(e.last_assistant_message ?? ''), pending)
+        const unshown = unansweredRefusal(message, pending)
         if (unshown !== null) {
           await logLine($, `stop gate: an operator question left unshown (${pending?.entry?.id ?? pending?.blocks ?? '?'})`)
           return refuse(unshown)

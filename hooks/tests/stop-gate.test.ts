@@ -87,6 +87,17 @@ test('a question his prompt withdrew as answered in the tab is settled: the turn
   expect(passed.answer).toBe(passed.passed)
 })
 
+// The session that handed over, or asked to end, leaves its questions to its successor; a stop with no
+// session id has no question to read; its last line « handed over » is the hand-over itself.
+const UNSHOWN = 'Successor spawned; waiting for its « takeover confirmed ».'
+
+test('a last line « handed over » passes with a question still open: the successor holds it', async () => {
+  const { handlers } = mounted()
+  const { dollar } = fakeDollar({ round: roundOf(openEntry()) })
+  const over = await stop(handlers['classic.Stop'], dollar, stopEvent({ last_assistant_message: 'Takeover confirmed.\nhanded over' }))
+  expect(over.answer).toBe(over.passed)
+})
+
 test('a question the operator answered from the pane, or a coordinator\'s turn, is never refused for it', async () => {
   const { handlers } = mounted()
   const answered = openEntry({ status: 'answered', answer: { text: 'A : the schema first', by: 'pane', at: OPEN_SINCE } })
