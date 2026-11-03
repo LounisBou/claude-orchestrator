@@ -148,7 +148,7 @@ function fake(over: Over = {}) {
         if (argv[0] === 'ps' && argv[1] === '-p' && UNDERNEATH[argv[2]]) {
           return { exitCode: 0, stdout: `${UNDERNEATH[argv[2]].ppid} ${UNDERNEATH[argv[2]].tty}\n`, stderr: '' }
         }
-        if (argv[0] === 'ps' && argv[1] === '-A' && (over.alive || over.exiting)) return { exitCode: 0, stdout: over.alive.map(pid => `${pid}\n`).join('') + (over.exiting ?? []).map(pid => `${pid} ?Es ??\n`).join(''), stderr: '' }
+        if (argv[0] === 'ps' && argv[1] === '-A' && (over.alive || over.exiting)) return { exitCode: 0, stdout: (over.alive ?? []).map(pid => `${pid}\n`).join('') + (over.exiting ?? []).map(pid => `${pid} ?Es ??\n`).join(''), stderr: '' }
         if (argv[0] === 'ps' && argv[1] === '-t') return { exitCode: 0, stdout: `  501 hostcli --name ${name}\n`, stderr: '' }
         return { exitCode: 1, stdout: '', stderr: '' }
       },
@@ -269,6 +269,15 @@ test('no launch record: the chain routes the agent', async () => {
   expect(fx.logged.some(l => l.includes(`relay: ${AGENT} on /dev/ttys005 goes to ${ORCH} by the chain on /dev/ttys001`))).toBe(true)
 })
 
+test('a chain with no live owner and no launch record is orphaned, and the log says so', async () => {
+  const chains = mounted()
+  // The chain names the agent's tty, its owner (pid 400) is not listed, and no launch record is set.
+  const fx = fake({ alive: ['501'] })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(QUESTION))
+  expect(fx.sent.length).toBe(0)
+  expect(fx.logged.some(l => l.includes('the chain on /dev/ttys001 names /dev/ttys005 and has no live owner: the entry is orphaned'))).toBe(true)
+})
+
 test('a launch record whose session is dead falls through to the chain', async () => {
   const chains = mounted()
   const fx = fake({ reportsTo: 'Orch : other [zzz999]', alive: ['400', '501'], registry: [{ pid: '620', sessionId: 's-other', name: 'Orch : other', startedAt: 200 }] })
@@ -282,6 +291,14 @@ test('a launch record naming an exiting host (?Es) falls through to the chain', 
   const fx = fake({ reportsTo: 'Orch : other [zzz999]', alive: ['400', '501'], exiting: ['620'], registry: [{ pid: '620', sessionId: 's-other', name: 'Orch : other', startedAt: 200 }] })
   await drive(chains, 'turn.complete', fx.dollar, turnEnd(QUESTION))
   expect(fx.sent.map(s => s.to)).toEqual([ORCH])
+})
+
+test('a launch record naming an exiting host (?Es) relays nowhere when no chain names the agent', async () => {
+  // Without a chain the chain does not win: the exiting host must not be picked by the pid alone.
+  const chains = mounted()
+  const fx = fake({ chain: false, reportsTo: 'Orch : other [zzz999]', alive: ['400', '501'], exiting: ['620'], registry: [{ pid: '620', sessionId: 's-other', name: 'Orch : other', startedAt: 200 }] })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(QUESTION))
+  expect(fx.sent.length).toBe(0)
 })
 
 test('an empty chain with a live launch record is relayed, never « no orchestrator found »', async () => {
