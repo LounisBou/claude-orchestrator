@@ -5286,6 +5286,29 @@ for stat in ('UE', 'SE', '?Es', 'Z+', 'Ss+', 'S+'):
     ia.process_state = lambda pid, stat=stat: ('S0', stat)
     r.append(str(ia.process_gone('7', 'S0')))
 print('|'.join(r))")"
+# A table that could not be read is not a table without the pid: a hung or failing `ps` over a
+# live host must never be reported as « gone », and nothing is signalled on an identity that
+# could not be checked.
+lp=$(polite)
+check "a ps that times out or fails over a live host is not a gone host, and signals nothing" "False|False|False|False|alive" \
+  "$(ORCHESTRATOR_STATE_DIR="$ESTATE" ORCHESTRATOR_CLOSE_TIMEOUT=1 ORCHESTRATOR_TERM_GRACE=1 ipy "
+import subprocess
+start, _ = ia.process_state($lp)
+real = subprocess.run
+def hung(*a, **k): raise subprocess.TimeoutExpired('ps', 10)
+def broken(*a, **k): raise OSError('ps failed')
+def garbled(*a, **k): return subprocess.CompletedProcess(a, 0, stdout='garbage', stderr='')
+def failed(*a, **k): return subprocess.CompletedProcess(a, 2, stdout='', stderr='boom')
+res = []
+for stub in (hung, broken, garbled):
+    ia.subprocess.run = stub
+    res.append(ia.process_gone('$lp', start))
+ia.subprocess.run = hung
+res.append(ia.end_host('$lp', start, '/dev/ttys966', 'close'))
+ia.subprocess.run = real
+print('|'.join(str(r) for r in res), end='|')" 2>/dev/null)$(alive "$lp")"
+check "a pid the table does not know (empty answer, exit 1) is gone" "True" \
+  "$(ipy "print(ia.process_gone('999999', 'Thu Jan  1 00:00:00 1970'))")"
 check "a real zombie, read on the real table by pid and start, is gone" "Z|True" \
   "$(ipy "
 import os, time

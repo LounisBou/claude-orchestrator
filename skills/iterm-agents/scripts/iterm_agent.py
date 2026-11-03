@@ -797,17 +797,25 @@ def wait_gone(tty, timeout=None):
 # reported only once the process table shows that process gone. The title guard stays first:
 # the terminal refuses a session whose title does not match before anything is read or sent.
 
+UNREADABLE = "unreadable"
+
+
 def process_state(pid):
-    """`(start time, state)` of a process from the real process table, or None when the
-    table has no such pid."""
+    """`(start time, state)` of a process from the real process table, None when the table
+    has no such pid (an empty answer, exit 1), UNREADABLE when it could not be read (a
+    timeout, an error, an answer that does not parse): a table that did not answer says
+    nothing about the pid."""
     try:
-        out = subprocess.run(["ps", "-o", "stat=,lstart=", "-p", str(pid)],
-                             capture_output=True, text=True, timeout=10).stdout.strip()
+        done = subprocess.run(["ps", "-o", "stat=,lstart=", "-p", str(pid)],
+                              capture_output=True, text=True, timeout=10)
     except Exception:
-        return None
+        return UNREADABLE
+    out = done.stdout.strip()
+    if not out:
+        return None if done.returncode == 1 else UNREADABLE
     parts = out.split(None, 1)
-    if len(parts) != 2:
-        return None
+    if done.returncode != 0 or len(parts) != 2:
+        return UNREADABLE
     return parts[1].strip(), parts[0]
 
 
@@ -818,7 +826,7 @@ def host_identity(tty):
     if not pid or not str(pid).isdigit():
         return None
     state = process_state(pid)
-    if not state:
+    if not state or state == UNREADABLE:
         return None
     return str(pid), state[0]
 
@@ -826,8 +834,11 @@ def host_identity(tty):
 def process_gone(pid, start):
     """Whether the process `pid` started at `start` is gone: no longer in the table, its pid
     held by a process started at another time, or exited and only waiting for its parent to
-    reap it (a zombie, or the « exiting » state the terminal's daemon leaves unreaped)."""
+    reap it (a zombie, or the « exiting » state the terminal's daemon leaves unreaped). A
+    table that could not be read does not say it is gone."""
     state = process_state(pid)
+    if state == UNREADABLE:
+        return False
     if state is None or state[0] != start:
         return True
     # The table prints the exiting state as `?Es`: the mark is the first letter after the `?`.
@@ -869,6 +880,10 @@ def end_host(pid, start, tty, what):
     for sig, grace in ((signal.SIGTERM, TERM_GRACE), (signal.SIGKILL, KILL_GRACE)):
         if process_gone(pid, start):
             return True
+        if process_state(pid) == UNREADABLE:
+            # The identity cannot be checked: nothing is signalled, and nothing is reported ended.
+            close_log(what, "the process table could not be read for %s: not signalled" % pid)
+            return False
         try:
             os.kill(int(pid), sig)
         except ProcessLookupError:
