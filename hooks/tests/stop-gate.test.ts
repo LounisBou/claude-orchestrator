@@ -1816,6 +1816,10 @@ test('an owner file names its owner on its first line, and a blank file names no
   expect(ownerOf('')).toBeNull()
 })
 
+test('an owner line that is no orchestration name is the owner as written', () => {
+  expect(ownerOf('o-1234\n')).toBe('o-1234')
+})
+
 test('a record is the session\'s own when it has no owner or the owner is the session\'s orchestration', () => {
   expect(isOwnRecord(null, 'Orch : belt')).toBe(true)
   expect(isOwnRecord('Orch : belt', 'Orch : belt')).toBe(true)
