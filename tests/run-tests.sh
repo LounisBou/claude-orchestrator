@@ -748,6 +748,13 @@ for n in 1 2 3 4 5 6 7 8; do
 done
 check "two first writers at once: one is refused, and only the winner's write is made" \
   " 1:1 1:1 1:1 1:1 1:1 1:1 1:1 1:1" "$OWRACE"
+# An empty owner file names nobody: it is read as absent and the first write claims it.
+OWE="$OW/emptyowner/dispatch.jsonl"; mkdir -p "$OW/emptyowner"
+bash "$REC" goals "$OWE" init --spec none >/dev/null; bash "$REC" open "$OWE" --class x --tier light >/dev/null
+: > "$OWE.owner"
+check "an empty owner file is read as absent: the first write claims the record" "0|Orch : beta|1" \
+  "$(as_session o-beta round "$OWE" 1 >/dev/null 2>&1; echo $?)|$(cat "$OWE.owner" 2>/dev/null)|$(as_session o-alpha round "$OWE" 1 >/dev/null 2>&1; echo $?)"
+
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
 # `waiting: deferred — <ids>` once nothing else is open.
