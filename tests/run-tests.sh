@@ -6263,6 +6263,15 @@ check "an orchestrator's successor under an Orch title is still launched" "0|tra
   "$(orchp "$ORCHPS" --title 'Orch : g' --successor >/dev/null 2>&1; echo $?)|$(orchp "$ORCHPS" --title 'Orch : g' --successor | sed -n 's/^chain=//p')"
 check "an auditor's spawn titled Orch is refused as a successor and as a wake" "1|1|1" \
   "$(orchp "$AUDPS" --title 'Orch : x' --successor >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --successor | grep -c "its only successor is its own audit session, --successor without --title")"
+check "an auditor's wake of an orchestrator is refused with a message naming the flags that apply" "1" \
+  "$(orchp "$AUDPS" --title 'Orch : x' --wake --model a-model | grep -c "opens no orchestrator tab with --wake or an Orch title, and --open is a coordinator's or an orchestrator's; its only successor is its own audit session, --successor without --title")"
+printf '/dev/ttys900 claude\n' > "$WORK/ps-unnamed.txt"
+check "an auditor whose name cannot be read is refused all the same, by the marker its launch exports" "1|1|0" \
+  "$(ORCHESTRATOR_AUDITOR=1 orchp "$WORK/ps-unnamed.txt" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^launch=.*export ORCHESTRATOR_AUDITOR=1 && ')|$(orchp "$ORCHPS" --title 'Agent : x' | grep -c 'ORCHESTRATOR_AUDITOR')"
+check "an auditor's spawn stays out of the chain and left of its caller, a woken orchestrator's out of the chain" "1|1|1" \
+  "$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^chain=none$')|$(orchp "$ORCHPS" --auditor --title 'Audit : tm' | grep -c '^side=left$')|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model | grep -c '^chain=none$')"
+check "an auditor's --open is refused, as an agent's is" "1|1" \
+  "$(orchp "$AUDPS" --title 'Orch : x' --open >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --title 'Orch : x' --open | grep -c 'an agent never opens an orchestrator')"
 check "while the auditor's own successor is launched" "0|Audit : f" \
   "$(orchp "$AUDPS" --successor >/dev/null 2>&1; echo $?)|$(orchp "$AUDPS" --successor | sed -n 's/^name=//p')"
 
