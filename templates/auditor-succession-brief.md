@@ -36,10 +36,6 @@ and no file written (this brief aside) — the exchange with your predecessor ex
 
 ## Standing context
 
-- Your tab sits where your predecessor's did, immediately left of the orchestrator's: it was
-  spawned with `--successor`, which lands immediately right of its caller, on its model and
-  under remote control under its title, and joins no chain. `rotate` and `move` refuse an
-  `Audit :` tab unless `--force`.
 - After the report the operator may keep you on. At your own gate with his work in hand, you
   succeed the same way: copy `{{SUCCESSION_TEMPLATE}}` beside the report as the next succession
   brief and fill every placeholder (the report's path, the operator's work still owed with its
