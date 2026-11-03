@@ -1540,19 +1540,19 @@ def chain_append(tty, tab_id, new_tty, owner, resident=False):
                                          "resident": resident}])
 
 
-def chain_transfer(old_tty, old_owner, new_tty, new_owner):
+def chain_transfer(old_tty, old_owner, new_tty, new_owner, merge=False):
     """The predecessor's agents become the successor's (§34).
 
     A successor spawned after the last agent, and appended to the predecessor's chain as
     if it were one, inherited nothing: its own file was empty or a dead session's, so its
     first `--right-of self` landed left of the agents it had just taken over. The entries
-    the predecessor wrote move under the successor's tty and session id, after the entries
-    the successor already wrote itself (a takeover comes after the successor has launched
-    agents of its own); what a recycled tty's file held on the successor's side from earlier
-    occupants is dropped, never appended to. The predecessor's file is removed: its tty's
-    other occupants are gone, and a file left behind is a chain no live session owns."""
+    the predecessor wrote move under the successor's tty and session id; whatever a recycled
+    tty's file held on the successor's side is replaced, never appended to. A takeover
+    (`merge`) comes after the successor has launched agents of its own: they are kept, and the
+    predecessor's follow them. The predecessor's file is removed: its tty's other occupants
+    are gone, and a file left behind is a chain no live session owns."""
     moved = chain_owned(chain_read(old_tty), old_owner)
-    own = chain_owned(chain_read(new_tty), new_owner) if new_owner else []
+    own = chain_owned(chain_read(new_tty), new_owner) if merge and new_owner else []
     have = {e["tab_id"] for e in own}
     chain_write(new_tty, own + [{"tab_id": e["tab_id"], "tty": e["tty"], "owner": new_owner,
                                  "resident": is_resident(e)}
@@ -2542,14 +2542,10 @@ class TmuxTerminal(Terminal):
 
     def rows(self):
         own = self_tty() or ""
-        held, names = chain_holders(), {}
-        rows = []
-        for p in self.panes():
-            holder = held.get(self.stable_id(p.window))
-            rows.append(row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
-                                bool(own) and p.tty == own, False,
-                                owner_label(holder, names) if holder else ""))
-        return rows
+        panes = self.panes()
+        return [row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
+                        bool(own) and p.tty == own, False) for p in panes] + \
+            orphan_lines([("w1/t%s" % p.index, p.tty, self.stable_id(p.window)) for p in panes])
 
     def screen(self, tty, lines):
         pane = self.window_of(tty, "screen")
@@ -3152,10 +3148,7 @@ def cmd_takeover(argv):
     # The predecessor's agents follow it to its successor: what it launched after the
     # succession's spawn handed its chain over would otherwise be nobody's.
     if pred_owner and own_owner:
-        n = chain_transfer(args.tty, pred_owner, own, own_owner)
-        if n:
-            print("takeover: chain of %d agent(s) handed to this session on %s" % (n, own),
-                  file=sys.stderr)
+        chain_transfer(args.tty, pred_owner, own, own_owner, merge=True)
     tmux_out(["move-window", "-d", "-s", mine.window, "-t", "%s:0" % term.session()], "takeover")
     if viewed:
         tmux_out(["select-window", "-t", mine.window], "takeover")
@@ -3305,7 +3298,7 @@ def cmd_home_release(argv):
 
 # --- subcommands -----------------------------------------------------------------
 
-def row_for(w, t, tty, title, name, is_self, hidden, owner=""):
+def row_for(w, t, tty, title, name, is_self, hidden):
     """One listing row, formatted and nothing else, so its shape is read without an app.
 
     The session name sits beside the tab title because they answer different questions:
@@ -3321,8 +3314,6 @@ def row_for(w, t, tty, title, name, is_self, hidden, owner=""):
         row += " | self"
     if hidden:
         row += " | hidden"
-    if owner:
-        row += " | of %s" % owner
     return row
 
 
@@ -3339,19 +3330,24 @@ def chain_holders():
     return held
 
 
-def owner_label(chain_tty, cache):
-    """Whose agent a listed tab is: the orchestrator's name while it runs, its tty when it
-    has none to read, and its tty marked ended once no host runs there. An orchestrator that
-    ended before a successor took its chain leaves agents nobody else's listing claims."""
-    if chain_tty not in cache:
-        name = session_name_on(chain_tty)
-        if name and name != UNREADABLE_NAME:
-            cache[chain_tty] = name
-        elif host_cli_on(chain_tty):
-            cache[chain_tty] = chain_tty
-        else:
-            cache[chain_tty] = "%s (ended)" % chain_tty
-    return cache[chain_tty]
+def orphan_lines(listed):
+    """One line per listed agent whose orchestrator has ended, saying whose it was.
+
+    An orchestrator that ended before any successor took its chain leaves agents whose tabs
+    no live session claims, and nothing on screen tells whose they are. `listed` is
+    `(place, tty, stable id)` per row. The line holds no ` | `, so a reader of the rows (the
+    stop gate's) skips it."""
+    held, ended, lines = chain_holders(), {}, []
+    for place, tty, stable in listed:
+        holder = held.get(stable)
+        if not holder:
+            continue
+        if holder not in ended:
+            ended[holder] = not host_cli_on(holder)
+        if ended[holder]:
+            lines.append("orphan: %s (%s) is an agent of the orchestrator on %s, which has "
+                         "ended" % (tty, place, holder))
+    return lines
 
 
 async def list_rows(app):
@@ -3363,18 +3359,17 @@ async def list_rows(app):
     orchestrator knows which tab is its own BEFORE it anchors, moves or closes anything —
     the reading a layout repair once went without (§38)."""
     own = self_tty() or ""
-    held, names = chain_holders(), {}
-    lines = []
+    lines, listed = [], []
     for wi, w in enumerate(app.windows, 1):
         for ti, t in enumerate(w.tabs, 1):
             visible = {s.session_id for s in t.sessions}
             for s in t.all_sessions:
                 tty = await s.async_get_variable("tty")
                 title = await s.async_get_variable("autoName") or ""
-                holder = held.get(t.tab_id)
                 lines.append(row_for(wi, ti, tty, title, session_name_on(tty),
-                                     bool(own) and tty == own, s.session_id not in visible,
-                                     owner_label(holder, names) if holder else ""))
+                                     bool(own) and tty == own, s.session_id not in visible))
+                listed.append(("w%d/t%d" % (wi, ti), tty, t.tab_id))
+    lines += orphan_lines(listed)
     return lines
 
 
