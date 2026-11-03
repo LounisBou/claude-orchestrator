@@ -5388,6 +5388,11 @@ check "verify of a home tab reads the host in window 0 of its server" "a-host ru
   "$(vhome "$WORK/vhome/ps.txt" 2>&1)|$(vhome "$WORK/vhome/ps.txt" >/dev/null 2>&1; echo $?)"
 check "verify of a home tab whose window 0 runs no host is not running" "1" \
   "$(vhome "$WORK/vhome/ps-dead.txt" >/dev/null 2>&1; echo $?)"
+# A host on the tab's own tty is not the home's host: only window 0 of the server is read.
+printf '/dev/ttys970 6000 %s -u -L orch-vhome attach -t home\n/dev/ttys970 6004 a-host --name Stray\n/dev/ttys971 6003 -zsh\n' \
+  "$WORK/vhome/tmux" > "$WORK/vhome/ps-tab-host.txt"
+check "verify of a home tab ignores a host on the tab's tty when window 0 runs none" "1" \
+  "$(vhome "$WORK/vhome/ps-tab-host.txt" >/dev/null 2>&1; echo $?)"
 check "the close note claims no more than the table showed" "1|0" \
   "$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'no process matching claude was found on /dev/ttys901')|$(ipy "print(ia.close_note('/dev/ttys901', None))" | grep -c 'was running')"
 
