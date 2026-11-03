@@ -1807,6 +1807,32 @@ test('a late ack of an older ask leaves a newer pending wait pending, resent at 
   expect(waitOf(sender).relayed).toBe(fingerprint(parseWait(ask.answer)!))
 })
 
+test('a question withdrawn at the prompt and asked again by the same wait is open again on the coordinator\'s machine', async () => {
+  const chains = mounted()
+  const sender = fake({ remote: true })
+  const coordinator = coordinatorMachine()
+  const ask = turnEnd(answerOf(QUESTION, QUESTION_LINE))
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[0].text))
+  await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', acks(coordinator)[0].text))
+  const [entered] = entries(coordinator)
+  expect(waitOf(sender).relayed).toBe(fingerprint(parseWait(ask.answer)!))
+  // The operator types in the tab: the coordinator's model reads the withdrawal and closes the entry.
+  await drive(chains, 'prompt.submit', sender.dollar, typed('composer'))
+  const closed = { ...entered, status: 'closed', answer: { text: "withdrawn: answered in the sender's own tab", by: 'tab', at: 'T' } }
+  coordinator.files.set(`${ROUND}/${entered.id}.json`, JSON.stringify(closed) + '\n')
+  // The turn ends on the same wait, a moment later: the ask goes again.
+  await new Promise(resolve => setTimeout(resolve, 5))
+  await drive(chains, 'turn.start', sender.dollar, { text: 'yes' })
+  await drive(chains, 'turn.complete', sender.dollar, ask)
+  expect(asks(sender).length).toBe(2)
+  await drive(chains, 'session.receive', coordinator.dollar, delivered(SENDER_AT, 'Orch : belt', asks(sender)[1].text))
+  expect(entries(coordinator).map(e => [e.id, e.status, e.answer])).toEqual([[entered.id, 'open', null]])
+  expect(acks(coordinator).length).toBe(2)
+  await drive(chains, 'session.receive', sender.dollar, delivered(COORD_AT, 'Coord : ops [abc]', acks(coordinator)[1].text))
+  expect([waitOf(sender).pending, waitOf(sender).relayed]).toEqual([null, fingerprint(parseWait(ask.answer)!)])
+})
+
 test('a remote wait whose blocks carry a tab is entered on the coordinator\'s machine, the tab a space', async () => {
   const chains = mounted()
   const sender = fake({ remote: true })

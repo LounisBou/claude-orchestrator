@@ -1904,8 +1904,8 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   let forgotten = false
   let heldKey: string | null = null
   let swept = false
+  const sameWait = !!typed && wait?.kind === 'operator' && wait.blocks === typed.blocks
   if (typed) {
-    const sameWait = wait?.kind === 'operator' && wait.blocks === typed.blocks
     heldKey = (await readWait($, sessionId))?.relayed ?? null
     if (!sameWait) {
       // Withdrawn already at prompt.submit, unless that withdrawal failed: tried again here.
@@ -1931,8 +1931,11 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
     if (before?.waiting || typed) await writeWait($, sessionId, { ...clearedWait(before!), relayed, relayed_id: relayedId, name, pid })
     return
   }
+  // The same wait asked again once its withdrawal was done is a new ask, of a new start: the
+  // coordinator that was told it withdrawn takes it for what it is, never for the first one again.
+  const reasked = sameWait && typed?.withdrawn === true
   const patch = wait
-    ? waitPatch(before, wait, new Date().toISOString())
+    ? waitPatch(reasked && before ? { ...before, waiting_since: null } : before, wait, new Date().toISOString())
     : before?.waiting ? clearedWait(before) : null
   if (patch) await writeWait($, sessionId, { ...patch, relayed, relayed_id: relayedId, name, pid })
   const key = wait ? fingerprint(wait) : NO_STATUS_KEY
