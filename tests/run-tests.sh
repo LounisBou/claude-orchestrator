@@ -1939,7 +1939,8 @@ check "a brief with no imposed title raises no title finding" "0" "$(bash "$LINT
 ok_brief "$B/title-placeholder.md"; printf -- '- Draft PR, title `{{PR_TITLE}}`, base `main`.\n' >> "$B/title-placeholder.md"
 check "an unfilled title placeholder is check 1's, not a title finding" "0" "$(bash "$LINT" "$B/title-placeholder.md" 2>&1 | grep -c 'pull request title')"
 
-check "the phase brief template says the imposed title is at most 60 characters" "1" "$(grep -c 'title `{{PR_TITLE}}` (at most 60 characters)' "$ROOT/templates/agent-phase-brief.md")"
+# The template no longer states the limit: the lint refuses a longer imposed title (rule 62 of the rules review).
+check "the phase brief template leaves the title limit to the lint" "0" "$(grep -c 'title `{{PR_TITLE}}` (at most 60 characters)' "$ROOT/templates/agent-phase-brief.md")"
 
 # The templates name no gauge script any more — the module's measure file replaced it,
 # named in prose as a path under the configuration directory. What the lint must still say
