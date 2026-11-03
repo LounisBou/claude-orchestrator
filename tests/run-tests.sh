@@ -273,8 +273,9 @@ check "the rulebook carries no red-flag list and no pointer list" "0|0" \
 # 21,518 until the label sentence (the operator's order of 2026-10-29).
 # 21,446 until the hand-over sentence naming the successor to the agents (item 154, « A », 2026-10-19).
 # 21,619 until the deferred ending (the operator's order of 2026-10-29).
-check "the orchestrator rulebook stays at 21,700 bytes or fewer" "yes" \
-  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 21700 ] && echo yes || echo no)"
+# 21,700 until the rules review: the rules a tool enforces removed, the rest condensed.
+check "the orchestrator rulebook stays at 10,500 bytes or fewer" "yes" \
+  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10500 ] && echo yes || echo no)"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
@@ -4880,8 +4881,8 @@ printf '# scratch: audit\n\nWait for « takeover confirmed », answer it with «
 check "a brief whose reader is handed over from is not held to the close" "0" "$(bash "$LINT" "$SUCCFROM" >/dev/null 2>&1; echo $?)"
 check "succeed.md has the brief from the template, never by hand, and « handed over » sent with SendMessage" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'never a brief written by hand')|$(spells "$ROOT/commands/succeed.md" 'with `SendMessage` to the name it confirmed from')|$(spells "$ROOT/commands/succeed.md" 'a line written in your own tab reaches no one')"
-check "the skill sends « handed over » with SendMessage, not as a line in the predecessor's own tab" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'is your last message, sent with `SendMessage` to it')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a line in your tab reaches no one')"
+check "the rulebook points the hand-over at the succeed command" "yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Handing over to a successor: `/orchestrator-succeed`, step by step.')"
 check "the README's hooks table names the Stop hook" "yes" "$(spells "$ROOT/README.md" 'hook `Stop`')"
 check "the eval selection says its two stop-gate cases grade the staged spawn line and do not run the hook" "2" \
   "$(grep -E '^\| 5[12] \|' "$ROOT/evals/SELECTION.md" | grep -c 'under staging; it does not run the hook')"
@@ -9687,8 +9688,8 @@ SUCCEEDMD="$ROOT/commands/succeed.md"
 SUCCEEDFLAT=$(tr '\n' ' ' < "$SUCCEEDMD" | tr -s ' ')
 check "succeed.md has the predecessor name its successor to each agent, before the wait for « takeover confirmed »" "yes|yes" \
   "$(printf '%s' "$SUCCEEDFLAT" | grep -qF "send each running agent of your own ONE message giving the successor's exact name and reference" && echo yes || echo no)|$(spells_before "$SUCCEEDFLAT" 'Wait for the successor' 'ONE message giving the successor')"
-check "lifecycle.md and SKILL.md say the predecessor names its successor to its agents" "yes|yes" \
-  "$(flat_has "$ROOT/skills/orchestrator/references/lifecycle.md" "gives its successor's exact name and reference to each of its agents")|$(flat_has "$ROOT/skills/orchestrator/SKILL.md" "ONE message giving its exact name and reference")"
+check "lifecycle.md says the predecessor names its successor to its agents" "yes" \
+  "$(flat_has "$ROOT/skills/orchestrator/references/lifecycle.md" "gives its successor's exact name and reference to each of its agents")"
 check "the successor names its predecessor in its message to the agents" "1" \
   "$(succ3_has "and your predecessor's,")"
 check "the design says the agents learn their new orchestrator from their current one" "yes" \
