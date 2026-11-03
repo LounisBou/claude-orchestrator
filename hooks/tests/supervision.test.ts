@@ -438,3 +438,13 @@ test('a liveness read that fails does not close the entry of a row it keeps', as
   await readSessions(dollar)
   expect(statusOf(files, id)).toBe('open')
 })
+
+test('a row idle past the stale bound with no pid is removed, and its sender keeps its open entries', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  const idle = new Date(Date.now() - 2 * 3600000).toISOString()
+  await writeSession(dollar, 'idle', { role: 'orchestrator', name: 'Orch : idle', updated_at: idle })
+  const id = openEntry(files, 'idle', 'operator')
+  await readSessions(dollar)
+  expect(files.has(`${SESSIONS}/idle`)).toBe(false)
+  expect(statusOf(files, id)).toBe('open')
+})
