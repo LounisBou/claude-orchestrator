@@ -42,6 +42,8 @@ function row(over: {
   window?: number
   busy?: boolean
   updated_at?: string
+  gate?: number
+  gate_tokens?: number
 } = {}): SessionRow {
   return {
     // `in`, not `??`: a row may carry an explicit null role, and `??` would
@@ -55,6 +57,8 @@ function row(over: {
     model: 'a-model',
     busy: over.busy ?? false,
     updated_at: over.updated_at ?? new Date().toISOString(),
+    ...(over.gate !== undefined ? { gate: over.gate } : {}),
+    ...(over.gate_tokens !== undefined ? { gate_tokens: over.gate_tokens } : {}),
   }
 }
 
@@ -108,6 +112,24 @@ test('an orchestrator\'s agents sort like the store rows, an unmeasured one last
   expect(rows.map(r => r.label.split(' · ')[0])).toEqual(['Agent : full', 'Agent : low', 'Agent : fresh'])
   expect(rows[0].label).toContain('busy · 35% past the gate')
   expect(rows[2].label).toBe('Agent : fresh · busy · not measured yet')
+})
+
+test('each row is past its own session\'s gate, never the gate of the session drawing it', () => {
+  const rows = agentPaneRows([
+    { name: 'Agent : own', status: 'busy', row: row({ context_percent: 15, context_tokens: 150000, window: 1000000, gate_tokens: 100000 }) },
+    { name: 'Agent : roomy', status: 'busy', row: row({ context_percent: 25, context_tokens: 250000, window: 1000000, gate_tokens: 300000 }) },
+    { name: 'Agent : default', status: 'busy', row: row({ context_percent: 25, context_tokens: 250000, window: 1000000 }) },
+  ])
+  const label = (n: string) => rows.find(r => r.name === n)!.label
+  expect(label('Agent : own')).toContain('past the gate')
+  expect(label('Agent : roomy')).not.toContain('past the gate')
+  expect(label('Agent : default')).toContain('past the gate')
+  const store = paneRows({
+    'sessions/a': { ...row({ context_percent: 15, context_tokens: 150000, window: 1000000, gate_tokens: 100000 }), name: 'Agent : own' },
+    'sessions/b': { ...row({ context_percent: 25, context_tokens: 250000, window: 1000000, gate_tokens: 300000 }), name: 'Agent : roomy' },
+  })
+  expect(store.find(r => r.name === 'Agent : own')!.past).toBe(true)
+  expect(store.find(r => r.name === 'Agent : roomy')!.past).toBe(false)
 })
 
 test('the host record gives the id, the name without a quoted rename\'s quotes, the status', () => {

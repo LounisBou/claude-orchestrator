@@ -31,6 +31,15 @@ export function tripGate(
   return { tripped: false, words: '' }
 }
 
+// The gate a stored row carries: the thresholds its own session runs under, written by that
+// session's measure. A row without them falls back to `fallback`, then to the defaults.
+export function gateOfRow(
+  row: { gate?: number; gate_tokens?: number },
+  fallback: { gate?: number; gateTokens?: number } = {},
+): { gate?: number; gateTokens?: number } {
+  return { gate: row.gate ?? fallback.gate, gateTokens: row.gate_tokens ?? fallback.gateTokens }
+}
+
 // The module sandbox exposes no process global: the config dir is resolved
 // through the host's env surface by the caller that holds $ (gauge.ts), then
 // handed in — the pure half stays testable, the impure half stays in one place.

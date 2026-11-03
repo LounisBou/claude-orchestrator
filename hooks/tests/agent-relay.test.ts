@@ -271,10 +271,10 @@ test('the gate crossing is sent once per crossing, at the threshold the session 
 test('the default gate holds when the session sets none, and a non-agent crossing it sends nothing', async () => {
   const chains = mounted()
   const fx = fake()
-  fx.usage.context.tokens = 290000
+  fx.usage.context.tokens = 190000
   await drive(chains, 'session.measure', fx.dollar, {})
   expect(fx.sent.length).toBe(0)
-  fx.usage.context.tokens = 300000
+  fx.usage.context.tokens = 200000
   await drive(chains, 'session.measure', fx.dollar, {})
   expect(fx.sent.length).toBe(1)
   const orch = fake({ name: 'Orch : other', role: 'orchestrator' })
@@ -282,6 +282,16 @@ test('the default gate holds when the session sets none, and a non-agent crossin
   await drive(chains, 'session.measure', orch.dollar, {})
   expect(orch.sent.length).toBe(0)
   expect(orch.files.has(GATE)).toBe(false)
+})
+
+test('the measure writes the session\'s own gate into its row, nothing when the session sets none', async () => {
+  const chains = mounted()
+  const own = fake({ gateTokens: '150000' })
+  await drive(chains, 'session.measure', own.dollar, {})
+  expect(JSON.parse(own.files.get(ROW)!).gate_tokens).toBe(150000)
+  const plain = fake()
+  await drive(chains, 'session.measure', plain.dollar, {})
+  expect(JSON.parse(plain.files.get(ROW)!).gate_tokens).toBeUndefined()
 })
 
 test('a gate send that fails is logged and tried again on the next measure', async () => {

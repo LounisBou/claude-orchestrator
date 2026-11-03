@@ -20,7 +20,7 @@
 // cross as a plain import (currentReading, no $ argument) and the name runs
 // over the walk's pure core with readers built here.
 import { currentReading } from './gauge.ts'
-import { tripGate } from './gauge-core.ts'
+import { tripGate, gateOfRow } from './gauge-core.ts'
 import {
   roleOf, walkName, hostBasenames, hostRecordOf, blockArgv, bytesOfBase64,
   type ReadRecord, type HostNames,
@@ -61,6 +61,10 @@ export type SessionRow = {
   context_percent: number
   context_tokens: number
   window: number
+  // The thresholds the row's own session runs under (its ORCHESTRATOR_CONTEXT_GATE and
+  // ORCHESTRATOR_CONTEXT_GATE_TOKENS), written by its measure; absent, the defaults hold.
+  gate?: number
+  gate_tokens?: number
   model: string
   busy: boolean
   updated_at: string
@@ -524,7 +528,7 @@ export function paneRows(rows: Record<string, SessionRow>): PaneRow[] {
   const now = Date.now()
   return Object.entries(rows)
     .map(([key, row]) => {
-      const past = tripGate(row.context_percent, row.context_tokens, row.window).tripped
+      const past = tripGate(row.context_percent, row.context_tokens, row.window, gateOfRow(row)).tripped
       const name = row.name ?? 'unnamed'
       const head = [row.role ?? 'no role', ...(row.machine ? [`remote ${row.machine}`] : [])].join(' · ')
       const percent = `${row.context_percent}%`
@@ -582,7 +586,7 @@ export function agentPaneRows(agents: readonly AgentView[]): { label: string; na
       const row = (parts: string[], urgency: number) => ({ label: [name, ...parts].join(' · '), name, rest: ` · ${parts.join(' · ')}`, urgency })
       const parts = [agent.status ?? 'status unknown']
       if (!agent.row) return row([...parts, 'not measured yet'], -1)
-      const past = tripGate(agent.row.context_percent, agent.row.context_tokens, agent.row.window).tripped
+      const past = tripGate(agent.row.context_percent, agent.row.context_tokens, agent.row.window, gateOfRow(agent.row)).tripped
       parts.push(`${agent.row.context_percent}%${past ? ' past the gate' : ''}`)
       const age = ageLabel(agent.row.updated_at, now)
       if (age !== null) parts.push(age)
@@ -1095,6 +1099,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         // figures still land, and the next measure names the row.
         const walked = await walkWithinBound($, sessionId)
         const origin = await withDeadline(repoOf($), await sideReadBoundMs($))
+        const ownGate = await gateEnv($)
         await writeSession($, sessionId, {
           // A walk that did not finish leaves the row's name, role and pid as they were.
           ...(walked.known ? { role: roleOf(walked.name), name: walked.name } : {}),
@@ -1105,6 +1110,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           context_percent: reading.context_percent,
           context_tokens: reading.context_tokens,
           window: reading.context_window,
+          gate: ownGate.gate,
+          gate_tokens: ownGate.gateTokens,
           model: reading.model,
           busy: false,
           updated_at: reading.updated_at,
