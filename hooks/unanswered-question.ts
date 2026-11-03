@@ -60,10 +60,11 @@ const flat = (text: string) => plainText(text).replace(/\s+/g, ' ').trim()
 
 // The refusal for a turn that ends while the session's question is still on the operator and
 // does not show him that question in full; null otherwise.
-// In full: a numbered block of the message, outside code fences, with the same numbering, every
-// labelled field of the entry's question with its label and its text, every choice with its
-// letter and text, and the recommendation. With only the wait file's knowledge of the question,
-// any numbered block with labelled fields is taken for it.
+// In full: a numbered block of the message, outside code fences, with the same numbering, the
+// entry's `Question` field with its text, and every choice with its letter and text. The other
+// fields may be worded anew: what he must recognise is the question and what he can answer. With
+// only the wait file's knowledge of the question, any numbered block with labelled fields is
+// taken for it.
 export function unansweredRefusal(message: string, pending: Pending | null): string | null {
   if (pending === null) return null
   const text = outsideFences(message)
@@ -76,15 +77,17 @@ export function unansweredRefusal(message: string, pending: Pending | null): str
     if (shown.some(part => part.shape?.number)) return null
     return refusal(`blocks: ${pending.blocks}`, pending.blocks)
   }
+  const question = questionField(asked.shape)
   const same = shown.some(({ shape, choices }) => shape !== null && shape.number !== null
     && numberLabel(shape.number) === numberLabel(asked.number)
-    && asked.shape.fields.every(field => shape.fields.some(seen => flat(seen.label).toLowerCase() === flat(field.label).toLowerCase() && flat(seen.text) === flat(field.text)))
-    && asked.choices.every(choice => choices.some(seen => seen.letter === choice.letter && flat(seen.text) === flat(choice.text)))
-    && (asked.shape.recommendation === null || flat(shape.recommendation?.text ?? '') === flat(asked.shape.recommendation.text)))
+    && (question === undefined || flat(questionField(shape) ?? '') === flat(question))
+    && asked.choices.every(choice => choices.some(seen => seen.letter === choice.letter && flat(seen.text) === flat(choice.text))))
   if (same) return null
-  const question = asked.shape.fields.find(field => /^question$/i.test(flat(field.label)))?.text
   return refusal(`**${asked.number}** — ${flat(question ?? pending.blocks)}`, pending.blocks)
 }
+
+// The text of a question's `Question` field, its label read in any case and emphasis.
+const questionField = (shape: QuestionShape) => shape.fields.find(field => /^question$/i.test(flat(field.label)))?.text
 
 function refusal(named: string, blocks: string): string {
   return `Your question to the operator is still unanswered: « ${named} ». He must see it in your own chat as well as `

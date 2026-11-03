@@ -106,14 +106,24 @@ test('a turn that shows the question again in full passes', () => {
 
 test('a turn that shows the question cut short, or another question, is refused', () => {
   const pending = pendingQuestion(SESSION, [entry()], null)
-  const noContext = QUESTION.split('\n').filter(line => !line.startsWith('_Context_')).join('\n')
-  expect(unansweredRefusal(noContext, pending)).not.toBeNull()
+  const noQuestion = QUESTION.split('\n').filter(line => !line.startsWith('_Question_')).join('\n')
+  expect(unansweredRefusal(noQuestion, pending)).not.toBeNull()
+  expect(unansweredRefusal(QUESTION.replace('which one ships first?', 'which one ships last?'), pending)).not.toBeNull()
   const noChoice = QUESTION.split('\n').filter(line => !line.startsWith('- **B**')).join('\n')
   expect(unansweredRefusal(noChoice, pending)).not.toBeNull()
-  const noRecommendation = QUESTION.split('\n').filter(line => !line.startsWith('_Recommendation_')).join('\n')
-  expect(unansweredRefusal(noRecommendation, pending)).not.toBeNull()
+  expect(unansweredRefusal(QUESTION.replace('both at once', 'both in turn'), pending)).not.toBeNull()
+  expect(unansweredRefusal(QUESTION.replace('- **B** :', '- **C** :'), pending)).not.toBeNull()
   expect(unansweredRefusal(QUESTION.replace('Question 1 of 2', 'Question 2 of 2'), pending)).not.toBeNull()
   expect(unansweredRefusal('**Question 1 of 2**', pending)).not.toBeNull()
+})
+
+test('its other fields may be worded anew or left out: the number, the question and the choices are what count', () => {
+  const pending = pendingQuestion(SESSION, [entry()], null)
+  expect(unansweredRefusal(QUESTION.replace('two pull requests touch the same table.', 'both change the table.'), pending)).toBeNull()
+  const noContext = QUESTION.split('\n').filter(line => !line.startsWith('_Context_')).join('\n')
+  expect(unansweredRefusal(noContext, pending)).toBeNull()
+  const noRecommendation = QUESTION.split('\n').filter(line => !line.startsWith('_Recommendation_')).join('\n')
+  expect(unansweredRefusal(noRecommendation, pending)).toBeNull()
 })
 
 test('a question quoted in a code fence is not shown', () => {
