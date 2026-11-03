@@ -3922,7 +3922,8 @@ def cmd_spawn(argv):
         caller = session_name_on(self_tty() or "")
         if caller == UNREADABLE_NAME or (caller and (caller.startswith("Orch : ")
                                                      or caller.startswith(COORD_ROLE)
-                                                     or title_role(caller) == "Agent")):
+                                                     or title_role(caller) == "Agent"
+                                                     or registered_coord_on(self_tty() or ""))):
             caller = None
         if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
             caller = "unnamed"

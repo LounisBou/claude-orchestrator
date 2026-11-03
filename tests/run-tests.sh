@@ -6297,6 +6297,16 @@ printf '/dev/ttys900 claude --name Audit neutre : f\n' > "$NEUTRALPS"
 printf '/dev/ttys900 claude --name Agent : f\n' > "$AGENTPS"
 check "a wake from a session named otherwise is refused before any tab exists, the orchestrator's still goes" "1|0|1|0" \
   "$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c "this session is an auditor's")|$(orchp "$NEUTRALPS" --title 'Orch : x' --wake --model a-model | grep -c '^launch=')|$(orchp "$AGENTPS" --title 'Orch : x' --wake --model a-model | grep -c "an agent never wakes an orchestrator")|$(orchp "$ORCHPS" --title 'Orch : x' --wake --model a-model >/dev/null 2>&1; echo $?)"
+# A coordinator opened by hand and renamed carries a readable name that is not `Coord : `;
+# only its own record places it on the tty. The auditor guard reads that record too.
+RENSTATE="$WORK/orchstate-renamed"; mkdir -p "$RENSTATE/chains"
+printf '{"name":"geonative-fix","tty":"/dev/ttys900"}\n' > "$RENSTATE/coordinator.json"
+printf '/dev/ttys900 claude --name geonative-fix\n' > "$WORK/ps-renamedcoord.txt"
+renamed() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$1" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CONFIG_DIR="$WORK/orchcfg" CLAUDE_CODE_SESSION_ID=s-orch \
+  ORCHESTRATOR_PS_TABLE="$WORK/ps-renamedcoord.txt" bash "$AGENT" spawn --dir "$WORK" --prompt p "${@:2}" 2>&1; }
+check "a coordinator renamed away from Coord is no auditor to the guard: its record names it, a stranger of that name is still refused" "0|1" \
+  "$(renamed "$RENSTATE" --title 'Orch : x' --successor >/dev/null 2>&1; echo $?)|$(renamed "$WORK/orchstate" --title 'Orch : x' --successor | grep -c "this session is")"
 check "an auditor named otherwise opens no orchestrator tab as a successor either" "1" \
   "$(orchp "$NEUTRALPS" --title 'Orch : x' --successor | grep -c "Audit neutre : f")"
 check "an auditor's --open is refused, as an agent's is" "1|1" \
