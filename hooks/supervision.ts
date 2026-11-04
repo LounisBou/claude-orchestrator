@@ -535,9 +535,12 @@ async function readStore($: any): Promise<StoreRead> {
     }
     dropped.set(`sessions/${name}`, droppedReason(text, row, alive))
     if (text === '' || row) {
-      // A row with no pid removed for idleness alone is not known dead: its sender may live on.
-      if (text === '' || row?.pid) gone.set(`sessions/${name}`, parseSuccessor(String(await $.fs.read(`${await storeOf($)}/successors/${name}`).catch(() => ''))))
-      dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`, `${await storeOf($)}/successors/${name}`)
+      // A row with no pid removed for idleness alone is not known dead: its sender may live on,
+      // and keeps the successor it learnt for its own later end.
+      const known = text === '' || !!row?.pid
+      if (known) gone.set(`sessions/${name}`, parseSuccessor(String(await $.fs.read(`${await storeOf($)}/successors/${name}`).catch(() => ''))))
+      dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`)
+      if (known) dead.push(`${await storeOf($)}/successors/${name}`)
     }
   }
   // A liveness read that failed removes nothing: its rows are drawn as alive
