@@ -732,18 +732,17 @@ Promise<{ tty: string | null; name: string | null; pid: string | null; known: bo
 
 // The pane as the module remembers it: what it was opened to list, and its clock, started by
 // the open and cancelled by any close. A coordinator's pane also keeps the questions whose
-// « other answer » was pressed (their ids: the hint is drawn under them), the answers chosen
-// in it that were not delivered to a sender on this machine, said on their question until its
-// sender is gone or the entry no longer holds that answer (an answer to another machine says its
-// delivery from the entry's own file), the entries whose answer is in flight, so a second press
-// on one does nothing, and the entry whose « Other answer » was picked, its text field drawn
-// until the ring leaves it.
+// « other answer » was pressed (their ids: the hint is drawn under them), the failed deliveries
+// to a sender on this machine a render found that sender gone for, never said again in this
+// module's life (each by its entry's id and its answer's stamp: the failure itself is in the
+// entry's file), the entries whose answer is in flight, so a second press on one does nothing,
+// and the entry whose « Other answer » was picked, its text field drawn until the ring leaves it.
 export type PaneMemory = {
   opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null
   ticker: { cancel(): void } | null
   other: Set<string>
   writing: string | null
-  undelivered: Map<string, { entry: RoundEntry; reason: string }>
+  forgotten: Set<string>
   answering: Set<string>
   // The content last drawn, as the module counts its rows, and the tree's height as the
   // person's last move measured it, with the content it measured.
@@ -981,9 +980,9 @@ function stopWake(wake: WakeMemory): void {
   wake.timer = null
 }
 
-// One reading: the questions just due, then the answers to send again to another machine. A
-// failure of either is one log line, and the next reading still comes. A timer no longer the one
-// armed reads nothing.
+// One reading: the questions just due, the answers round-close left to deliver, then the answers
+// to send again to another machine. A failure of any is one log line, and the next reading still
+// comes. A timer no longer the one armed reads nothing.
 async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: number): Promise<void> {
   if (wake.timer !== timer) return
   wake.timer = null
@@ -991,6 +990,11 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
     await wakeForDue($)
   } catch (err) {
     await logLine($, `round wake: ${(err as Error).message}`)
+  }
+  try {
+    await deliverClosedAnswers($)
+  } catch (err) {
+    await logLine($, `round delivery: ${(err as Error).message}`)
   }
   try {
     await resendAnswers($)
@@ -1120,7 +1124,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // Module memory: the role the pane was opened in, the tty its agents are read
   // from — the render lists what the open asked for — and the open pane's clock.
   // A reload forgets it, and the pane then asks to be opened again.
-  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, undelivered: new Map(), answering: new Set() }
+  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, forgotten: new Set(), answering: new Set() }
   // The entry whose recommended choice was last asked the focus: once per entry, never at a redraw.
   let focusedFor: string | null = null
   // This session's own repository, read once: its owner names the pull requests the pane links.
@@ -1201,8 +1205,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     const sessionId = e.sessionId ?? await $.session.id()
     // Read before the row goes: the successor's file goes with it.
     let successor: LearntSuccessor | null = null
+    // Read before the wait file goes: the question a coordinator elsewhere holds or was sent.
+    let remote: { name: string; held: { blocks: string; since: string | null } } | null = null
     try {
       stopWake(wake)
+      remote = await remoteQuestion($, sessionId)
       successor = await readSuccessor($, sessionId)
       await deleteSession($, sessionId)
       await recordPaneClosed($)
@@ -1221,7 +1228,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       until = Date.now() + bound
       const done = await withDeadline(successor
         ? moveToSuccessor($, sessionId, successor)
-        : withdrawStale($, sessionId, null, "the sender's session ended"), bound)
+        : withdrawStale($, sessionId, null, "the sender's session ended").then(async settled => {
+          if (remote) await withdrawRemote($, remote.name, remote.held)
+          return settled
+        }), bound)
       if (isDegradedPass(done)) await logLine($, `round: did not finish within ${bound} ms`)
       else await tellSettled($, done, until)
     } catch (err) {
@@ -1509,16 +1519,15 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const first = questions[0]
         speaker = first ? rowKeyOf(first) : null
         asking = first ?? null
-        // An answer not delivered is said until a render finds its sender gone, or its entry
-        // settled since: withdrawn, closed, or holding another answer than the one that failed.
-        const held = new Map(read.map(({ entry }) => [entry.id, entry]))
-        for (const [id, notice] of pane.undelivered) {
-          const now = held.get(id)
-          const same = (now?.status === 'answered' || now?.status === 'closed') && now.answer?.by === 'pane' && now.answer.at === notice.entry.answer?.at
-          if (!(sessionKey(notice.entry.session) in local) || !same) pane.undelivered.delete(id)
+        // An answer not delivered says so from the entry itself, a reload kept. One to this
+        // machine is said while its entry still holds the answer that failed, not withdrawn, and
+        // until a render finds its sender gone.
+        for (const { entry } of read) {
+          if (!entry.origin && entry.delivery?.state === 'failed' && !(sessionKey(entry.session) in local)) pane.forgotten.add(failedKey(entry))
         }
-        // An answer to another machine says its delivery from the entry itself, a reload kept.
-        failed = [...pane.undelivered.values(), ...drawn.filter(entry => entry.delivery?.state === 'failed').map(entry => ({ entry, reason: entry.delivery!.reason ?? 'no answer' }))]
+        failed = drawn.filter(entry => entry.delivery?.state === 'failed' && (entry.origin
+          || (entry.status !== 'withdrawn' && entry.answer?.at === entry.delivery.answerAt && !pane.forgotten.has(failedKey(entry)))))
+          .map(entry => ({ entry, reason: entry.delivery!.reason ?? 'no answer' }))
         delivering = drawn.filter(entry => entry.delivery?.state === 'pending' || entry.delivery?.state === 'sent')
       } else if (pane.opened?.role === 'orchestrator') {
         // Bounded like every side read: an agent list that cannot be read in
@@ -1976,7 +1985,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const role = roleOf(name)
   if (!name || (role !== 'orchestrator' && role !== 'agent')) return
   const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
-  // The ending of a turn whose open work the operator deferred (`waiting: deferred — <ids>`): no
+  // The ending of a turn whose open work the operator deferred (`waiting: deferred — <n> items`): no
   // wait, nothing entered or sent, the wait cleared like a tool wait's.
   const deferred = role === 'orchestrator' && deferredIds(machineLine(answer)) !== null
   // The mark of a prompt the operator typed while a question was held (withdrawOnTyped): it
@@ -2156,6 +2165,34 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   }
 }
 
+// The question of a session's wait that a coordinator elsewhere holds (acknowledged: `relayed`) or
+// was sent and has not yet acknowledged (`pending`), with the name it was asked under. Null when
+// the wait holds none, or names no one to withdraw it as.
+async function remoteQuestion($: any, sessionId: string): Promise<{ name: string; held: { blocks: string; since: string | null } } | null> {
+  const wait = await readWait($, sessionId)
+  if (!wait) return null
+  const sent = (wait.waiting ?? wait.last_waiting ?? null) === 'operator' && !!wait.pending && typeof wait.blocks === 'string' && wait.blocks !== ''
+    ? { blocks: wait.blocks, since: wait.waiting_since ?? null }
+    : null
+  const held = heldQuestion(wait) ?? sent
+  const name = wait.name ?? parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))?.name ?? null
+  return held && name ? { name, held } : null
+}
+
+// The marked withdrawal of a session that ended, sent to the coordinator on another machine (the
+// one on this machine reads the round the session end withdrew). A send not delivered is one log
+// line: the session has no other chance to say it.
+async function withdrawRemote($: any, name: string, held: { blocks: string; since: string | null }): Promise<void> {
+  const coordinator = await coordinatorAddress($)
+  if (!coordinator || coordinator.local) return
+  try {
+    const sent = await sendToCoordinator($, coordinator.to, withdrawalText(name, held.blocks, held.since))
+    if (!sent?.isDelivered) await logLine($, `withdraw: not delivered to ${addressLabel(coordinator.to)}: ${sent?.reason ?? 'no answer'}`)
+  } catch (err) {
+    await logLine($, `withdraw: ${(err as Error).message}`)
+  }
+}
+
 // The session's open question with choices that this very wait holds, the same blocks since the
 // same start: a text without choices under it is a note on that question, never a new one.
 async function keptChoices($: any, entry: RoundEntry): Promise<{ path: string; entry: RoundEntry } | null> {
@@ -2264,6 +2301,11 @@ async function answerPart($: any, pane: PaneMemory, asked: RoundEntry, text: str
   return answerEntryFromPane($, pane, asked, answers.join(' · '))
 }
 
+// A failed delivery to this machine, by its entry and the answer it carried.
+function failedKey(entry: RoundEntry): string {
+  return `${entry.id} ${entry.delivery?.answerAt ?? ''}`
+}
+
 // A question's « other answer » forgotten: its field and its note to answer in the session.
 function forgetDraft(pane: PaneMemory, key: string): void {
   pane.other.delete(key)
@@ -2271,9 +2313,10 @@ function forgetDraft(pane: PaneMemory, key: string): void {
 }
 
 // The one sequence both answers share: the entry written answered by the pane with `text`, its
-// fingerprint forgotten, the text sent to its sender. An entry from another machine forgets no
-// wait file here: its answer is pending in the same write and sent as a marked line to the
-// address its ask came from (sendAnswer), its sender's module forgetting the fingerprint.
+// fingerprint forgotten, the text sent to its sender, a send not delivered written failed in the
+// entry (deliverLocal). An entry from another machine forgets no wait file here: its answer is
+// pending in the same write and sent as a marked line to the address its ask came from
+// (sendAnswer), its sender's module forgetting the fingerprint.
 async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, text: string): Promise<void> {
   if (pane.answering.has(asked.id)) return
   pane.answering.add(asked.id)
@@ -2294,17 +2337,7 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
     if (entry.origin) await sendAnswer($, path, answered, text)
     else {
       await forgetRelayed($, entry)
-      let reason: string | null = null
-      try {
-        const sent = await $.session.send({ to: await senderAddress($, entry), text: paneAnswerText(entry, text, at) })
-        if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
-      } catch (err) {
-        reason = (err as Error).message
-      }
-      if (reason !== null) {
-        pane.undelivered.set(entry.id, { entry: { ...entry, status: 'answered', answer: { text, by: 'pane', at } }, reason })
-        await logLine($, `round: the pane's answer was not delivered to ${entry.from}: ${reason}`)
-      }
+      await deliverLocal($, path, answered, paneAnswerText(entry, text, at))
     }
     if (closed) {
       const taken = await $.prompt.submit({ text: settledText(entry, answer) })
@@ -2321,6 +2354,66 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
 // The prefix of the answer an entry the coordinator was shown is closed with.
 const PANE_CLOSED = 'answered from the pane: '
 
+// One send of an answer to a sender on this machine, `readable` the message it receives, to its
+// session (senderAddress); then the entry read again and, while it still holds that answer and its
+// delivery has not moved, written whole once: `failed` with the host's reason when the send was
+// not delivered, or, for an answer whose delivery round-close left pending, `delivered`. A pane's
+// answer delivered writes nothing more.
+async function deliverLocal($: any, path: string, entry: RoundEntry, readable: string): Promise<void> {
+  const answer = entry.answer!
+  let reason: string | null = null
+  try {
+    const sent = await $.session.send({ to: await senderAddress($, entry), text: readable })
+    if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
+  } catch (err) {
+    reason = (err as Error).message
+  }
+  const by = answer.by === 'coordinator' ? 'coordinator' : 'pane'
+  if (reason !== null) await logLine($, `round: the ${by}'s answer was not delivered to ${entry.from}: ${reason}`)
+  if (reason === null && !entry.delivery) return
+  const now = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+  if (!now || now.answer?.at !== answer.at || now.delivery?.state !== entry.delivery?.state) {
+    await logLine($, `round: the delivery of ${entry.id} moved during its send, left as it is`)
+    return
+  }
+  const at = new Date().toISOString()
+  const moved: RoundDelivery = reason === null
+    ? { state: 'delivered', at, attempts: 1, answerAt: answer.at }
+    : { state: 'failed', at, attempts: 1, answerAt: answer.at, reason }
+  await writeAtomic($, path, JSON.stringify({ ...now, delivery: moved }) + '\n')
+  if (reason !== null) $.ui.invalidate('ui.render')
+}
+
+// A pending delivery stamped for another answer than the one the entry holds is never sent: it is
+// written `failed` naming the mismatch, so that it is not left pending for ever.
+async function failMismatched($: any, path: string, entry: RoundEntry): Promise<void> {
+  const was = entry.delivery!
+  const now = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+  if (!now?.delivery || now.delivery.state !== 'pending' || now.answer?.at !== entry.answer?.at) return
+  const reason = `the delivery was stamped for the answer of ${was.answerAt}, the entry holds the answer of ${entry.answer?.at}`
+  await logLine($, `round: ${entry.id}: ${reason}`)
+  await writeAtomic($, path, JSON.stringify({ ...now, delivery: { ...now.delivery, state: 'failed', at: new Date().toISOString(), reason } }) + '\n')
+}
+
+// The answers the coordinator closed in its tab, read at each round wake whether the pane is open
+// or not: an entry `coordinator.sh round-close` closed with a delivery pending and never sent is
+// sent once — to its sender's session on this machine (deliverLocal), or as a marked line to
+// another machine (sendAnswer, its resends then resendAnswers') — and its outcome written in its
+// delivery. A failure of one entry is one log line, and the others are still read.
+async function deliverClosedAnswers($: any): Promise<void> {
+  for (const { path, entry } of await readRound($)) {
+    const delivery = entry.delivery
+    if (entry.kind !== 'operator' || entry.status !== 'closed' || entry.answer?.by !== 'coordinator' || delivery?.state !== 'pending' || delivery.attempts !== 0) continue
+    try {
+      if (entry.origin) await sendAnswer($, path, entry, entry.answer.text)
+      else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorAnswerText(entry, entry.answer.text, entry.answer.at))
+      else await failMismatched($, path, entry)
+    } catch (err) {
+      await logLine($, `round delivery: ${entry.id}: ${(err as Error).message}`)
+    }
+  }
+}
+
 // One send of the pane's answer to an entry from another machine, its delivery `pending` or `sent`
 // as `entry` holds it: the marked line to the address its ask came from, the answer cut as the
 // channel carries it and the cut said; then the entry read again and, while its delivery is still
@@ -2331,7 +2424,8 @@ async function sendAnswer($: any, path: string, entry: RoundEntry, text: string)
   const carried = cutQuestion(text)
   let reason: string | null = null
   try {
-    const sent = await $.session.send({ to: entry.origin!.address, text: answerLine(entry.id, entry.since, carried, at, paneAnswerText(entry, carried, at)) })
+    const readable = (entry.answer!.by === 'coordinator' ? coordinatorAnswerText : paneAnswerText)(entry, carried, at)
+    const sent = await $.session.send({ to: entry.origin!.address, text: answerLine(entry.id, entry.since, carried, at, readable) })
     if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
   } catch (err) {
     reason = (err as Error).message
@@ -2410,6 +2504,11 @@ async function forgetRelayed($: any, entry: RoundEntry): Promise<void> {
 // The message the asking orchestrator receives: a report of the operator's choice, never more.
 export function paneAnswerText(entry: RoundEntry, answer: string, at: string): string {
   return `[module] The operator answered from the coordinator's pane at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
+}
+
+// The same report for his answer the coordinator closed in its tab with round-close.
+export function coordinatorAnswerText(entry: RoundEntry, answer: string, at: string): string {
+  return `[module] The operator answered through the coordinator at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
 }
 
 // The orchestrator acted on an answer that reached it by a message (a relay from another session):
@@ -2497,16 +2596,23 @@ export function parseRoundEntry(text: string): RoundEntry | null {
   }
 }
 
-// An entry's delivery, when it carries one: only beside an origin, its four fields of their type
-// and no other, the reason a text.
+// An entry's delivery, when it carries one, its fields of their type and no other, the reason a
+// text: beside an origin, its state one of a remote answer's and no answer stamp; without one, its
+// state one of an answer's on this machine and the stamp of the answer it carries.
 const DELIVERY_STATES: readonly string[] = ['pending', 'sent', 'acked', 'failed']
+const LOCAL_DELIVERY_STATES: readonly string[] = ['pending', 'delivered', 'failed']
 function deliveryRead(e: any): boolean {
   if (e.delivery === undefined) return true
   const d = e.delivery
-  if (!e.origin || typeof e.origin !== 'object' || !d || typeof d !== 'object' || Array.isArray(d)) return false
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return false
+  const remote = e.origin !== undefined
+  if (remote && (!e.origin || typeof e.origin !== 'object')) return false
   const keys = Object.keys(d)
-  return DELIVERY_STATES.includes(d.state) && typeof d.at === 'string' && Number.isInteger(d.attempts) && d.attempts >= 0
-    && (d.reason === undefined || typeof d.reason === 'string') && keys.every(key => ['state', 'at', 'attempts', 'reason'].includes(key))
+  const shaped = remote
+    ? DELIVERY_STATES.includes(d.state) && d.answerAt === undefined
+    : LOCAL_DELIVERY_STATES.includes(d.state) && typeof d.answerAt === 'string'
+  return shaped && typeof d.at === 'string' && Number.isInteger(d.attempts) && d.attempts >= 0
+    && (d.reason === undefined || typeof d.reason === 'string') && keys.every(key => ['state', 'at', 'attempts', 'answerAt', 'reason'].includes(key))
 }
 
 // Where an orchestrator's reports go: the coordinator registered on this machine first

@@ -276,7 +276,10 @@ check "the orchestrator rulebook stays at 21,700 bytes or fewer" "yes" \
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/commands/decide.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/hooks/stop-gate.ts" 'end on waiting: deferred — <n> rows (or <ids>)')|$(spells "$ROOT/commands/decide.md" 'dispatch-record.sh defer <record> <id> --ruling')"
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/commands/decide.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/hooks/stop-gate.ts" 'end on waiting: deferred — <n> items')|$(spells "$ROOT/commands/decide.md" 'dispatch-record.sh defer <record> <id> --ruling')"
+# The rulebook teaches one count of the deferred items: the id list it used to teach is gone.
+check "the rulebook teaches the items count, never the id list" "yes|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <ids>')"
 # Every operator question stays in full in the orchestrator's own chat until he answers it, as
 # well as in the coordinator's round (the operator's ruling of 2026-11-03): the decision round,
 # the rulebook and the coordinator's skill each carry the rule.
@@ -785,7 +788,7 @@ check "a reference set off by two spaces leaves no trailing space in the owner, 
 
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
-# `waiting: deferred — <ids>` once nothing else is open.
+# `waiting: deferred — <n> items` once nothing else is open.
 DD="$WORK/deferred-build"; DR="$DD/dispatch.jsonl"; DG="$DD/goals.md"
 bash "$REC" goals "$DR" init --spec none --goal "first goal" --goal "second goal" --goal "third goal" >/dev/null
 d1=$(bash "$REC" open "$DR" --class x --tier light --label "the mini-tech row")
@@ -8591,6 +8594,24 @@ check "round-close refuses an unknown id, a path, an unreadable entry and a miss
   "$(coord_status round-close nobody --answer x)|$(coord_status round-close ../coordinator --answer x)|$(coord_status round-close broken --answer x)|$(coord_status round-close a-one)|$(coord_status round-close)|$(cat "$CROUND/broken.json")"
 check "the refusal of an unknown id names it" "coordinator: round-close: no entry nobody in $CROUND" \
   "$(coord round-close nobody --answer x 2>&1 >/dev/null)"
+# round-close is the one gesture: an open entry's answer is left pending for the coordinator's
+# module, which sends it to the sender; a withdrawn one, whose sender waits on nothing, is not.
+check "round-close leaves an open entry's delivery pending, stamped as its answer, for the module to send" "pending|0|1|1" \
+  "$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.at == .answer.at | if . then 1 else 0 end), (.delivery.answerAt == .answer.at | if . then 1 else 0 end)] | join("|")' "$CROUND/b-early.json")"
+check "round-close leaves no delivery on an entry that was not open" "null" "$(jq -c .delivery "$CROUND/a-gone.json")"
+DROUND="$WORK/coord-done/round"
+mkdir -p "$DROUND"
+jq -n '{id:"d-open", from:"Orch : d", session:"s-d", kind:"done", since:"2026-10-18T10:02:00.000Z", blocks:null,
+  question:"Everything merged.", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null}' > "$DROUND/d-open.json"
+check "round-close closes an open done entry but leaves it no delivery to send" "closed d-open|closed|null" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-done" bash "$COORD" round-close d-open --answer ok 2>&1)|$(jq -r .status "$DROUND/d-open.json")|$(jq -c .delivery "$DROUND/d-open.json")"
+FROUND="$WORK/coord-far/round"
+mkdir -p "$FROUND"
+jq -n '{id:"r-far", from:"Orch : r", session:"s-r", kind:"operator", since:"2026-10-18T10:02:00.000Z", blocks:"phase 3",
+  question:"Ship it far?", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null,
+  origin:{machine:"far", address:"uds:/tmp/cc-socks/far.sock"}}' > "$FROUND/r-far.json"
+check "round-close leaves an entry from another machine pending as the module's remote answers are, with no answer stamp" "closed r-far|pending|0|null" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-far" bash "$COORD" round-close r-far --answer B 2>&1)|$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.answerAt | tostring)] | join("|")' "$FROUND/r-far.json")"
 
 # round-close also forgets the sender's fingerprint, as the module's forgetRelayed does, so the
 # same question asked again is entered again: the wait file's `relayed` is nulled when it is the
@@ -8649,6 +8670,12 @@ check "round-archive moves the closed entries only, and leaves the others and th
 check "a second round-archive finds nothing to move" "archived 0" "$(acoord round-archive 2>&1)"
 check "round-archive on a missing round directory moves nothing" "archived 0|exit 0" \
   "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-no-round" bash "$COORD" round-archive 2>&1)|exit $?"
+TMPDIR_ROUND="$WORK/coord-archive-tmp"
+mkdir -p "$TMPDIR_ROUND/round"
+printf '{"id": "half' > "$TMPDIR_ROUND/round/old.json.tmp-1-abc"; printf '{"id": "half' > "$TMPDIR_ROUND/round/fresh.json.tmp-2-def"
+touch -t 202001010000 "$TMPDIR_ROUND/round/old.json.tmp-1-abc"
+check "round-archive removes a temporary file a day old and keeps a fresh one" "archived 0|fresh.json.tmp-2-def" \
+  "$(ORCHESTRATOR_STATE_DIR="$TMPDIR_ROUND" bash "$COORD" round-archive 2>&1)|$(ls "$TMPDIR_ROUND/round")"
 check "round-archive refuses an argument and moves nothing" "exit 1|0" \
   "$(ORCHESTRATOR_STATE_DIR="$AROUND" bash "$COORD" round-archive now >/dev/null 2>&1; echo "exit $?")|$(find "$AROUND/round/archive" -type f | wc -l | tr -d ' ' | awk '{ print $1 - 2 }')"
 arch_entry z-hidden open; mv "$AROUND/round/z-hidden.json" "$AROUND/round/archive/z-hidden.json"
