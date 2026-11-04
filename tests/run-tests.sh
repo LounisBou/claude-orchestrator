@@ -4349,6 +4349,10 @@ check "an effort the map binds wins over the shipped one" "1" \
   "$(E7MAP="$PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort high')"
 check "an agent's explicit model without an effort is refused" "1|1|0" \
   "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' --model z-model | grep -c "an agent's effort is the orchestrator's to name")|$(e7 "$E7ORCH" --title 'Agent : x' --model z-model | grep -c '^launch=')"
+check "an agent's model without an effort is refused by the words --model needs --effort" "1|1" \
+  "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort '' >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' --model z-model | grep -c -- '--model needs --effort')"
+check "an inheriting spawn given an effort is refused: the caller's effort comes with its model" "1|1|0" \
+  "$(e7 "$E7ORCH" --title 'Agent : x' --inherit-model --effort low >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' --inherit-model --effort low | grep -c -- '--inherit-model reads the caller.s effort with its model; drop --effort')|$(e7 "$E7ORCH" --title 'Agent : x' --inherit-model --effort low | grep -c '^launch=')"
 check "an agent with no tier and no model is refused, naming both" "1|1" \
   "$(e7 "$E7ORCH" --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' | grep -c -- 'needs --tier or --model')"
 check "an agent's model and effort typed are a flag's pair" "flag|medium" \
