@@ -103,7 +103,7 @@ question before it is presented.
 
 If ANYTHING else was shown to the user between a question and its answer — a status line
 you had to write, a notice the host printed — re-present the question IN FULL, in step 2's whole shape, never « as above » or a pointer. A question the user must scroll back to find is a question answered
-wrong. Until he answers, every turn re-presents it so: the stop gate refuses any other end.
+wrong. Until he answers, every turn re-presents it so: the stop gate logs any turn without it.
 
 ## 6. A ruling is not reopened
 

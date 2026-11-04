@@ -314,7 +314,11 @@ check "the rulebook teaches the items count, never the id list" "yes|no" \
 # well as in the coordinator's round (the operator's ruling of 2026-11-03): the decision round,
 # the rulebook and the coordinator's skill each carry the rule.
 check "the decision round, the rulebook and the coordinator's skill keep every question in the orchestrator's own chat" "yes|yes|yes|yes|yes" \
-  "$(spells "$ROOT/commands/decide.md" 'written in full in your own chat too**: his ruling of 2026-11-03')|$(spells "$ROOT/commands/decide.md" 'wrong. Until he answers, every turn re-presents it so: the stop gate refuses any other end.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" "It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'answered, each turn re-presents it whole: the stop gate refuses any other.')|$(spells "$ROOT/skills/coordination/SKILL.md" "your tab's rule alone: the orchestrator that asked keeps the question in full in its own chat")"
+  "$(spells "$ROOT/commands/decide.md" 'written in full in your own chat too**: his ruling of 2026-11-03')|$(spells "$ROOT/commands/decide.md" 'wrong. Until he answers, every turn re-presents it so: the stop gate logs any turn without it.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" "It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'answered, each turn re-presents it whole: the stop gate logs any turn without it.')|$(spells "$ROOT/skills/coordination/SKILL.md" "your tab's rule alone: the orchestrator that asked keeps the question in full in its own chat")"
+# The stop gate logs a turn that leaves an open question out (« stop gate: warn question-unshown »,
+# hooks/guards.ts) and no longer refuses it: neither text says it refuses.
+check "the decision round and the rulebook no longer say the stop gate refuses a turn without the question" "no|no" \
+  "$(spells "$ROOT/commands/decide.md" 'the stop gate refuses any other end')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the stop gate refuses any other.')"
 # Real load on a shared machine is stopped, and « under load » means emulated throttling: the
 # rulebook and the phase brief template each carry the rule.
 check "the rulebook stops real machine load an agent reports or plans" "yes" \
