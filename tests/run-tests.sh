@@ -4875,24 +4875,30 @@ check "the phase brief template ends the delivery at the push, no CI watch" "yes
 # longer copy it, and the delivery item says where the delivery ends.
 check "the standing rules leave the CI wait to the lint" "no|no" \
   "$(spells "$ROOT/skills/orchestrator/references/briefs.md" '**An agent never waits on CI.**')|$(spells "$ROOT/skills/orchestrator/references/briefs.md" 'timeout 590 gh pr checks <n> --watch')"
-check "the orchestrator skill arms one background watch per pull request" "yes|yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" 'start `ci-watch.sh <n>`')|$(spells "$ORCH_REFS/review.md" 'with `run_in_background` and a timeout of 7 200 000 ms: one per pull request, never two')|$(spells "$ORCH_REFS/review.md" 'Moved: re-arm on the new head')"
+# Rule 159 of the rules review, on the ruling on topic 18: review.md keeps the arming, the bound
+# and the never-in-the-foreground rule; what each line of the watch asks of its caller moved to
+# the script's own header, read with its comment marks and line breaks folded.
+help_has() { sed -n 's/^# \{0,1\}//p' "$1" | tr '\n' ' ' | tr -s ' ' | grep -qF -- "$2" && echo yes || echo no; }
+check "the orchestrator skill arms one background watch per pull request, and the script says what each line asks" "yes|yes|yes|yes" \
+  "$(spells "$ORCH_REFS/review.md" 'start `ci-watch.sh <n>`')|$(spells "$ORCH_REFS/review.md" 'with `run_in_background` and a timeout of 7 200 000 ms: one per pull request, never two')|$(spells "$ORCH_REFS/review.md" '« What the caller does »')|$(help_has "$CWSCRIPT" 'moved: re-arm on the new head')"
 check "and reads each ending: red, no checks, closed, unread" "yes|yes|yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" 'dispatch the correction at once, to a fresh session')|$(spells "$ORCH_REFS/review.md" 'No checks, none registered or none passed (each one skipped, `skipped=<n>`, never a green): ready on the suite')|$(spells "$ORCH_REFS/review.md" 'Closed: stop the work on it')|$(spells "$ORCH_REFS/review.md" 'Unread, or the timeout: re-arm once, then report')"
+  "$(help_has "$CWSCRIPT" 'dispatch the correction at once, to a fresh session')|$(help_has "$CWSCRIPT" 'no-checks: ready on the suite')|$(help_has "$CWSCRIPT" 'closed: stop the work on it')|$(help_has "$CWSCRIPT" 'unread: re-arm once, then report')"
 check "a merged pull request's base branch run is followed, and a red one never left standing" "yes|yes|yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" "Merged: the same watch follows the base branch's run")|$(spells "$ORCH_REFS/review.md" 'a red base branch is never left standing')|$(spells "$ORCH_REFS/review.md" 'fixed at once in its own pull request, dispatched to a fresh session')|$(spells "$ORCH_REFS/review.md" 'Base-no-run with `filtered=0`: nothing')"
+  "$(help_has "$CWSCRIPT" 'closed MERGED with --no-base, or merged by hand: start the watch again')|$(help_has "$CWSCRIPT" 'a red base branch is never left standing')|$(help_has "$CWSCRIPT" 'fixed at once in its own pull request, dispatched to a fresh session')|$(help_has "$CWSCRIPT" 'base-no-run filtered=0: nothing')"
 check "a filter that matches nothing is reported as a misnamed workflow" "yes" \
-  "$(spells "$ORCH_REFS/review.md" '`filtered` above 0 means a misnamed workflow, the filter leaving out every run there was, reported to the operator in one line')"
+  "$(help_has "$CWSCRIPT" 'above 0, a misnamed workflow, reported to the operator in one line')"
 check "after a merge by hand the watch is started again, and enters on MERGED" "yes" \
-  "$(spells "$ORCH_REFS/review.md" 'after you merge a pull request yourself, or the operator does, start `ci-watch.sh <n>` again in the background — it enters on MERGED and follows the base branch')"
-check "green with auto-merge: the watch waits for the merge, and nobody waits outside it" "yes|no" \
-  "$(spells "$ORCH_REFS/review.md" 'a watch that sees auto-merge enabled on green does not exit: it waits, bounded, for the merge and follows the base branch')|$(spells "$ORCH_REFS/review.md" 'nobody waits for MERGED')"
+  "$(help_has "$CWSCRIPT" 'start the watch again in the background: it enters on MERGED and follows the base branch')"
+check "green with auto-merge: the watch waits for the merge, and nobody waits outside it" "yes|no|no" \
+  "$(help_has "$CWSCRIPT" 'with auto-merge, nothing: the merge is coming')|$(spells "$ORCH_REFS/review.md" 'nobody waits for MERGED')|$(spells "$ORCH_REFS/review.md" 'a watch that sees auto-merge enabled on green does not exit')"
 check "a base run cancelled for a newer push is not read as a red" "yes" \
-  "$(spells "$ORCH_REFS/review.md" 'A base run cancelled for a newer push is no red: the watch follows the newest run of that workflow on the branch and reports it with its own sha')"
+  "$(help_has "$CWSCRIPT" 'A run cancelled there is no red')"
 check "never a foreground watch, a loop on gh pr view or a wait for MERGED" "yes" "$(spells "$ORCH_REFS/review.md" 'never a loop on `gh pr view` or `gh pr checks`, never a wait for MERGED')"
 check "the orchestrator skill no longer re-reads the checks at each idle notice" "no" "$(spells "$ORCH_REFS/review.md" 'At every idle notice of an agent with a pull request, re-read its checks')"
-check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(spells "$ORCH_REFS/review.md" "in a project whose method opts into auto-merge, nothing")"
-check "and by default it reports ready" "yes" "$(spells "$ORCH_REFS/review.md" 'otherwise report « ready » as above')"
+check "the orchestrator skill merges a green head only where the method opts into auto-merge" "yes" "$(help_has "$CWSCRIPT" 'green: with auto-merge, nothing')"
+check "and by default it reports ready" "yes" "$(help_has "$CWSCRIPT" 'otherwise report « ready »')"
+check "review.md's CI watch stays at 800 characters or fewer, its outcomes in the script" "yes|no|no" \
+  "$([ "$(grep '^\*\*Checks, in one background watch\.\*\*' "$ORCH_REFS/review.md" | wc -m | tr -d ' ')" -le 800 ] && echo yes || echo no)|$(spells "$ORCH_REFS/review.md" 'Moved: re-arm on the new head')|$(spells "$ORCH_REFS/review.md" 'Base-no-run with `filtered=0`')"
 check "the orchestrator skill points to the review reference for the watch" "yes|yes" "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'when a pull request you own is opened or its head moves')|$(spells "$ROOT/skills/orchestrator/SKILL.md" '« Checks, in one background watch »')"
 check "the lifecycle never rotates an agent, nor spawns a session, to watch CI" "yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'is stood down, never rotated, and no session is spawned to watch CI')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent whose remaining work is waiting on CI is not rotated')"
@@ -4936,9 +4942,9 @@ check "a decision round asks its questions back to back and acts only when the w
 check "a decision round no longer relays a ruling before the next question" "no" \
   "$(spells "$ROOT/commands/decide.md" 'Present the next question IN FULL (step 2). Not before.')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" 'when its failure is outside what the pull request touches')|$(spells "$ORCH_REFS/review.md" 'Only a second red, or a red in what the pull request touches')"
+  "$(help_has "$CWSCRIPT" 'when its failure is outside what the pull request touches')|$(help_has "$CWSCRIPT" 'Only a second red, or a red in what the pull request touches')"
 check "the re-run is the failed jobs, once, after the failing job's cause is named in one line" "yes|yes" \
-  "$(spells "$ORCH_REFS/review.md" 're-run the failed jobs once with `gh run rerun <run-id> --failed`')|$(spells "$ORCH_REFS/review.md" 'after naming the failing job'"'"'s cause in one line (the flake or the infrastructure fault, read in its log)')"
+  "$(help_has "$CWSCRIPT" 're-run the failed jobs once with `gh run rerun <run-id> --failed`')|$(help_has "$CWSCRIPT" 'after naming the failing job'"'"'s cause in one line, read in its log')"
 check "the design carries the re-run of a red outside what the pull request touches" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'a red outside what the pull request touches is re-run once (failed jobs) and the watch re-armed')|$(spells "$ROOT/docs/design.md" 'a second red, or a red in what it touches, is reported and corrected')"
 check "a mechanical base merge is the orchestrator's, in place; one that decides behaviour is a correction" "yes|yes" \
