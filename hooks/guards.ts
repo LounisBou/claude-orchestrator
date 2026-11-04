@@ -22,16 +22,20 @@ import {
 import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { takeDrift } from './gauge.ts'
 import { isEnding } from './naming.ts'
-import { oneQuestionRefusal, operatorWaitRefusal } from './one-question.ts'
+import { oneQuestionRefusal, operatorWaitRefusal, asksTheOperator, QUESTION_BY_MESSAGE } from './one-question.ts'
 import { detectForces } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
   listing, chainEntries, chainOwner, ownAgents, hostStatusOf, pullRequestOf, openRows, deferredRows, deferredIds, machineLine, projectCheckouts,
   headsPath, readHeads, writeHeads, parseCiWatchLog, watchNumberOf, watchedNumbers,
-  checkWake, checkWakeDone, checkCi, isSuccessorSpawn, processTable, ownBackground, logTell,
-  noticeFrom, awaitingAny, goalsPaths, parseGoalsCheck, presentGoals, goalsShownPath, type GoalsReading,
+  checkWake, checkWakeDone, checkCi, isSuccessorSpawn, processTable, ownBackground, hostTasks, logTell,
+  noticeFrom, awaitingAny, goalsPaths, parseGoalsCheck, presentGoals, goalsShownPath, endsOnHandOver, type GoalsReading,
+  orchestrationOf, ownerOf, isOwnRecord, recordsWithOpenRows,
 } from './stop-gate.ts'
-import { logArgv, LOG_TIMEOUT_MS } from './module-log.ts'
+import { logArgv, moduleDirOf, LOG_TIMEOUT_MS } from './module-log.ts'
+import { pendingQuestion, unansweredRefusal, type WaitRead } from './unanswered-question.ts'
+import { parseRoundEntry, parseWaitRecord, waitKey, coordinatorAddress, REFERENCED } from './supervision.ts'
+import type { RoundEntry } from './round.ts'
 import { MODELS_DENY, namesTheMap, typedByOperator, mapPaths, editsTheMap, bashWritesTheMap } from './models-guard.ts'
 
 // The config dir, gauge.ts's own resolution: $ never crosses an import, so
@@ -356,8 +360,25 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // the stop gate, which reads it as something that will wake the session. Mounted
   // before the Bash guard below.
   on('tool.call', { tool: 'SendMessage' }, async ($: any, e: any, next: (e: any) => any) => {
-    const out = await next(e)
     const to = typeof e.to === 'string' ? e.to.trim() : ''
+    // A question sent to the coordinator by message reaches no round: refused, the turn's end carries it.
+    // The coordinator is read only for a message that asks one; a read that fails lets the send through.
+    if (to && typeof e.message === 'string' && asksTheOperator(e.message)) {
+      try {
+        const coordinator = await coordinatorAddress($)
+        // Compared without the ` [ref]` suffix on both sides: « Coord : ops » is « Coord : ops [abc] ».
+        const bare = (name: string) => name.replace(REFERENCED, '').trim()
+        const addressed = coordinator !== null
+          && [coordinator.name, typeof coordinator.to === 'string' ? coordinator.to : coordinator.to.sessionId].some(a => bare(a) === bare(to))
+        if (addressed) {
+          await logLine($, `a question sent to the coordinator by message refused (${to})`)
+          return { deny: QUESTION_BY_MESSAGE }
+        }
+      } catch (err) {
+        await logLine($, `the coordinator could not be read for a message to ${to}: ${(err as Error).message}`)
+      }
+    }
+    const out = await next(e)
     if (!e.agentId && e.notify_when_idle === true && to && out && !out.isError && !out.deny) {
       try {
         const sessionId = await $.session.id()
@@ -489,6 +510,20 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         return refuse(unasked)
       }
       const state = await stateDir($)
+      // A question still on the operator is shown again in the orchestrator's own chat at every
+      // turn's end until he answers it (his ruling of 2026-11-03), unless the session handed over,
+      // or ends on its last word `handed over`: its successor holds the questions. Read off the round
+      // and the wait file, within the deadline.
+      const message = String(e.last_assistant_message ?? '')
+      if (sessionId !== '' && handedOverIn !== sessionId && !isEnding() && !endsOnHandOver(message)) {
+        const pending = await quietly($, async () => pendingQuestion(sessionId, await roundEntries($, state), await waitRead($, sessionId)), until, null)
+        const unshown = unansweredRefusal(message, pending)
+        if (unshown !== null) {
+          // Measured, not refused: a refusal made the turn rewrite the whole block each time. The pane
+          // keeps the question visible, and the log counts the turns that left it out.
+          await logLine($, `stop gate: warn question-unshown (${pending?.entry?.id ?? pending?.blocks ?? '?'})`)
+        }
+      }
       const root = $.plugin.root   // never $.env: the module's environment has no CLAUDE_PLUGIN_ROOT
       let swept = false
       sweepAtStop = async () => {
@@ -537,6 +572,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (hostUnread) await logLine($, 'stop gate: host pid unread: the process table could not be tied to this session')
       const wake = checkWake({
         agents, resident, delivered, background, hostUnread,
+        // The host's own list of the session's work in flight: the tool line's reliable reading.
+        tasks: hostTasks(e.background_tasks, e.session_crons),
         awaiting: sessionId !== '' && awaitingIn(sessionId),
         message: String(e.last_assistant_message ?? ''),
         handedOver: (sessionId !== '' && handedOverIn === sessionId) || isEnding(),
@@ -546,23 +583,31 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         // figures that say whether the gate earns its cost are read there.
         await logLine($, `stop gate: check1 blocks ${wake.blocks}`)
       } else if (wake !== null && typeof wake === 'object' && 'tool' in wake) {
-        await logLine($, `stop gate: check1 tool ${wake.tool}`)
+        await logLine($, wake.notRunning ? `stop gate: warn tool-not-running ${wake.tool}` : `stop gate: check1 tool ${wake.tool}`)
+      } else if (wake !== null && typeof wake === 'object' && 'warn' in wake) {
+        // Measured, not refused: these three reminders cost a turn each and mostly turned out wrong.
+        await logLine($, `stop gate: warn ${wake.warn}${wake.detail === '' ? '' : ` ${wake.detail}`}`)
       } else if (wake === 'read-what-is-left') {
         // The done line: the facts are read only now, as the shell gate read them lazily.
         const top = await projectTop($, String(e.cwd ?? ''), until)
         const checkouts = projectCheckouts(top, await mustRun($, ['bash', `${root}/skills/orchestrator/scripts/workspace.sh`, 'list'], 'workspace.sh list', until))
-        const records = await registeredRecords($, state, sessionId, until)
+        const records = await ownRecords($, await registeredRecords($, state, sessionId, until), orchestrationOf(name), until)
         const ids = deferredIds(machineLine(String(e.last_assistant_message ?? '')))
         const ending = ids === null ? 'done' : 'deferred'
         const texts = await readRecords($, records, until)
         const deferred = openRows(texts)
         const goals = await readGoals($, records, root, until)
+        // Measured, not refused: the working copies are not filtered by session, so another
+        // orchestrator's checkout of the same project would hold this one's done line.
+        if (checkouts.length > 0) await logLine($, `stop gate: warn working-copies ${checkouts.join(', ')}`)
         const held = checkWakeDone({
           agents, checkouts, deferred,
           deferredRows: deferredRows(texts),
           goalsOpen: goals.flatMap(g => g.open),
           goalsDeferred: goals.flatMap(g => g.deferred),
           goalsFaults: goals.flatMap(g => g.faults),
+          rowRecords: recordsWithOpenRows(records, texts),
+          goalsRecords: goals.filter(g => g.open.length > 0).map(g => g.path),
           ending,
           ids: ids ?? undefined,
         })
@@ -792,6 +837,26 @@ function runUntil($: any, argv: readonly string[], until: number, cwd?: string):
   return $.process.run(argv, cwd ? { timeoutMs, cwd } : { timeoutMs })
 }
 
+// Every entry of the round on this machine (supervision.ts readRound's reading, $ never crossing
+// an import): a file that does not parse, or a temporary one, is no entry; no directory, none.
+async function roundEntries($: any, state: string): Promise<RoundEntry[]> {
+  const dir = `${state}/round`
+  const listed: readonly { name: string; kind: string }[] = await $.fs.list(dir).catch(() => [])
+  const entries: RoundEntry[] = []
+  for (const file of listed) {
+    if (!file || file.kind !== 'file' || !file.name.endsWith('.json') || file.name.includes('.tmp-')) continue
+    const entry = parseRoundEntry(String(await $.fs.read(`${dir}/${file.name}`).catch(() => '')))
+    if (entry) entries.push(entry)
+  }
+  return entries
+}
+
+// The session's wait file in the module's store (supervision.ts storeOf), or none.
+async function waitRead($: any, sessionId: string): Promise<WaitRead | null> {
+  const store = `${moduleDirOf(await configDir($), await $.env.get('ORCHESTRATOR_MODULE_DIR'))}/store`
+  return parseWaitRecord(String(await $.fs.read(`${store}/${waitKey(sessionId)}`).catch(() => '')))
+}
+
 // A quiet read's fallback shape.
 async function quietly<T>($: any, work: () => Promise<T>, until: number, fallback: T): Promise<T> {
   const done = await inTime($, work, until)
@@ -871,6 +936,23 @@ async function registeredRecords($: any, state: string, sessionId: string, until
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, '_')
   const register = await quietly($, () => $.fs.read(`${state}/records/${safe}`), until, '')
   return String(register).split('\n').map(line => line.trim()).filter(Boolean)
+}
+
+// The registered records that are this session's own: no owner file yet, or the owner file names
+// the session's orchestration. A record another orchestration owns is not read, nor its goals.md:
+// the session never answers for what it did not open. Each one skipped is said in the log with
+// its path. A session whose orchestration is unknown owns nothing, and every owned record is skipped.
+async function ownRecords($: any, records: readonly string[], own: string | null, until: number): Promise<string[]> {
+  const kept: string[] = []
+  for (const path of records) {
+    const owner = ownerOf(String(await quietly($, () => $.fs.read(`${path}.owner`), until, '')))
+    if (isOwnRecord(owner, own)) {
+      kept.push(path)
+      continue
+    }
+    await logLine($, `stop gate: ${path} belongs to ${owner}: not read`)
+  }
+  return kept
 }
 
 async function readRecords($: any, records: readonly string[], until: number): Promise<string[]> {

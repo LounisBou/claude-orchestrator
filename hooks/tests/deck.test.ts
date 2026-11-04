@@ -114,6 +114,17 @@ test('an agent goes under the orchestrator its chain names; one no chain names i
   expect(deck.unattached_agents.map(a => a.name)).toEqual(['Agent : loose'])
 })
 
+test('an agent whose tty a newer chain of a dead owner also names stays under the live owner', () => {
+  const deck = deckOf(input({
+    chains: [
+      { name: 'ttys003.jsonl', mtimeMs: 1, text: chain('/dev/ttys005') },
+      { name: 'ttys004.jsonl', mtimeMs: 2, text: chain('/dev/ttys005') },
+    ],
+  }))
+  expect(deck.orchestrators[0].agents.map(a => a.name)).toEqual(['Agent : one'])
+  expect(deck.unattached_agents.map(a => a.name)).toEqual(['Agent : loose'])
+})
+
 test('the gate is the gauge\'s own: tokens past 300,000 on a wide window, the env\'s when given', () => {
   const deck = deckOf(input())
   expect(deck.orchestrators[0].agents[0].context.past_gate).toBe(true)
@@ -405,6 +416,15 @@ test('the read books the session\'s own transcript and its subagents\', into its
   expect(deck.orchestrators[0].usage).toBeNull()
   expect(deck.orchestrators[1].usage).toBeNull()
   expect(deck.usage_totals.day.tokens.input).toBe(1100)
+})
+
+test('the read writes the usage into the row through one rename, no temporary file left', async () => {
+  const { fx, ownRow } = solo('s-u9')
+  fx.files.set(`${PROJECT}/s-u9.jsonl`, said('m1', 100))
+  await refreshUsage(fx.dollar)
+  expect(ownRow().usage.day.tokens.input).toBe(100)
+  expect(fx.renames).toContain(`${STORE}/sessions/s-u9`)
+  expect([...fx.files.keys()].some(k => k.includes('.tmp-'))).toBe(false)
 })
 
 test('a process never opens another session\'s transcript', async () => {

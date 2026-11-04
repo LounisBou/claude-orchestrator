@@ -14,8 +14,9 @@ export type RoundChoice = { letter: string; text: string }   // letter: one of '
 // Who settled the entry: the operator from the pane (`answered`), the coordinator
 // (`round-close`, `closed`), the operator in the sender's own tab or the sender itself — a later
 // turn waiting on something else, a newer question, its session's end or its hand-over
-// (`withdrawn`).
-export type RoundAnswer = { text: string; by: 'pane' | 'coordinator' | 'tab' | 'sender'; at: string }
+// (`withdrawn`). An answer relayed by another session's message is `by: 'message'` (`answered`),
+// with that session's name in `author`.
+export type RoundAnswer = { text: string; by: 'pane' | 'coordinator' | 'tab' | 'sender' | 'message'; at: string; author?: string }
 export type RoundEntry = {
   id: string                    // `${sanitised session id}-${fingerprint(wait)}`, its wait unmarked, sanitised as supervision.ts sanitises store ids
   from: string                  // the sender's name (what relayText puts after « reply with SendMessage to: »), the answer's address when `session` is not live here
@@ -32,7 +33,7 @@ export type RoundEntry = {
   urgent?: true                 // the sender marked its wait `(urgent)`: `coordinator.sh round` makes it due at once
   movedFrom?: string            // the session id of the predecessor this entry was moved from at a succession: the successor's own later question never supersedes it
   origin?: { machine: string; address: string } // a sender on another machine (remote-round.ts): its machine's label and the address its ask came from, written by this machine's module on receipt; absent for a sender on this machine
-  delivery?: RoundDelivery      // the answer's trip back to a sender on another machine, written by the coordinator's module alone, only on an entry with `origin`
+  delivery?: RoundDelivery      // the answer's trip back to its sender, written by the coordinator's module, and pending by `coordinator.sh round-close`
   partial?: string[]            // the answers the pane gave so far to an entry that asks several questions, each with its question's number
 }
 
@@ -40,7 +41,11 @@ export type RoundEntry = {
 // took the line, `acked` once the sender's module acknowledged it, `failed` when the host refused it
 // or no acknowledgment came after the last send (`reason`). `at` is the last transition's time,
 // `attempts` the sends so far.
-export type RoundDelivery = { state: 'pending' | 'sent' | 'acked' | 'failed'; at: string; attempts: number; reason?: string }
+// An answer to a sender on this machine: `pending` written by round-close with the coordinator's
+// answer, `delivered` once the host took the coordinator module's send, `failed` when it refused
+// it or the send threw (`reason`), the pane's own sends written only when they fail. `answerAt` is
+// the stamp of the answer it carries, so that a later answer is never said failed by it.
+export type RoundDelivery = { state: 'pending' | 'sent' | 'acked' | 'delivered' | 'failed'; at: string; attempts: number; answerAt?: string; reason?: string }
 
 // A choice as `/orchestrator-decide` step 2 writes it, one per line: `- **A** : <text>`. A line
 // of that shape lettered past E is read too, so a sixth choice spoils the list instead of

@@ -9,9 +9,10 @@
 // origin read.
 import { expect, test } from 'claude-code/testing'
 import {
-  writeSession, readSessions, deleteSession, sessionKey, parseSessionRow,
+  writeSession, readSessions, deleteSession, sessionKey, parseSessionRow, parseRoundEntry, runsLive, livePids, livePidsArgv,
 } from '../supervision.ts'
 import { register } from '../register.ts'
+import { roundEntry } from '../round.ts'
 import { logLineOf, blockOf } from './fakes.ts'
 
 const HOME = '/tmp/h'
@@ -44,6 +45,8 @@ function fakeDollar(over: {
   transcript?: string
   alive?: string[]
   psFails?: 'reject' | 'exit' | 'empty'
+  // The machine's listing as `ps -A -o pid=,stat=,tty=` prints it, in place of the pids alone.
+  table?: string
 } = {}): Fx {
   const files = new Map<string, string>()
   const ran: string[] = []
@@ -103,6 +106,11 @@ function fakeDollar(over: {
           for (const p of argv.slice(2)) files.delete(p)
           return { exitCode: 0, stdout: '', stderr: '' }
         }
+        if (argv[0] === 'mv' && files.has(argv[2])) {
+          files.set(argv[3], files.get(argv[2])!)
+          files.delete(argv[2])
+          return { exitCode: 0, stdout: '', stderr: '' }
+        }
         const alive = over.alive ?? ['501']
         if (argv[0] === 'ps' && argv[1] === '-A') {
           // Every live pid on the machine: the session's own host, 501, the
@@ -110,6 +118,7 @@ function fakeDollar(over: {
           if (over.psFails === 'reject') throw new Error('ps did not answer in time')
           if (over.psFails === 'exit') return { exitCode: 1, stdout: '', stderr: 'ps: failed' }
           if (over.psFails === 'empty') return { exitCode: 0, stdout: '', stderr: '' }
+          if (over.table !== undefined) return { exitCode: 0, stdout: over.table, stderr: '' }
           return { exitCode: 0, stdout: ['1', ...alive].map(pid => `  ${pid}\n`).join(''), stderr: '' }
         }
         if (argv[0] === 'ps' && argv[1] === '-o' && argv[3] === '-p') {
@@ -221,6 +230,51 @@ for (const psFails of ['reject', 'exit', 'empty'] as const) {
   })
 }
 
+// The ghost: a tab closed under the terminal's session-keeping daemon left its host in the
+// table for hours, exiting and never reaped (`?Es`, tty `??`), and the pane drew it as a live
+// orchestrator past the gate, nine hours stale. Listed is not live.
+const GHOST_TABLE = [
+  '    1 Ss   ??',
+  '  501 Ss+  ttys001',
+  '56717 ?Es  ??',
+  '  602 Z+   ttys002',
+  '  603 Ss+  ??',
+  '  604 Ss+  ttys020',
+  '  605 S    ??',
+  '  606 UE   ttys006',
+].join('\n') + '\n'
+
+test('a listed pid that is exiting, a zombie, off its tty or on another one is not live', () => {
+  const table = livePids({ exitCode: 0, stdout: GHOST_TABLE })!
+  expect(runsLive(table, '501', '/dev/ttys001')).toBe(true)
+  expect(runsLive(table, '56717', '/dev/ttys014')).toBe(false)
+  expect(runsLive(table, '56717', null)).toBe(false)
+  expect(runsLive(table, '602', '/dev/ttys002')).toBe(false)
+  expect(runsLive(table, '606', '/dev/ttys006')).toBe(false)
+  // The tty the row recorded is gone: the process lost it (`??`) or the pid runs elsewhere.
+  expect(runsLive(table, '603', '/dev/ttys003')).toBe(false)
+  expect(runsLive(table, '604', '/dev/ttys014')).toBe(false)
+  // A row that recorded no tty is not judged on one: a session started off a terminal has none.
+  expect(runsLive(table, '605', null)).toBe(true)
+  expect(runsLive(table, '9999', null)).toBe(false)
+  // A listing of the pids alone says nothing of state or tty: the pid is the whole reading.
+  expect(runsLive(livePids({ exitCode: 0, stdout: '  1\n  501\n' })!, '501', '/dev/ttys001')).toBe(true)
+})
+
+test('the store reads one listing with each process state and tty, and drops the ghost rows', async () => {
+  expect(livePidsArgv(['501'])).toEqual(['ps', '-A', '-o', 'pid=,stat=,tty='])
+  const { dollar, files } = fakeDollar({ table: GHOST_TABLE })
+  const stale = new Date(Date.now() - 9 * 3600000).toISOString()
+  await writeSession(dollar, 'live', { role: 'orchestrator', name: 'Orch : live', pid: '501', tty: '/dev/ttys001' })
+  await writeSession(dollar, 'ghost', { role: 'orchestrator', name: 'Orch : ghost', pid: '56717', tty: '/dev/ttys014', updated_at: stale })
+  await writeSession(dollar, 'zombie', { role: 'agent', name: 'Agent : zombie', pid: '602', tty: '/dev/ttys002' })
+  await writeSession(dollar, 'tty-lost', { role: 'agent', name: 'Agent : lost', pid: '603', tty: '/dev/ttys003' })
+  await writeSession(dollar, 'tty-gone', { role: 'agent', name: 'Agent : gone', pid: '604', tty: '/dev/ttys014' })
+  const rows = await readSessions(dollar)
+  expect(Object.keys(rows)).toEqual(['sessions/live'])
+  for (const id of ['ghost', 'zombie', 'tty-lost', 'tty-gone']) expect([id, files.has(`${SESSIONS}/${id}`)]).toEqual([id, false])
+})
+
 test('a row written before rows carried a pid: older than one hour is dropped, a fresh one kept', async () => {
   const { dollar } = fakeDollar()
   await writeSession(dollar, 'old', { role: 'agent', updated_at: new Date(Date.now() - 3600000 - 5000).toISOString() })
@@ -243,6 +297,48 @@ test('an absent, empty or unparseable row file is no row', async () => {
   const rows = await readSessions(dollar)
   expect(rows['sessions/broken']).toBeUndefined()
   expect(rows['sessions/empty']).toBeUndefined()
+})
+
+// The row is written the way the launcher writes it (iterm_agent.py row_write): a temporary
+// file beside it, then one rename, so a reader never meets a row caught mid-write.
+test('the row is written to a temporary file beside it, then renamed into place', async () => {
+  const { dollar, files, ran } = fakeDollar()
+  await writeSession(dollar, 's', { role: 'agent', name: 'Agent : one' })
+  const moves = ran.filter(line => line.startsWith('mv '))
+  expect(moves.length).toBe(1)
+  expect(new RegExp(`^mv -f ${SESSIONS}/s\\.tmp-\\d+-[0-9a-z]+ ${SESSIONS}/s$`).test(moves[0])).toBe(true)
+  expect(parseSessionRow(files.get(`${SESSIONS}/s`)!)?.name).toBe('Agent : one')
+  expect([...files.keys()].some(k => k.includes('.tmp-'))).toBe(false)
+})
+
+test('a rename that fails leaves the row as it was, and its temporary file removed', async () => {
+  const fx = fakeDollar()
+  await writeSession(fx.dollar, 's', { role: 'agent', name: 'Agent : one' })
+  const before = fx.files.get(`${SESSIONS}/s`)
+  const real = fx.dollar.process.run
+  fx.dollar.process.run = async (argv: readonly string[]) => argv[0] === 'mv' ? { exitCode: 1, stdout: '', stderr: 'refused' } : real(argv)
+  let failed = false
+  try {
+    await writeSession(fx.dollar, 's', { name: 'Agent : two' })
+  } catch {
+    failed = true
+  }
+  expect(failed).toBe(true)
+  expect(fx.files.get(`${SESSIONS}/s`)).toBe(before)
+  expect([...fx.files.keys()].some(k => k.includes('.tmp-'))).toBe(false)
+})
+
+// A temporary file is a write in flight, or one whose rename never came: never a second row,
+// and never removed by a reader — removing a writer's temporary file fails its rename.
+test('a temporary file beside the rows is no row, and the read leaves it in place', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  await writeSession(dollar, 'live', { role: 'agent', name: 'Agent : live', pid: '501' })
+  files.set(`${SESSIONS}/live.tmp-1-abcdef`, files.get(`${SESSIONS}/live`)!)
+  files.set(`${SESSIONS}/fresh.tmp-2-abcdef`, '')
+  const rows = await readSessions(dollar)
+  expect(Object.keys(rows)).toEqual(['sessions/live'])
+  expect(files.has(`${SESSIONS}/live.tmp-1-abcdef`)).toBe(true)
+  expect(files.has(`${SESSIONS}/fresh.tmp-2-abcdef`)).toBe(true)
 })
 
 // --- the wiring ---------------------------------------------------------------------------
@@ -341,4 +437,93 @@ test('a row that cannot be written never blocks the measure, and is said', async
   const answer = await drive(chains, 'session.measure', fx.dollar, e)
   expect(answer).toBe(e)
   expect(fx.written.some(l => l.includes('| supervision |') && l.includes('EIO'))).toBe(true)
+})
+
+// --- the round's entries of a sender that is gone --------------------------------------------
+
+const ROUND = `${STATE}/round`
+const SENT = '2026-11-03T10:00:00.000Z'
+
+function openEntry(files: Map<string, string>, session: string, kind: 'operator' | 'done', over: Record<string, unknown> = {}): string {
+  const entry = { ...roundEntry(session, `Orch : ${session}`, { kind, blocks: kind === 'operator' ? 'a phase' : null, question: 'which one?' } as any, SENT, SENT), ...over }
+  files.set(`${ROUND}/${entry.id}.json`, JSON.stringify(entry) + '\n')
+  return entry.id
+}
+
+const statusOf = (files: Map<string, string>, id: string) => parseRoundEntry(files.get(`${ROUND}/${id}.json`) ?? '')?.status
+
+test('a read of the store closes the open entries of a sender whose row it removes, and leaves the others open', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  await writeSession(dollar, 'alive', { role: 'orchestrator', name: 'Orch : alive', pid: '501' })
+  await writeSession(dollar, 'killed', { role: 'orchestrator', name: 'Orch : killed', pid: '502' })
+  files.set(`${SESSIONS}/emptied`, '')
+  const live = openEntry(files, 'alive', 'operator')
+  const killed = openEntry(files, 'killed', 'operator')
+  const emptied = openEntry(files, 'emptied', 'done')
+  const unmeasured = openEntry(files, 'successor-not-measured', 'operator', { movedFrom: 'old' })
+  const unnamed = openEntry(files, 'x', 'operator', { session: '' })
+  const remote = openEntry(files, 'far', 'operator', { origin: { machine: 'Elsewhere', address: 'x' } })
+  await readSessions(dollar)
+  expect(statusOf(files, live)).toBe('open')
+  expect(statusOf(files, killed)).toBe('withdrawn')
+  expect(statusOf(files, emptied)).toBe('withdrawn')
+  expect(statusOf(files, unmeasured)).toBe('open')
+  expect(statusOf(files, unnamed)).toBe('open')
+  expect(statusOf(files, remote)).toBe('open')
+  expect(JSON.parse(files.get(`${ROUND}/${killed}.json`)!).answer.by).toBe('sender')
+})
+
+test('a liveness read that fails does not close the entry of a row it keeps', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'], psFails: 'exit' })
+  await writeSession(dollar, 'kept', { role: 'orchestrator', name: 'Orch : kept', pid: '502' })
+  const id = openEntry(files, 'kept', 'operator')
+  await readSessions(dollar)
+  expect(statusOf(files, id)).toBe('open')
+})
+
+test('a row idle past the stale bound with no pid is removed, and its sender keeps its open entries', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  const idle = new Date(Date.now() - 2 * 3600000).toISOString()
+  await writeSession(dollar, 'idle', { role: 'orchestrator', name: 'Orch : idle', updated_at: idle })
+  const id = openEntry(files, 'idle', 'operator')
+  await readSessions(dollar)
+  expect(files.has(`${SESSIONS}/idle`)).toBe(false)
+  expect(statusOf(files, id)).toBe('open')
+})
+
+test('an entry moved to a successor between the read and the withdraw is not overwritten', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  await writeSession(dollar, 'killed', { role: 'orchestrator', name: 'Orch : killed', pid: '502' })
+  const id = openEntry(files, 'killed', 'operator')
+  const path = `${ROUND}/${id}.json`
+  const read = dollar.fs.read
+  let reads = 0
+  dollar.fs.read = async (p: string) => {
+    const text = await read(p)
+    // The sweep's two round reads see the entry under the dead sender; the move lands right after the second.
+    if (p === path && ++reads === 2) files.set(path, JSON.stringify({ ...JSON.parse(text), session: 'successor', from: 'Orch : next', movedFrom: 'killed' }) + '\n')
+    return text
+  }
+  await readSessions(dollar)
+  const after = parseRoundEntry(files.get(path)!)
+  expect(after?.status).toBe('open')
+  expect(after?.session).toBe('successor')
+})
+
+test('an entry naming no session, or from another machine, stays open though a row of that name is removed', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  // A row file named « » and one named « far », both emptied: this pass removes both.
+  files.set(`${SESSIONS}/`, '')
+  files.set(`${SESSIONS}/far`, '')
+  const list = dollar.fs.list
+  dollar.fs.list = async (dir: string) => {
+    const listed = await list(dir)
+    return dir === SESSIONS ? [...listed, { name: '', kind: 'file' }] : listed
+  }
+  const unnamed = openEntry(files, 'x', 'operator', { session: '' })
+  const remote = openEntry(files, 'far', 'operator', { origin: { machine: 'Elsewhere', address: 'x' } })
+  await readSessions(dollar)
+  expect(files.has(`${SESSIONS}/far`)).toBe(false)
+  expect(statusOf(files, unnamed)).toBe('open')
+  expect(statusOf(files, remote)).toBe('open')
 })

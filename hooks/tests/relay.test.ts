@@ -1352,6 +1352,45 @@ for (const [label, send] of [
 
 // --- the successor holds the open questions -------------------------------------------------
 
+// A coordinator elsewhere holds no file of this machine's round: the session end tells it.
+test('the session end of a sender whose question a coordinator elsewhere holds sends it one withdrawal line', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  const lines = fx.sent.filter(m => m.text.startsWith('[module]'))
+  expect(lines.length).toBe(1)
+  expect(lines[0].text).toContain('Orch : belt withdraws its question for the operator since')
+  expect(lines[0].text).toContain('blocks: phase 3')
+})
+
+test('the session end of a sender whose question was sent and not yet acknowledged sends the withdrawal too', async () => {
+  const chains = mounted()
+  const fx = fake({ remote: true })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  expect(JSON.parse(fx.files.get(WAIT)!).pending).toBeTruthy()
+  fx.sent.length = 0
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expect(fx.sent.filter(m => m.text.startsWith('[module]')).length).toBe(1)
+})
+
+test('the session end of a sender with a successor, its question held by a coordinator elsewhere, sends no withdrawal', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  successorRunning(fx)
+  await drive(chains, 'session.receive', fx.dollar, confirmed('Orch : belt-2'))
+  fx.sent.length = 0
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expect(fx.sent.filter(m => m.text.startsWith('[module]')).length).toBe(0)
+})
+
+test('the session end sends no withdrawal when nothing was asked, or when the coordinator is on this machine', async () => {
+  const idle = fake({ remote: true })
+  await drive(mounted(), 'session.end', idle.dollar, { sessionId: 's-one', reason: 'exit' })
+  expect(idle.sent.length).toBe(0)
+  const { chains, fx } = await relayedQuestion()
+  fx.sent.length = 0
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expect(fx.sent.filter(m => m.text.startsWith('[module]')).length).toBe(0)
+})
+
 // The operator's report of 2026-10-30: a question withdrawn when its sender's tab was closed by
 // its successor, which never asked it again. The successor's « takeover confirmed » teaches the
 // sender who it is; the hand-over and the session end then move the open entries to it.
@@ -2238,3 +2277,48 @@ test('an answer ack of the right id and another start leaves the entry sent, wit
   expect(stored().delivery!.state).toBe('sent')
   expect(coordinator.logged.filter(l => l.includes(`| receive: an answer's acknowledgment of ${entry.id} matches no answer sent`)).length).toBe(1)
 })
+
+// --- an answer that reached the orchestrator by a message --------------------------------------
+
+const relayed = (text: string) => ({ text, origin: { kind: 'peer' } })
+test('a peer message that is not an answer leaves the question open through the sender\'s next turn end', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  await drive(chains, 'session.receive', fx.dollar, relayed('a status report from an agent'))
+  await drive(chains, 'turn.start', fx.dollar, { text: 'a status report from an agent' })
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd('Working on phase 4.'))
+  expect(entries(fx).map(e => e.status)).toEqual(['open'])
+  expect(fx.logged.some(l => l.includes('withdrawn by the sender'))).toBe(false)
+})
+
+test('the orchestrator withdraws its own open question when it acts on an answer by message: answered, by message, with its author', async () => {
+  const chains = mounted()
+  const fx = fake()
+  await drive(chains, 'turn.complete', fx.dollar, turnEnd(answerOf(QUESTION, QUESTION_LINE)))
+  const [asked] = entries(fx)
+  const call = await toolHandler()(fx.dollar, { author: 'Coord : ops [abc]' })
+  expect(call.isError).toBeUndefined()
+  const [now] = entries(fx)
+  expect([now.id, now.status, now.answer?.by, now.answer?.author]).toEqual([asked.id, 'answered', 'message', 'Coord : ops [abc]'])
+  expect((await toolHandler()(fx.dollar, { author: '' })).isError).toBe(true)
+  expect((await toolHandler()(fx.dollar, { author: 'x', agentId: 'a' })).isError).toBe(true)
+})
+
+test('a tool call from a session that is no orchestrator withdraws nothing', async () => {
+  const fx = fake({ name: 'Coord : ops [abc]', role: 'coordinator' })
+  const asked = { ...roundEntry('s-one', 'Orch : belt', parseWait(answerOf(QUESTION, QUESTION_LINE))!, 'T', 'T') }
+  fx.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  expect((await toolHandler()(fx.dollar, { author: 'x' })).isError).toBe(true)
+  expect(entries(fx).map(e => e.status)).toEqual(['open'])
+})
+
+// The handler registered for the answered-by-message tool, its matcher read.
+function toolHandler(): (dollar: any, e: object) => Promise<any> {
+  let found: Function | null = null
+  register((...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => {
+    if (args[0] === 'tool.call' && args.length === 3 && (args[1] as { tool?: string }).tool === 'mcp__orchestrator__answered-by-message') found = args[2]
+    return { catch: () => undefined }
+  })
+  return (dollar, e) => found!(dollar, e)
+}

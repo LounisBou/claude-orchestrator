@@ -848,10 +848,227 @@ def process_gone(pid, start):
     return flags[:1] in ("Z", "E") or "E" in flags[1:]
 
 
-def close_log(what, line):
-    """Say one step of a host's end on stderr and append it, timestamped, to close.log in the
-    state directory, where a close that went wrong is read afterwards."""
-    print("%s: %s" % (what, line), file=sys.stderr)
+def module_dir():
+    """The hooks module's own directory, where its store lives: ORCHESTRATOR_MODULE_DIR when
+    set, as the module reads it."""
+    return (os.environ.get("ORCHESTRATOR_MODULE_DIR")
+            or os.path.join(host_config_dir(), "claude-orchestrator"))
+
+
+# --- the session's row in the hooks module's store -----------------------------------
+#
+# One file per session under the module's store (hooks/supervision.ts, SessionRow). The
+# module's measure writes it while the session's host runs; the launcher writes it only before
+# that host starts or once it is gone (row_write), so the two never write one row at once and
+# no lock is needed. Both write it alike: the same key, the same compact JSON line, a
+# temporary file beside it renamed into place, so no reader meets a row caught mid-write.
+
+# The module's empty row (writeSession), in its key order: what a patch merges into when the
+# session has no row yet.
+ROW_BASE = (("role", None), ("name", None), ("repo", None), ("context_percent", 0),
+            ("context_tokens", 0), ("window", 0), ("model", ""), ("busy", False),
+            ("updated_at", ""))
+ROW_WHEN = ("birth", "end")
+_ROW_KEY_SAFE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+_BASE36 = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def row_key(sid):
+    """The row's key in the store, the module's sessionKey: `sessions/<id>`, each character
+    outside A-Za-z0-9._- replaced by an underscore. The module replaces UTF-16 code units, so
+    a character beyond the Basic Multilingual Plane is two underscores here as there: one id,
+    one file, whichever side names it."""
+    return "sessions/" + "".join(
+        c if c in _ROW_KEY_SAFE else ("__" if ord(c) > 0xFFFF else "_") for c in sid)
+
+
+def _row_path(sid):
+    return os.path.join(module_dir(), "store", row_key(sid))
+
+
+def row_read(sid):
+    """The session's row as a dict, or None when it is absent, unreadable, no JSON object, or
+    lacks the string stamp the module judges its age by (parseSessionRow): a row caught
+    mid-write, or truncated by a session's end, is no row."""
+    try:
+        with open(_row_path(sid), encoding="utf-8") as fh:
+            row = json.loads(fh.read())
+    except (OSError, ValueError):
+        return None
+    return row if isinstance(row, dict) and isinstance(row.get("updated_at"), str) else None
+
+
+def _row_json(value):
+    """A value as the module's JSON.stringify spells it: an integral float as an integer (`3`,
+    never `3.0`), a float that is no finite number as null."""
+    if isinstance(value, float):
+        if value != value or value in (float("inf"), float("-inf")):
+            return None
+        return int(value) if value.is_integer() and abs(value) < 1e21 else value
+    if isinstance(value, dict):
+        return {k: _row_json(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_row_json(v) for v in value]
+    return value
+
+
+def _row_now():
+    """Now as the module's toISOString writes it: UTC, to the millisecond, `Z`."""
+    ms = int(time.time() * 1000)
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ms // 1000)) + ".%03dZ" % (ms % 1000)
+
+
+def row_write(sid, patch, when):
+    """Merge `patch` into the session's row and write it as the module does (writeSession):
+    over the row found, else over the module's empty row; stamped with the patch's own
+    `updated_at`, else the write's time; one compact JSON line into a temporary file named as
+    the module names its own (writeAtomic), then renamed into place. True when written.
+
+    `when` is "birth", before the session's host starts, or "end", once it is gone: the
+    launcher never writes a row a running host owns. A row whose pid runs live on its tty
+    (runs_live) is refused, False, and so is a row naming a pid when the process table cannot
+    be read, which proves no death. So is, said on stderr, a row file that holds no row the
+    module parses or whose state cannot be read: only a file known absent, or known empty (the
+    module's end when its removal fails, deleteSession), is written as no row. A write
+    that fails is False, said on stderr, the temporary file it made removed, never one another
+    writer holds under the same name."""
+    if when not in ROW_WHEN:
+        raise ValueError("row_write: when is birth or end, not %r" % (when,))
+    path = _row_path(sid)
+    found = row_read(sid)
+    if found is None:
+        try:
+            unread = os.stat(path).st_size > 0
+        except OSError as exc:
+            unread = not isinstance(exc, FileNotFoundError)
+        if unread:
+            print("row: the row %s could not be read, left as it is" % path, file=sys.stderr)
+            return False
+    pid = str((found or {}).get("pid") or "")
+    if pid and runs_live(process_table(), pid, found.get("tty")):
+        return False
+    row = dict(ROW_BASE if found is None else found)
+    row.update(patch)
+    row["updated_at"] = patch["updated_at"] if patch.get("updated_at") is not None else _row_now()
+    text = json.dumps(_row_json(row), ensure_ascii=False, separators=(",", ":")) + "\n"
+    tmp = "%s.tmp-%d-%s" % (path, int(time.time() * 1000),
+                            "".join(_BASE36[b % 36] for b in os.urandom(6)))
+    made = False
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "x", encoding="utf-8") as fh:
+            made = True
+            fh.write(text)
+        os.replace(tmp, path)
+    except (OSError, UnicodeError) as exc:
+        if made:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        print("row: the row %s could not be written: %s" % (path, exc), file=sys.stderr)
+        return False
+    return True
+
+
+def process_table():
+    """Every process on the machine by pid, each with its state flags and its tty
+    (`{"stat": ..., "tty": ...}`), the module's livePids over one `ps -A -o pid=,stat=,tty=`;
+    None when the listing failed or listed no pid — unknown, never « none alive ». A line
+    carrying the pid alone has no state and no tty.
+
+    ORCHESTRATOR_PS_TABLE names the suite's stand-in for `ps` (ps_rows), one
+    `<tty> [<pid>] <command>` line per process: each line with a pid gives that pid its tty
+    and no state, the others are skipped."""
+    table = {}
+    stand_in = os.environ.get("ORCHESTRATOR_PS_TABLE", "")
+    try:
+        if stand_in:
+            with open(stand_in) as fh:
+                for l in fh:
+                    r = l.split()
+                    if len(r) >= 3 and r[1].isdigit():
+                        table[r[1]] = {"stat": None, "tty": r[0].replace("/dev/", "", 1)}
+            return table or None
+        done = subprocess.run(["ps", "-A", "-o", "pid=,stat=,tty="],
+                              capture_output=True, text=True, timeout=5)
+    except Exception:
+        return None
+    if done.returncode != 0:
+        return None
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if parts and parts[0].isdigit():
+            table[parts[0]] = {"stat": parts[1] if len(parts) > 1 else None,
+                               "tty": parts[2] if len(parts) > 2 else None}
+    return table or None
+
+
+def runs_live(table, pid, tty=None):
+    """Whether `pid` still runs a session, the module's runsLive: listed in `table`
+    (process_table), neither exiting (an `E` among its flags) nor a zombie (state `Z`), and,
+    when `tty` is given and the table knows the process's tty, on that tty. A table that could
+    not be read (None) proves no death: True, as every reader of the module takes it."""
+    if table is None:
+        return True
+    listed = table.get(str(pid))
+    if listed is None:
+        return False
+    flags = (listed.get("stat") or "").lstrip("?")
+    if flags.startswith("Z") or "E" in flags:
+        return False
+    if not tty or listed.get("tty") is None:
+        return True
+    return listed["tty"] == (tty[5:] if tty.startswith("/dev/") else tty)
+
+
+def recorded_pids(ttys):
+    """The host pids the hooks module's store records for sessions on `ttys`, in file order.
+
+    Read BEFORE a close: the row names the session's own host, which the close's proof
+    reads by tty alone. A host whose tab went under the terminal's session-keeping daemon
+    stays listed for hours, exiting and never reaped, its tty released: the tty's proof
+    passed, and the pane drew the session as live. A row unreadable is no row."""
+    shorts = {t.replace("/dev/", "") for t in ttys if t}
+    store = os.path.join(module_dir(), "store", "sessions")
+    try:
+        names = sorted(os.listdir(store))
+    except OSError:
+        return []
+    pids = []
+    for name in names:
+        # A temporary file is a row write in flight (row_write, the module's writeAtomic).
+        if ".tmp-" in name:
+            continue
+        try:
+            with open(os.path.join(store, name)) as fh:
+                row = json.loads(fh.read())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(row, dict):
+            continue
+        pid, tty = str(row.get("pid") or ""), str(row.get("tty") or "")
+        if pid.isdigit() and tty.replace("/dev/", "") in shorts and pid not in pids:
+            pids.append(pid)
+    return pids
+
+
+def name_lingering(pids):
+    """Name on stderr, and in close.log, every pid of `pids` the process table still lists,
+    with its state: a close proved on its tty that leaves its host behind says so. A table
+    that could not be read names nothing. The close's outcome is not changed."""
+    for pid in pids:
+        state = process_state(pid)
+        if state and state != UNREADABLE:
+            close_log("close", "pid %s lingers (%s)" % (pid, state[1]))
+
+
+def close_log(what, line, echo=True):
+    """Say one step of a host's end on stderr (unless `echo` is off) and append it,
+    timestamped, to close.log in the state directory, where a close that went wrong is read
+    afterwards."""
+    if echo:
+        print("%s: %s" % (what, line), file=sys.stderr)
     try:
         os.makedirs(STATE_DIR, exist_ok=True)
         with open(os.path.join(STATE_DIR, "close.log"), "a") as fh:
@@ -1125,29 +1342,41 @@ def as_list():
     return lines
 
 
-def as_close(tty, expect):
-    name = as_run('''
+def as_close_script(tty, closing):
+    """The script that finds the session on `tty` and returns its name, closing it first
+    only when `closing` is set."""
+    return '''
         tell application "iTerm2"
           repeat with w in windows
             repeat with t in tabs of w
               repeat with s in sessions of t
                 if (tty of s) is %s then
                   set n to name of s
-                  close s
+                  %s
                   return n
                 end if
               end repeat
             end repeat
           end repeat
         end tell
-        return ""''' % as_quote(tty), "a close")
+        return ""''' % (as_quote(tty), "close s" if closing else "")
+
+
+def as_close(tty, expect):
+    # The guard is the API rung's own, applied here too: a rung that closed what the rung
+    # above would have refused is a fallback that is not the same tool. The title is read
+    # first and compared in Python, and the close is sent only once it matches, so a refused
+    # title closes nothing.
+    if expect:
+        name = as_run(as_close_script(tty, False), "a title read")
+        if not name:
+            die("close: no session found on %s" % tty)
+        if stable_title(expect) not in stable_title(name):
+            die("close: refused: session on %s is titled '%s', which does not contain '%s'"
+                % (tty, name, expect))
+    name = as_run(as_close_script(tty, True), "a close")
     if not name:
         die("close: no session found on %s" % tty)
-    # The guard is the API rung's own, applied here too: a rung that closed what the rung
-    # above would have refused is a fallback that is not the same tool.
-    if expect and stable_title(expect) not in stable_title(name):
-        die("close: refused: session on %s is titled '%s', which does not contain '%s'"
-            % (tty, name, expect))
     return name
 
 
@@ -1408,8 +1637,96 @@ def chain_read(tty):
         return []
 
 
+def live_host_ttys():
+    """The ttys a host session runs on, from one reading of the whole process table (or the
+    suite's stand-in for it); None when the table cannot be read, which proves nothing."""
+    table = os.environ.get("ORCHESTRATOR_PS_TABLE", "")
+    rows = []
+    try:
+        if table:
+            with open(table) as fh:
+                for l in fh:
+                    r = l.strip().split(None, 1)
+                    if len(r) != 2:
+                        continue
+                    rest = r[1].split(None, 1)
+                    if len(rest) == 2 and rest[0].isdigit():
+                        rows.append((r[0], rest[0], rest[1]))
+                    else:
+                        rows.append((r[0], "", r[1]))
+        else:
+            done = subprocess.run(["ps", "-A", "-o", "tty=,pid=,command="],
+                                  capture_output=True, text=True, timeout=10)
+            if done.returncode != 0 or not done.stdout.strip():
+                return None
+            for line in done.stdout.splitlines():
+                parts = line.strip().split(None, 2)
+                if len(parts) == 3:
+                    rows.append(tuple(parts))
+    except Exception:
+        return None
+    names = host_cli_names()
+    return {"/dev/" + tty.replace("/dev/", "") for tty, pid, command in rows
+            if tty not in ("??", "-") and is_host_process(pid, command, names)}
+
+
+_PRUNED = []
+
+
+def orchestrator_host_on(tty, live):
+    """Whether a host that can be an orchestrator runs on `tty`: a live host whose name does
+    not read as an agent's, an auditor's or the coordinator's. A host with no readable name
+    counts, so that a name the table cannot give back never costs a chain."""
+    if tty not in live:
+        return False
+    role = ROLE_PREFIX.match(session_name_on(tty) or "")
+    return role is None or role.group(1) == "Orch"
+
+
+def chain_owner_lives(tty, live):
+    """Whether the owner of the chain file named after `tty` still runs: an orchestrator host
+    on that tty, or the tmux client of a home server on it whose window 0 holds one. A tty is
+    recycled within minutes, so an agent's tty carrying some host proves nothing about the
+    orchestrator that wrote the file."""
+    if orchestrator_host_on(tty, live):
+        return True
+    socket = home_of_tab(tty)
+    if not socket:
+        return False
+    panes, _ = home_panes(socket)
+    return any(index == "0" and orchestrator_host_on(pane, live) for index, pane in panes or [])
+
+
+def chain_prune(keep):
+    """Remove the chain files whose owner no longer runs, once per run. The owner is the tty
+    the file is named after: a file is kept while an orchestrator host runs there (or the
+    client of a home server whose window 0 holds one), whatever its agents' ttys carry now.
+    Those piled up under dead and recycled ttys, and a file kept because one of its agents'
+    ttys had been recycled by a stranger was read, and rewritten, as a live chain.
+    `keep`, the file being written and the caller's own, are never touched, nor is anything
+    when the process table cannot be read."""
+    if _PRUNED or not os.path.isdir(CHAINS_DIR):
+        return
+    _PRUNED.append(True)
+    live = live_host_ttys()
+    if live is None:
+        return
+    for name in os.listdir(CHAINS_DIR):
+        if not name.endswith(".jsonl"):
+            continue
+        tty = "/dev/" + name[:-len(".jsonl")]
+        if tty in keep:
+            continue
+        if not chain_owner_lives(tty, live):
+            try:
+                os.remove(chain_path(tty))
+            except OSError:
+                pass
+
+
 def chain_write(tty, entries):
     os.makedirs(CHAINS_DIR, exist_ok=True)
+    chain_prune({tty, self_tty() or ""})
     path = chain_path(tty)
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
@@ -1432,21 +1749,28 @@ def chain_append(tty, tab_id, new_tty, owner, resident=False):
                                          "resident": resident}])
 
 
-def chain_transfer(old_tty, old_owner, new_tty, new_owner):
+def chain_transfer(old_tty, old_owner, new_tty, new_owner, merge=False):
     """The predecessor's agents become the successor's (§34).
 
     A successor spawned after the last agent, and appended to the predecessor's chain as
     if it were one, inherited nothing: its own file was empty or a dead session's, so its
     first `--right-of self` landed left of the agents it had just taken over. The entries
-    the predecessor wrote move under the successor's tty and session id; what the
-    predecessor's file held from other occupants of its tty stays there; whatever a
-    recycled tty's file held on the successor's side is replaced, never appended to."""
-    entries = chain_read(old_tty)
-    moved = chain_owned(entries, old_owner)
-    kept = [e for e in entries if e not in moved]
-    chain_write(new_tty, [{"tab_id": e["tab_id"], "tty": e["tty"], "owner": new_owner,
-                           "resident": is_resident(e)} for e in moved])
-    chain_write(old_tty, kept)
+    the predecessor wrote move under the successor's tty and session id; whatever a recycled
+    tty's file held on the successor's side is replaced, never appended to. A takeover
+    (`merge`) comes after the successor has launched agents of its own: they are kept, and the
+    predecessor's follow them. The predecessor's file is removed: its tty's other occupants
+    are gone, and a file left behind is a chain no live session owns."""
+    moved = chain_owned(chain_read(old_tty), old_owner)
+    own = chain_owned(chain_read(new_tty), new_owner) if merge and new_owner else []
+    have = {e["tab_id"] for e in own}
+    chain_write(new_tty, own + [{"tab_id": e["tab_id"], "tty": e["tty"], "owner": new_owner,
+                                 "resident": is_resident(e)}
+                                for e in moved if e["tab_id"] not in have])
+    if old_tty != new_tty:
+        try:
+            os.remove(chain_path(old_tty))
+        except OSError:
+            pass
     return len(moved)
 
 
@@ -1526,6 +1850,18 @@ def registered_coord_on(tty):
     return name if isinstance(name, str) and name else COORD_ROLE
 
 
+def opener_name():
+    """The name the calling session reads, for the rule that only a coordinator or an
+    orchestrator opens an orchestrator tab: the host registry or launch name, else the
+    coordinator's own record; empty when neither gives one."""
+    caller = session_name_on(self_tty() or "") or ""
+    if caller == UNREADABLE_NAME:
+        caller = ""
+    if not caller:
+        caller = registered_coord_on(self_tty() or "") or ""
+    return caller
+
+
 def chain_drop_tab(tab_id):
     """Every chain, every entry naming this tab. `close` does not know which orchestrator
     the tab belonged to, and a tab id names exactly one tab."""
@@ -1577,8 +1913,7 @@ async def move_is_owned(app, tty, own, owner=None):
     anchor. The owner is the caller's chain owner (`own_session_id`): the session sitting on
     the caller's tty right now, read from the app, or the tmux pane the caller runs in, which
     the app does not know. A caller whose owner cannot be read owns nothing here: moving a
-    stranger's tab is the harm this guard exists for, and `--force` is how the operator
-    overrides it."""
+    stranger's tab is the harm the warning that replaces the refusal exists to trace."""
     if not own:
         return False
     if tty == own:
@@ -1604,7 +1939,7 @@ async def chain_anchor(app, own_tty, owner=None):
     names, and a caller with no owner at all anchors on nothing."""
     if owner is None:
         owner = await own_session_id(app, own_tty)
-    win, _, _ = await find_tab(app, own_tty)
+    win, own_tab, _ = await find_tab(app, own_tty)
     windows = [win] if win is not None else (app.windows if owner else [])
     if not windows:
         return None
@@ -1613,11 +1948,34 @@ async def chain_anchor(app, own_tty, owner=None):
     kept = [e for e in chain_owned(entries, owner) if e["tab_id"] in live]
     if len(kept) != len(entries):
         chain_write(own_tty, kept)
+    group = None
+    if win is not None:
+        group = chain_group(win.tabs, own_tab.tab_id, {e["tab_id"] for e in kept})
     for e in reversed(kept):
         tty = await tty_of(live[e["tab_id"]])
         if tty:
+            if group is not None and e["tab_id"] not in group:
+                # This agent was moved away from its orchestrator, or the tabs between
+                # them are someone else's: after it, the new agent would sit beside another
+                # orchestrator. The last agent still in the group anchors instead, and with
+                # none there, directly right of the caller keeps the group whole.
+                continue
             return tty
     return None
+
+
+def chain_group(tabs, own_tab_id, mine):
+    """The tab ids of the caller's group: the run of the caller's own agents immediately
+    right of its tab, in the window's order. Empty when the caller's tab is not in `tabs`."""
+    ids = [t.tab_id for t in tabs]
+    if own_tab_id not in ids:
+        return set()
+    group = set()
+    for tab_id in ids[ids.index(own_tab_id) + 1:]:
+        if tab_id not in mine:
+            break
+        group.add(tab_id)
+    return group
 
 
 # --- the API ---------------------------------------------------------------------
@@ -1657,12 +2015,19 @@ async def tty_of(tab, connection=None, tries=10):
     handed over: `current_session` reads None, and the attribute error that follows names
     nothing useful. It is a race, so it is intermittent — the first probes never saw it, and
     a rotation found it on the fourth spawn of one run. Where a connection is available the
-    app is re-fetched, because the tab we hold may be the stale copy."""
+    app is re-fetched, because the tab we hold may be the stale copy.
+
+    The tty itself is set by the app once the session's job is forked, after the tab is handed
+    back: on a busy app the first read is empty (measured live), and a tab read once was a home
+    tab refused for « no tty » while its session was starting. An empty read is waited out too.
+    """
     for attempt in range(tries):
         sess = tab.current_session
         if sess is not None:
             try:
-                return await sess.async_get_variable("tty")
+                tty = await sess.async_get_variable("tty")
+                if tty:
+                    return tty
             except Exception:
                 pass
         await asyncio.sleep(0.3)
@@ -2405,8 +2770,10 @@ class TmuxTerminal(Terminal):
 
     def rows(self):
         own = self_tty() or ""
+        panes = self.panes()
         return [row_for(1, int(p.index), p.tty, p.title, session_name_on(p.tty),
-                        bool(own) and p.tty == own, False) for p in self.panes()]
+                        bool(own) and p.tty == own, False) for p in panes] + \
+            orphan_lines([("w1/t%s" % p.index, p.tty, self.stable_id(p.window)) for p in panes])
 
     def screen(self, tty, lines):
         pane = self.window_of(tty, "screen")
@@ -2748,12 +3115,100 @@ def make_home(socket, title, cwd, program, what):
     return tty
 
 
-def kill_home(socket):
-    """End the home server `socket`, every window it holds with it; True when tmux did."""
+# How long the watcher waits for a server that is not there yet before it gives up: a server
+# is up by the time its watcher starts.
+HOME_WATCH_UP = 3
+
+
+def home_end_marker(socket):
+    """The file a launcher command leaves before it ends the home server `socket`: the
+    server's watcher then knows the end was traced by that command and says nothing."""
+    return os.path.join(STATE_DIR, "home-ended", socket)
+
+
+def trace_home(socket, ended, cause, tty):
+    """One dated line in close.log for an end of a home server, or of its window 0: what
+    ended, on which socket, from which cause, on which tty."""
+    close_log("home", "%s %s ended: cause=%s tty=%s" % (ended, socket, cause, tty or "-"),
+              echo=False)
+
+
+def unmark_home(socket):
+    """Take back the file `kill_watched_home` left: the server was not ended, so its watcher
+    still has an end to say."""
     try:
-        return tmux_call(["-L", socket, "kill-server"]).returncode == 0
+        os.remove(home_end_marker(socket))
+    except OSError:
+        pass
+
+
+def trace_home_unproved(socket, cause, why, tty):
+    """One dated line for an end of a home server that was asked and not proved: the kill went
+    out, and what was left to see says why the end cannot be called done."""
+    close_log("home", "server %s end not proved: cause=%s tty=%s (%s)"
+              % (socket, cause, tty or "-", why), echo=False)
+
+
+def home_socket_path(socket):
+    """The file tmux listens on for the server `socket`, where tmux itself puts it."""
+    return os.path.join(os.environ.get("TMUX_TMPDIR") or "/tmp", "tmux-%d" % os.getuid(), socket)
+
+
+def home_answers(socket):
+    """Whether the server `socket` still answers on its file: asked of the file itself, so
+    no tmux is run."""
+    import socket as sockets
+    probe = sockets.socket(sockets.AF_UNIX)
+    try:
+        probe.connect(home_socket_path(socket))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
+
+
+def remove_exited_home_socket(socket):
+    """Remove the socket file tmux left behind for the server `socket`, once nothing answers
+    there: asked again right before the remove, since a server restarted on the same name
+    since the last probe owns the file."""
+    if home_answers(socket):
+        return
+    try:
+        os.remove(home_socket_path(socket))
+    except OSError:
+        pass
+
+
+def kill_home(socket):
+    """End the home server `socket`, every window it holds with it; True when tmux did. The
+    socket file goes with it once nothing answers there: tmux leaves it behind on a kill
+    (measured on 3.8)."""
+    try:
+        ended = tmux_call(["-L", socket, "kill-server"]).returncode == 0
     except TmuxError:
         return False
+    if ended and not home_answers(socket):
+        try:
+            os.remove(home_socket_path(socket))
+        except OSError:
+            pass
+    return ended
+
+
+def kill_watched_home(socket):
+    """End the home server `socket` that a watcher watches, and leave the file that tells the
+    watcher this command traces the end: taken back when tmux did not end the server, so the
+    next real end is not silent. True when tmux ended it."""
+    try:
+        os.makedirs(os.path.dirname(home_end_marker(socket)), exist_ok=True)
+        open(home_end_marker(socket), "w").close()
+    except OSError:
+        pass
+    ended = kill_home(socket)
+    if not ended:
+        unmark_home(socket)
+    return ended
 
 
 def ended_clause(socket):
@@ -2818,6 +3273,7 @@ def open_home_tab(socket, title, anchor, what):
         die("%s: the home server %s could not be told to exit with its tab, so closing the tab "
             "would not end it; %s; %s" % (what, socket, closed_clause(closed, tty),
                                          ended_clause(socket)))
+    start_home_watch(socket, tty)
     return tty, made
 
 
@@ -2838,6 +3294,53 @@ def arm_home(socket, what):
               file=sys.stderr)
         return False
     return True
+
+
+def start_home_watch(socket, tty):
+    """Start the watcher of the home server `socket`, shown by the tab `tty`: the server
+    exits by itself when its tab closes, with no launcher command to say so, and the watcher
+    is what writes that end. It outlives this command and ends with the server."""
+    try:
+        os.makedirs(os.path.dirname(home_end_marker(socket)), exist_ok=True)
+        if os.path.exists(home_end_marker(socket)):
+            os.remove(home_end_marker(socket))
+        subprocess.Popen([sys.executable, os.path.abspath(__file__), "home-watch", "--socket",
+                          socket, "--tty", tty], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except OSError as exc:
+        print("home: the end of the server %s will not be traced: %s" % (socket, exc),
+              file=sys.stderr)
+
+
+def cmd_home_watch(argv):
+    """Wait for the home server to end, then write its end when no launcher command did:
+    run in the background by the start of a home tab, never by hand."""
+    p = argparse.ArgumentParser(prog="home-watch", add_help=False)
+    p.add_argument("--socket", default="")
+    p.add_argument("--tty", default="")
+    args, _ = p.parse_known_args(argv)
+    if not args.socket:
+        die("home-watch: --socket is required")
+    poll = float(os.environ.get("ORCHESTRATOR_HOME_WATCH_POLL", "0.5"))
+
+    def alive():
+        return home_answers(args.socket)
+    deadline = time.time() + HOME_WATCH_UP
+    while not alive():
+        if time.time() >= deadline:
+            return
+        time.sleep(poll)
+    while alive():
+        time.sleep(poll)
+    # The server exited by itself and nothing answered on its file: tmux leaves it behind.
+    remove_exited_home_socket(args.socket)
+    marker = home_end_marker(args.socket)
+    if os.path.exists(marker):
+        os.remove(marker)
+        return
+    trace_home(args.socket, "server", "exit-unattached (its tab closed; no launcher command "
+               "ended it)", args.tty)
 
 
 def home_of_tab(tty):
@@ -2866,12 +3369,13 @@ def home_panes(socket):
     return [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2], ""
 
 
-def end_home(socket, what, listed=None):
+def end_home(socket, what, listed=None, tab=""):
     """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
     server left on its socket. `(session id of window 0, the ttys it held)`. A server whose
     window 0 session id cannot be read is NOT ended, and the death says why: a pause that
     recorded no session would wake a fresh conversation, the orchestrator's own lost. `listed`
-    is `home_panes`' answer, when the caller has asked already."""
+    is `home_panes`' answer, when the caller has asked already. `tab` is the tab's tty, for the
+    line that says an end was not proved."""
     panes, why = listed if listed is not None else home_panes(socket)
     session_id = ""
     if panes is not None:
@@ -2893,7 +3397,7 @@ def end_home(socket, what, listed=None):
     # Read before the server is ended, as for a tab: a host the end of its pane does not end
     # is ended by its pid and start time.
     hosts = {tty: host_identity(tty) for tty in ttys}
-    kill_home(socket)
+    kill_watched_home(socket)
 
     def survives(tty):
         host = hosts.get(tty)
@@ -2902,6 +3406,7 @@ def end_home(socket, what, listed=None):
         return not end_host(host[0], host[1], tty, what) or bool(others_on(tty, host[0]))
     survivors = [tty for tty in ttys if survives(tty)]
     if survivors:
+        trace_home_unproved(socket, what, "a host still runs on %s" % ", ".join(survivors), tab)
         die("%s: the home server %s was asked to end, and a host still runs on %s"
             % (what, socket, ", ".join(survivors)))
     deadline = time.time() + CLOSE_TIMEOUT
@@ -2913,6 +3418,8 @@ def end_home(socket, what, listed=None):
         if not alive:
             break
         if time.time() >= deadline:
+            unmark_home(socket)
+            trace_home_unproved(socket, what, "the server still answers", tab)
             die("%s: the home server %s still answers after %ds" % (what, socket, CLOSE_TIMEOUT))
         time.sleep(0.3)
     return session_id, ttys
@@ -2939,7 +3446,8 @@ def close_home_tab(tty, socket, expect, listed=None):
         if stable_title(expect) not in stable_title(name):
             die("close: refused: session on %s is titled '%s', which does not contain '%s'"
                 % (tty, name, expect))
-    session_id, ttys = end_home(socket, "close", listed)
+    session_id, ttys = end_home(socket, "close", listed, tty)
+    trace_home(socket, "server", "close", tty)
     deadline = time.time() + CLOSE_TIMEOUT
     while ITERM.find(tty):
         if time.time() >= deadline:
@@ -2985,8 +3493,12 @@ def cmd_takeover(argv):
             % (args.tty, pred.name, args.expect))
     viewed = tmux_out(["display-message", "-p", "-t", pred.window, "#{window_active}"],
                       "takeover").strip() == "1"
-    # Read once the name is checked and before the kill: the process the succession ends.
+    # Read once the name is checked and before the kill: the process the succession ends,
+    # and the owner its chain entries carry, which the pane gone no longer names.
     host = host_identity(args.tty)
+    own_owner = tmux_owner()
+    pred_owner = ("tmux:%s:%s" % (os.environ.get("TMUX", "").split(",")[0], pred.pane)
+                  if own_owner else "")
     term.kill(pred.window, "takeover")
     if host:
         if not end_host(host[0], host[1], args.tty, "takeover"):
@@ -3001,7 +3513,14 @@ def cmd_takeover(argv):
             % (pred.window, survivor, args.tty))
     if term.survives(term.stable_id(pred.window)):
         die("takeover: the window %s is still there; window 0 was not taken" % pred.window)
+    home = os.path.basename(os.environ.get("TMUX", "").split(",")[0])
+    if home:
+        trace_home(home, "window 0 of", "takeover", args.tty)
     chain_drop_tab(term.stable_id(pred.window))
+    # The predecessor's agents follow it to its successor: what it launched after the
+    # succession's spawn handed its chain over would otherwise be nobody's.
+    if pred_owner and own_owner:
+        chain_transfer(args.tty, pred_owner, own, own_owner, merge=True)
     tmux_out(["move-window", "-d", "-s", mine.window, "-t", "%s:0" % term.session()], "takeover")
     if viewed:
         tmux_out(["select-window", "-t", mine.window], "takeover")
@@ -3170,6 +3689,42 @@ def row_for(w, t, tty, title, name, is_self, hidden):
     return row
 
 
+def chain_holders():
+    """Every chain entry's tab id, mapped to the tty of the chain file that holds it."""
+    held = {}
+    if not os.path.isdir(CHAINS_DIR):
+        return held
+    for name in sorted(os.listdir(CHAINS_DIR)):
+        if name.endswith(".jsonl"):
+            tty = "/dev/" + name[:-len(".jsonl")]
+            for e in chain_read(tty):
+                held.setdefault(e["tab_id"], tty)
+    return held
+
+
+def orphan_lines(listed):
+    """One line per listed agent whose orchestrator has ended, saying whose it was.
+
+    An orchestrator that ended before any successor took its chain leaves agents whose tabs
+    no live session claims, and nothing on screen tells whose they are. `listed` is
+    `(place, tty, stable id)` per row. The line holds no ` | `, so a reader of the rows (the
+    stop gate's) skips it."""
+    held, lines = chain_holders(), []
+    live = live_host_ttys()
+    if live is None:
+        # An unreadable process table proves nothing: reading it as « nobody runs » named
+        # every orchestrator ended.
+        return lines
+    for place, tty, stable in listed:
+        holder = held.get(stable)
+        if not holder:
+            continue
+        if holder not in live:
+            lines.append("orphan: %s (%s) is an agent of the orchestrator on %s, which has "
+                         "ended" % (tty, place, holder))
+    return lines
+
+
 async def list_rows(app):
     """One row per session, hidden panes included and marked. A pane behind a maximized
     sibling is what the host extension's review views make of an agent's tab; a listing
@@ -3179,7 +3734,7 @@ async def list_rows(app):
     orchestrator knows which tab is its own BEFORE it anchors, moves or closes anything —
     the reading a layout repair once went without (§38)."""
     own = self_tty() or ""
-    lines = []
+    lines, listed = [], []
     for wi, w in enumerate(app.windows, 1):
         for ti, t in enumerate(w.tabs, 1):
             visible = {s.session_id for s in t.sessions}
@@ -3188,6 +3743,8 @@ async def list_rows(app):
                 title = await s.async_get_variable("autoName") or ""
                 lines.append(row_for(wi, ti, tty, title, session_name_on(tty),
                                      bool(own) and tty == own, s.session_id not in visible))
+                listed.append(("w%d/t%d" % (wi, ti), tty, t.tab_id))
+    lines += orphan_lines(listed)
     return lines
 
 
@@ -3314,7 +3871,7 @@ def host_cuts(role):
 def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_file="",
                   account_connectors=False, gate_tokens=0, effort="", keep_tools=(),
                   drop_tools=(), keep_synced_skills=False, session=(), plugin_dirs=(),
-                  caller_plugins=None):
+                  caller_plugins=None, reports_to=""):
     """The command iTerm2 runs in the new tab. It is HANDED to the app, never typed, so
     its length and its bytes stop being a hazard. No model argument at all when neither a
     tier nor an explicit identifier says which: the host's own default is the right
@@ -3333,6 +3890,16 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
              "export ORCHESTRATOR_SPAWNED=1",
              "printf '\\033]0;%%s\\007' %s" % shq(title),
              None]
+    if title_role(title) == "Audit":
+        # A marker the session carries in its own environment. The auditor's name is read
+        # from the process table, which cannot give it back for a session launched without
+        # one, and that session must still be known for an auditor.
+        parts.insert(2, "export ORCHESTRATOR_AUDITOR=1")
+    if reports_to:
+        # The orchestrator the brief names, read by the hooks module's relay when no chain
+        # names a live owner for this session's tty: a chain outlives its owner's tab, and an
+        # orchestrator relaunched without --successor leaves its agents in a dead one.
+        parts.insert(2, "export ORCHESTRATOR_REPORTS_TO=%s" % shq(reports_to))
     if not gate_tokens and title_role(title) == "Agent":
         gate_tokens = AGENT_GATE_TOKENS
     if gate_tokens:
@@ -3631,18 +4198,18 @@ def cmd_spawn(argv):
     if args.resume and not re.fullmatch(r"[0-9A-Za-z-]+", args.resume):
         die("spawn: refused: --resume needs a session id, letters, digits and hyphens, got '%s'"
             % args.resume)
+    if (args.open_ or args.wake) and not DRY_RUN and (os.environ.get("ORCHESTRATOR_SELF_TTY")
+                                                      or os.environ.get("ORCHESTRATOR_PS_TABLE")):
+        # --open and --wake read their caller from the real process table: the two stand-ins
+        # the suite sets would let any session name itself an orchestrator or the coordinator.
+        die("spawn: refused: %s reads its caller from the real process table, and "
+            "ORCHESTRATOR_SELF_TTY or ORCHESTRATOR_PS_TABLE would stand in for it: both "
+            "are for tests and dry runs" % ("--open" if args.open_ else "--wake"))
     if args.open_:
         # A new orchestrator opened on the operator's order, by the coordinator or by an
         # orchestrator the coordinator relayed that order to on another machine: under its own
         # name, right of its caller, in no chain, under remote control like any orchestrator.
-        # Only a coordinator or an orchestrator opens one: an agent never does. The caller is
-        # read from the real process table: the two stand-ins the suite sets would let any
-        # session name itself the coordinator, so outside a dry run they refuse the opening.
-        if not DRY_RUN and (os.environ.get("ORCHESTRATOR_SELF_TTY")
-                            or os.environ.get("ORCHESTRATOR_PS_TABLE")):
-            die("spawn: refused: --open reads its caller from the real process table, and "
-                "ORCHESTRATOR_SELF_TTY or ORCHESTRATOR_PS_TABLE would stand in for it: both "
-                "are for tests and dry runs")
+        # Only a coordinator or an orchestrator opens one: an agent never does.
         for flag, given in (("--successor", args.successor), ("--auditor", args.auditor),
                             ("--coordinator-successor", args.coordinator_successor),
                             ("--wake", args.wake), ("--left-of", args.left_of),
@@ -3658,11 +4225,7 @@ def cmd_spawn(argv):
                 or re.search(r" \[[0-9A-Za-z]+\]\Z", args.title)):
             die('spawn: refused: --open needs the new orchestrator\'s name, --title '
                 '"Orch : <subject>" without a reference, got \'%s\'' % args.title)
-        caller = session_name_on(self_tty() or "") or ""
-        if caller == UNREADABLE_NAME:
-            caller = ""
-        if not caller:
-            caller = registered_coord_on(self_tty() or "") or ""
+        caller = opener_name()
         if not (caller.startswith("Orch : ") or caller.startswith(COORD_ROLE)):
             die("spawn: refused: --open is a coordinator's or an orchestrator's, and this "
                 "session reads '%s': an agent never opens an orchestrator"
@@ -3703,6 +4266,38 @@ def cmd_spawn(argv):
         # hands the chain over; the title says which of the two this is.
         die("spawn: refused: an orchestrator's title is a successor's; spawn it with "
             "--successor, which places it and hands it the chain")
+    if args.title.startswith("Orch :") and not (args.successor or args.open_ or args.wake):
+        # A plain spawn under an orchestrator's name landed at the window's end and was
+        # written into its caller's chain as an agent: an auditor's relaunch of an
+        # orchestrator became the auditor's agent. An orchestrator tab has three ways in.
+        die("spawn: refused: an orchestrator's tab is opened only as a successor "
+            "(--successor), an opened orchestrator (--open) or a woken one (--wake)")
+    if args.title.startswith("Orch :") and not args.open_:
+        # --open already refuses every caller but a coordinator or an orchestrator. An
+        # auditor's one successor is its own audit session, `--successor` without a title.
+        # Read on the session's role, not on the `Audit :` prefix: an auditor named
+        # otherwise ("Audit neutre : ...") carries no such prefix and still is no orchestrator.
+        # An orchestrator, the coordinator and a plain agent are not read as auditors here.
+        caller = session_name_on(self_tty() or "")
+        if caller == UNREADABLE_NAME or (caller and (caller.startswith("Orch : ")
+                                                     or caller.startswith(COORD_ROLE)
+                                                     or title_role(caller) == "Agent"
+                                                     or registered_coord_on(self_tty() or ""))):
+            caller = None
+        if not caller and os.environ.get("ORCHESTRATOR_AUDITOR") == "1":
+            caller = "unnamed"
+        if caller:
+            die("spawn: refused: this session is not an orchestrator's or a coordinator's "
+                "('%s'): it opens no orchestrator tab with --wake or an Orch title, and "
+                "--open is a coordinator's or an orchestrator's; its only successor is its "
+                "own audit session, --successor without --title" % caller[:40])
+    if args.wake:
+        # --open's caller rule, after the auditor's own refusal above has had its say.
+        caller = opener_name()
+        if not (caller.startswith("Orch : ") or caller.startswith(COORD_ROLE)):
+            die("spawn: refused: --wake is a coordinator's or an orchestrator's, and this "
+                "session reads '%s': an agent never wakes an orchestrator"
+                % (caller[:40] or "no name"))
     if not os.path.isdir(args.dir):
         die("spawn: directory not found: %s" % args.dir)
     if args.prompt and args.prompt_file:
@@ -3832,6 +4427,12 @@ def cmd_spawn(argv):
         side, anchor = "left", "leftmost"
     effect = chain_effect(args.successor, args.auditor, args.coordinator_successor,
                           auditor_successor, args.wake, args.open_)
+    defaulted = effect == "append" and not anchor
+    if defaulted:
+        # An agent given no place sits in its orchestrator's group, to its right: unanchored,
+        # it landed at the window's end, beside whoever sat there, and was still written into
+        # the caller's chain.
+        side, anchor = "right", "self"
     # Chosen once, and only for a launch that reaches a terminal: a dry run asks none. Only an
     # agent joins its caller's chain and only a successor takes it, and only those two may be
     # windows of a home session.
@@ -3846,6 +4447,13 @@ def cmd_spawn(argv):
         # Read with the judgment of the session it replaces, whether or not --inherit-model
         # was typed, exactly like the auditor it succeeds (§52).
         model = inherited_model()
+    if anchor == "self" and defaulted and not own and not DRY_RUN:
+        # The default must not turn a spawn that worked into a refusal: a caller with no
+        # readable tty (a plain shell) gets the old placement, and is told why. An explicit
+        # --right-of self keeps dying below.
+        print("spawn: this session's own tty cannot be resolved, so the new tab cannot be "
+              "placed right of it; it lands at the window's end.", file=sys.stderr)
+        anchor = ""
     if anchor == "self":
         if not own and not DRY_RUN:
             die("spawn: --right-of self: cannot resolve this session's own tty")
@@ -3941,7 +4549,7 @@ def cmd_spawn(argv):
     launch = build_command(args.dir, title, model, args.mode, prompt_file, remote_control,
                            mcp_file, args.account_connectors, gate_tokens, effort,
                            args.keep_tool, args.drop_tool, args.keep_synced_skills,
-                           session_words, plugin_dirs, caller_plugins)
+                           session_words, plugin_dirs, caller_plugins, args.orchestrator)
 
     if DRY_RUN:
         print("launch=%s" % launch)
@@ -4091,7 +4699,14 @@ def cmd_verify(argv):
     args, _ = p.parse_known_args(argv)
     if not args.tty:
         die("verify: --tty is required")
-    every = host_clis_on(args.tty)
+    # A home session's tab carries only the tmux client: its host runs in window 0 of the
+    # server that client shows, so that is where the host is read.
+    host_tty = args.tty
+    socket = home_of_tab(args.tty)
+    if socket:
+        panes, _ = home_panes(socket)
+        host_tty = next((tty for index, tty in panes or [] if index == "0"), args.tty)
+    every = host_clis_on(host_tty)
     # With --pid, only that process counts, whichever host CLI of the tty it is: another one
     # on a reused tty is « not running ».
     if args.pid is None:
@@ -4124,7 +4739,11 @@ def close_made(made):
     closed = (made.get("terminal") or terminal()).close_made(made)
     if made.get("home"):
         # The home server goes with its tab: every window of it, the session in window 0.
-        closed = kill_home(made["home"]) and closed
+        watched = made.get("terminal") is not NO_TAB
+        ended = kill_watched_home(made["home"]) if watched else kill_home(made["home"])
+        if ended and watched:
+            trace_home(made["home"], "server", "spawn-failed", made.get("tty"))
+        closed = ended and closed
     if closed and made.get("tab_id"):
         chain_drop_tab(made["tab_id"])
     return closed
@@ -4260,6 +4879,9 @@ def cmd_close(argv):
     if not args.keep_checkout:
         cwd = host_cli_cwd(host_tty)
         checkout = checkout_of(cwd) if cwd else None
+    # And the host pids the hooks module's store records on it: the close's proof reads the
+    # tty, and these are named afterwards when the process table still lists them.
+    recorded = recorded_pids({host_tty, args.tty})
 
     note = close_note(host_tty, was_running)
     if socket:
@@ -4278,6 +4900,7 @@ def cmd_close(argv):
         # that qualifies it goes to stderr rather than changing it.
         print("closed 1 session on %s" % args.tty)
         sys.stdout.flush()
+    name_lingering(recorded)
     # The session's purpose is over and its process is proved gone: its checkout goes with
     # it, unless it holds work (`workspace.sh delete` refuses that, and says why).
     if checkout:
@@ -4336,12 +4959,9 @@ def cmd_move(argv):
             return
         if is_ours:
             return
-        if not args.force:
-            die("move: refused: %s is neither this session's tab nor in its chain "
-                "(pass --force to move it anyway)" % args.tty)
-        # --force is the operator's hand and the layout repair, and it says what it moved:
-        # a forced move is the one an orchestrator has to be able to find afterwards.
-        print("move: forced: %s is not in this session's chain" % args.tty, file=sys.stderr)
+        # Warned, not refused: the move still happens, and the warning (stderr and close.log)
+        # is what an orchestrator finds afterwards when it looks for a tab moved out of place.
+        close_log("move", "warning: %s is not in this session's chain: moved anyway" % args.tty)
 
     if DRY_RUN:
         # No app, so no session id and no tab id: the dry run reads the chain the way the
@@ -4586,6 +5206,7 @@ COMMANDS = {
     "move": cmd_move, "rotate": cmd_rotate, "resolve-tier": cmd_resolve_tier,
     "screen": cmd_screen, "trust": cmd_trust, "tools": cmd_tools,
     "home": cmd_home, "home-release": cmd_home_release, "takeover": cmd_takeover,
+    "home-watch": cmd_home_watch,
 }
 
 

@@ -15,8 +15,7 @@ word on a point outranks this brief and the rulebook both.
    record is yours as it stands, outlives every succession, and nothing in it is woken or
    dropped but on his word.
    Then the round file `{{ROUND_FILE}}` (« none » when no round is open): the open decision round, every question received
-   with its sender and status. Copy it to `decision-round.md` in your own scratch directory
-   and carry the round on from its first question not yet sent, grouped by sender as the
+   with its sender and status. Carry the round on from its first question not yet sent, grouped by sender as the
    rulebook says; nothing in it is dropped, and the end line counts it whole.
 2. **Find yourself.** `ListAgents` — your exact name and reference; the launcher
    `{{ITERM_AGENT_SH}}`, its `list` — your tty, the row marked `self`.
@@ -70,5 +69,5 @@ word on a point outranks this brief and the rulebook both.
   is not there yet, say so and give no figure rather than estimating — a row is
   written after a session's turns, and a first read can precede the first of
   them; at the gate —
-  the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000 —
-  you succeed yourself, in the rulebook's order.
+  the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000 —
+  you succeed yourself, in the rulebook's order. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000, others 300,000.

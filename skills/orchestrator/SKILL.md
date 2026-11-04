@@ -44,7 +44,7 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 - **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
 - **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends, except a background watch, which wakes you.
-- **Before ending a turn, launch everything that can advance.** Its last line, plain, says what it waits on: your agent busy → none; your background command → waiting: tool — <what>; a question for him → waiting: operator — blocks: <what it blocks>; work the operator deferred, his ruling recorded → waiting: deferred — <ids>; every goal in `goals.md` met or ruled out by him → waiting: done.
+- **Before ending a turn, launch everything that can advance.** Its last line, plain, says what it waits on: your agent busy → none; your background command → waiting: tool — <what>; a question for him → waiting: operator — blocks: <what it blocks>; work the operator deferred, his ruling recorded → waiting: deferred — <n> items; every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words**: `references/review.md`, « Review rounds run in disposable sessions », before drafting a reply.
 - Handing over to a successor: `/orchestrator-succeed`, step by step.
@@ -52,7 +52,7 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 
 ## Thresholds
 
-**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000.** The module enforces it and reports an agent past it; others point here. The host compacts at 500,000 (operator); agent 240,000; `--gate-tokens` sets a session's own.
+**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it and reports an agent past it; others point here. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
 
 The fill is the module's measurement, never an estimate: read `/orchestrator-status`, your row and every agent's, before dispatching any phase.
 
@@ -76,6 +76,9 @@ What reaches the operator is an **arbitration**: what the thing is, two readings
 **While a coordinator runs, every question for the operator goes to it** — his order —
 and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and
 end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
+It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
+of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
+answered, each turn re-presents it whole: the stop gate refuses any other.
 One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
 A pause it relays: its bullet in `references/lifecycle.md`.

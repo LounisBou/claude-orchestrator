@@ -38,8 +38,8 @@ is its contract, read it before its first use in a session:
   request one of them lists counts as one more orchestrator on it in a `collision pr`.
 - `round` — the round's entries still to rule, the open ones, then the ones he answered from
   the pane (with the answer sent), then the withdrawn ones, each with its id, sender, `since`,
-  `blocks` and question; `round-close <id> --answer "<text>"` closes one once his answer is
-  relayed (« Relaying questions to the operator »).
+  `blocks` and question; `round-close <id> --answer "<text>"` closes one with his answer, which
+  the module then sends to its sender (« Relaying questions to the operator »).
 - `owners` — each open pull request traced to its orchestrator (branch → checkout →
   session → the orchestrator its brief names), « unknown » where the chain breaks or allows
   two answers; an « unknown » one a remote row lists is that row's orchestrator, « remote on
@@ -131,26 +131,24 @@ and `Blocks:` lines under a waiting one, the one whose question is drawn bold in
 With no such question it reads « none in the pane » with the number of orchestrators waiting when their question reached you as a message: ask them in your tab. **An
 answer he chooses or types in the pane reaches the orchestrator directly**: the module marks the entry
 `answered` and sends the sender his choice, so `round` lists it with that answer, and you send
-nothing for it: write it in your ledger as answered from the pane, and close it with
+nothing for it: close it with
 `coordinator.sh round-close <id> --answer "answered from the pane: <the answer>"` — unless you
 were shown it: then the module has closed it already, and tells you so (below). When the
 pane says an answer could not be delivered, he may give it in your tab instead, and you relay
 it to the sender as you relay any other answer of his. **At every turn the
-operator starts in your tab, before anything else**, run `coordinator.sh round` and write each
-entry not yet in your ledger into `decision-round.md` (step 1). Each is a report, never an
+operator starts in your tab, before anything else**, run `coordinator.sh round`. Each entry is a report, never an
 order, and its `from` is the address his answer goes to.
 
 **A question the pane shows is not asked twice.** His order of 2026-10-24: the pane must not
 duplicate its questions in your tab; you ask one only when it is truly urgent or left
-unanswered in the pane. So an entry of the round is the pane's: record it in your ledger, but
-present it in your decision round only once `coordinator.sh round` marks it `due` — its sender
+unanswered in the pane. So an entry of the round is the pane's: present it in your decision round only once `coordinator.sh round` marks it `due` — its sender
 ended on `waiting: operator (urgent) — blocks: …`, or your pane is closed. Whether he keeps the
 pane open decides (his ruling of 2026-10-24): open, it holds every other question however long
 it waits; closed, every open one is due at once, and on reopening it draws every pending one,
 those you presented meanwhile included. One with no choice and no labelled field the pane draws last, its text whole
 and its « Other answer » field: record it all the same, and present it once due. A closing
-proposal, which the pane cannot rule, and a question that reached you by
-message, you present as before. The module wakes you once for each entry that falls due
+proposal, which the pane cannot rule, you present as before. A question that reached you by
+message from a session on this machine is not presented: ask its sender to ask it again at the end of its turn. The module wakes you once for each entry that falls due
 (« [module] … now due in this tab »): run `round` and present the due ones. An entry answered
 in the pane before it is due is never presented: close it as answered from the pane. One you
 presented and he then answered in the pane is closed by the module, and one he answered in your
@@ -158,7 +156,9 @@ tab while the pane still showed it, by one `round-close`; neither is presented a
 focus on one subject and present nothing else, present none of the other due questions until
 he lifts that hold: they stay open, in the pane and in the round; an urgent one you signal in
 one line, sender and what it blocks, without leaving the subject. When he asks to take them
-all, `/coordinator-decide` runs one round over every orchestrator's questions.
+all, `/coordinator-decide` runs one round over every orchestrator's questions. Not asking twice is
+your tab's rule alone: the orchestrator that asked keeps the question in full in its own chat
+until he answers it, his ruling of 2026-11-03.
 
 An orchestrator on another machine still reports by message, handled as follows.
 A message headed `[module]` is the hooks module's report of an orchestrator's turn end, sent
@@ -181,7 +181,7 @@ reason>"`; and, when it is the question on screen, say so in one line and presen
 question in full in the same message. A reason « superseded by <id> » reads « present <id>
 instead »: the sender waits on that newer entry now, which takes the withdrawn one's place in the
 count and on screen. A notice that matches no open question changes nothing but a line in the
-round file.
+round.
 
 **A question settled elsewhere leaves your tab at once.** `round` records each open entry it
 prints, and the module, for an entry you were shown so (or woken for), closes it itself the
@@ -194,14 +194,6 @@ tab, « [module] Settled superseded: … — by <id>, present that one. », and 
 one line, « settled in the pane » or « settled in <sender>'s tab », never ask or relay it again,
 and present the next one in full in the same message; a superseded one makes <id> that next one.
 
-1. **The ledger first.** A question received is written, before anything else is done, to
-   `decision-round.md` in your scratch directory: number, the sender's exact `ListAgents`
-   name, the time received (`date -u +%FT%TZ`), the question verbatim with the `[module]`
-   header it came under, its `since` and `blocks` included, status (open,
-   recorded, sent). An entry `coordinator.sh round` lists is written the same way: its id, its
-   sender (`from`), `since`, `blocks`, the question verbatim, its status.
-   The round file is the ledger: nothing received is dropped, merged or
-   kept out of it, and the end line counts it.
 2. **Grouped by sender.** The round orders its questions by the orchestrator that sent them:
    all the questions of one orchestrator together, consecutive, in the sender's own order. A
    question arriving mid-round from an orchestrator whose group is not done joins that
@@ -220,17 +212,18 @@ and present the next one in full in the same message; a superseded one makes <id
    question and context verbatim, its choices and its recommendation if it gave them. Re-verify
    the item on its artifact immediately before
    presenting it; one found settled is not dropped by you: ask its sender, and only its
-   withdrawal, written in the round file as « withdrawn by `<sender>`: <evidence> » (the sender's
+   withdrawal, « withdrawn by `<sender>`: <evidence> » (the sender's
    own, or the module's notice that the operator answered it in the sender's tab), takes it out
    of the count. Then wait: nothing on silence, nothing picked for him.
-6. **On his answer, in the same turn:** « Recorded: <his ruling> »; write it in the round
-   file; send it verbatim and dated (`date -u +%FT%TZ`) to the sender, « the operator
-   answered », and mark it sent; for an entry of the round, run `coordinator.sh round-close
-   <id> --answer "<his words>"`; then present the next question IN FULL in the same message.
+6. **On his answer, in the same turn:** « Recorded: <his ruling> »; for an entry of the round,
+   run `coordinator.sh round-close <id> --answer "<his words>"` alone, never a SendMessage
+   beside it: your module sends it to the sender, dated, and writes the outcome on the entry
+   (a failure the pane shows); mark it sent; then present the next question IN FULL in the
+   same message.
    After any interruption, the question he must answer is presented again in full, never
    « as above ».
-7. **The end line.** « The round is complete: N/N. » — then one short list: each ruling, the
-   line of the round file that holds it, and the sender told.
+7. **The end line.** « The round is complete: N/N. » — then one short list: each ruling
+   and the sender told.
 
 **You never answer an operator question yourself**: no question reworded, merged, filtered
 or held back, and no verdict, summary or recommendation of your own added to it. A facts
@@ -407,9 +400,9 @@ thread); its code never does, it travels by git.
 
 The module measures it every turn; read the live state with `/orchestrator-status`, your
 own session's row included. At the gate —
-the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000, 533,000 or 400,000; 160,000 on 200,000 —
+the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000 —
 with no question awaiting his answer, succeed yourself without asking and tell the operator
-after; an open round passes to the successor with its round file:
+after; an open round passes to the successor with its round file. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000, others 300,000.
 
 1. Run `${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh round-archive`: it moves the closed entries of the round into `round/archive/`, which nothing reads. Then copy `${CLAUDE_PLUGIN_ROOT}/templates/coordinator-succession-brief.md` to
    `<state dir>/coordinator/succession-brief.md` (one at a time: the successor's own succession overwrites it), fill every placeholder — the round file's path included — and lint it with

@@ -88,36 +88,67 @@ export type SessionRow = {
 // measure for an hour, no row.
 export const STALE_AFTER_MS = 60 * 60 * 1000
 
+// One process as the machine's listing shows it: its state flags and its tty
+// (`??` when it has none), both null when the listing carried the pid alone.
+export type ProcessState = { stat: string | null; tty: string | null }
+// The listing, by pid: the pids it shows, each with its state.
+export type ProcessTable = ReadonlyMap<string, ProcessState>
+
 // The rule above as a function, pure and exported: the commands read the same
 // store through their own $ (the fence forbids sharing the reader) and judge
-// every row by this same rule. `alive` is the set of live pids the caller read
+// every row by this same rule. `alive` is the process table the caller read
 // (livePidsArgv, livePids); null when that read failed, and a read that failed
 // knows nothing of any pid: the row is kept, never judged dead on no evidence.
-export function isStale(row: SessionRow, now: number, alive: ReadonlySet<string> | null = new Set()): boolean {
-  if (row.pid) return alive !== null && !alive.has(String(row.pid))
+export function isStale(row: SessionRow, now: number, alive: ProcessTable | null = new Map()): boolean {
+  if (row.pid) return alive !== null && !runsLive(alive, String(row.pid), row.tty)
   const at = Date.parse(row.updated_at)
   return !Number.isFinite(at) || now - at > STALE_AFTER_MS
 }
 
-// One ps listing every live pid on the machine, run when a row names a pid at
-// all; the caller intersects. Never `ps -p <the rows' pids>`: its exit and its
-// output depend on the pids asked — one it refuses (macOS: « process id too
-// large ») fails the whole call with nothing printed — so a single bad row
-// made every live row read as dead, and the store reader removed them all.
-export function livePidsArgv(pids: readonly string[]): string[] | null {
-  return pids.some(pid => /^\d+$/.test(pid)) ? ['ps', '-A', '-o', 'pid='] : null
+// Whether `pid` still runs a session, the one reading the deck, the pane and the
+// commands share. A pid in the table is not enough: a host whose tab was closed
+// under the terminal's session-keeping daemon stays listed for days, exiting and
+// never reaped (`?Es`, tty `??`), and its row read as a live orchestrator nine
+// hours stale. A pid is live when it is listed, neither exiting (an `E` among
+// its flags) nor a zombie (state `Z`), and, when the row recorded a tty, still
+// on that tty: a tty lost (`??`) or another one is a session whose tab is gone.
+// A row with no tty recorded is not judged on its tty: a session started off a
+// terminal runs without one. A listing that carried the pid alone judges by the
+// pid alone.
+export function runsLive(table: ProcessTable, pid: string, tty?: string | null): boolean {
+  const listed = table.get(pid)
+  if (!listed) return false
+  const flags = (listed.stat ?? '').replace(/^\?+/, '')
+  if (flags.startsWith('Z') || flags.includes('E')) return false
+  if (!tty || listed.tty === null) return true
+  return listed.tty === tty.replace(/^\/dev\//, '')
 }
 
-// The live pids out of that ps's result, or null when the read failed: no
+// One ps listing every process on the machine with its state and tty, run when
+// a row names a pid at all; the caller looks its pids up. Never `ps -p <the
+// rows' pids>`: its exit and its output depend on the pids asked — one it
+// refuses (macOS: « process id too large ») fails the whole call with nothing
+// printed — so a single bad row made every live row read as dead, and the store
+// reader removed them all.
+export function livePidsArgv(pids: readonly string[]): string[] | null {
+  return pids.some(pid => /^\d+$/.test(pid)) ? ['ps', '-A', '-o', 'pid=,stat=,tty='] : null
+}
+
+// The process table out of that ps's result, or null when the read failed: no
 // result (it rejected, it timed out), a degraded pass, a non-zero exit, or a
 // listing with no pid in it — ps lists itself, so an honest one is never empty.
-// Null is « unknown », never « none alive »: a caller deletes nothing on it.
-export function livePids(result: unknown): Set<string> | null {
+// Null is « unknown », never « none alive »: a caller deletes nothing on it. A
+// line carrying the pid alone (a listing asked for `pid=` only) has no state.
+export function livePids(result: unknown): Map<string, ProcessState> | null {
   if (typeof result !== 'object' || result === null) return null
   const { exitCode, stdout } = result as { exitCode?: unknown; stdout?: unknown }
   if (exitCode !== 0) return null
-  const pids = new Set(String(stdout ?? '').split('\n').map(line => line.trim()).filter(pid => /^\d+$/.test(pid)))
-  return pids.size === 0 ? null : pids
+  const table = new Map<string, ProcessState>()
+  for (const line of String(stdout ?? '').split('\n')) {
+    const [pid, stat, tty] = line.trim().split(/\s+/)
+    if (/^\d+$/.test(pid ?? '')) table.set(pid, { stat: stat ?? null, tty: tty ?? null })
+  }
+  return table.size === 0 ? null : table
 }
 
 // The supervision pane: the id names it at the engine (the open, the render's
@@ -402,6 +433,9 @@ async function writeAtomic($: any, path: string, text: string): Promise<void> {
 // carries one (the measure handler passes the reading's own time). The
 // measure handler is the only writer of a key: a same-key race is last-writer-wins,
 // at most one measure of freshness. The relay writes its own file (writeWait).
+// The row is written atomically (writeAtomic), its temporary file named and its line
+// spelled as the launcher's row_write does (iterm_agent.py): a reader never meets a
+// row caught mid-write.
 export async function writeSession($: any, id: string, patch: Partial<SessionRow>): Promise<void> {
   await onOwnRow(async () => {
     const path = `${await storeOf($)}/${sessionKey(id)}`
@@ -411,7 +445,7 @@ export async function writeSession($: any, id: string, patch: Partial<SessionRow
       model: '', busy: false, updated_at: '',
     }
     const row: SessionRow = { ...base, ...patch, updated_at: patch.updated_at ?? new Date().toISOString() }
-    await $.fs.write(path, JSON.stringify(row) + '\n')
+    await writeAtomic($, path, JSON.stringify(row) + '\n')
   })
 }
 
@@ -432,7 +466,7 @@ async function publishUsage($: any, id: string, usage: DeckUsage | null): Promis
   await onOwnRow(async () => {
     const path = `${await storeOf($)}/${sessionKey(id)}`
     const row = parseSessionRow(String(await $.fs.read(path).catch(() => '')))
-    if (row && (usage || row.usage)) await $.fs.write(path, JSON.stringify({ ...row, usage }) + '\n')
+    if (row && (usage || row.usage)) await writeAtomic($, path, JSON.stringify({ ...row, usage }) + '\n')
   })
 }
 
@@ -451,7 +485,9 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   }
   const read: [string, string, SessionRow | null][] = []
   for (const entry of entries) {
-    if (!entry || entry.kind !== 'file') continue
+    // A temporary file is a row write in flight (writeAtomic): no second row, and never
+    // removed here, or the writer's rename fails.
+    if (!entry || entry.kind !== 'file' || entry.name.includes('.tmp-')) continue
     const text = String(await $.fs.read(`${dir}/${entry.name}`).catch(() => ''))
     const row = parseSessionRow(text)
     const waits = `${await storeOf($)}/waits/${entry.name}`
@@ -461,16 +497,44 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   const alive = argv ? livePids(await $.process.run(argv, { timeoutMs: 5000 }).catch(() => null)) : new Set<string>()
   const rows: Record<string, SessionRow> = {}
   const dead: string[] = []
+  const gone: string[] = []
   const now = Date.now()
   for (const [name, text, row] of read) {
     if (row && !isStale(row, now, alive)) rows[`sessions/${name}`] = row
-    else if (text === '' || row) dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`, `${await storeOf($)}/successors/${name}`)
+    else if (text === '' || row) {
+      // A row with no pid removed for idleness alone is not known dead: its sender may live on.
+      if (text === '' || row?.pid) gone.push(`sessions/${name}`)
+      dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`, `${await storeOf($)}/successors/${name}`)
+    }
   }
   // A liveness read that failed removes nothing: its rows are drawn as alive
   // and the next read that answers sweeps the dead. Removing on it wiped the
   // whole store at every render the pane drew.
   if (alive !== null && dead.length > 0) await $.process.run(['rm', '-f', ...dead], { timeoutMs: 5000 }).catch(() => undefined)
+  if (alive !== null && gone.length > 0) await sweepGoneSenders($, new Set(gone))
   return rows
+}
+
+// The entries a session left open and no session end closed (a killed host, a tab closed with no
+// clean end, an end past its bound): every open entry of this machine whose sender's row this read
+// has just judged dead and removed is withdrawn, on the read every reader makes — the sender
+// `co round` prints as « sender gone ». Only a row removed here is judged: a session not yet
+// measured (a successor an entry was moved to) has no row and is not gone. An entry naming no
+// session, or from another machine, is not judged. A sweep that fails is one log line and the
+// read goes on.
+async function sweepGoneSenders($: any, removed: ReadonlySet<string>): Promise<void> {
+  try {
+    const senders = new Set<string>()
+    for (const { entry } of await readRound($)) {
+      if (entry.status === 'open' && entry.session !== '' && !entry.origin && removed.has(sessionKey(entry.session))) senders.add(entry.session)
+    }
+    for (const sessionId of senders) {
+      const settled = await withdrawStale($, sessionId, null, "the sender's session ended")
+      await tellSettled($, settled, Date.now() + RELAY_BOUND_MS)
+    }
+  } catch (err) {
+    await logLine($, `round: ${(err as Error).message}`)
+  }
 }
 
 // The session's own row goes with it: removed, or — rm failing — truncated to
@@ -673,18 +737,17 @@ Promise<{ tty: string | null; name: string | null; pid: string | null; known: bo
 
 // The pane as the module remembers it: what it was opened to list, and its clock, started by
 // the open and cancelled by any close. A coordinator's pane also keeps the questions whose
-// « other answer » was pressed (their ids: the hint is drawn under them), the answers chosen
-// in it that were not delivered to a sender on this machine, said on their question until its
-// sender is gone or the entry no longer holds that answer (an answer to another machine says its
-// delivery from the entry's own file), the entries whose answer is in flight, so a second press
-// on one does nothing, and the entry whose « Other answer » was picked, its text field drawn
-// until the ring leaves it.
+// « other answer » was pressed (their ids: the hint is drawn under them), the failed deliveries
+// to a sender on this machine a render found that sender gone for, never said again in this
+// module's life (each by its entry's id and its answer's stamp: the failure itself is in the
+// entry's file), the entries whose answer is in flight, so a second press on one does nothing,
+// and the entry whose « Other answer » was picked, its text field drawn until the ring leaves it.
 export type PaneMemory = {
   opened: { role: 'coordinator' | 'orchestrator'; tty: string | null } | null
   ticker: { cancel(): void } | null
   other: Set<string>
   writing: string | null
-  undelivered: Map<string, { entry: RoundEntry; reason: string }>
+  forgotten: Set<string>
   answering: Set<string>
   // The content last drawn, as the module counts its rows, and the tree's height as the
   // person's last move measured it, with the content it measured.
@@ -922,9 +985,9 @@ function stopWake(wake: WakeMemory): void {
   wake.timer = null
 }
 
-// One reading: the questions just due, then the answers to send again to another machine. A
-// failure of either is one log line, and the next reading still comes. A timer no longer the one
-// armed reads nothing.
+// One reading: the questions just due, the answers round-close left to deliver, then the answers
+// to send again to another machine. A failure of any is one log line, and the next reading still
+// comes. A timer no longer the one armed reads nothing.
 async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: number): Promise<void> {
   if (wake.timer !== timer) return
   wake.timer = null
@@ -932,6 +995,11 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
     await wakeForDue($)
   } catch (err) {
     await logLine($, `round wake: ${(err as Error).message}`)
+  }
+  try {
+    await deliverClosedAnswers($)
+  } catch (err) {
+    await logLine($, `round delivery: ${(err as Error).message}`)
   }
   try {
     await resendAnswers($)
@@ -1061,7 +1129,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // Module memory: the role the pane was opened in, the tty its agents are read
   // from — the render lists what the open asked for — and the open pane's clock.
   // A reload forgets it, and the pane then asks to be opened again.
-  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, undelivered: new Map(), answering: new Set() }
+  const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, forgotten: new Set(), answering: new Set() }
   // The entry whose recommended choice was last asked the focus: once per entry, never at a redraw.
   let focusedFor: string | null = null
   // This session's own repository, read once: its owner names the pull requests the pane links.
@@ -1142,8 +1210,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     const sessionId = e.sessionId ?? await $.session.id()
     // Read before the row goes: the successor's file goes with it.
     let successor: LearntSuccessor | null = null
+    // Read before the wait file goes: the question a coordinator elsewhere holds or was sent.
+    let remote: { name: string; held: { blocks: string; since: string | null } } | null = null
     try {
       stopWake(wake)
+      remote = await remoteQuestion($, sessionId)
       successor = await readSuccessor($, sessionId)
       await deleteSession($, sessionId)
       await recordPaneClosed($)
@@ -1162,7 +1233,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       until = Date.now() + bound
       const done = await withDeadline(successor
         ? moveToSuccessor($, sessionId, successor)
-        : withdrawStale($, sessionId, null, "the sender's session ended"), bound)
+        : withdrawStale($, sessionId, null, "the sender's session ended").then(async settled => {
+          if (remote) await withdrawRemote($, remote.name, remote.held)
+          return settled
+        }), bound)
       if (isDegradedPass(done)) await logLine($, `round: did not finish within ${bound} ms`)
       else await tellSettled($, done, until)
     } catch (err) {
@@ -1450,16 +1524,15 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const first = questions[0]
         speaker = first ? rowKeyOf(first) : null
         asking = first ?? null
-        // An answer not delivered is said until a render finds its sender gone, or its entry
-        // settled since: withdrawn, closed, or holding another answer than the one that failed.
-        const held = new Map(read.map(({ entry }) => [entry.id, entry]))
-        for (const [id, notice] of pane.undelivered) {
-          const now = held.get(id)
-          const same = (now?.status === 'answered' || now?.status === 'closed') && now.answer?.by === 'pane' && now.answer.at === notice.entry.answer?.at
-          if (!(sessionKey(notice.entry.session) in local) || !same) pane.undelivered.delete(id)
+        // An answer not delivered says so from the entry itself, a reload kept. One to this
+        // machine is said while its entry still holds the answer that failed, not withdrawn, and
+        // until a render finds its sender gone.
+        for (const { entry } of read) {
+          if (!entry.origin && entry.delivery?.state === 'failed' && !(sessionKey(entry.session) in local)) pane.forgotten.add(failedKey(entry))
         }
-        // An answer to another machine says its delivery from the entry itself, a reload kept.
-        failed = [...pane.undelivered.values(), ...drawn.filter(entry => entry.delivery?.state === 'failed').map(entry => ({ entry, reason: entry.delivery!.reason ?? 'no answer' }))]
+        failed = drawn.filter(entry => entry.delivery?.state === 'failed' && (entry.origin
+          || (entry.status !== 'withdrawn' && entry.answer?.at === entry.delivery.answerAt && !pane.forgotten.has(failedKey(entry)))))
+          .map(entry => ({ entry, reason: entry.delivery!.reason ?? 'no answer' }))
         delivering = drawn.filter(entry => entry.delivery?.state === 'pending' || entry.delivery?.state === 'sent')
       } else if (pane.opened?.role === 'orchestrator') {
         // Bounded like every side read: an agent list that cannot be read in
@@ -1883,8 +1956,9 @@ async function dropMark($: any): Promise<void> {
 // A turn's end, read and reported. The role comes from the session's row (the measure's
 // walk named it), else from a walk of its own. An orchestrator's machine line goes to the
 // coordinator: an entry of its round when it runs on this machine, a message when it runs
-// on another; an agent's status line to its orchestrator, found in the
-// launcher's chains (orchestratorOn), never in the turn's text; any other role, nothing.
+// on another; an agent's status line to its orchestrator, found in the launcher's chains or
+// else in the orchestrator its launch recorded (orchestratorOn), never in the turn's text; any
+// other role, nothing.
 // No line: a wait the session carried is cleared; an orchestrator sends nothing, an agent's
 // orchestrator is sent one report, unless it was already (key `no-status`). A line: written to the
 // session's wait file, then reported unless this very one was already — the fingerprint
@@ -1916,7 +1990,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   const role = roleOf(name)
   if (!name || (role !== 'orchestrator' && role !== 'agent')) return
   const wait = role === 'orchestrator' ? parseWait(answer) : parseStatus(answer)
-  // The ending of a turn whose open work the operator deferred (`waiting: deferred — <ids>`): no
+  // The ending of a turn whose open work the operator deferred (`waiting: deferred — <n> items`): no
   // wait, nothing entered or sent, the wait cleared like a tool wait's.
   const deferred = role === 'orchestrator' && deferredIds(machineLine(answer)) !== null
   // The mark of a prompt the operator typed while a question was held (withdrawOnTyped): it
@@ -1993,7 +2067,7 @@ export async function relayTurnEnd($: any, answer: string): Promise<void> {
   }
   const to = role === 'orchestrator'
     ? coordinator?.to ?? null
-    : tty ? await orchestratorOn($, tty) : null
+    : await orchestratorOn($, tty, name, 'relay')
   if (!to) {
     if (role === 'agent') await logLine($, `relay: no orchestrator found for ${name} on ${tty ?? 'an unknown tty'}`)
     return
@@ -2093,6 +2167,34 @@ async function withdrawHeld($: any, sessionId: string, name: string, held: { blo
   } catch (err) {
     await logLine($, `withdraw: ${(err as Error).message}`)
     return null
+  }
+}
+
+// The question of a session's wait that a coordinator elsewhere holds (acknowledged: `relayed`) or
+// was sent and has not yet acknowledged (`pending`), with the name it was asked under. Null when
+// the wait holds none, or names no one to withdraw it as.
+async function remoteQuestion($: any, sessionId: string): Promise<{ name: string; held: { blocks: string; since: string | null } } | null> {
+  const wait = await readWait($, sessionId)
+  if (!wait) return null
+  const sent = (wait.waiting ?? wait.last_waiting ?? null) === 'operator' && !!wait.pending && typeof wait.blocks === 'string' && wait.blocks !== ''
+    ? { blocks: wait.blocks, since: wait.waiting_since ?? null }
+    : null
+  const held = heldQuestion(wait) ?? sent
+  const name = wait.name ?? parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))?.name ?? null
+  return held && name ? { name, held } : null
+}
+
+// The marked withdrawal of a session that ended, sent to the coordinator on another machine (the
+// one on this machine reads the round the session end withdrew). A send not delivered is one log
+// line: the session has no other chance to say it.
+async function withdrawRemote($: any, name: string, held: { blocks: string; since: string | null }): Promise<void> {
+  const coordinator = await coordinatorAddress($)
+  if (!coordinator || coordinator.local) return
+  try {
+    const sent = await sendToCoordinator($, coordinator.to, withdrawalText(name, held.blocks, held.since))
+    if (!sent?.isDelivered) await logLine($, `withdraw: not delivered to ${addressLabel(coordinator.to)}: ${sent?.reason ?? 'no answer'}`)
+  } catch (err) {
+    await logLine($, `withdraw: ${(err as Error).message}`)
   }
 }
 
@@ -2204,6 +2306,11 @@ async function answerPart($: any, pane: PaneMemory, asked: RoundEntry, text: str
   return answerEntryFromPane($, pane, asked, answers.join(' · '))
 }
 
+// A failed delivery to this machine, by its entry and the answer it carried.
+function failedKey(entry: RoundEntry): string {
+  return `${entry.id} ${entry.delivery?.answerAt ?? ''}`
+}
+
 // A question's « other answer » forgotten: its field and its note to answer in the session.
 function forgetDraft(pane: PaneMemory, key: string): void {
   pane.other.delete(key)
@@ -2211,9 +2318,10 @@ function forgetDraft(pane: PaneMemory, key: string): void {
 }
 
 // The one sequence both answers share: the entry written answered by the pane with `text`, its
-// fingerprint forgotten, the text sent to its sender. An entry from another machine forgets no
-// wait file here: its answer is pending in the same write and sent as a marked line to the
-// address its ask came from (sendAnswer), its sender's module forgetting the fingerprint.
+// fingerprint forgotten, the text sent to its sender, a send not delivered written failed in the
+// entry (deliverLocal). An entry from another machine forgets no wait file here: its answer is
+// pending in the same write and sent as a marked line to the address its ask came from
+// (sendAnswer), its sender's module forgetting the fingerprint.
 async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, text: string): Promise<void> {
   if (pane.answering.has(asked.id)) return
   pane.answering.add(asked.id)
@@ -2234,17 +2342,7 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
     if (entry.origin) await sendAnswer($, path, answered, text)
     else {
       await forgetRelayed($, entry)
-      let reason: string | null = null
-      try {
-        const sent = await $.session.send({ to: await senderAddress($, entry), text: paneAnswerText(entry, text, at) })
-        if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
-      } catch (err) {
-        reason = (err as Error).message
-      }
-      if (reason !== null) {
-        pane.undelivered.set(entry.id, { entry: { ...entry, status: 'answered', answer: { text, by: 'pane', at } }, reason })
-        await logLine($, `round: the pane's answer was not delivered to ${entry.from}: ${reason}`)
-      }
+      await deliverLocal($, path, answered, paneAnswerText(entry, text, at))
     }
     if (closed) {
       const taken = await $.prompt.submit({ text: settledText(entry, answer) })
@@ -2261,6 +2359,66 @@ async function answerEntryFromPane($: any, pane: PaneMemory, asked: RoundEntry, 
 // The prefix of the answer an entry the coordinator was shown is closed with.
 const PANE_CLOSED = 'answered from the pane: '
 
+// One send of an answer to a sender on this machine, `readable` the message it receives, to its
+// session (senderAddress); then the entry read again and, while it still holds that answer and its
+// delivery has not moved, written whole once: `failed` with the host's reason when the send was
+// not delivered, or, for an answer whose delivery round-close left pending, `delivered`. A pane's
+// answer delivered writes nothing more.
+async function deliverLocal($: any, path: string, entry: RoundEntry, readable: string): Promise<void> {
+  const answer = entry.answer!
+  let reason: string | null = null
+  try {
+    const sent = await $.session.send({ to: await senderAddress($, entry), text: readable })
+    if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
+  } catch (err) {
+    reason = (err as Error).message
+  }
+  const by = answer.by === 'coordinator' ? 'coordinator' : 'pane'
+  if (reason !== null) await logLine($, `round: the ${by}'s answer was not delivered to ${entry.from}: ${reason}`)
+  if (reason === null && !entry.delivery) return
+  const now = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+  if (!now || now.answer?.at !== answer.at || now.delivery?.state !== entry.delivery?.state) {
+    await logLine($, `round: the delivery of ${entry.id} moved during its send, left as it is`)
+    return
+  }
+  const at = new Date().toISOString()
+  const moved: RoundDelivery = reason === null
+    ? { state: 'delivered', at, attempts: 1, answerAt: answer.at }
+    : { state: 'failed', at, attempts: 1, answerAt: answer.at, reason }
+  await writeAtomic($, path, JSON.stringify({ ...now, delivery: moved }) + '\n')
+  if (reason !== null) $.ui.invalidate('ui.render')
+}
+
+// A pending delivery stamped for another answer than the one the entry holds is never sent: it is
+// written `failed` naming the mismatch, so that it is not left pending for ever.
+async function failMismatched($: any, path: string, entry: RoundEntry): Promise<void> {
+  const was = entry.delivery!
+  const now = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+  if (!now?.delivery || now.delivery.state !== 'pending' || now.answer?.at !== entry.answer?.at) return
+  const reason = `the delivery was stamped for the answer of ${was.answerAt}, the entry holds the answer of ${entry.answer?.at}`
+  await logLine($, `round: ${entry.id}: ${reason}`)
+  await writeAtomic($, path, JSON.stringify({ ...now, delivery: { ...now.delivery, state: 'failed', at: new Date().toISOString(), reason } }) + '\n')
+}
+
+// The answers the coordinator closed in its tab, read at each round wake whether the pane is open
+// or not: an entry `coordinator.sh round-close` closed with a delivery pending and never sent is
+// sent once — to its sender's session on this machine (deliverLocal), or as a marked line to
+// another machine (sendAnswer, its resends then resendAnswers') — and its outcome written in its
+// delivery. A failure of one entry is one log line, and the others are still read.
+async function deliverClosedAnswers($: any): Promise<void> {
+  for (const { path, entry } of await readRound($)) {
+    const delivery = entry.delivery
+    if (entry.kind !== 'operator' || entry.status !== 'closed' || entry.answer?.by !== 'coordinator' || delivery?.state !== 'pending' || delivery.attempts !== 0) continue
+    try {
+      if (entry.origin) await sendAnswer($, path, entry, entry.answer.text)
+      else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorAnswerText(entry, entry.answer.text, entry.answer.at))
+      else await failMismatched($, path, entry)
+    } catch (err) {
+      await logLine($, `round delivery: ${entry.id}: ${(err as Error).message}`)
+    }
+  }
+}
+
 // One send of the pane's answer to an entry from another machine, its delivery `pending` or `sent`
 // as `entry` holds it: the marked line to the address its ask came from, the answer cut as the
 // channel carries it and the cut said; then the entry read again and, while its delivery is still
@@ -2271,7 +2429,8 @@ async function sendAnswer($: any, path: string, entry: RoundEntry, text: string)
   const carried = cutQuestion(text)
   let reason: string | null = null
   try {
-    const sent = await $.session.send({ to: entry.origin!.address, text: answerLine(entry.id, entry.since, carried, at, paneAnswerText(entry, carried, at)) })
+    const readable = (entry.answer!.by === 'coordinator' ? coordinatorAnswerText : paneAnswerText)(entry, carried, at)
+    const sent = await $.session.send({ to: entry.origin!.address, text: answerLine(entry.id, entry.since, carried, at, readable) })
     if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
   } catch (err) {
     reason = (err as Error).message
@@ -2352,24 +2511,46 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
   return `[module] The operator answered from the coordinator's pane at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
 }
 
+// The same report for his answer the coordinator closed in its tab with round-close.
+export function coordinatorAnswerText(entry: RoundEntry, answer: string, at: string): string {
+  return `[module] The operator answered through the coordinator at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
+}
+
+// The orchestrator acted on an answer that reached it by a message (a relay from another session):
+// its open operator entries, or only `only` when named, are marked `answered`, by `message`, with
+// the message's author. Answers the ids still open, for the tool's reply, or null for a session
+// that is no orchestrator.
+export async function answerByMessage($: any, author: string, only: string | null): Promise<string[] | null> {
+  const sessionId = await $.session.id()
+  const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
+  if (roleOf(row?.name ?? (await walkWithinBound($, sessionId)).name ?? null) !== 'orchestrator') return null
+  await tellSettled($, await withdrawStale($, sessionId, null, `answered by a message from ${author}`,
+    entry => entry.kind !== 'operator' || (only !== null && entry.id !== only), { author }))
+  return (await readRound($)).filter(({ entry }) => entry.session === sessionId && entry.kind === 'operator' && entry.status === 'open').map(({ entry }) => entry.id)
+}
+
 // An orchestrator's turn ended on a machine line other than the wait an open entry of its own
 // holds: that entry is no longer what it waits on, so it is withdrawn by the sender, leaves the
 // pane and its count, and its fingerprint is forgotten. A turn with no machine line says nothing
 // of its wait and withdraws nothing. The same withdrawal closes every open entry of a session
 // that is superseded by its new question, that ended, or that handed over (`current` null).
 // `current` is the id of the entry this turn's wait has, kept open; `why` the withdrawal's answer
-// text; `kept` the entries left open besides. An entry the coordinator on this machine was shown
-// is closed instead, its answer « withdrawn: <why> », and returned so the caller tells it once
+// text; `kept` the entries left open besides; `via` set, the answer reached the sender by a message
+// from that author: the entry is `answered`, by `message`, rather than withdrawn. An entry the
+// coordinator on this machine was shown is closed instead, its answer « withdrawn: <why> », and returned so the caller tells it once
 // every write is done. Each withdrawal is one log line; one that cannot be written is one too,
 // and the relay goes on.
-async function withdrawStale($: any, sessionId: string, current: string | null, why: string, kept?: (entry: RoundEntry) => boolean): Promise<Settled[]> {
+async function withdrawStale($: any, sessionId: string, current: string | null, why: string, kept?: (entry: RoundEntry) => boolean, via?: { author: string }): Promise<Settled[]> {
   const settled: Settled[] = []
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open' || entry.id === current || kept?.(entry)) continue
     try {
       const closed = await closesItself($, entry.id)
-      const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: 'sender', at: new Date().toISOString() }
-      await writeAtomic($, path, JSON.stringify({ ...entry, status: closed ? 'closed' : 'withdrawn', answer }) + '\n')
+      const answer: RoundAnswer = { text: closed ? `withdrawn: ${why}` : why, by: via ? 'message' : 'sender', at: new Date().toISOString(), ...via }
+      // Re-read just before the write: a move to a successor in between is never overwritten.
+      const fresh = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+      if (!fresh || fresh.status !== 'open' || fresh.session !== sessionId) continue
+      await writeAtomic($, path, JSON.stringify({ ...fresh, status: closed ? 'closed' : via ? 'answered' : 'withdrawn', answer }) + '\n')
       await logLine($, `round: withdrawn by the sender: ${entry.id}`)
       await forgetRelayed($, entry)
       if (closed) settled.push({ entry, answer })
@@ -2405,7 +2586,7 @@ export async function readRound($: any): Promise<{ path: string; entry: RoundEnt
 const ROUND_STATUSES: readonly string[] = ['open', 'answered', 'withdrawn', 'closed']
 
 // An entry file read back: the JSON of one entry, each field of its type, or nothing.
-function parseRoundEntry(text: string): RoundEntry | null {
+export function parseRoundEntry(text: string): RoundEntry | null {
   try {
     const e = JSON.parse(text)
     if (!e || typeof e !== 'object') return null
@@ -2420,16 +2601,23 @@ function parseRoundEntry(text: string): RoundEntry | null {
   }
 }
 
-// An entry's delivery, when it carries one: only beside an origin, its four fields of their type
-// and no other, the reason a text.
+// An entry's delivery, when it carries one, its fields of their type and no other, the reason a
+// text: beside an origin, its state one of a remote answer's and no answer stamp; without one, its
+// state one of an answer's on this machine and the stamp of the answer it carries.
 const DELIVERY_STATES: readonly string[] = ['pending', 'sent', 'acked', 'failed']
+const LOCAL_DELIVERY_STATES: readonly string[] = ['pending', 'delivered', 'failed']
 function deliveryRead(e: any): boolean {
   if (e.delivery === undefined) return true
   const d = e.delivery
-  if (!e.origin || typeof e.origin !== 'object' || !d || typeof d !== 'object' || Array.isArray(d)) return false
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return false
+  const remote = e.origin !== undefined
+  if (remote && (!e.origin || typeof e.origin !== 'object')) return false
   const keys = Object.keys(d)
-  return DELIVERY_STATES.includes(d.state) && typeof d.at === 'string' && Number.isInteger(d.attempts) && d.attempts >= 0
-    && (d.reason === undefined || typeof d.reason === 'string') && keys.every(key => ['state', 'at', 'attempts', 'reason'].includes(key))
+  const shaped = remote
+    ? DELIVERY_STATES.includes(d.state) && d.answerAt === undefined
+    : LOCAL_DELIVERY_STATES.includes(d.state) && typeof d.answerAt === 'string'
+  return shaped && typeof d.at === 'string' && Number.isInteger(d.attempts) && d.attempts >= 0
+    && (d.reason === undefined || typeof d.reason === 'string') && keys.every(key => ['state', 'at', 'attempts', 'answerAt', 'reason'].includes(key))
 }
 
 // Where an orchestrator's reports go: the coordinator registered on this machine first
@@ -2448,7 +2636,7 @@ export async function coordinatorAddress($: any): Promise<{ to: CoordinatorTo; n
 }
 
 // A name that carries its session's reference, « Coord : ops [abc] »: no other session has it.
-const REFERENCED = / \[[^\]\s]+\]$/
+export const REFERENCED = / \[[^\]\s]+\]$/
 
 // The session id of the one session on this machine that the host's registry (its sessions
 // directory, one record per process) names so, the process the coordinator's record names when
@@ -2979,26 +3167,68 @@ async function refreshDeck($: any, bound = RELAY_BOUND_MS): Promise<void> {
   }
 }
 
-// The orchestrator an agent on `tty` reports to: the chain that names the tty
-// (chainOwnerTty), then the live orchestrator row measured on that chain's tty, the
-// latest if two. Null when no chain names it or no orchestrator sits there.
-export async function orchestratorOn($: any, tty: string): Promise<string | null> {
+// The orchestrator an agent reports to, and the path that found it, said in the log under
+// `what`. First the orchestrator the launch recorded (ORCHESTRATOR_REPORTS_TO), without its
+// reference: the session of the host's registry that bears that name and runs live (runsLive,
+// so a host that is exiting does not count), the one started last when several do, so a
+// replacement wins over the session it replaced. Then, when that is unset or finds none, the
+// chain that names the agent's tty (chainOwnerTty) and the live orchestrator row measured on
+// that chain's tty, the latest if two; a chain whose owner tty holds no live orchestrator
+// leaves the entry orphaned, one log line. A pid the process table cannot be read for is never
+// judged dead. Null when neither path finds one.
+export async function orchestratorOn($: any, tty: string | null, agent: string, what: string): Promise<CoordinatorTo | null> {
   const dir = `${await stateDir($)}/chains`
-  const listed: readonly { name: string; kind: string; mtimeMs?: number }[] = await $.fs.list(dir).catch(() => [])
+  const listed: readonly { name: string; kind: string; mtimeMs?: number }[] = tty ? await $.fs.list(dir).catch(() => []) : []
   const chains = []
   for (const entry of listed) {
     if (entry.kind !== 'file' || !entry.name.endsWith('.jsonl')) continue
     chains.push({ name: entry.name, mtimeMs: entry.mtimeMs ?? 0, text: String(await $.fs.read(`${dir}/${entry.name}`).catch(() => '')) })
   }
-  const owner = chainOwnerTty(chains, tty)
-  if (!owner) return null
-  const rows = `${await storeOf($)}/sessions`
-  let found: SessionRow | null = null
-  for (const entry of await $.fs.list(rows).catch(() => [])) {
-    const row = parseSessionRow(String(await $.fs.read(`${rows}/${entry.name}`).catch(() => '')))
-    if (row?.role === 'orchestrator' && row.tty === owner && row.name && (!found || row.updated_at > found.updated_at)) found = row
+  let alive: ReturnType<typeof livePids> | undefined
+  const live = async (pid: unknown): Promise<boolean> => {
+    if (pid === null || pid === undefined || !/^\d+$/.test(String(pid))) return true
+    if (alive === undefined) alive = livePids(await $.process.run(['ps', '-A', '-o', 'pid=,stat=,tty='], { timeoutMs: 5000 }).catch(() => null))
+    return alive === null || runsLive(alive, String(pid))
   }
-  return found?.name ?? null
+  const recorded = String((await $.env.get('ORCHESTRATOR_REPORTS_TO')) ?? '').trim()
+  const bare = recorded.replace(REFERENCED, '').trim()
+  if (bare) {
+    const registry = `${await configDir($)}/sessions`
+    let chosen: { sessionId: string; startedAt: number } | null = null
+    for (const file of await $.fs.list(registry).catch(() => [])) {
+      if (!file || file.kind !== 'file' || !file.name.endsWith('.json')) continue
+      try {
+        const record = JSON.parse(String(await $.fs.read(`${registry}/${file.name}`)))
+        if (record?.name !== bare || typeof record.sessionId !== 'string' || record.sessionId === '') continue
+        const startedAt = Number(record.startedAt) || 0
+        if ((!chosen || startedAt > chosen.startedAt) && await live(record.pid)) chosen = { sessionId: record.sessionId, startedAt }
+      } catch { /* a record being written, or gone: not this one */ }
+    }
+    if (chosen) {
+      await logLine($, `${what}: ${agent} on ${tty ?? 'an unknown tty'} goes to ${bare} (session ${chosen.sessionId}) by the launch record`)
+      return { sessionId: chosen.sessionId }
+    }
+    await logLine($, `${what}: ${agent} was launched for ${recorded}, and no live session bears the name ${bare}`)
+  }
+  const rows = `${await storeOf($)}/sessions`
+  const orchestrators = new Map<string, SessionRow>()
+  for (const entry of await $.fs.list(rows).catch(() => [])) {
+    // A row write in flight (writeAtomic) is no orchestrator of its own.
+    if (entry.name.includes('.tmp-')) continue
+    const row = parseSessionRow(String(await $.fs.read(`${rows}/${entry.name}`).catch(() => '')))
+    if (row?.role !== 'orchestrator' || !row.name || !row.tty) continue
+    const held = orchestrators.get(row.tty)
+    if ((!held || row.updated_at > held.updated_at) && await live(row.pid)) orchestrators.set(row.tty, row)
+  }
+  const owner = tty ? chainOwnerTty(chains, tty, ownerTty => orchestrators.has(ownerTty)) : null
+  const found = owner ? orchestrators.get(owner) ?? null : null
+  if (found?.name) {
+    await logLine($, `${what}: ${agent} on ${tty} goes to ${found.name} by the chain on ${owner}`)
+    return found.name
+  }
+  const stale = tty ? chainOwnerTty(chains, tty) : null
+  if (stale) await logLine($, `${what}: the chain on ${stale} names ${tty} and has no live owner: the entry is orphaned`)
+  return null
 }
 
 // An agent's measure against the gate its session runs under (the gauge's thresholds,
@@ -3014,14 +3244,14 @@ export async function reportGate($: any, sessionId: string, name: string, tty: s
     await $.fs.write(path, '')
     return
   }
-  const to = await orchestratorOn($, tty)
+  const to = await orchestratorOn($, tty, name, 'gate')
   if (!to) {
     await logLine($, `gate: no orchestrator found for ${name} on ${tty}`)
     return
   }
   const sent = await $.session.send({ to, text: gateText(name, reading.context_tokens, reading.context_percent) })
   if (sent?.isDelivered) await $.fs.write(path, 'reported\n')
-  else await logLine($, `gate: not delivered to ${to}: ${sent?.reason ?? 'no answer'}`)
+  else await logLine($, `gate: not delivered to ${addressLabel(to)}: ${sent?.reason ?? 'no answer'}`)
 }
 
 // The gate's thresholds from the environment, the gauge's own reading spelled again here

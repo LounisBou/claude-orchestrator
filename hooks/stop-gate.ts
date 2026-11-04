@@ -65,57 +65,53 @@ export async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T |
 
 // --- the refusal texts (stop_gate.py:126-146, verbatim but where the tool line changed them) -----------------------------------
 
-const NOTHING = 'Nothing will wake you: no agent of yours is running, and no command or monitor you started '
-  + 'runs in the background. Launch what you announced — an agent, or a command whose end or events wake you, '
-  + 'then end with the line waiting: tool — <what is watched> —, or, if a question for the operator truly blocks, '
-  + 'end with the line waiting: operator — blocks: <what it blocks>, or with waiting: done. '
-  + "The line goes as the message's last line, no markup."
 const MALFORMED = 'Your last line is not the machine line: end the message with the line '
   + 'waiting: operator — blocks: <what it blocks>, or with waiting: done, '
-  + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <ids>, '
+  + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <n> items, '
   + "as the message's last line, no markup. "
   + 'waiting: tool — <what is watched> fits only while a command or monitor you started runs in the background.'
 const DEFERRED_MALFORMED = 'Your last line is not the machine line: a deferred ending names what is deferred. '
-  + 'End the message with the line waiting: deferred — <ids> (rows by their number, goals as G<n>), '
+  + "End the message with the line waiting: deferred — <n> items, <n> the deferred rows and goals together, "
   + "as the message's last line, no markup."
 // The lines that fit a turn, by what will wake it: what the two refusals below name.
 const BUSY_FITS = 'An agent of yours is busy: end on no machine line, its idle notice wakes you.'
 const OTHER_FITS = 'If a question for the operator truly blocks, end with the line waiting: operator — blocks: <what it blocks>; '
   + 'if every goal is met or ruled out, with waiting: done; '
-  + 'if the operator deferred it, his ruling recorded: waiting: deferred — <ids>; else launch what you announced.'
+  + 'if the operator deferred it, his ruling recorded: waiting: deferred — <n> items; else launch what you announced.'
 const runningFits = (what: readonly string[]) =>
   `${what.join(', ')} runs in the background: end with the line waiting: tool — <what is watched>.`
 function fits(busy: boolean, running: readonly string[]): string {
   if (running.length > 0) return runningFits(running)
   return busy ? BUSY_FITS : OTHER_FITS
 }
+// A turn that ends on no machine line with nothing in flight, no agent busy and no notice awaited.
+const NOTHING = 'Nothing will wake you: nothing of yours runs in the background and no agent of yours is busy. '
+  + 'Launch what you announced (an agent, or a command with run_in_background, then end with the line waiting: tool — <what is watched>), '
+  + `or end on the line that fits. ${OTHER_FITS} The line goes as the message's last line, no markup.`
+// A tool line with nothing of the session's own in flight: no end and no event will come to wake it.
+const TOOL_NOT_RUNNING = 'Nothing of yours runs in the background: waiting: tool — <what is watched> fits only while '
+  + 'a command, monitor or subagent you started still runs. Launch it with run_in_background, or end on the line that fits. '
+  + `${OTHER_FITS} The line goes as the message's last line, no markup.`
 const blocksNothingReason = (busy: boolean, running: readonly string[]) =>
   'Your wait on the operator blocks nothing: that line is for a question he must answer, and the coordinator '
   + `would put it to him. ${fits(busy, running)} The line goes as the message's last line, no markup.`
-const toolNotRunningReason = (busy: boolean) =>
-  'Nothing of yours runs in the background: waiting: tool — <what is watched> fits only while a command or '
-  + `monitor you started still runs. ${fits(busy, [])} `
-  + "The line goes as the message's last line, no markup."
-const idleDelivered = (who: string) =>
-  `Idle with its pull request open or merged: ${who}. Stand it down now — or, if it waits on a question you have not answered, answer it.`
-const IDLE_ONE = '%s is idle: its notice was spent. Read its report or relaunch it.'
-const IDLE_MANY = '%s are idle: their notices were spent. Read their reports or relaunch them.'
 const QUESTION = 'Your question blocks nothing declared: advance everything that can advance; its answer will come in a later turn.'
 const NOT_DONE_ONE = 'Not done: %s is still there. Finish it, or say what blocks it.'
 const NOT_DONE_MANY = 'Not done: %s are still there. Finish them, or say what blocks them.'
 // The deferral path beside the others: work the operator put off is recorded with his ruling
 // and ended on its own machine line, never put to him again as a question.
 const DEFER_ROW = 'record his ruling with dispatch-record.sh defer <record> <id> --ruling "<his words, dated>" '
-  + 'and end on waiting: deferred — <ids>'
-const ROW_ONE = `Not done: row %s is open. Dispatch it, close it, or say what blocks it — or, if the operator deferred it, ${DEFER_ROW}.`
-const ROW_MANY = `Not done: rows %s are open. Dispatch them, close them, or say what blocks them — or, if the operator deferred them, ${DEFER_ROW}.`
+  + 'and end on waiting: deferred — <n> items'
+const ROW_ONE = `Not done: row %s is open%p. Dispatch it, close it, or say what blocks it — or, if the operator deferred it, ${DEFER_ROW}.`
+const ROW_MANY = `Not done: rows %s are open%p. Dispatch them, close them, or say what blocks them — or, if the operator deferred them, ${DEFER_ROW}.`
 // The spec's goals (goals.md beside a registered record, read by goals.py check): done is
 // measured against what the spec set out to reach, not against the plan alone.
-const GOALS_OPEN = 'Not done against the spec: %s open. Dispatch the work that meets it and record its evidence '
+const GOALS_OPEN = 'Not done against the spec: %s open%p. Dispatch the work that meets it and record its evidence '
   + '(dispatch-record.sh goals <record> met <G> --evidence …), or put it to the operator when he has not ruled: '
   + 'waiting: operator — blocks: <G>: <what he must rule> — or, if he deferred it, record his ruling with '
-  + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <ids>.'
-const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <ids>, not on waiting: done.'
+  + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <n> items.'
+const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <n> items, not on waiting: done.'
+const COUNT_WRONG = 'waiting: deferred — <n> items must give the number of deferred rows and goals together: the right line is waiting: deferred — %s.'
 const IDS_WRONG = 'waiting: deferred — <ids> must name every deferred item (rows by their number, goals as G<n>): %s.'
 const NOTHING_DEFERRED = 'Nothing is deferred: no open row or goal carries the operator\'s ruling. '
   + 'If everything is finished, end on waiting: done.'
@@ -124,12 +120,21 @@ const GOALS_FAULT = 'goals.md is not a record of the spec: %s.'
 // table, because whether a piece of evidence that exists is enough is his to judge.
 export const GOALS_SHOW = 'Show the operator this table, each goal with its evidence, then end on waiting: done again.'
 
+// Where the rows and the goals were read: the record files and goals.md files that hold them,
+// said in the refusal so a session sees whose file it is being asked about. Nothing is said
+// when the caller does not know them.
+type Where = { rows?: readonly string[]; goals?: readonly string[] }
+const placed = (paths: readonly string[] | undefined) => (paths && paths.length > 0 ? ` in ${paths.join(', ')}` : '')
+// One pass over the template, so a label or a path that spells a placeholder is never filled twice.
+const fill = (template: string, names: readonly string[], paths: readonly string[] | undefined) =>
+  template.replace(/%([sp])/g, (_, which: string) => (which === 's' ? names.join(', ') : placed(paths)))
+
 function notDoneReasons(left: readonly string[], deferred: readonly string[],
-  goals: { open: readonly string[]; faults: readonly string[] } = { open: [], faults: [] }): string[] {
+  goals: { open: readonly string[]; faults: readonly string[] } = { open: [], faults: [] }, where: Where = {}): string[] {
   const reasons: string[] = []
   if (left.length > 0) reasons.push((left.length === 1 ? NOT_DONE_ONE : NOT_DONE_MANY).replace('%s', left.join(', ')))
-  if (deferred.length > 0) reasons.push((deferred.length === 1 ? ROW_ONE : ROW_MANY).replace('%s', deferred.join(', ')))
-  if (goals.open.length > 0) reasons.push(GOALS_OPEN.replace('%s', goals.open.join(', ')))
+  if (deferred.length > 0) reasons.push(fill(deferred.length === 1 ? ROW_ONE : ROW_MANY, deferred, where.rows))
+  if (goals.open.length > 0) reasons.push(fill(GOALS_OPEN, goals.open, where.goals))
   if (goals.faults.length > 0) reasons.push(GOALS_FAULT.replace('%s', goals.faults.join('; ')))
   return reasons
 }
@@ -191,6 +196,11 @@ function normalise(line: string): string {
 export function machineLine(message: string): string {
   const lines = message.split('\n').filter(l => l.trim() !== '')
   return lines.length > 0 ? normalise(lines[lines.length - 1]) : ''
+}
+
+// Whether the message ends on the predecessor's last word, `handed over`.
+export function endsOnHandOver(message: string): boolean {
+  return HANDED_OVER.test(machineLine(message))
 }
 
 // --- the launcher's listing (stop_gate.py:187-219) ---------------------------------------
@@ -371,6 +381,36 @@ export function projectCheckouts(top: string, listOut: string): string[] {
 
 // --- check 1 (stop_gate.py:356-392) --------------------------------------------------------
 
+// The work the host itself says is in flight for the session, off the stop's own payload:
+// `background_tasks` (background shells, monitors, subagents, workflows — running, pending or
+// backgrounded) and `session_crons` (scheduled wake-ups), each named by what it runs. Null when
+// the payload carries no task list at all — a host that does not say — so the caller can tell
+// « nothing runs » from « not told ».
+//
+// A task the host lists as settled wakes nothing: its type only promises a string status, so
+// the terminal ones it uses for its tasks (`completed`, `failed`, `killed`, and `stopped` on a
+// task's end notice) are left out. Any other status, or none, still counts: a wrong list must
+// never refuse a real wait. A scheduled wake-up carries no status.
+const SETTLED_TASK = new Set(['completed', 'failed', 'killed', 'stopped'])
+
+export function hostTasks(tasks: unknown, crons: unknown): string[] | null {
+  if (!Array.isArray(tasks)) return null
+  const named: string[] = []
+  for (const task of tasks) {
+    if (!task || typeof task !== 'object') continue
+    const t = task as { command?: unknown; description?: unknown; type?: unknown; status?: unknown }
+    if (typeof t.status === 'string' && SETTLED_TASK.has(t.status)) continue
+    const what = [t.command, t.description, t.type].find(v => typeof v === 'string' && v.trim() !== '')
+    named.push(typeof what === 'string' ? what.trim() : 'a background task')
+  }
+  for (const cron of Array.isArray(crons) ? crons : []) {
+    if (!cron || typeof cron !== 'object') continue
+    const schedule = (cron as { schedule?: unknown }).schedule
+    named.push(`a scheduled wake-up${typeof schedule === 'string' && schedule.trim() !== '' ? ` (${schedule.trim()})` : ''}`)
+  }
+  return named
+}
+
 export type Held = { case: string; reason: string }
 
 // check_wake()'s first half: everything decidable before the facts of a done message
@@ -400,6 +440,12 @@ export type Held = { case: string; reason: string }
 // (`awaiting`: a SendMessage with notify_when_idle, its notice not arrived yet) wakes
 // it as a busy agent's would; and a session that handed over is never told nothing
 // will wake it — its successor's « takeover confirmed » will.
+//
+// The tool line is decided first on the host's own word (`tasks`, hostTasks above): what the
+// host holds in flight for the session is what will wake it, and a tool line with none of it,
+// no process of its own, no watch, no subscription and no busy agent is refused. The process
+// table walked by parent chain only adds work: alone it missed real waits and refused them, so
+// when the host gives no task list the line passes and the caller logs it, as before.
 export function checkWake(facts: {
   agents: readonly OwnAgent[]
   resident: boolean
@@ -410,7 +456,8 @@ export function checkWake(facts: {
   background?: readonly string[]
   awaiting?: boolean
   hostUnread?: boolean
-}): Held | { blocks: string } | { tool: string } | 'read-what-is-left' | null {
+  tasks?: readonly string[] | null
+}): Held | { blocks: string } | { tool: string; notRunning?: true } | { warn: 'idle-delivered' | 'idle-agents' | 'nothing-will-wake'; detail: string } | 'read-what-is-left' | null {
   const last = machineLine(facts.message)
   const matched = MACHINE_LINE.exec(last)
   const busy = facts.agents.some(a => a.state === 'busy')
@@ -422,20 +469,27 @@ export function checkWake(facts: {
   if (matched && matched[1]) return { blocks: matched[1] }
   // Before every other release: neither a busy agent beside it nor a running watch lifts it.
   if (facts.delivered.length > 0) {
-    return { case: 'idle-delivered', reason: idleDelivered(facts.delivered.join(', ')) }
+    // Measured, not refused: the log keeps who was idle with its pull request open or merged.
+    return { warn: 'idle-delivered', detail: facts.delivered.join(', ') }
   }
   const tool = TOOL_LINE.exec(last)
   if (tool) {
+    if (facts.tasks !== undefined && facts.tasks !== null) {
+      // A session that handed over is woken by its successor's « takeover confirmed », as at its other endings.
+      if (facts.tasks.length > 0 || running.length > 0 || facts.watching || facts.awaiting || busy || facts.handedOver) return { tool: tool[1].trim() }
+      return { case: 'tool-not-running', reason: TOOL_NOT_RUNNING }
+    }
     if (running.length > 0 || facts.watching || facts.hostUnread) return { tool: tool[1].trim() }
-    return { case: 'tool-not-running', reason: toolNotRunningReason(busy) }
+    // Measured, not refused: the parent-chain detection of the session's own processes is too
+    // fragile to be a gate, so the line passes and the caller logs that nothing was seen running.
+    return { tool: tool[1].trim(), notRunning: true }
   }
   if (busy) return null
   if (facts.watching || running.length > 0) return null
   if (facts.awaiting) return null
   if (matched || deferredIds(last) !== null) return 'read-what-is-left'
   if (facts.agents.length > 0) {
-    const names = facts.agents.map(a => a.label).join(', ')
-    return { case: 'idle-agents', reason: (facts.agents.length === 1 ? IDLE_ONE : IDLE_MANY).replace('%s', names) }
+    return { warn: 'idle-agents', detail: facts.agents.map(a => a.label).join(', ') }
   }
   if (DEFERRED_WORD.test(last)) return { case: 'malformed-machine-line', reason: DEFERRED_MALFORMED }
   if (last.toLowerCase().startsWith('waiting') && LOOKS_DECLARED.test(last)) {
@@ -450,7 +504,12 @@ export function checkWake(facts: {
     return null
   }
   if (facts.handedOver) return null
-  return { case: 'nothing-will-wake', reason: NOTHING }
+  // Refused on the host's own list of work in flight, as the tool line is; a host that sends none is only logged.
+  if (facts.tasks !== undefined && facts.tasks !== null) {
+    if (facts.tasks.length > 0) return null
+    return { case: 'nothing-will-wake', reason: NOTHING }
+  }
+  return { warn: 'nothing-will-wake', detail: '' }
 }
 
 // How long a subscription to a peer's idle notice counts as something that will wake the
@@ -506,11 +565,23 @@ export function isSuccessorSpawn(command: string): boolean {
 // is not the spec's). goals.py check reads them, the one implementation of the grammar.
 //
 // Work the operator deferred (`deferredRows` among the open rows, `goalsDeferred` beside the
-// open goals) is open and put off by his ruling. The ending `waiting: deferred — <ids>`
+// open goals) is open and put off by his ruling. The ending `waiting: deferred — <n> items`
 // (`ending: 'deferred'`) takes it when nothing else is open, and is refused when nothing is
-// deferred; `waiting: done` refuses it, and names the line that fits. The ids the line lists
-// (`ids`) must be those deferred items, each named and none unknown.
+// deferred; `waiting: done` refuses it, and names the line that fits.
+// The taught form counts the deferred items: rows and goals together. The older forms stay
+// accepted: `<n> rows` with ` G<m>` for goals, and the ids, each named and none unknown.
+const COUNT_ITEMS = /^(\d+)\s+items?$/i
+const COUNT_FORM = /^(\d+)\s+rows?(?:\s+G(\d+))?$/i
 function idsMismatch(listed: string, rows: readonly string[], goals: readonly string[]): string | null {
+  const total = rows.length + goals.length
+  const countWrong = COUNT_WRONG.replace('%s', `${total} items`)
+  const items = COUNT_ITEMS.exec(listed.trim())
+  if (items) return Number(items[1]) === total ? null : countWrong
+  const counted = COUNT_FORM.exec(listed.trim())
+  if (counted) {
+    if (Number(counted[1]) === rows.length && Number(counted[2] ?? 0) === goals.length) return null
+    return countWrong
+  }
   const wanted = new Map<string, string>()
   for (const row of rows) wanted.set(row.split(' ')[0].toUpperCase(), `row ${row.split(' ')[0]}`)
   for (const goal of goals) wanted.set(goal.toUpperCase(), goal)
@@ -531,15 +602,18 @@ export function checkWakeDone(left: {
   goalsOpen?: readonly string[]
   goalsDeferred?: readonly string[]
   goalsFaults?: readonly string[]
+  rowRecords?: readonly string[]
+  goalsRecords?: readonly string[]
   ending?: 'done' | 'deferred'
   ids?: string
 }): Held | null {
-  const stillThere = [...left.checkouts, ...left.agents.map(a => a.label)]
+  // The working copies are not read by session, so they only warn (the caller logs them); the agents refuse.
+  const stillThere = left.agents.map(a => a.label)
   const putOff = left.deferredRows ?? []
   const rows = left.deferred.filter(row => !putOff.includes(row))
   const goals = { open: left.goalsOpen ?? [], faults: left.goalsFaults ?? [] }
   const putOffGoals = left.goalsDeferred ?? []
-  const reasons = notDoneReasons(stillThere, rows, goals)
+  const reasons = notDoneReasons(stillThere, rows, goals, { rows: left.rowRecords, goals: left.goalsRecords })
   const names = [...putOff.map(row => `row ${row}`), ...putOffGoals]
   if (left.ending === 'deferred') {
     if (names.length === 0 && reasons.length === 0) return { case: 'nothing-deferred', reason: NOTHING_DEFERRED }
@@ -578,6 +652,36 @@ export function parseGoalsCheck(path: string, text: string): GoalsReading | null
   } catch {
     return null
   }
+}
+
+// --- whose a record is ----------------------------------------------------------------------
+
+// A dispatch record belongs to one orchestration: dispatch-record.sh writes its name in
+// `<record>.owner` at the first write, and a session answers for no other's rows or goals.
+// The orchestration is the session's name in the house shape, without its reference, which
+// is what a successor keeps; the file will hold the orchestration's id the day it has one.
+const REFERENCE = / \[[^\]\s]+\]$/
+export function orchestrationOf(name: string | null | undefined): string | null {
+  const bare = (name ?? '').trim().replace(REFERENCE, '').trim()
+  const subject = /^Orch ?: *(\S.*)$/.exec(bare)?.[1]
+  return subject ? `Orch : ${subject}` : null
+}
+
+// The owner an owner file names: its first line, as the orchestration when it reads as one,
+// null when the file is blank.
+export function ownerOf(text: string): string | null {
+  const line = text.split('\n')[0].trim()
+  return line === '' ? null : orchestrationOf(line) ?? line
+}
+
+// A record with no owner is read as it always was; an owned one only by its owner.
+export const isOwnRecord = (owner: string | null, own: string | null): boolean => owner === null || owner === own
+
+// The record files that hold an open row the operator has not deferred: the ones a refusal
+// about rows names. `texts` runs parallel to `records`.
+export function recordsWithOpenRows(records: readonly string[], texts: readonly string[]): string[] {
+  return records.filter((_, i) => rowsWhere([texts[i] ?? ''], row =>
+    row.state === 'open' && !(typeof row.deferred === 'string' && row.deferred.trim() !== '')).length > 0)
 }
 
 // The goals.md of each registered record: the file beside it, once per directory.

@@ -77,7 +77,8 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # an empty name, and one name given to both options. A kept name the default never removed
     # is harmless. `tools` lists what exists. The dry run prints `tools_removed=` with the set.
     # The same launch carries the host's cuts in its one --settings: an `Agent :` session
-    # loses the away recap and the silent-turn reminder, and every launched session loses the
+    # loses the away recap and the silent-turn reminder. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000, others 300,000.
+    # Every launched session loses the
     # token countdown, and the account's synced skills (`anthropic-skills:*`) are hidden
     # for it through `syncClaudeAiSkills: false` in that same --settings, which moves nothing
     # on disk; --keep-synced-skills leaves them in, for a brief that invokes one (§65).
@@ -154,14 +155,17 @@ $SCRIPT close --tty /dev/ttysNNN --expect-title <substring> [--keep-checkout]
     # `close: kept checkout <path>: <reason>`); the stdout line `closed 1 session on <tty>`
     # is unchanged and a refused delete never fails the close. --keep-checkout opts out
     # (the checkout is then deleted by hand, or by the next sweep). `rotate` always keeps it.
+    # A host pid the hooks module's store records on the tty and the table still lists after
+    # the close is named on stderr, `close: pid <n> lingers (<state>)`, the exit unchanged.
 
 $SCRIPT move --tty /dev/ttysNNN (--right-of self | --right-of /dev/ttysMMM | --left-of /dev/ttysMMM | --leftmost) [--force]
     # places a tab immediately beside another (same window), or at the FIRST place of its
     # window with --leftmost, exclusive with --left-of and --right-of; idempotent, verified
     # after the move. `self` is the calling session's own tty, found by walking up the
     # process tree.
-    # --force moves a tab that is neither yours nor in your chain, and says so on stderr:
-    # it is the operator's hand and the layout repair.
+    # A --tty that is neither your own tab nor one of your chain is moved anyway, with a
+    # warning on stderr and in close.log. The tabs that stay refused need --force,
+    # which moves them and says so on stderr.
 
 $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier>] [--expect-title <s>] \
     [--title <t>] [--prompt <text> | --prompt-file <path>] [--right-of self | --left-of <tty>] [--mcp <name>] [--gate-tokens <N>] \
