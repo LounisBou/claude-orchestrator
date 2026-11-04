@@ -3162,8 +3162,8 @@ for AUDFLAG in --successor '--right-of self' '--left-of /dev/ttys555' --title-fr
   check "an auditor refuses $AUDFLAG" "1|1" \
     "$(aud --auditor --title 'Audit : x' $AUDFLAG >/dev/null 2>&1; echo $?)|$(aud --auditor --title 'Audit : x' $AUDFLAG | grep -c "is not an auditor's")"
 done
-check "an auditor with no model on record is refused, naming the module's measure file" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-aud-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' --prompt p 2>&1 | grep -c 'the hooks module writes the measure file')"
+check "an auditor with no readable pair is refused, naming where its transcript was looked for" "1" \
+  "$(CLAUDE_CODE_SESSION_ID=s-aud-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$AUDSTATE" bash "$AGENT" spawn --dir "$WORK" --auditor --title 'Audit : x' --prompt p 2>&1 | grep -cF "no transcript for session s-aud-none under $ORCHESTRATOR_PROJECTS_DIR")"
 check "--inherit-model beside --auditor asks for what is already implied" "1" \
   "$(audl --auditor --inherit-model --title 'Audit : x' | grep -c -- '--model aud-model')"
 
@@ -3423,8 +3423,8 @@ for CRDFLAG in --successor --auditor '--left-of /dev/ttys555' '--right-of self' 
   check "a coordinator-successor refuses $CRDFLAG" "1|1" \
     "$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG >/dev/null 2>&1; echo $?)|$(crd --coordinator-successor --title 'Coord : x' $CRDFLAG | grep -c "is not a coordinator-successor's")"
 done
-check "a coordinator-successor with no model on record is refused, naming the module's measure file" "1" \
-  "$(CLAUDE_CODE_SESSION_ID=s-crd-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" bash "$AGENT" spawn --dir "$WORK" --coordinator-successor --title 'Coord : x' --prompt p 2>&1 | grep -c 'the hooks module writes the measure file')"
+check "a coordinator-successor with no readable pair is refused, naming where its transcript was looked for" "1" \
+  "$(CLAUDE_CODE_SESSION_ID=s-crd-none ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" bash "$AGENT" spawn --dir "$WORK" --coordinator-successor --title 'Coord : x' --prompt p 2>&1 | grep -cF "no transcript for session s-crd-none under $ORCHESTRATOR_PROJECTS_DIR")"
 check "--inherit-model beside --coordinator-successor asks for what is already implied" "1" \
   "$(crdl --coordinator-successor --inherit-model --title 'Coord : x' | grep -c -- '--model crd-model')"
 
@@ -4241,15 +4241,19 @@ inh() { local sid=$1; shift; CLAUDE_CODE_SESSION_ID="$sid" ORCHESTRATOR_DRY_RUN=
 check "inherit-model types the calling session's model" "1" \
   "$(orchv inh s-inh --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | sed -n 's/^launch=//p' | grep -c -- '--model a-model')"
 printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"override-root-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ISTATE/measure/s-ovr.json"
-check "the measure file is read under the config dir, not the state override" "1" \
-  "$(inh s-ovr --inherit-model --prompt p | grep -cF "$ICFG/claude-orchestrator/measure/s-ovr.json")"
-check "inherit-model with no measure file refuses and names the module" "1" \
-  "$(inh s-none --inherit-model --prompt p | grep -c 'hooks module')"
+printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"config-root-model","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-ovr.json"
+pair_transcript s-ovr t-model xhigh
+INHOVR=$(inh s-ovr --title 'Agent : x' --inherit-model --prompt p)
+check "the pair is read on the transcript, never on a measure file under the config dir or the state override" "1|0|0|transcript $ORCHESTRATOR_PROJECTS_DIR/p/s-ovr.jsonl" \
+  "$(printf '%s' "$INHOVR" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')|$(printf '%s' "$INHOVR" | grep -c 'config-root-model')|$(printf '%s' "$INHOVR" | grep -c 'override-root-model')|$(printf '%s' "$INHOVR" | sed -n 's/^pair_source=//p')"
+check "inherit-model with no transcript refuses and names where it looked" "1" \
+  "$(inh s-none --inherit-model --prompt p | grep -cF "no transcript for session s-none under $ORCHESTRATOR_PROJECTS_DIR")"
 # The module records `unavailable` when the host gave it no model: a sentinel, never a
 # model to type, and a succession must not start on a guess (§27).
 printf '{"context_tokens":21000,"context_window":200000,"context_percent":10,"model":"unavailable","updated_at":"2026-10-10T00:00:00Z"}\n' > "$ICFG/claude-orchestrator/measure/s-unav.json"
+pair_transcript s-unav unavailable high
 check "inherit-model refuses the unavailable sentinel, as if no model were recorded" "0|1" \
-  "$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c -- '--model unavailable')|$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c 'no model recorded for this session')"
+  "$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c -- '--model unavailable')|$(orchv inh s-unav --title "Orch : heir" --successor --no-remote-control --inherit-model --prompt p | grep -c 'its last main-thread request names no model')"
 check "inherit-model is exclusive with a tier" "1" \
   "$(inh s-inh --inherit-model --tier deep --prompt p | grep -c 'exclusive')"
 check_status "an unknown tier is refused at spawn" 1 \
