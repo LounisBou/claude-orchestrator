@@ -40,8 +40,9 @@ Then:
    the successor's exact name and reference and saying that the successor's messages are its own
    from now on. An agent takes no word from a session it was never told of, and the successor
    cannot vouch for itself.
-5. Answer nothing new. Wait for the successor's "takeover confirmed"; answer
-   its questions about state only. On the confirmation, send it « handed over » as your
+5. Start nothing new: an operator's question gets one line pointing to the successor.
+   Wait for the successor's "takeover confirmed"; answer its questions about state only.
+   On the confirmation, send it « handed over » as your
    LAST message, with `SendMessage` to the name it confirmed from:
    a line written in your own tab reaches no one, and the successor waits on it.
    Nothing of yours is left to write; end the turn: that message is what it closes

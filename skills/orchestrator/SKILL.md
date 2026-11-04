@@ -47,7 +47,7 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 - **Before ending a turn, launch everything that can advance.** Its last line says what it waits on: no line while an agent of yours is busy, else waiting: tool — <what>, waiting: operator — blocks: <what it blocks>, waiting: deferred — <n> items, or, every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words**: `references/review.md`, « Review rounds run in disposable sessions », before drafting a reply.
-- Handing over to a successor: `/orchestrator-succeed`, step by step.
+- Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it.
 - The hooks module (`docs/design.md` §3) owns the measured facts: each session's fill every turn, the gate's line, `/orchestrator-status`'s rows, and the measure file.
 
 ## Thresholds

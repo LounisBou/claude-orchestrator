@@ -294,8 +294,10 @@ check "the rulebook carries no red-flag list and no pointer list" "0|0" \
 # 21,619 until the deferred ending (the operator's order of 2026-10-29).
 # 21,700 until the rules review: the rules a tool enforces removed, the rest condensed.
 # 10,500 until the two locks, the coordinator's question format and the naming hold left it.
-check "the orchestrator rulebook stays at 10,300 bytes or fewer" "yes" \
-  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10300 ] && echo yes || echo no)"
+# 10,300 until the rules an independent control found lost came back (the operator's ruling of
+# 2026-11-04T20:47:18Z, « A », the limit raised to 10,550 bytes).
+check "the orchestrator rulebook stays at 10,550 bytes or fewer" "yes" \
+  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10550 ] && echo yes || echo no)"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
@@ -338,6 +340,10 @@ check "review.md enforces an aspirational norms rule on new code and mines no fi
 # The coordinator opens each sender's group on the sender's own account, sent with its questions.
 check "the decision round sends the coordinator the account its group opens on" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'The first says in three to five sentences what you work on, for its round of its own')"
+# Between the successor's spawn and its takeover the predecessor starts nothing new, and a question
+# of the operator's still gets its line: the rulebook says it, and succeed.md no longer answers nothing.
+check "a predecessor starts nothing new and points the operator's question to its successor" "yes|yes|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Until its takeover, start nothing new: his question gets one line pointing to it.')|$(spells "$ROOT/commands/succeed.md" "Start nothing new: an operator's question gets one line pointing to the successor.")|$(spells "$ROOT/commands/succeed.md" 'Answer nothing new.')"
 # Every question reaches the pane, or the coordinator's tab with the pane closed, and the asker's
 # own chat (the operator's ruling of 2026-11-03): the older « asks again only when urgent » is gone.
 check "the decision round shows each question in the pane or the coordinator's tab, never only when urgent" "yes|no" \
