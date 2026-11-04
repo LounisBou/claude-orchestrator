@@ -3442,10 +3442,12 @@ ITERMCMDS="$ROOT/skills/iterm-agents/references/commands.md"
 ITERMSH="$ROOT/skills/iterm-agents/scripts/iterm-agent.sh"
 check "the launcher's skill and command reference document move --leftmost" "yes|yes" \
   "$(spells "$ITERMSKILL" '--leftmost')|$(spells "$ITERMCMDS" '--leftmost')"
-# A plain spawn lands beside its orchestrator, so a spawn without an anchor is no mistake, and the
-# command reference no longer gives the old end-of-window fall as a reason to name one.
-check "neither the launcher's skill nor its reference calls a spawn without an anchor a mistake" "no|no" \
-  "$(spells "$ITERMSKILL" 'Spawning without an anchor')|$(spells "$ITERMCMDS" 'one more reason to always name one')"
+# A plain spawn lands beside its orchestrator, and the command reference no longer gives the old
+# end-of-window fall as a reason to name an anchor. The common mistake is back in the form main's
+# placement makes true, an anchor left unnamed where a better place is known: the operator's ruling
+# of 2026-11-04, « restore everything and fix », after an independent control, reverses its removal.
+check "the launcher's skill lists the anchor left unnamed where a better place is known, and its reference gives no old reason" "yes|no" \
+  "$(spells "$ITERMSKILL" '- Spawning without an anchor where you know a better place than the default: « Layout convention ».')|$(spells "$ITERMCMDS" 'one more reason to always name one')"
 # The launcher refuses any other title shape on its own: the reference states the shape once.
 check "the command reference states the title shape once" "1|no|no" \
   "$(grep -c 'the subject at most 25 characters' "$ITERMCMDS")|$(spells "$ITERMCMDS" 'the spelled-out roles of the older convention')|$(spells "$ITERMCMDS" "because it is the session's name in every listing")"
