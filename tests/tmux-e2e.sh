@@ -406,7 +406,7 @@ check "one live session holds the id, under the orchestrator's name, and its tra
 echo "== open, pause and wake, from the coordinator's own place =="
 jq -n --arg tty "$COORD_TTY" '{tty: $tty, name: "Coord : e2e"}' > "$STATE/coordinator.json"
 LENV=(ORCHESTRATOR_HOME_NO_TAB=1 ORCHESTRATOR_TEST_RUN=1)
-launcher 120 spawn --open --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "Orch : e2e open" \
+launcher 120 spawn --open --dir "$WORKDIR" --model "$MODEL" --effort low --permission-mode acceptEdits --title "Orch : e2e open" \
   --prompt "$(prompt E2E-OPEN-READY)"
 OPEN_TTY=$(out | tail -1)
 OHOME=$(sed -n 's/^spawn: home server \([^ ,]*\),.*/\1/p' "$STEP.err" | head -1)
@@ -430,10 +430,10 @@ check "the pause ends the server, names the session window 0 ran, and leaves no 
   "$PAUSED|$(hosts_on "$OPEN_TTY")|$(pgrep -f -- "-L $OHOME" | grep -c .)|$(tmux -L "$OHOME" has-session 2>/dev/null && echo 0 || echo 1)"
 printf 'b\n' > "$SANDBOX/run/brief.md"
 ORCHESTRATOR_STATE_DIR="$STATE" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleep --name "Orch : e2e open" \
-  --brief "$SANDBOX/run/brief.md" --dir "$WORKDIR" --model "$MODEL" --session "$OSID" >/dev/null 2>&1
+  --brief "$SANDBOX/run/brief.md" --dir "$WORKDIR" --model "$MODEL" --effort low --session "$OSID" >/dev/null 2>&1
 check "the sleeping record keeps the session" "1" \
   "$(ORCHESTRATOR_STATE_DIR="$STATE" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleeping 2>/dev/null | grep -c "session $OSID\$")"
-launcher 120 spawn --wake --dir "$WORKDIR" --title "Orch : e2e open" --model "$MODEL" --permission-mode acceptEdits \
+launcher 120 spawn --wake --dir "$WORKDIR" --title "Orch : e2e open" --model "$MODEL" --effort low --permission-mode acceptEdits \
   --resume "$OSID" --prompt "$(recall)"
 WAKE_TTY=$(out | tail -1)
 check "the wake resumes the recorded session in window 0 of a new home server" "0|$WAKE_TTY|1" \
@@ -449,7 +449,7 @@ LENV=()
 echo "== the successor: a window of the same session, then window 0 =="
 tm rename-window -t home:0 "Orch : e2e lead"
 LT=home:0
-launcher 120 spawn --successor --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "Orch : e2e lead" \
+launcher 120 spawn --successor --dir "$WORKDIR" --permission-mode acceptEdits --title "Orch : e2e lead" \
   --no-remote-control --prompt "$(prompt E2E-HEIR-READY)"
 HEIR=$(out | tail -1)
 HEIR_PANE=$(tm list-panes -s -t home -F '#{pane_tty} #{pane_id}' | awk -v t="$HEIR" '$1 == t { print $2 }')
