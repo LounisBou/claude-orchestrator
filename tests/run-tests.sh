@@ -36,6 +36,21 @@ export ORCHESTRATOR_HOST_CLI=claude
 # may a run from inside tmux change the chain owner the launcher reads (TMUX, TMUX_PANE).
 unset CLAUDE_CODE_SESSION_ID TMUX TMUX_PANE
 
+# A launch reads a session's model and effort on its transcript. Every transcript the suite
+# reads is its own: the host's projects directory is never read. `pair_transcript <session>
+# <model> <effort>` writes one whose main thread ran on that pair (no effort field when the
+# effort is empty), followed by a compaction request on another pair, which is not the
+# main thread's and must never be read as it.
+export ORCHESTRATOR_PROJECTS_DIR="$WORK/projects"
+pair_transcript() {
+  local config='' ; [ -n "$3" ] && config=",\"output_config\":{\"effort\":\"$3\"}"
+  mkdir -p "$ORCHESTRATOR_PROJECTS_DIR/p"
+  printf '{"type":"api-request","sessionId":"%s","querySource":"repl_main_thread","params":{"model":"%s"%s}}\n' "$1" "$2" "$config" \
+    > "$ORCHESTRATOR_PROJECTS_DIR/p/$1.jsonl"
+  printf '%s\n' '{"type":"api-request","querySource":"compact","params":{"model":"x-small","output_config":{"effort":"low"}}}' \
+    >> "$ORCHESTRATOR_PROJECTS_DIR/p/$1.jsonl"
+}
+
 export ORCHESTRATOR_TRUST_FILE="$WORK/suite-trust.json"
 "$(command -v python3 || echo python3)" -c "
 import json,os,sys
@@ -4176,7 +4191,7 @@ pcmd() { env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATO
 check "a pair tier types the model then the effort" "1" "$(pcmd --tier deep | grep -c -- '--model a-model --effort high')"
 check "an explicit effort wins over the map's" "1" "$(pcmd --tier deep --effort low | grep -c -- '--effort low')"
 check "an explicit effort with an explicit model" "1" "$(pcmd --model z-model --effort medium | grep -c -- '--model z-model --effort medium')"
-check "no effort anywhere: no effort argument" "0" "$(pcmd --tier standard | grep -c -- '--effort')"
+check "a tier bound without an effort types the shipped tier effort" "1" "$(pcmd --tier standard | grep -c -- '--model b-model --effort high')"
 check "an unknown effort on spawn is a refusal" \
   "ERROR: spawn: unknown effort: huge (expected low, medium, high, xhigh or max)" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --dir "$WORK" --title 'Agent : x' --prompt p --effort huge 2>&1 | tail -1)"
@@ -4232,6 +4247,116 @@ check "rotate forwards the tier to the spawn" "1" \
 check "rotate closes the old tab only after the spawn" "1" \
   "$(env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_MODELS_MAP="$MAP" \
       bash "$AGENT" rotate --old-tty /dev/ttys999 --dir "$WORK" --title "Agent : rotated" --tier deep --prompt p 2>&1 | tail -1 | grep -c '^close=/dev/ttys999')"
+
+# Every launched session carries its model and its effort (decision 3). A succession of any
+# role runs on its caller's LIVE pair, read on the caller's transcript: the last request of
+# its main thread names the model and the effort it runs on now. An agent's pair is its
+# orchestrator's to set, a tier's or a flag's; an opened orchestrator, and a woken one with
+# nothing to read, run on the host's default. The fixture's main-thread request runs on
+# t-model at xhigh, a later compaction request on x-small at low is a decoy, and so is a
+# measure file on a-model: neither may be read.
+E7STATE="$WORK/e7state"; E7CFG="$WORK/e7cfg"; mkdir -p "$E7STATE/chains" "$E7CFG/claude-orchestrator/measure" "$E7CFG/sessions"
+printf '{"model":"a-model"}\n' > "$E7CFG/claude-orchestrator/measure/s-e7.json"
+pair_transcript s-e7 t-model xhigh
+E7TR="$ORCHESTRATOR_PROJECTS_DIR/p/s-e7.jsonl"
+e7() { local ps="$1"; shift
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$E7STATE" CLAUDE_CONFIG_DIR="$E7CFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
+  ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID="${E7SID:-s-e7}" ORCHESTRATOR_PS_TABLE="$ps" ORCHESTRATOR_MODELS_MAP="${E7MAP:-$WORK/e7-no-map.json}" \
+  bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
+e7l() { e7 "$@" | sed -n 's/^launch=//p'; }
+E7ORCH="$WORK/ps-e7-orch.txt"; printf '/dev/ttys900 claude --name Orch : f\n' > "$E7ORCH"
+E7AUD="$WORK/ps-e7-aud.txt"; printf '/dev/ttys900 claude --name Audit : tm\n' > "$E7AUD"
+E7NEUTRAL="$WORK/ps-e7-neutral.txt"; printf '/dev/ttys900 claude --name Audit neutre : f\n' > "$E7NEUTRAL"
+E7COORD="$WORK/ps-e7-coord.txt"; printf '/dev/ttys900 claude --name Coord : ops\n' > "$E7COORD"
+E7SUCC=$(e7 "$E7ORCH" --successor)
+check "a successor runs on its caller's model and effort, read from its transcript" "1|0|0|xhigh|transcript $E7TR" \
+  "$(printf '%s' "$E7SUCC" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')|$(printf '%s' "$E7SUCC" | grep -c -- 'a-model')|$(printf '%s' "$E7SUCC" | grep -c -- 'x-small')|$(sfield "$E7SUCC" effort)|$(sfield "$E7SUCC" pair_source)"
+check "inherit-model types the caller's model and effort" "1|0" \
+  "$(e7l "$E7ORCH" --title 'Agent : x' --inherit-model | grep -c -- '--model t-model --effort xhigh')|$(e7l "$E7ORCH" --title 'Agent : x' --inherit-model | grep -c -- 'a-model')"
+check "an auditor runs on the caller's model and effort with no flag to ask for it" "1" \
+  "$(e7l "$E7ORCH" --auditor --title 'Audit : tm' | grep -c -- '--model t-model --effort xhigh')"
+check "an auditor's successor runs on the caller's model and effort" "1" \
+  "$(e7l "$E7AUD" --successor | grep -c -- '--model t-model --effort xhigh')"
+E7NOUT=$(e7 "$E7NEUTRAL" --successor)
+check "an auditor named Audit neutre hands over under its own name" "0|Audit neutre : f|none|1|1" \
+  "$(e7 "$E7NEUTRAL" --successor >/dev/null 2>&1; echo $?)|$(sfield "$E7NOUT" name)|$(sfield "$E7NOUT" chain)|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c 'export ORCHESTRATOR_AUDITOR=1')|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')"
+printf '/dev/ttys900 claude --name Audit neutre : %s\n' "$(printf 'x%.0s' $(seq 1 26))" > "$WORK/ps-e7-neutral-long.txt"
+check "a qualified auditor's subject of 26 characters derives nothing" "1" \
+  "$(e7 "$WORK/ps-e7-neutral-long.txt" --successor >/dev/null 2>&1; echo $?)"
+# O2: an auditor run without the plugin passes its plugin set on to its successor, as a
+# successor inherits its pair; an agent of a caller with no plugin directory still does not.
+printf '{"pid":%s,"sessionId":"s-e7","cwd":"%s","name":"Audit neutre : f"}\n' "$$" "$WORK" > "$E7CFG/sessions/$$.json"
+E7NARGV='["/opt/x/host","--settings","{\"enabledPlugins\":{\"orchestrator@lounisbou\":false}}","--name","Audit neutre : f"]'
+check "an auditor's successor keeps its predecessor's plugin set; an agent of the same caller gets none" "1|0" \
+  "$(ORCHESTRATOR_HOST_ARGV="$E7NARGV" e7l "$E7NEUTRAL" --successor | grep -c '"enabledPlugins":{"orchestrator@lounisbou":false}')|$(ORCHESTRATOR_HOST_ARGV="$E7NARGV" e7l "$E7ORCH" --title 'Agent : x' --tier light | grep -c 'enabledPlugins')"
+rm -f "$E7CFG/sessions/$$.json"
+check "the coordinator's successor runs on the caller's model and effort" "1" \
+  "$(e7l "$E7COORD" --coordinator-successor --title 'Coord : x' | grep -c -- '--model t-model --effort xhigh')"
+for E7FLAG in '--tier deep' '--model m' '--effort low'; do
+  # shellcheck disable=SC2086 # the flag and its value are two words on purpose
+  check "a successor refuses ${E7FLAG%% *}" "1|1|0" \
+    "$(e7 "$E7ORCH" --successor $E7FLAG >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --successor $E7FLAG | grep -c "is not a successor's")|$(e7 "$E7ORCH" --successor $E7FLAG | grep -c '^launch=')"
+done
+# An opened orchestrator runs on the host's default unless the order names a model and an
+# effort; a model alone is no pair.
+E7OPEN=$(ORCHESTRATOR_TIER_DEEP=deep-model e7 "$E7COORD" --open --title 'Orch : x')
+check "an opened orchestrator types no pair unless the order names one" "0|0|none|host default" \
+  "$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(sfield "$E7OPEN" effort)|$(sfield "$E7OPEN" pair_source)"
+check "an opening given a model and an effort types them; a model alone is refused" "1|flag|1|1" \
+  "$(e7l "$E7COORD" --open --title 'Orch : x' --model b-model --effort low | grep -c -- '--model b-model --effort low')|$(sfield "$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model --effort low)" pair_source)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model >/dev/null 2>&1; echo $?)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model | grep -c -- '--effort')"
+# A wake: the pair read in the resumed session's own transcript; else its recorded pair;
+# else the host's default. A recorded model without its effort is refused, never guessed.
+pair_transcript s-e7-slept r-model max
+E7WAKE=$(e7 "$E7ORCH" --wake --title 'Orch : w' --resume s-e7-slept --model a-model --effort low)
+check "a wake that resumes a session runs on that session's pair" "1|0|transcript $ORCHESTRATOR_PROJECTS_DIR/p/s-e7-slept.jsonl" \
+  "$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort max')|$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- 'a-model')|$(sfield "$E7WAKE" pair_source)"
+E7WNONE=$(e7 "$E7ORCH" --wake --title 'Orch : w')
+check "a wake with no transcript pair types none" "0|0|host default" \
+  "$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(sfield "$E7WNONE" pair_source)"
+check "a wake on its recorded pair says so" "1|record" \
+  "$(e7l "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high | grep -c -- '--model a-model --effort high')|$(sfield "$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high)" pair_source)"
+check "a wake without a recorded effort is refused" "1|1" \
+  "$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model | grep -c 'never guesses the effort')"
+# An agent's pair is its orchestrator's: a tier, or a model with its effort. The plugin ships
+# the tier efforts the map does not bind (standard high, light medium); deep runs at the
+# calling orchestrator's own effort; an effort the map binds wins over both.
+E7PMAP="$WORK/e7-pair-map.json"
+printf '{"deep":"a-model","standard":"b-model","light":{"model":"c-model"}}' > "$E7PMAP"
+check "a tier bound without an effort types the shipped tier effort; deep, the caller's" "1|1|1|tier standard" \
+  "$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier standard | grep -c -- '--model b-model --effort high')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier light | grep -c -- '--model c-model --effort medium')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort xhigh')|$(sfield "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier standard)" pair_source)"
+check "an effort the map binds wins over the shipped one" "1" \
+  "$(E7MAP="$PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort high')"
+check "an agent's explicit model without an effort is refused" "1|1|0" \
+  "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' --model z-model | grep -c "an agent's effort is the orchestrator's to name")|$(e7 "$E7ORCH" --title 'Agent : x' --model z-model | grep -c '^launch=')"
+check "an agent with no tier and no model is refused, naming both" "1|1" \
+  "$(e7 "$E7ORCH" --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' | grep -c -- 'needs --tier or --model')"
+check "an agent's model and effort typed are a flag's pair" "flag|medium" \
+  "$(sfield "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" pair_source)|$(sfield "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" effort)"
+# A rotation is a succession: with no pair given it types the ROTATED agent's live pair, read
+# on that agent's transcript; a tier or a model with its effort is the orchestrator naming one.
+printf '/dev/ttys901 7171 claude --name Agent : old\n' > "$WORK/ps-e7-rot.txt"
+printf '{"pid":7171,"sessionId":"s-e7-rot","cwd":"%s","name":"Agent : old"}\n' "$WORK" > "$E7CFG/sessions/7171.json"
+pair_transcript s-e7-rot r-model medium
+e7rot() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$E7STATE" CLAUDE_CONFIG_DIR="$E7CFG" ORCHESTRATOR_PS_TABLE="$WORK/ps-e7-rot.txt" \
+  CLAUDE_CODE_SESSION_ID=s-e7 ORCHESTRATOR_MODELS_MAP="$E7PMAP" bash "$AGENT" rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : old" --prompt p "$@" 2>&1; }
+E7ROT=$(e7rot)
+check "a rotation without a pair types the rotated agent's live pair" "1|transcript $ORCHESTRATOR_PROJECTS_DIR/p/s-e7-rot.jsonl" \
+  "$(printf '%s' "$E7ROT" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort medium')|$(sfield "$E7ROT" pair_source)"
+check "a rotation given --model and --effort types them, pair_source=flag" "1|flag" \
+  "$(e7rot --model z-model --effort max | sed -n 's/^launch=//p' | grep -c -- '--model z-model --effort max')|$(sfield "$(e7rot --model z-model --effort max)" pair_source)"
+check "a rotation given a tier types the tier's pair, pair_source=tier" "1|tier standard" \
+  "$(e7rot --tier standard | sed -n 's/^launch=//p' | grep -c -- '--model b-model --effort high')|$(sfield "$(e7rot --tier standard)" pair_source)"
+# The reading itself: the last main-thread request, never another thread's, never a guess.
+check "pair prints the caller's model and effort" "model=t-model effort=xhigh" \
+  "$(CLAUDE_CODE_SESSION_ID=s-e7 bash "$AGENT" pair 2>&1)"
+printf '%s\n' '{"type":"api-request","querySource":"compact","params":{"model":"x-small","output_config":{"effort":"low"}}}' > "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-decoy.jsonl"
+check "caller_pair refuses a transcript with no main-thread request, naming it" "1|1|0" \
+  "$(CLAUDE_CODE_SESSION_ID=s-e7-decoy bash "$AGENT" pair >/dev/null 2>&1; echo $?)|$(CLAUDE_CODE_SESSION_ID=s-e7-decoy bash "$AGENT" pair 2>&1 | grep -cF "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-decoy.jsonl holds no main-thread request")|$(E7SID=s-e7-decoy e7 "$E7ORCH" --successor | grep -c '^launch=')"
+check "pair refuses a session with no transcript, naming where it looked" "1|1" \
+  "$(CLAUDE_CODE_SESSION_ID=s-e7-none bash "$AGENT" pair >/dev/null 2>&1; echo $?)|$(CLAUDE_CODE_SESSION_ID=s-e7-none bash "$AGENT" pair 2>&1 | grep -cF "no transcript for session s-e7-none under $ORCHESTRATOR_PROJECTS_DIR")"
+pair_transcript s-e7-noeffort t-model ''
+check "a main-thread request with no effort is refused, naming what was missing" "1" \
+  "$(CLAUDE_CODE_SESSION_ID=s-e7-noeffort bash "$AGENT" pair 2>&1 | grep -c 'names no effort')"
 # The rotation's spawn receives every argument the rotation does not consume, --trust
 # included — but the tab skill's line never said so, and a live rotation into a fresh
 # checkout was refused on the trust question and redone by hand (§39). Read on the record
@@ -7686,7 +7811,10 @@ chmod +x "$HR/tmux"
 HSID=abcdef12-3456-4789-8abc-def012345678
 HCONF="$WORK/homeconfig"; mkdir -p "$HCONF/sessions"
 printf '{"pid":%s,"sessionId":"%s","cwd":"%s","name":"Agent : start"}\n' "$$" "$HSID" "$WORK" > "$HCONF/sessions/$$.json"
-HARGV='["/opt/x/host","--model","a-model","--effort","high","--permission-mode","auto","--settings","{\"k\":1}","--strict-mcp-config","--mcp-config","/m/a.json","--name","Agent : start","the first prompt"]'
+# The launch line asked for a-model at the host's default effort; the session runs on t-model
+# at xhigh now, as its transcript says, and that is the pair the move resumes on.
+pair_transcript "$HSID" t-model xhigh
+HARGV='["/opt/x/host","--model","a-model","--permission-mode","auto","--settings","{\"k\":1}","--strict-mcp-config","--mcp-config","/m/a.json","--name","Agent : start","the first prompt"]'
 homecmd() { # the launcher's `home`, from a plain tab outside tmux unless HTMUX names a pane's server
   env -u TMUX -u TMUX_PANE ${HTMUX:+TMUX="$HTMUX" TMUX_PANE=%0} CLAUDE_CONFIG_DIR="$HCONF" ORCHESTRATOR_HOST_ARGV="${HARGV_OVERRIDE:-$HARGV}" ORCHESTRATOR_TMUX="$HR/tmux" \
     ORCHESTRATOR_STATE_DIR="$WORK/homestate" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_LOGIN_SHELL=/bin/sh ORCHESTRATOR_HOST_CLI=/opt/x/host \
@@ -7699,12 +7827,17 @@ out=$(homecmd env ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" home --session "$HSID" --
 check "the dry run names the server after the session, its conf, and window 0 after the orchestrator" \
   "orch-abcdef12|skills/iterm-agents/tmux/home.conf|Orch : conv|right of /dev/ttys900" \
   "$(sfield "$out" home_server)|$(sfield "$out" home_conf)|$(sfield "$out" home_window0)|$(sfield "$out" home_tab)"
-HOSTLINE="/opt/x/host --model a-model --effort high --permission-mode auto --settings '{\"k\":1}' --strict-mcp-config --mcp-config /m/a.json --resume $HSID 'Go on' --name 'Orch : conv'"
+HOSTLINE="/opt/x/host --model t-model --effort xhigh --permission-mode auto --settings '{\"k\":1}' --strict-mcp-config --mcp-config /m/a.json --resume $HSID 'Go on' --name 'Orch : conv'"
 BYHAND=$("$py" -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "cd $WORK && $HOSTLINE")
-check "window 0 waits for the old process, runs the resume on the launch's model, effort, mode, settings and servers under its name, releases the old tab through a watcher once the resumed host is proved, and names the failure of a resume that fails" \
+check "window 0 waits for the old process, runs the resume on the session's current model and effort, read on its transcript, and the launch's mode, settings and servers under its name, releases the old tab through a watcher once the resumed host is proved, and names the failure of a resume that fails" \
   "cd $WORK && i=0 && while kill -0 $$ 2>/dev/null; do if [ \$i -ge 600 ]; then echo 'the session did not end in its old place: it goes on there'; sleep 10; exit 1; fi; sleep 0.2; i=\$((i+1)); done; pane=\$(tty); $ROOT/skills/iterm-agents/scripts/iterm-agent.sh home-release --tty /dev/ttys900 --session-id '<old-tab-session-id>' --pane-tty \"\$pane\" --resumed $HSID >> $WORK/homestate/home-release.log 2>&1 & watcher=\$!; $HOSTLINE; rc=\$?; [ \$rc -eq 0 ] && exit 0; kill \$watcher 2>/dev/null; printf 'the resume of session %s failed (exit %s); resume it by hand: %s\\n' $HSID \"\$rc\" $BYHAND; exec \"\${SHELL:-/bin/sh}\" -l" \
   "$(sfield "$out" home_launch)"
 check "and the dry run touched no tmux" "" "$(hcalls)"
+mv "$ORCHESTRATOR_PROJECTS_DIR/p/$HSID.jsonl" "$WORK/hsid-transcript.jsonl"
+out=$(homecmd env ORCHESTRATOR_DRY_RUN=1 bash "$AGENT" home --session "$HSID" --name "Orch : conv" --prompt "Go on" 2>&1)
+check "a session whose pair cannot be read stays where it is, and says why" "1|0" \
+  "$(printf '%s' "$out" | grep -c "^stay: the session's model and effort cannot be read (no transcript for session $HSID")|$(printf '%s' "$out" | grep -c '^home_launch=')"
+mv "$WORK/hsid-transcript.jsonl" "$ORCHESTRATOR_PROJECTS_DIR/p/$HSID.jsonl"
 
 # An agent spawned by a caller that runs on a plugin directory runs on the same one: the
 # caller's --plugin-dir options and the enabledPlugins entries of its --settings travel into

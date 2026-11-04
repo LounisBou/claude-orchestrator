@@ -32,6 +32,9 @@ Then:
 3. `iterm-agent.sh spawn --dir <worktree> --inherit-model --permission-mode auto
    --successor --prompt "Read and execute <brief path>"` — the operator's
    decision mode, or the successor stops at its first prompt in a tab nobody watches.
+   The successor runs on this session's live model and effort, read on its transcript,
+   whether or not `--inherit-model` is typed; `--tier`, `--model` and `--effort` are
+   refused beside `--successor`, and a pair that cannot be read refuses the spawn.
    No title: `--successor` takes THIS session's own name, so the successor is the same
    `Orch : <subject>` with a reference of its own, which is what every brief cites. Where the
    launcher reads no such name, it says to type one: pass `--title "<this session's current
