@@ -9771,6 +9771,12 @@ check "round without the flag prints the round's one order, the very output of -
 check "round keeps no second order behind --by-urgency" "0" "$(grep -c 'by_urgency' "$COORD")"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
+# The question relay's live proof in its dry mode: each fixture judged as expected, those where a
+# question is lost at the succession failing (tests/question-relay-proof.sh).
+QRDRY=$(bash "$ROOT/tests/question-relay-proof.sh" --dry 2>&1); QRCODE=$?
+check "the question relay proof's dry run judges each of its fixtures as expected" "passed (dry)|0" \
+  "$(printf '%s\n' "$QRDRY" | tail -1)|$QRCODE"
+
 echo "== routing: cost =="
 
 ROUTING="$ROOT/skills/model-routing/scripts/routing.py"

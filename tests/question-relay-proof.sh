@@ -5,8 +5,8 @@
 #   tests/question-relay-proof.sh --state <dir> --module <dir> [--screen '<command>']
 #                                 [--window <s>] [--interval <s>] [--out <dir>]
 #
-# NOT part of `run-tests.sh`: the live run watches the installed release while a person makes a
-# home succession, during an open decision wave, with the coordinator's pane open. The script
+# The live run is not part of `run-tests.sh`, its --dry is: the live run watches the installed
+# release while a person makes a home succession, during an open decision wave, with the coordinator's pane open. The script
 # drives nothing and starts no session: it samples, every 5 seconds by default for 180, the
 # round under <state>/round/, the ids the coordinator's conversation was told of
 # (<state>/round-told.json), the rows of the store (<module>/store/sessions/) and, given
@@ -14,11 +14,16 @@
 # interval), then judges what it sampled from the module's log (<module>/hooks-module.log and
 # its .1). Each sample lands in <out> (a new directory under TMPDIR by default), kept.
 #
+# Every question a sample showed open under the session the moves came from (the moved entries'
+# movedFrom) must be one of the moves, or have been answered before: a question withdrawn at the
+# hand-over, or left under its sender because the move's write failed, fails, its fate named.
 # For every question the log says was moved to a successor (« round: moved to the successor
 # <name>: <id> »), it expects:
 #   - the question moved, never withdrawn: no sample shows it withdrawn or closed as handed over;
-#   - it in the pane after the move: no « pane: <id> not drawn » line logged after the move,
-#     and, given --screen, a screen within 20 s of the move that shows its first line;
+#   - it in the pane after the move: no « pane: <id> not drawn » line logged after the move, and
+#     a render that shows it — given --screen, a screen within 20 s of the move that shows its
+#     first line, else a « pane: shown <id> » logged after the move. That line is written once in
+#     the module's life, so a question drawn before the move needs --screen to be proven after it;
 #   - it in the pane before the successor's first measure: the same over the samples taken
 #     between the move and the first one holding the successor's row;
 #   - « pane: shown <id> » in the log;
@@ -27,10 +32,12 @@
 # holds for that id, or « unexplained: no not drawn or never drawn line names it ». With no move
 # in the window the run fails, naming the fate of each question open at its start.
 #
-# --dry plays three fixtures through the same sampler and judge, on a clock of its own, and
-# checks each verdict: a question moved and drawn passes; one left out after the move fails with
-# its « not drawn » line; one withdrawn at the hand-over fails as unmoved. It prints
-# « passed (dry) » and exits 0 when the three verdicts are the expected ones.
+# --dry plays six fixtures through the same sampler and judge, on a clock of its own, and checks
+# each verdict: a question moved and drawn passes; one left out after the move fails with its
+# « not drawn » line; one withdrawn at the hand-over, the only one, fails as unmoved; one
+# withdrawn at the hand-over beside another moved fails; one whose move could not be written
+# fails, the module's error under it; one no render showed after the move, with no screen read,
+# fails. It prints « passed (dry) » and exits 0 when the six verdicts are the expected ones.
 #
 # Exit: 0 passed, 1 failed, 2 usage or a missing tool.
 
@@ -136,7 +143,7 @@ any_shows() {  # <line>
 }
 
 judge() {
-  local moves id name moved_line moved_at rowed line before n
+  local moves id name moved_line moved_at rowed line before n shown_after
   moves=$(grep -F 'round: moved to the successor ' "$OUT/log.txt" | sed -E 's/.*round: moved to the successor (.*): ([^ ]+)$/\2/' | sort -u)
   if [ -z "$moves" ]; then
     bad "a question open at the succession was moved to the successor"
@@ -145,6 +152,21 @@ judge() {
       | "       \(.id): \(.status)\(if .answer then " — " + .answer else "" end)"' "$OUT/samples.jsonl"
     return
   fi
+  # The questions the predecessor held open at the succession: each one moved, or answered first.
+  local held fate
+  held=$(jq -r --slurp --arg moves "$moves" '($moves | split("\n")) as $m
+    | ([.[].entries[] | select(.movedFrom != null and (.id as $id | $m | index($id))) | .movedFrom] | unique) as $from
+    | [.[].entries[] | select(.status == "open" and (.session as $s | $from | index($s)))] | map(.id) | unique | .[]' "$OUT/samples.jsonl")
+  echo "== the questions open under the predecessor"
+  for id in $held; do
+    if printf '%s\n' "$moves" | grep -qxF -- "$id"; then ok "$id moved to the successor"; continue; fi
+    fate=$(jq -r --slurp --arg id "$id" '[.[].entries[] | select(.id == $id)] | last
+      | if .status == "answered" or (.status == "closed" and ((.answer // "") | startswith("withdrawn") | not)) then "answered"
+        else "\(.status) under \(.session)\(if .answer then " — " + .answer else "" end)" end' "$OUT/samples.jsonl")
+    if [ "$fate" = answered ]; then ok "$id answered before the move"; continue; fi
+    bad "$id moved to the successor"; echo "       $id: $fate"
+    grep -F -- "$id" "$OUT/log.txt" | grep -F 'round: ' | grep -vF 'round: moved to the successor ' | sed 's/^/       /' || true
+  done
   for id in $moves; do
     moved_line=$(grep -F "round: moved to the successor " "$OUT/log.txt" | grep -F -- ": $id" | head -1)
     name=$(printf '%s' "$moved_line" | sed -E 's/.*round: moved to the successor (.*): [^ ]+$/\1/')
@@ -161,11 +183,16 @@ judge() {
       bad "moved, never withdrawn"; jq -r '"       at \(.t | todate): \(.status) — \(.answer)"' "$OUT/after-$id.jsonl" | head -3
     else ok "moved, never withdrawn"; fi
     line=$(jq -r 'select(.line != "") | .line' "$OUT/after-$id.jsonl" | head -1)
+    # A render that shows it, never the mere absence of a « not drawn » line.
+    shown_after=$(logged_after "$id" "pane: shown $id" "$moved_at")
     if [ -n "$(logged_after "$id" "pane: $id not drawn: " "$moved_at")" ]; then
       bad "in the pane after the move: no not drawn line since"; why "$id"
-    elif [ -n "$SCREEN" ] && ! jq -r --argjson to $((moved_at + 20)) 'select(.t <= $to and .screen) | .screen' "$OUT/after-$id.jsonl" | any_shows "$line"; then
-      bad "in the pane within 20 s of the move: no screen shows « $line »"; why "$id"
-    else ok "in the pane after the move${SCREEN:+, on screen within 20 s}"; fi
+    elif [ -n "$SCREEN" ]; then
+      if jq -r --argjson to $((moved_at + 20)) 'select(.t <= $to and .screen) | .screen' "$OUT/after-$id.jsonl" | any_shows "$line"; then
+        ok "in the pane after the move, on screen within 20 s"
+      else bad "in the pane within 20 s of the move: no screen shows « $line »"; why "$id"; fi
+    elif [ -n "$shown_after" ]; then ok "in the pane after the move (pane: shown since the move)"
+    else bad "in the pane after the move: no render shows it, no screen read and no pane: shown since the move"; why "$id"; fi
     rowed=$(jq -r 'select(.rowed) | .t' "$OUT/after-$id.jsonl" | head -1)
     before=$(jq -c --argjson to "${rowed:-9999999999}" 'select(.t < $to)' "$OUT/after-$id.jsonl")
     n=$(printf '%s' "$before" | grep -c . || true)
@@ -174,9 +201,14 @@ judge() {
     elif [ -n "$(logged_after "$id" "pane: $id not drawn: " "$moved_at" | while IFS= read -r l; do
         [ "$(epoch "${l%% | *}")" -lt "${rowed:-9999999999}" ] && echo "$l"; done)" ]; then
       bad "in the pane before the successor's first measure"; why "$id"
-    elif [ -n "$SCREEN" ] && ! printf '%s\n' "$before" | jq -r 'select(.screen) | .screen' | any_shows "$line"; then
-      bad "in the pane before the successor's first measure: no screen shows it"; why "$id"
-    else ok "in the pane before the successor's first measure ($n sample(s) before its row)"; fi
+    elif [ -n "$SCREEN" ]; then
+      if printf '%s\n' "$before" | jq -r 'select(.screen) | .screen' | any_shows "$line"; then
+        ok "in the pane before the successor's first measure ($n sample(s) before its row)"
+      else bad "in the pane before the successor's first measure: no screen shows it"; why "$id"; fi
+    elif [ -n "$(printf '%s\n' "$shown_after" | while IFS= read -r l; do
+        [ -n "$l" ] && [ "$(epoch "${l%% | *}")" -lt "${rowed:-9999999999}" ] && echo "$l"; done)" ]; then
+      ok "in the pane before the successor's first measure (pane: shown before its row)"
+    else bad "in the pane before the successor's first measure: no render shows it"; why "$id"; fi
     if grep -qF -- "pane: shown $id" "$OUT/log.txt"; then ok "pane: shown $id (log)"
     else bad "pane: shown $id (log)"; why "$id"; fi
     if jq -e --arg id "$id" 'select(.told | index($id))' "$OUT/samples.jsonl" >/dev/null; then ok "the coordinator was told of it (round-told.json)"
@@ -225,12 +257,14 @@ entry() {  # <id> <session> <status> [movedFrom] [answer]
 screen_shows() { [ "$1" = 1 ] && echo 'Questions for you — 1 pending  ship the release now?' > "$DRYROOT/screen" || echo 'Questions for you — none' > "$DRYROOT/screen"; }
 row() { : > "$MODULE/store/sessions/$1"; }
 
-# One fixture played: <steps> is a function run before each of its five samples, given the index.
-play() {  # <name> <steps>
+# One fixture played: <steps> is a function run before each of its five samples, given the index;
+# `noscreen` plays it with no screen read, the log alone to judge from.
+play() {  # <name> <steps> [noscreen]
   STATE="$DRYROOT/$1/state" MODULE="$DRYROOT/$1/module" OUT="$DRYROOT/$1/out"
   mkdir -p "$STATE/round" "$MODULE/store/sessions" "$OUT"
   : > "$OUT/samples.jsonl"; : > "$MODULE/hooks-module.log"
   SCREEN="cat $DRYROOT/screen"
+  [ "${3:-}" = noscreen ] && SCREEN=""
   local i
   for i in 0 1 2 3 4; do
     FAKE_NOW=$(at $((i * 5)))
@@ -267,10 +301,41 @@ withdrawn() {
     1) entry q3 s-old withdrawn "" "handed over to its successor"; logl 5 "round: withdrawn by the sender: q3"; screen_shows 0 ;;
   esac
 }
+# Two questions at the hand-over: one moved and drawn, the other withdrawn instead of moved.
+withdrawn_one() {
+  case "$1" in
+    0) entry q4 s-old open; entry q5 s-old open; row s-old; echo '["q4","q5"]' > "$STATE/round-told.json"
+       logl 0 "pane: shown q4"; logl 0 "pane: shown q5"; screen_shows 1 ;;
+    1) entry q4 s-new open s-old; logl 5 "round: moved to the successor Orch : new: q4"
+       entry q5 s-old withdrawn "" "handed over to its successor"; logl 5 "round: withdrawn by the sender: q5" ;;
+    3) row s-new ;;
+  esac
+}
+# Two questions at the hand-over: one moved, the other's move could not be written.
+write_fails() {
+  case "$1" in
+    0) entry q6 s-old open; entry q7 s-old open; row s-old; echo '["q6","q7"]' > "$STATE/round-told.json"
+       logl 0 "pane: shown q6"; logl 0 "pane: shown q7"; screen_shows 1 ;;
+    1) entry q6 s-new open s-old; logl 5 "round: moved to the successor Orch : new: q6"
+       logl 5 "round: EIO: i/o error, rename '$STATE/round/q7.json.tmp-1' -> '$STATE/round/q7.json'" ;;
+    3) row s-new ;;
+  esac
+}
+# Shown before the move, moved, then never drawn again, with no line saying why and no screen read.
+unseen() {
+  case "$1" in
+    0) entry q8 s-old open; row s-old; echo '["q8"]' > "$STATE/round-told.json"; logl 0 "pane: shown q8" ;;
+    1) entry q8 s-new open s-old; logl 5 "round: moved to the successor Orch : new: q8" ;;
+    3) row s-new ;;
+  esac
+}
 
 play drawn drawn
 play left-out left_out
 play withdrawn withdrawn
+play withdrawn-one withdrawn_one
+play write-fails write_fails
+play unseen unseen noscreen
 dpass=0; dfail=0
 expect() {  # <what> <fixture> <text the verdict holds>...
   local what="$1" name="$2"; shift 2
@@ -282,12 +347,22 @@ expect() {  # <what> <fixture> <text the verdict holds>...
 expect "a question moved and drawn passes every expectation" drawn \
   "ok   moved, never withdrawn" "ok   in the pane after the move, on screen within 20 s" \
   "ok   in the pane before the successor's first measure (2 sample(s) before its row)" \
-  "ok   pane: shown q1 (log)" "ok   the coordinator was told of it" "passed (6 checks)" "exit 0"
+  "ok   q1 moved to the successor" "ok   pane: shown q1 (log)" "ok   the coordinator was told of it" \
+  "passed (7 checks)" "exit 0"
 expect "a question left out after the move fails, its not drawn line under it" left-out \
   "FAIL in the pane after the move: no not drawn line since" "pane: q2 not drawn: no row for its sender s-new" \
   "FAIL in the pane before the successor's first measure" "exit 1"
 expect "a question withdrawn at the hand-over fails as unmoved, its fate named" withdrawn \
   "FAIL a question open at the succession was moved to the successor" \
   "q3: withdrawn — handed over to its successor" "exit 1"
+expect "a question withdrawn at the hand-over beside one moved fails, its fate named" withdrawn-one \
+  "ok   q4 moved to the successor" "FAIL q5 moved to the successor" \
+  "q5: withdrawn under s-old — handed over to its successor" "round: withdrawn by the sender: q5" "exit 1"
+expect "a question whose move could not be written fails, the module's error under it" write-fails \
+  "ok   q6 moved to the successor" "FAIL q7 moved to the successor" "q7: open under s-old" \
+  "round: EIO: i/o error, rename" "exit 1"
+expect "a question no render showed after the move fails, though no line says it was left out" unseen \
+  "FAIL in the pane after the move: no render shows it" "unexplained: no not drawn or never drawn line names q8" \
+  "FAIL in the pane before the successor's first measure: no render shows it" "exit 1"
 [ "$dfail" = 0 ] || { echo "failed (dry): $dfail of $((dpass + dfail))"; exit 1; }
 echo "passed (dry)"
