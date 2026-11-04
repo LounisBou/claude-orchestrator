@@ -3734,6 +3734,10 @@ check "the decision round's coordinator paragraph stays at 450 characters or few
 # The module carries each question; the round sending them itself as well delivered one question twice.
 check "the decision round no longer looks the coordinator up or sends it the questions itself, and stays at 8,800 bytes or fewer" "no|no|0|yes" \
   "$(spells "$ROOT/commands/decide.md" 'coordinator.sh lookup')|$(spells "$ROOT/commands/decide.md" 'goes to that coordinator with `SendMessage`')|$(sed -n '1,5p' "$ROOT/commands/decide.md" | grep -c '^allowed-tools: .*coordinator\.sh')|$([ "$(wc -c < "$ROOT/commands/decide.md" | tr -d ' ')" -le 8800 ] && echo yes || echo no)"
+# The store's read moves or withdraws the open questions of a sender dead without an end: the
+# design no longer leaves them to the pane.
+check "the design no longer leaves a dead sender's questions to the pane" "no" \
+  "$(spells "$ROOT/docs/design.md" 'a session that dies without an end is left to the pane')"
 # The operator's order of 2026-10-24: a question the pane shows is asked in the coordinator's tab
 # only once due — urgent, or no pane open — and never twice; whether the pane is open decides.
 # A hold on his word keeps the other questions open, and the urgent ones still signalled. The
