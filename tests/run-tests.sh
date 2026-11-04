@@ -3352,6 +3352,10 @@ ITERMCMDS="$ROOT/skills/iterm-agents/references/commands.md"
 ITERMSH="$ROOT/skills/iterm-agents/scripts/iterm-agent.sh"
 check "the launcher's skill and command reference document move --leftmost" "yes|yes" \
   "$(spells "$ITERMSKILL" '--leftmost')|$(spells "$ITERMCMDS" '--leftmost')"
+# A plain spawn lands beside its orchestrator, so a spawn without an anchor is no mistake, and the
+# command reference no longer gives the old end-of-window fall as a reason to name one.
+check "neither the launcher's skill nor its reference calls a spawn without an anchor a mistake" "no|no" \
+  "$(spells "$ITERMSKILL" 'Spawning without an anchor')|$(spells "$ITERMCMDS" 'one more reason to always name one')"
 # One exception, the operator's order: the rulebook and the decision round route a question for
 # him through a running coordinator. They name it in that one paragraph and nowhere else.
 coordinator_named_in() { # <root>

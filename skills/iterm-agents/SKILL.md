@@ -95,7 +95,6 @@ Prompt and launch files accumulate under the state directory's `prompts/`; they 
 - Handing the user a brief path and an invocation to paste: the orchestrator spawns (Overview).
 - Trusting the printed tty: launch steps 3 and 5.
 - Closing by title alone or by position: « Window and tab hygiene ».
-- Spawning without an anchor: « Layout convention ».
 - Reading a process that runs in a directory the host never opened as a launched agent: it is stopped on a question — launch steps 4 and 5.
 - Rotating before the old agent acknowledged stand-down, or passing `--expect-title` to a rotation: rotation steps 1 and 3.
 - Storing a tty and using it after any close happened in between: « Reading the tabs ».
