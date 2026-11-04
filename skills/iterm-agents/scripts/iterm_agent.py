@@ -4167,17 +4167,18 @@ def anchor_after_probe(found, anchor, own):
 
 
 def tier_pair(tier, effort_flag, bound):
-    """`(model, effort, source)` of an agent's tier: the map's binding `bound` (what
-    resolve_tier_pair answered for it), its effort, else the flag's, else the plugin's
-    shipped effort for the tier, else, for the deep tier, the calling orchestrator's own
-    live effort."""
+    """`(model, effort, source)` of an agent's tier: the model of the map's binding `bound`
+    (what resolve_tier_pair answered for it), with the effort of the flag, else the
+    binding's, else the plugin's shipped effort for the tier, else, for the deep tier, the
+    calling orchestrator's own live effort, whose transcript the source then names."""
     model, effort = bound
     if effort_flag:
         return model, effort_flag, "flag"
     if not effort:
         effort = SHIPPED_TIER_EFFORTS.get(tier, "")
     if not effort:
-        effort = own_pair("the deep tier's agent")[1]
+        _, effort, path = own_pair("the deep tier's agent")
+        return model, effort, "tier %s, effort from transcript %s" % (tier, path)
     return model, effort, "tier %s" % tier
 
 

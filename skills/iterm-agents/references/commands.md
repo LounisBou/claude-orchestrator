@@ -108,7 +108,8 @@ $SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --eff
     # Every launched session carries its model and its effort (decision 3 of
     # docs/agent-dispatches.md). The dry run prints what it types and where it came from:
     # `effort=<level>` (`none` for the host's default) and `pair_source=` — `transcript <path>`,
-    # `tier <t>`, `flag`, `record` or `host default`; a real spawn says the same on stderr.
+    # `tier <t>` (`tier deep, effort from transcript <path>` when the effort is yours),
+    # `flag`, `record` or `host default`; a real spawn says the same on stderr.
     # --inherit-model types the calling session's current model AND effort, read on its
     # transcript (its last main-thread request); --tier, --model and --effort are exclusive
     # with it. A succession reads them the same way whether or not it is typed.
