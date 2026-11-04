@@ -1103,7 +1103,8 @@ async function traceRender($: any, read: readonly RoundEntry[], taken: ReadonlyS
 // measure, minutes after the move (2026-11-04: 3 min 15 s), and its questions are drawn and due
 // meanwhile. A move whose successor's session was not resolved names none: then a record of the
 // successor's name, other than its predecessor's, stands for it. A process table that could not be
-// read judges no record dead, as the store's read keeps its rows. The answer is the entries' ids.
+// read judges no record dead, as the store's read keeps its rows. One moved by name alone that no
+// live record takes is closed (closeUnhosted). The answer is the entries' ids.
 async function hostedSuccessors($: any, entries: readonly RoundEntry[], rows: Record<string, SessionRow>, alive: StoreRead['alive']): Promise<Set<string>> {
   const wanted = entries.filter(entry => entry.status === 'open' && entry.movedFrom && !entry.origin && !(entry.session !== '' && sessionKey(entry.session) in rows))
   const hosted = new Set<string>()
@@ -1113,7 +1114,8 @@ async function hostedSuccessors($: any, entries: readonly RoundEntry[], rows: Re
     : record.name === entry.from && record.sessionId !== entry.movedFrom
   const dir = `${await configDir($)}/sessions`
   const pids = new Map<string, string[]>()
-  for (const file of await $.fs.list(dir).catch(() => [])) {
+  const listed: { name: string; kind: string }[] | null = await $.fs.list(dir).catch(() => null)
+  for (const file of listed ?? []) {
     if (!file || file.kind !== 'file' || !file.name.endsWith('.json')) continue
     try {
       const record = JSON.parse(String(await $.fs.read(`${dir}/${file.name}`)))
@@ -1122,12 +1124,29 @@ async function hostedSuccessors($: any, entries: readonly RoundEntry[], rows: Re
       if (ids.length > 0) pids.set(String(record.pid), [...(pids.get(String(record.pid)) ?? []), ...ids])
     } catch { /* a record being written, or gone: not this one */ }
   }
-  if (pids.size === 0) return hosted
   const table = alive instanceof Map ? alive
     : alive === null ? null
+    : pids.size === 0 ? new Map()
     : livePids(await $.process.run(livePidsArgv([...pids.keys()])!, { timeoutMs: 5000 }).catch(() => null))
   for (const [pid, ids] of pids) if (table === null || runsLive(table, pid)) for (const id of ids) hosted.add(id)
+  if (listed !== null) await closeUnhosted($, wanted.filter(entry => entry.session === '' && !hosted.has(entry.id)))
   return hosted
+}
+
+// The entries moved to a successor by its name alone that no session of that name runs: no
+// session's end, no store read and no withdrawal matches an entry naming no session, so they are
+// withdrawn here, by the sender, as a gone sender's are. Judged only on a registry listed: a
+// listing that failed closes nothing, and a process table that could not be read takes every
+// record of that name as live.
+async function closeUnhosted($: any, orphans: readonly RoundEntry[]): Promise<void> {
+  if (orphans.length === 0) return
+  try {
+    const ids = new Set(orphans.map(entry => entry.id))
+    const settled = await withdrawStale($, '', null, "the sender's session ended", entry => !ids.has(entry.id))
+    await tellSettled($, settled, Date.now() + RELAY_BOUND_MS)
+  } catch (err) {
+    await logLine($, `round: ${(err as Error).message}`)
+  }
 }
 
 // The questions just due, read in the coordinator's own session: one wake submitted to it for
