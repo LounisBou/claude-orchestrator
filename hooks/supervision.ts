@@ -476,12 +476,31 @@ async function publishUsage($: any, id: string, usage: DeckUsage | null): Promis
 // no remove, rm does — so the store does not grow with every session the
 // machine ever ran.
 export async function readSessions($: any): Promise<Record<string, SessionRow>> {
+  return (await readStore($)).rows
+}
+
+// The same read, with what the pane traces beside the rows: each file it left out, by its key,
+// with the reason (`dropped`), and the process table it judged them by (`alive`, null when that
+// read failed, and no table at all when no row named a pid and none was read).
+export type StoreRead = { rows: Record<string, SessionRow>; dropped: Map<string, string>; alive: ProcessTable | null | Set<string> }
+
+// Why a row the read met is no live row: empty, caught mid-write, or stale by the rule above.
+function droppedReason(text: string, row: SessionRow | null, alive: StoreRead['alive']): string {
+  if (text === '') return 'empty'
+  if (!row) return 'unreadable'
+  if (!row.pid) return 'stale, no pid and no measure for an hour'
+  const listed = alive instanceof Map && alive.has(String(row.pid))
+  const where = row.tty ? ` on ${row.tty}` : ''
+  return listed ? `stale pid ${row.pid}: exiting, or no longer${where}` : `stale pid ${row.pid}: not running${where}`
+}
+
+async function readStore($: any): Promise<StoreRead> {
   const dir = `${await storeOf($)}/sessions`
   let entries: { name: string; kind: string }[]
   try {
     entries = await $.fs.list(dir)
   } catch {
-    return {}   // no store yet: nothing was ever written
+    return { rows: {}, dropped: new Map(), alive: new Set() }   // no store yet: nothing was ever written
   }
   const read: [string, string, SessionRow | null][] = []
   for (const entry of entries) {
@@ -496,12 +515,17 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   const argv = livePidsArgv(read.map(([, , row]) => String(row?.pid ?? '')))
   const alive = argv ? livePids(await $.process.run(argv, { timeoutMs: 5000 }).catch(() => null)) : new Set<string>()
   const rows: Record<string, SessionRow> = {}
+  const dropped = new Map<string, string>()
   const dead: string[] = []
   const gone: string[] = []
   const now = Date.now()
   for (const [name, text, row] of read) {
-    if (row && !isStale(row, now, alive)) rows[`sessions/${name}`] = row
-    else if (text === '' || row) {
+    if (row && !isStale(row, now, alive)) {
+      rows[`sessions/${name}`] = row
+      continue
+    }
+    dropped.set(`sessions/${name}`, droppedReason(text, row, alive))
+    if (text === '' || row) {
       // A row with no pid removed for idleness alone is not known dead: its sender may live on.
       if (text === '' || row?.pid) gone.push(`sessions/${name}`)
       dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`, `${await storeOf($)}/successors/${name}`)
@@ -512,7 +536,7 @@ export async function readSessions($: any): Promise<Record<string, SessionRow>> 
   // whole store at every render the pane drew.
   if (alive !== null && dead.length > 0) await $.process.run(['rm', '-f', ...dead], { timeoutMs: 5000 }).catch(() => undefined)
   if (alive !== null && gone.length > 0) await sweepGoneSenders($, new Set(gone))
-  return rows
+  return { rows, dropped, alive }
 }
 
 // The entries a session left open and no session end closed (a killed host, a tab closed with no
@@ -1009,6 +1033,47 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
   if (wake.generation === generation) armWake($, wake)
 }
 
+// What the coordinator's pane took in and left out, module memory the render and the round's
+// wake share, so each line below is written once in the module's life: the open operator entries a
+// render showed (`shown`), each entry left out with its reason (`left`, `<id> <reason>`), the
+// entries the wake found never shown (`unseen`), and when the last render ran (`lastRender`, ISO).
+// The 2026-11-04 case: a question in neither the pane nor the coordinator's tab, and no line
+// saying which step lost it.
+export type PaneTrace = { shown: Set<string>; left: Set<string>; unseen: Set<string>; lastRender: string | null }
+let trace: PaneTrace = { shown: new Set(), left: new Set(), unseen: new Set(), lastRender: null }
+
+// Why an open entry of this machine is not drawn: the session it names, its row's drop reason
+// this read gave, or no row at all.
+function leftOutReason(entry: RoundEntry, dropped: ReadonlyMap<string, string>, remote: Record<string, SessionRow>): string {
+  if (entry.origin) {
+    const known = remote[remoteKey(entry.from)]
+    return known ? `its sender's remote row is on ${known.machine ?? 'another machine'}, not ${entry.origin.machine}` : `no live remote row for ${entry.from} on ${entry.origin.machine}`
+  }
+  if (entry.session === '') return 'names no session'
+  const reason = dropped.get(sessionKey(entry.session))
+  return reason ? `its sender's row ${entry.session} was dropped: ${reason}` : `no row for its sender ${entry.session}`
+}
+
+// One render's trace: each open operator entry it took in, logged once at its first drawing, and
+// each one it left out, logged once per reason. `taken` is the render's own list: a question in
+// its card or its count, a wait that asks nothing on its sender's row.
+async function traceRender($: any, read: readonly RoundEntry[], taken: ReadonlySet<string>, reasonOf: (entry: RoundEntry) => string): Promise<void> {
+  for (const entry of read) {
+    if (entry.status !== 'open' || entry.kind !== 'operator') continue
+    if (taken.has(entry.id)) {
+      if (trace.shown.has(entry.id)) continue
+      trace.shown.add(entry.id)
+      await logLine($, `pane: shown ${entry.id}`)
+      continue
+    }
+    const reason = reasonOf(entry)
+    const key = `${entry.id} ${reason}`
+    if (trace.left.has(key)) continue
+    trace.left.add(key)
+    await logLine($, `pane: ${entry.id} not drawn: ${reason}`)
+  }
+}
+
 // The questions just due, read in the coordinator's own session: one wake submitted to it for
 // those it was not woken for yet, the pane open as the script reads it. A question whose sender
 // has ended has no one left to answer, as in the pane. The ids woken for are read again just
@@ -1016,11 +1081,13 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
 // the host took it: a submit that fails or is dropped is tried again at the next reading. The
 // ids kept are those the round still holds, so the list never outgrows it.
 async function wakeForDue($: any): Promise<void> {
-  const local = await readSessions($)
+  const store = await readStore($)
+  const local = store.rows
   const read = (await readRound($)).map(found => found.entry)
   const paneOpen = await paneIsOpen($)
   const present = new Set(read.map(entry => entry.id))
   const now = Date.now()
+  if (paneOpen) await traceUnseen($, read, now)
   const dueBeside = (woken: readonly string[]) => (entry: RoundEntry) =>
     sessionKey(entry.session) in local && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
   if (!read.some(dueBeside(await readWoken($)))) return
@@ -1033,6 +1100,20 @@ async function wakeForDue($: any): Promise<void> {
     return
   }
   await writeAtomic($, await wokenPath($), JSON.stringify([...woken, ...due.map(entry => entry.id)]) + '\n')
+}
+
+// With the pane open, each open operator entry ROUND_WAKE_MS old that no render of this module
+// showed is one line, once: the render was not raised, or did not take it in, and the line gives
+// the last render's time to tell which. With the pane closed the question is due in the tab and
+// no render is owed. An entry's age is from when the module wrote it, else from its wait's start.
+async function traceUnseen($: any, read: readonly RoundEntry[], now: number): Promise<void> {
+  for (const entry of read) {
+    if (entry.status !== 'open' || entry.kind !== 'operator' || trace.shown.has(entry.id) || trace.unseen.has(entry.id)) continue
+    const at = Number.isFinite(Date.parse(entry.at)) ? Date.parse(entry.at) : Date.parse(entry.since)
+    if (!Number.isFinite(at) || now - at < ROUND_WAKE_MS) continue
+    trace.unseen.add(entry.id)
+    await logLine($, `round wake: ${entry.id} open ${Math.floor((now - at) / 1000)} s, never drawn by the pane (last render ${trace.lastRender ?? 'none'})`)
+  }
 }
 
 // A coordinator's pane opens by itself, the operator's ruling of 2026-10-18: at the end of the
@@ -1141,6 +1222,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // The coordinator's round read for questions just due, armed by a start or a turn end that
   // finds it the recorded coordinator (registerWake).
   wake = { timer: null, generation: 0 }
+  trace = { shown: new Set(), left: new Set(), unseen: new Set(), lastRender: null }
 
   // The engine allows one no-matcher registration per event, and the gauge
   // owns session.measure's and session.end's: this domain observes the same
@@ -1484,6 +1566,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // and requestId — the pane's id — so the rows are drawn in this plugin's pane
   // alone and never in another plugin's.
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
+    trace.lastRender = new Date().toISOString()
     try {
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
@@ -1501,7 +1584,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       let none = 'type /orchestrator-supervision to open the pane again'
       const coordinator = pane.opened?.role === 'coordinator'
       if (coordinator) {
-        const local = await readSessions($)
+        const store = await readStore($)
+        const local = store.rows
         const merged = withRemote(local, await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
         blocks = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
         owners = repositoryOwners([await (ownRepo ??= repoOf($)), ...Object.values(merged).flatMap(row => [row.repo, ...((row as { prs?: unknown }).prs instanceof Array ? (row as { prs: string[] }).prs : [])])])
@@ -1517,6 +1601,14 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
           : sessionKey(entry.session) in local)
         const questions = paneQuestions(drawn)
         for (const wait of waitsInTab(drawn)) if (!tabWaits.has(rowKeyOf(wait))) tabWaits.set(rowKeyOf(wait), waitSummary(wait))
+        // What this render takes in, for its trace: every question it counts, and each wait that
+        // asks nothing whose sender's row it draws, the line being on that row.
+        const rowKeys = new Set(blocks.map(block => block.key))
+        const taken = new Set([...questions, ...waitsInTab(drawn).filter(wait => rowKeys.has(rowKeyOf(wait)))].map(entry => entry.id))
+        const remote = Object.fromEntries(Object.entries(merged).filter(([key]) => !(key in local)))
+        await traceRender($, read.map(found => found.entry), taken, entry => drawn.includes(entry)
+          ? `its wait asks nothing and its sender ${entry.from} has no orchestrator row in the pane`
+          : leftOutReason(entry, store.dropped, remote))
         // Each question counts, those of an entry that asks several one by one, less those
         // already answered.
         pending = questions.reduce((sum, entry) => sum + entryQuestions(entry).length - (entry.partial?.length ?? 0), 0)
