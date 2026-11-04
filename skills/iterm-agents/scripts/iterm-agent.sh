@@ -42,10 +42,10 @@
 #     no chain, in window 0 of a home session of its own shown by a tab immediately right of
 #     the caller; --resume brings back its recorded conversation
 #     (--open makes its home session the same way, the server named after the id it is given)
-#   iterm-agent.sh spawn --open --title "Orch : <subject>" --dir <path> [--tier <t> | --model <id> --effort <level> | --inherit-model] (--prompt <text> | --prompt-file <path>)
+#   iterm-agent.sh spawn --open --title "Orch : <subject>" --dir <path> [--model <id> --effort <level>] (--prompt <text> | --prompt-file <path>)
 #     a new orchestrator opened on the operator's order, by a coordinator or an orchestrator
 #     only: immediately right of the caller, the pair the order names or the host's default
-#     (a model alone is refused), remote control on,
+#     (a model alone, a tier and --inherit-model are refused), remote control on,
 #     no chain. `--open` comes right after `spawn`: that is the form the rule every
 #     `install.sh` run writes names
 #   iterm-agent.sh home --session <id> --name "Orch : <subject>" [--prompt <text>]
