@@ -4353,17 +4353,21 @@ def cmd_spawn(argv, pair_from=""):
         # A new orchestrator opened on the operator's order, by the coordinator or by an
         # orchestrator the coordinator relayed that order to on another machine: under its own
         # name, right of its caller, in no chain, under remote control like any orchestrator.
-        # Only a coordinator or an orchestrator opens one: an agent never does.
+        # Only a coordinator or an orchestrator opens one: an agent never does. Its pair is
+        # the one the order names, or the host's default: a tier, or the caller's own pair,
+        # would be a pair nobody ordered.
         for flag, given in (("--successor", args.successor), ("--auditor", args.auditor),
                             ("--coordinator-successor", args.coordinator_successor),
-                            ("--wake", args.wake), ("--left-of", args.left_of),
+                            ("--wake", args.wake), ("--tier", args.tier),
+                            ("--inherit-model", args.inherit), ("--left-of", args.left_of),
                             ("--right-of", args.right_of), ("--title-free", args.title_free),
                             ("--resident", args.resident), ("--brief", args.brief),
                             ("--orchestrator", args.orchestrator),
                             ("--no-remote-control", not args.remote_control)):
             if given:
                 die("spawn: refused: %s is not an opening's: an opened orchestrator runs under "
-                    "its own name, lands immediately right of you, joins no chain, reads its "
+                    "its own name, on the model and the effort its order names or the host's "
+                    "default, lands immediately right of you, joins no chain, reads its "
                     "brief from its prompt and comes up under remote control" % flag)
         if bool(args.model) != bool(args.effort):
             # The operator's order names a model and an effort, or neither and the host's

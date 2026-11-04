@@ -4334,6 +4334,12 @@ check "an opened orchestrator types no pair unless the order names one" "0|0|non
   "$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(e7f "$E7OPEN" effort)|$(e7f "$E7OPEN" pair_source)"
 check "an opening given a model and an effort types them; a model alone is refused" "1|flag|1|1" \
   "$(e7l "$E7COORD" --open --title 'Orch : x' --model b-model --effort low | grep -c -- '--model b-model --effort low')|$(e7f "$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model --effort low)" pair_source)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model >/dev/null 2>&1; echo $?)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model | grep -c -- '--effort')"
+# A tier, or the caller's own pair, is a pair the order did not name: both are refused.
+for E7FLAG in '--tier deep' --inherit-model; do
+  # shellcheck disable=SC2086 # the flag and its value are two words on purpose
+  check "an opening refuses ${E7FLAG%% *}" "1|1|0" \
+    "$(e7 "$E7COORD" --open --title 'Orch : x' $E7FLAG >/dev/null 2>&1; echo $?)|$(e7 "$E7COORD" --open --title 'Orch : x' $E7FLAG | grep -c "is not an opening's")|$(e7 "$E7COORD" --open --title 'Orch : x' $E7FLAG | grep -c '^launch=')"
+done
 # A wake: the pair read in the resumed session's own transcript; else its recorded pair;
 # else the host's default. A recorded model without its effort is refused, never guessed.
 pair_transcript s-e7-slept r-model max
