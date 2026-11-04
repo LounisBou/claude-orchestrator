@@ -782,7 +782,7 @@ An orchestrator's deliveries are read by its reviews; its METHOD was read by nob
 
 ## 53. A method he names is a format, and a fact not read is not stated
 
-Duties 5 and 6 of the operator's word (section 47): a method the operator names binds the presentation as well as the judgment, and a name, a role, a figure or a cause comes from an output of the session or is said to be unknown (`skills/orchestrator/SKILL.md`) — a named method nobody opened once produced a summary with no assessment, and a name no command printed was once stated as fact. The comments section of the review reference points at duty 5, and both duties travel in the succession brief.
+Duties 4 and 5 of the operator's word (section 47): a method the operator names binds the presentation as well as the judgment, and a name, a role, a figure or a cause comes from an output of the session or is said to be unknown (`skills/orchestrator/SKILL.md`) — a named method nobody opened once produced a summary with no assessment, and a name no command printed was once stated as fact. The comments section of the review reference points at duty 4, and both duties travel in the succession brief.
 
 ## 55. A pull request is ready only when the record says a round read its head
 

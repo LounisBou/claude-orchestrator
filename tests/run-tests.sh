@@ -364,6 +364,8 @@ check "the decision round shows each question in the pane or the coordinator's t
 # each pointer names where its rule lives now, and none names the old place.
 check "the pointers into the rulebook name the duty or the section their rule lives in" "yes|no|yes|no|yes|no|yes|no" \
   "$(spells "$ORCH_REFS/review.md" "(duty 4 of « The operator's word comes first », in SKILL.md)")|$(spells "$ORCH_REFS/review.md" "duty 5 of « The operator's word comes first »")|$(spells "$ROOT/commands/progress.md" "duty 6 of « The operator's word comes first »")|$(spells "$ROOT/commands/progress.md" '« Refresh the state from the artifacts »')|$(spells "$ORCH_REFS/lifecycle.md" 'the watch is yours, in the background (`references/review.md`, « Checks, in one background watch »)')|$(spells "$ORCH_REFS/lifecycle.md" 'the watch is yours, in the background (SKILL.md, « Carried at every step »)')|$(spells "$ORCH_REFS/lifecycle.md" "**refreshing the state from the artifacts** its duty 6 of « The operator's word comes first »")|$(spells "$ORCH_REFS/lifecycle.md" 'refreshing the state from the artifacts and measuring your own context**: SKILL.md, « Carried at every step »')"
+check "the design names the method and the read-fact duties by their numbers on the rulebook" "yes|no" \
+  "$(spells "$ROOT/docs/design.md" "Duties 4 and 5 of the operator's word (section 47)")|$(spells "$ROOT/docs/design.md" "Duties 5 and 6 of the operator's word")"
 # Row 151, topic 18: each rule the rules review proposed to merge is written once. The copy each
 # merge removed stays out (rule numbers of the review in brackets).
 ORCH_DIR="$ROOT/skills/orchestrator"
