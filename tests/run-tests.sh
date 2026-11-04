@@ -164,6 +164,10 @@ check "the rulebook keeps merge and undraft the operator's by default" "1" \
   "$(grep -c 'By default, merging a pull request and taking it out of draft are his, on his clear and' "$ROOT/skills/orchestrator/SKILL.md")"
 check "a project in auto-merge mode decides otherwise on merge and undraft" "1" \
   "$(grep -c "unless the project is in auto-merge mode" "$ROOT/skills/orchestrator/SKILL.md")"
+# Auto-merge mode is the project's own method deciding the merge or the draft, a method that ships
+# its pull requests ready included (the operator's ruling of 2026-11-04, « restore everything and fix »).
+check "the rulebook and review.md say a project's own method governs the merge and the draft" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'unless the project is in auto-merge mode: its own method governs (auto-merge, pull requests shipped ready).')|$(spells "$ORCH_REFS/review.md" 'or what its own method says: undrafted and merged under auto-merge, shipped ready')"
 check "the coordinator keeps merge and undraft the operator's by default" "1" \
   "$(grep -c "Merging and undrafting are his by default; where a project's own method decides otherwise, that" "$ROOT/skills/coordination/SKILL.md")"
 # The host lists a plugin's skills in the slash menu as if they were commands. A skill only

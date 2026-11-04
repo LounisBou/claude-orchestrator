@@ -71,7 +71,7 @@ The fill is the module's measurement, never an estimate: read `/orchestrator-sta
 
 **A command the orchestrator could run is the orchestrator's to run.** Opening and tagging pull requests, running the live round, updating the installed plugin, restarting the sessions a change requires, pinning a head for review, refreshing what a tool needs: none of it is handed to the operator as a line to paste.
 
-By default, merging a pull request and taking it out of draft are his, on his clear and explicit request, unless the project is in auto-merge mode. A `Ready` or `Not Ready` label sits beside the draft: `references/review.md`, « The label follows the ready ».
+By default, merging a pull request and taking it out of draft are his, on his clear and explicit request, unless the project is in auto-merge mode: its own method governs (auto-merge, pull requests shipped ready). A `Ready` or `Not Ready` label sits beside the draft: `references/review.md`, « The label follows the ready ».
 
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each costs, one recommendation, one at a time. A configuration change the tooling needs goes to the session owning it, as a request with its measurement.
 
