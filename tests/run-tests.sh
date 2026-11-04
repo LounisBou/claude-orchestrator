@@ -3449,8 +3449,8 @@ check "a wake runs under its recorded name, model and effort, under remote contr
   "$(printf '%s' "$WKLAUNCH" | grep -c -- "--name 'Orch : alpha'")|$(printf '%s' "$WKLAUNCH" | grep -c -- '--model a-model --effort high')|$(printf '%s' "$WKLAUNCH" | grep -c -- "--remote-control 'Orch : alpha'")|$(printf '%s' "$WKOUT" | grep -c '^wake=yes$')"
 check "a wake lands right of its caller and joins no chain" "1|1|1" \
   "$(printf '%s' "$WKOUT" | grep -c '^side=right$')|$(printf '%s' "$WKOUT" | grep -c '^anchor=self$')|$(printf '%s' "$WKOUT" | grep -c '^chain=none$')"
-check "a wake without the recorded model, or under another title, is refused" "1|1|1" \
-  "$(crd --wake --title 'Orch : alpha' | grep -c 'a wake never guesses the model')|$(crd --wake --title 'Agent : alpha' --model m | grep -c -- '--wake needs the recorded name')|$(crd --wake --title 'Orch : alpha [abc123]' --model m >/dev/null 2>&1; echo $?)"
+check "a wake with no pair to read runs on the host's default, and under another title it is refused" "0|none|host default|1|1" \
+  "$(crd --wake --title 'Orch : alpha' | sed -n 's/^launch=//p' | grep -c -- '--model')|$(crd --wake --title 'Orch : alpha' | sed -n 's/^effort=//p')|$(crd --wake --title 'Orch : alpha' | sed -n 's/^pair_source=//p')|$(crd --wake --title 'Agent : alpha' --model m | grep -c -- '--wake needs the recorded name')|$(crd --wake --title 'Orch : alpha [abc123]' --model m >/dev/null 2>&1; echo $?)"
 for WKFLAG in --successor --auditor '--right-of self' --title-free '--tier deep' --inherit-model --resident --no-remote-control; do
   # shellcheck disable=SC2086 # the flag and its value are two words on purpose
   check "a wake refuses $WKFLAG" "1|1" "$(crd --wake --title 'Orch : x' --model m $WKFLAG >/dev/null 2>&1; echo $?)|$(crd --wake --title 'Orch : x' --model m $WKFLAG | grep -c "is not a wake's")"
@@ -3469,7 +3469,7 @@ opn() { local caller="$1"; shift
   bash "$AGENT" spawn --dir "$WORK" --prompt p $(needs_tier "$@") "$@" 2>&1; }
 OPOUT=$(opn 'Coord : ops' --open --title 'Orch : sync logs')
 OPLAUNCH=$(printf '%s' "$OPOUT" | sed -n 's/^launch=//p')
-check "an opening by the coordinator runs under its title, on the deep tier, under remote control" "1|1|1|1" \
+check "an opening by the coordinator runs under its title, on the host's default pair, under remote control" "1|0|1|1" \
   "$(printf '%s' "$OPLAUNCH" | grep -c -- "--name 'Orch : sync logs'")|$(printf '%s' "$OPLAUNCH" | grep -c -- '--model deep-model')|$(printf '%s' "$OPLAUNCH" | grep -c -- "--remote-control 'Orch : sync logs'")|$(printf '%s' "$OPOUT" | grep -c '^open=yes$')"
 check "an opened orchestrator lands right of its caller and joins no chain" "1|1|1" \
   "$(printf '%s' "$OPOUT" | grep -c '^side=right$')|$(printf '%s' "$OPOUT" | grep -c '^anchor=self$')|$(printf '%s' "$OPOUT" | grep -c '^chain=none$')"
