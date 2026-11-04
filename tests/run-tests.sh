@@ -10374,6 +10374,10 @@ check "the skill records each session's cost" "yes" "$(spells "$MR" 'dispatch-re
 check "the skill bounds exploration to one notch" "yes" "$(spells "$MR" 'one notch')"
 check "the skill names what is never explored" "yes" "$(carries "$MR" 'never explored')"
 check "the skill points at the calibration reference" "yes" "$(spells "$MR" 'references/calibration.md')"
+# Row 151, topic 13: the cascade section and the « costliest mistakes » list are gone; the
+# principle keeps « never cascading a phase ».
+check "the routing skill carries no cascade section and no costliest-mistakes list, and still never cascades a phase" "0|0|yes" \
+  "$(grep -c '^## Cascade' "$MR")|$(grep -ci '^## The costliest mistakes' "$MR")|$(spells "$MR" 'never cascading a phase')"
 check "the skill keeps the budget out of the choice" "yes" "$(carries "$MR" 'never read the subscription gauge to choose')"
 check "the skill folds a promotion into the table from the record" "yes" "$(spells "$MR" 'routing.py calibrate <slug> --from-record <record>')"
 CLASSES="$(python3 -c 'import importlib.util,sys; s=importlib.util.spec_from_file_location("r",sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); print(" ".join(sorted(m.CLASS_TIERS)))' "$ROUTING")"
