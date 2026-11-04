@@ -4406,6 +4406,13 @@ check "pair refuses a session with no transcript, naming where it looked" "1|1" 
 pair_transcript s-e7-noeffort t-model ''
 check "a main-thread request with no effort is refused, naming what was missing" "1" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7-noeffort bash "$AGENT" pair 2>&1 | grep -c 'names no effort')"
+# The rule is written once: the tab skill states it in two sentences and points to the
+# routing skill and the command reference, which carry the detail; the design says what the
+# measure file is, with no account of what a reader used to do.
+check "the tab skill states the pair rule briefly and points to where its detail lives" "yes|0|0" \
+  "$(spells "$ITERMSKILL" 'How a tier'"'"'s effort is chosen is `orchestrator:model-routing`, « Pairs, tiers and the map », and each form'"'"'s flags and refusals are in `references/commands.md`.')|$(grep -c '`standard` high, `light` medium' "$ITERMSKILL")|$(grep -c 'An opened orchestrator (`--open`)' "$ITERMSKILL")"
+check "the design's measure file section carries no change history" "0" \
+  "$(grep -c "no longer reads this file" "$ROOT/docs/design.md")"
 # The rotation's spawn receives every argument the rotation does not consume, --trust
 # included — but the tab skill's line never said so, and a live rotation into a fresh
 # checkout was refused on the trust question and redone by hand (§39). Read on the record
