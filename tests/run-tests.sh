@@ -328,6 +328,10 @@ check "the merge and undraft rule has no quote in the rulebook and no copy in re
 # the thresholds outrank a reference.
 check "the rulebook answers before it reads the premise, reads how an agent works, and holds its thresholds over a reference" "yes|yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the premise and every further reading come after the answer is sent')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Read how an agent works, not only what it reports')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'They hold at every step of the loop, whatever a reference adds.')"
+# Rules the condensation had lost, restored in short form by the operator's ruling of 2026-11-04
+# (« restore everything and fix »), after an independent control of the lightening.
+check "review.md enforces an aspirational norms rule on new code and mines no finding from it" "yes" \
+  "$(spells "$ORCH_REFS/review.md" 'Enforce it on new code, do not manufacture findings from it.')"
 # Row 151, topic 18: each rule the rules review proposed to merge is written once. The copy each
 # merge removed stays out (rule numbers of the review in brackets).
 ORCH_DIR="$ROOT/skills/orchestrator"
