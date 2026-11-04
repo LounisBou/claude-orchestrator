@@ -2774,6 +2774,24 @@ test('a told line the host refuses is one log line, is told again at the next re
   expect(fx.notices).toEqual(['Question pending from Orch : a — blocks: phase 3 (urgent)'])
 })
 
+// A host that refuses the second line of a reading: the first was drawn, and is never drawn again.
+test('a told line drawn before one the host refuses is recorded, and told once', async () => {
+  const first = entry('Orch : a', minutesAgo(2), { session: 'sa' })
+  const second = entry('Orch : b', minutesAgo(1), { session: 'sb' })
+  const { fx, tick } = await wakingCoordinator([first, second])
+  const log = fx.dollar.ui.log
+  let calls = 0
+  fx.dollar.ui.log = (line: string) => {
+    if (++calls === 2) throw new Error('no transcript')
+    return log(line)
+  }
+  await tick()
+  expect(fx.notices.length).toBe(1)
+  fx.dollar.ui.log = log
+  await tick()
+  expect(fx.notices.sort()).toEqual(['Question pending from Orch : a — blocks: phase 3', 'Question pending from Orch : b — blocks: phase 3'])
+})
+
 // --- what the pane leaves out, and what it shows, said in its log ---------------------------------
 
 // The 2026-11-04 case: a question neither in the pane nor in the coordinator's tab, and nothing on
