@@ -241,11 +241,14 @@ check "the review brief's finding line ends with the proposed fix" "yes" \
 check "the comments brief's end report carries the threads and their outcomes" "yes" \
   "$(spells "$ROOT/templates/agent-comments-brief.md" 'threads and their outcomes')"
 # Rule 55: the module reports the measured context, and the phase brief no longer forbids an
-# estimate. Rule 77: the comments brief keeps its push protocol and drops what repeats the phase
-# brief (the subject-only commit, the backgrounded run's exit file, the reason behind the
-# assessments' length).
-check "the phase and comments briefs leave the context to the module and the comments brief repeats no phase rule" "no|no|no|no|no" \
-  "$(spells "$ROOT/templates/agent-phase-brief.md" 'never read or estimate it yourself')|$(spells "$ROOT/templates/agent-comments-brief.md" 'never read or estimate it yourself')|$(spells "$ROOT/templates/agent-comments-brief.md" 'forbids attribution trailers')|$(spells "$ROOT/templates/agent-comments-brief.md" 'exit code from the captured file')|$(spells "$ROOT/templates/agent-comments-brief.md" 'because the orchestrator renders them to the operator item by item')"
+# estimate. Rule 77: the comments brief keeps its push protocol and drops the reason behind the
+# assessments' length, which repeats the phase brief.
+check "the phase and comments briefs leave the context to the module and the comments brief repeats no phase rule" "no|no|no" \
+  "$(spells "$ROOT/templates/agent-phase-brief.md" 'never read or estimate it yourself')|$(spells "$ROOT/templates/agent-comments-brief.md" 'never read or estimate it yourself')|$(spells "$ROOT/templates/agent-comments-brief.md" 'because the orchestrator renders them to the operator item by item')"
+# The phase brief carries neither the subject-only commit nor the backgrounded run's exit file, so
+# the comments brief keeps both (the operator's ruling of 2026-11-04, « restore everything and fix »).
+check "the comments brief keeps the subject-only commit and reads a backgrounded run's exit code" "yes|yes" \
+  "$(spells "$ROOT/templates/agent-comments-brief.md" 'The message is the subject line only when the repository forbids attribution trailers')|$(spells "$ROOT/templates/agent-comments-brief.md" 'never call a run « going » when its process is gone')"
 # The successor always closes its predecessor, one started by hand included (the operator's
 # standing order): nothing is asked of him, and where the host refuses the close of a tab the
 # plugin did not open, the predecessor is asked to end its own session through the module.
