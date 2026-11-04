@@ -67,7 +67,7 @@ operator's pane draws these fields alone.
   and GAIN, each a materially different piece of work — never shades of one option.
 - `_Recommendation_ : A — <its reason in one sentence>`: exactly one, after the choices.
 - Close with « You decide: A or B? » (the letters offered), then the machine line, plain
-  text, as the message's last line: `waiting: operator — blocks: <the question>`. Split references in `blocks:` by `, `, never `/`. The stop gate refuses a bare question. END THE TURN. Nothing else in
+  text, as the message's last line: `waiting: operator — blocks: <the question>`. Split references in `blocks:` by `, `, never `/`. END THE TURN. Nothing else in
   that message but the « Recorded » line of the answer just given: no status, no other
   question, no agent report.
 

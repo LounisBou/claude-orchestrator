@@ -336,9 +336,11 @@ check "the succession brief, the references and the routing skill carry none of 
 # them by a comma.
 check "the decision round splits the references of a blocks text by commas, never a slash" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'Split references in `blocks:` by `, `, never `/`.')"
-# Rule 221 is lightened, not removed: the round says once that the stop gate refuses a bare
-# question (topic 3's urgent wait is pinned in its new home with the pane checks below).
-check "the decision round says the stop gate refuses a bare question" "yes" \
+# Rule 221: the stop gate refuses a bare question on its own (hooks/tests/stop-gate.test.ts, « A
+# bare question still blocks nothing declared »), and the operator ruled the sentence out
+# (2026-11-04, « A »: restore 2, 5, 6 and 7, remove 1, 3 and 4). Topic 3's urgent wait is pinned
+# in its new home with the pane checks below.
+check "the decision round leaves the bare question to the stop gate" "no" \
   "$(spells "$ROOT/commands/decide.md" 'The stop gate refuses a bare question.')"
 # One copy for the agent, in its brief template (the operator's ruling on topic 16 of the rules review).
 check "the standing rules no longer copy the « under load » rule" "no" \
@@ -4941,8 +4943,9 @@ check "succession prunes the state file and archives the finished journal" "yes|
 # Rule 201: the successor's first task points at its brief's steps 3 to 5 rather than repeating
 # them. Rule 203: move_send refuses a checkout that is not clean and pushed on its own
 # (hooks/tests/moving.test.ts « a dirty or an unpushed checkout refuses the move »). Rule 207
-# merged the rotation steps: his go once per machine, never per rotation, stays.
-check "lifecycle.md points at the succession brief's steps, leaves the checkout check to the move, and keeps the one approval" "no|no|no|yes" \
+# merged the rotation steps; its « his go once per machine » sentence is out, on the operator's
+# ruling (2026-11-04, « A »: restore 2, 5, 6 and 7, remove 1, 3 and 4).
+check "lifecycle.md points at the succession brief's steps, leaves the checkout check to the move, and carries no approval sentence" "no|no|no|no" \
   "$(spells "$ORCH_REFS/lifecycle.md" "waits for ever) and subscribe to each one's idle notice")|$(spells "$ORCH_REFS/lifecycle.md" "never on the host's idle notice, which reaches a working session only when its own turn ends")|$(spells "$ORCH_REFS/lifecycle.md" 'your checkouts clean and pushed')|$(spells "$ORCH_REFS/lifecycle.md" 'macOS Automation approval')"
 check "the succession brief inherits a pruned state file and does not load the archive" "yes|no" \
   "$(spells "$SUCC" 'pruned by your predecessor to what is live, its finished journal archived in a file you are not asked to load')|$(spells "$SUCC" 'read the archive')"
@@ -5076,13 +5079,13 @@ check "a succession brief whose open-questions value is a 1,500-character block,
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 10000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
 check "succeed.md says the open-questions value is outside the 10,000-character cap" "yes" \
   "$(spells "$ROOT/commands/succeed.md" '10,000 characters, the open-questions value apart')"
-# Rule 237: the lint refuses an over-long brief on its own, and the Live state's rewrite is said
-# once. Rule 32 is a merge into succeed.md: until the takeover confirmation, an operator's
-# question gets one line pointing to the successor.
 # Rule 230: the silent agent's line keeps its wording and drops the rest.
 check "the agents command reports a silent agent in one short line" "yes|no" \
   "$(spells "$ROOT/commands/agents.md" '5. An agent silent fifteen minutes: « no answer, last artifact activity <time> ».')|$(spells "$ROOT/commands/agents.md" 'probably fine')"
-check "succeed.md says the Live state rule once and points the operator at the successor" "no|no|yes" \
+# Rule 237: the lint refuses an over-long brief on its own, and the Live state's rewrite is said
+# once. Rule 32's line pointing an operator's question to the successor is out, on the operator's
+# ruling (2026-11-04, « A »: restore 2, 5, 6 and 7, remove 1, 3 and 4).
+check "succeed.md says the Live state rule once and carries no pointer line for the operator" "no|no|no" \
   "$(spells "$ROOT/commands/succeed.md" 'after its first use the six fields hold')|$(spells "$ROOT/commands/succeed.md" 'the lint refuses more')|$(spells "$ROOT/commands/succeed.md" "an operator's question gets one line pointing to the successor")"
 check "the same brief with the rest padded past 10,000 characters is over the limit" "1|1" \
   "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 10000')"
