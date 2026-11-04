@@ -84,6 +84,10 @@ function fits(busy: boolean, running: readonly string[]): string {
   if (running.length > 0) return runningFits(running)
   return busy ? BUSY_FITS : OTHER_FITS
 }
+// A turn that ends on no machine line with nothing in flight, no agent busy and no notice awaited.
+const NOTHING = 'Nothing will wake you: nothing of yours runs in the background and no agent of yours is busy. '
+  + 'Launch what you announced (an agent, or a command with run_in_background, then end with the line waiting: tool — <what is watched>), '
+  + `or end on the line that fits. ${OTHER_FITS} The line goes as the message's last line, no markup.`
 // A tool line with nothing of the session's own in flight: no end and no event will come to wake it.
 const TOOL_NOT_RUNNING = 'Nothing of yours runs in the background: waiting: tool — <what is watched> fits only while '
   + 'a command, monitor or subagent you started still runs. Launch it with run_in_background, or end on the line that fits. '
@@ -463,7 +467,8 @@ export function checkWake(facts: {
   const tool = TOOL_LINE.exec(last)
   if (tool) {
     if (facts.tasks !== undefined && facts.tasks !== null) {
-      if (facts.tasks.length > 0 || running.length > 0 || facts.watching || facts.awaiting || busy) return { tool: tool[1].trim() }
+      // A session that handed over is woken by its successor's « takeover confirmed », as at its other endings.
+      if (facts.tasks.length > 0 || running.length > 0 || facts.watching || facts.awaiting || busy || facts.handedOver) return { tool: tool[1].trim() }
       return { case: 'tool-not-running', reason: TOOL_NOT_RUNNING }
     }
     if (running.length > 0 || facts.watching || facts.hostUnread) return { tool: tool[1].trim() }
@@ -491,6 +496,11 @@ export function checkWake(facts: {
     return null
   }
   if (facts.handedOver) return null
+  // Refused on the host's own list of work in flight, as the tool line is; a host that sends none is only logged.
+  if (facts.tasks !== undefined && facts.tasks !== null) {
+    if (facts.tasks.length > 0) return null
+    return { case: 'nothing-will-wake', reason: NOTHING }
+  }
   return { warn: 'nothing-will-wake', detail: '' }
 }
 
