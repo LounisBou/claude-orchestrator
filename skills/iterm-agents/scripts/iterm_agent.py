@@ -1504,7 +1504,9 @@ def read_pair(session_id):
     no effort, and PairUnreadable says which, naming the file."""
     if not session_id:
         raise PairUnreadable("no session id to read a pair for (CLAUDE_CODE_SESSION_ID unset)")
-    path, _ = transcript_of(session_id) if re.fullmatch(r"[0-9A-Za-z._-]+", session_id) else ("", 0)
+    # The newest of its transcripts: a session resumed from another checkout has one under
+    # each, and its requests go to the one written last.
+    path = transcript_of_session(session_id)
     if not path:
         raise PairUnreadable("no transcript for session %s under %s" % (session_id, PROJECTS_DIR))
     last = None

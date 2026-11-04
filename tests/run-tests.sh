@@ -4370,6 +4370,19 @@ check "a rotation given a tier types the tier's pair, pair_source=tier" "1|tier 
 # The reading itself: the last main-thread request, never another thread's, never a guess.
 check "pair prints the caller's model and effort" "model=t-model effort=xhigh" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7 bash "$AGENT" pair 2>&1)"
+# A session resumed from another checkout has a transcript under each: the newest is the one
+# its requests go to now. Both orders of the two directories, so the first file the listing
+# returns is the older one in at least one of them.
+for E7NEW in a z; do
+  E7OLD=$([ "$E7NEW" = a ] && echo z || echo a)
+  mkdir -p "$ORCHESTRATOR_PROJECTS_DIR/$E7OLD" "$ORCHESTRATOR_PROJECTS_DIR/$E7NEW"
+  printf '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"old-model","output_config":{"effort":"low"}}}\n' > "$ORCHESTRATOR_PROJECTS_DIR/$E7OLD/s-e7-two-$E7NEW.jsonl"
+  printf '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"new-model","output_config":{"effort":"max"}}}\n' > "$ORCHESTRATOR_PROJECTS_DIR/$E7NEW/s-e7-two-$E7NEW.jsonl"
+  touch -t 202601010000 "$ORCHESTRATOR_PROJECTS_DIR/$E7OLD/s-e7-two-$E7NEW.jsonl"
+  check "pair reads the newest of a session's transcripts (newest under $E7NEW)" "model=new-model effort=max" \
+    "$(CLAUDE_CODE_SESSION_ID=s-e7-two-$E7NEW bash "$AGENT" pair 2>&1)"
+  rm -f "$ORCHESTRATOR_PROJECTS_DIR/$E7OLD/s-e7-two-$E7NEW.jsonl" "$ORCHESTRATOR_PROJECTS_DIR/$E7NEW/s-e7-two-$E7NEW.jsonl"
+done
 printf '%s\n' '{"type":"api-request","querySource":"compact","params":{"model":"x-small","output_config":{"effort":"low"}}}' > "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-decoy.jsonl"
 check "caller_pair refuses a transcript with no main-thread request, naming it" "1|1|0" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7-decoy bash "$AGENT" pair >/dev/null 2>&1; echo $?)|$(CLAUDE_CODE_SESSION_ID=s-e7-decoy bash "$AGENT" pair 2>&1 | grep -cF "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-decoy.jsonl holds no main-thread request")|$(E7SID=s-e7-decoy e7 "$E7ORCH" --successor | grep -c '^launch=')"
