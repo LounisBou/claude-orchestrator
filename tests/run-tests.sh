@@ -8267,7 +8267,7 @@ check "and --keep-checkout keeps it" "0|0" "$(sfield "$res" exit)|$(sfield "$res
 SLST="$WORK/sleepstate"; mkdir -p "$SLST"; printf 'b\n' > "$SLST/brief.md"
 ORCHESTRATOR_STATE_DIR="$SLST" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleep --name "Orch : w" --brief "$SLST/brief.md" --dir "$WORK" --model a-model --effort high --session abcdef12-3456-4789-8abc-def012345678 >/dev/null 2>&1
 check "a paused orchestrator's record carries its session, and its line says it" "1" \
-  "$(ORCHESTRATOR_STATE_DIR="$SLST" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleeping | grep -c '| effort default | session abcdef12-3456-4789-8abc-def012345678$')"
+  "$(ORCHESTRATOR_STATE_DIR="$SLST" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleeping | grep -c '| effort high | session abcdef12-3456-4789-8abc-def012345678$')"
 check "a session id that is not one is refused" "1" \
   "$(ORCHESTRATOR_STATE_DIR="$SLST" bash "$ROOT/skills/coordinator/scripts/coordinator.sh" sleep --name "Orch : v" --brief "$SLST/brief.md" --dir "$WORK" --model a-model --effort high --session 'x y' 2>&1 | grep -c 'refused: a session id')"
 
@@ -9161,7 +9161,7 @@ check "sleep refuses a pause without an effort, and says where the pair is read"
 check "a refused sleep records nothing" "1" "$(jq length "$SLREC")"
 slc sleep --name 'Orch : beta' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model a-model --effort high >/dev/null 2>&1
 check "sleeping lists each one with its directory, pull requests, checkouts, brief, model and effort" \
-  "sleeping Orch : alpha | since * | $SLP | prs forge.example/o/app#9 feat/z | checkouts $SLP | brief $SLP/briefs/succession-brief.md | model a-model | effort high|sleeping Orch : beta | since * | $SLP | prs none | checkouts none | brief $SLP/briefs/succession-brief.md | model a-model | effort default" \
+  "sleeping Orch : alpha | since * | $SLP | prs forge.example/o/app#9 feat/z | checkouts $SLP | brief $SLP/briefs/succession-brief.md | model a-model | effort high|sleeping Orch : beta | since * | $SLP | prs none | checkouts none | brief $SLP/briefs/succession-brief.md | model a-model | effort high" \
   "$(slc sleeping | sed -E 's/since [^ ]+/since */' | tr '\n' '|' | sed 's/|$//')"
 check "wake-done removes the woken one's record alone" "woken Orch : beta|Orch : alpha" \
   "$(slc wake-done --name 'Orch : beta' 2>&1)|$(jq -r 'map(.name)|join(",")' "$SLREC")"
