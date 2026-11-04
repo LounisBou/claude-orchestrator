@@ -303,6 +303,33 @@ check "the rulebook carries no red-flag list and no pointer list" "0|0" \
 # 2026-11-04T20:47:18Z, « A », the limit raised to 10,550 bytes).
 check "the orchestrator rulebook stays at 10,550 bytes or fewer" "yes" \
   "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10550 ] && echo yes || echo no)"
+# Each step of the core loop names the section it reads, `references/<file>.md` › « <heading> »,
+# so a session reads that section and not the file: a step that named only the file had a
+# successor read lifecycle.md whole at its birth. Every row names one, and every heading named
+# is one the file carries, verbatim.
+# bash 3.2 misreads a quoted program inside "$(...)": the reader is a function of its own.
+core_loop_sections() {  # $1 the rulebook, $2 the references directory
+  python3 -I -c '
+import os, re, sys
+skill, refs = sys.argv[1], sys.argv[2]
+loop = open(skill, encoding="utf-8").read().split("## The core loop", 1)[1].split("\n## ", 1)[0]
+rows = [l for l in loop.splitlines() if l.startswith("|") and not l.startswith("|---")][1:]
+bad = [] if len(rows) >= 4 else ["fewer than four rows"]
+for row in rows:
+    named = re.findall(r"`references/([a-z-]+\.md)` › « ([^»]+) »", row)
+    if not named:
+        bad.append("no section: " + row[:50])
+    for f, h in named:
+        heads = [l.rstrip("\n").lstrip("#").strip() for l in open(os.path.join(refs, f), encoding="utf-8") if re.match(r"#{2,3} ", l)]
+        if h not in heads:
+            bad.append("no heading " + f + " › " + h)
+print("; ".join(bad) or "ok")
+' "$1" "$2"
+}
+check "every core-loop row names a section, and every section it names is a heading of that file" "ok" \
+  "$(core_loop_sections "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS")"
+check "the core loop's hand-over row names the predecessor's succession and says a takeover reads none" "yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '`references/lifecycle.md` › « Succession — the predecessor »')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a takeover reads none: its brief carries the steps')"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
