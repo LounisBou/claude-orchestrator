@@ -1718,8 +1718,7 @@ async def move_is_owned(app, tty, own, owner=None):
     anchor. The owner is the caller's chain owner (`own_session_id`): the session sitting on
     the caller's tty right now, read from the app, or the tmux pane the caller runs in, which
     the app does not know. A caller whose owner cannot be read owns nothing here: moving a
-    stranger's tab is the harm this guard exists for, and `--force` is how the operator
-    overrides it."""
+    stranger's tab is the harm the warning that replaces the refusal exists to trace."""
     if not own:
         return False
     if tty == own:
