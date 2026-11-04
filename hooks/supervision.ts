@@ -1028,11 +1028,7 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
   } catch (err) {
     await logLine($, `round wake: ${(err as Error).message}`)
   }
-  try {
-    await deliverClosedAnswers($)
-  } catch (err) {
-    await logLine($, `round delivery: ${(err as Error).message}`)
-  }
+  await deliverInTurn($)
   try {
     await resendAnswers($)
   } catch (err) {
@@ -1252,6 +1248,47 @@ export function registerWake(on: (...args: [event: string, handler: Function] | 
       await logLine($, `round wake: ${(err as Error).message}`)
     }
     return next(e)
+  }).catch(async ($: any, e: any, next: any) => {
+    await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
+    return next(e)
+  })
+}
+
+// A Bash command that runs `coordinator.sh round-close`, the path quoted or not.
+const ROUND_CLOSE = /\bcoordinator\.sh["']?\s+round-close\b/
+export function runsRoundClose(command: string): boolean {
+  return ROUND_CLOSE.test(command)
+}
+
+// The answers round-close left pending, delivered one reading at a time: the reading a command
+// starts waits for the one already running, so the same pending answer is never sent twice by
+// two readings that both found it pending.
+let delivering: Promise<void> = Promise.resolve()
+function deliverInTurn($: any): Promise<void> {
+  delivering = delivering.then(() => deliverClosedAnswers($)).catch(async err => {
+    await logLine($, `round delivery: ${(err as Error).message}`)
+  })
+  return delivering
+}
+
+// Each ruling relayed at once (the operator's ruling 6.3 of 2026-10-31): once a round-close has
+// run in the recorded coordinator's session, the answers it left pending are delivered there and
+// then, before its next question is presented, rather than at the round's next reading up to
+// ROUND_WAKE_MS later. A command refused ran nothing and delivers nothing. Bounded: a delivery
+// past RELAY_BOUND_MS goes on, and the command's result is answered without it.
+export function registerCloseRelay(on: (...args: [event: string, handler: Function] | [event: string, matcher: object, handler: Function]) => { catch(handler: Function): void }) {
+  on('tool.call', { tool: 'Bash' }, async ($: any, e: any, next: (e: any) => any) => {
+    const out = await next(e)
+    if (!runsRoundClose(String(e.command ?? '')) || out?.deny) return out
+    try {
+      const done = await withDeadline((async () => {
+        if (await recordedCoordinator($)) await deliverInTurn($)
+      })(), RELAY_BOUND_MS)
+      if (isDegradedPass(done)) await logLine($, `round delivery: did not finish within ${RELAY_BOUND_MS} ms after a round-close, left to go on`)
+    } catch (err) {
+      await logLine($, `round delivery: ${(err as Error).message}`)
+    }
+    return out
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     return next(e)
