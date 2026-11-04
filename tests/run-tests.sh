@@ -9467,6 +9467,9 @@ check "round-close --answer writes no evidence" "null" \
 check "round-close refuses --withdraw with no evidence, and beside --answer, writing nothing" \
   "exit 1|exit 1|exit 1|exit 1|open" \
   "$(wcoord round-close w-both --withdraw >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw '' >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw x --answer A >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --answer A --withdraw x >/dev/null 2>&1; echo "exit $?")|$(jq -r .status "$WROUND/w-both.json")"
+# The coordinator is told to withdraw on evidence, or no coordinator ever runs --withdraw.
+check "the coordination skill closes a question settled meanwhile with round-close --withdraw and its evidence" "yes" \
+  "$(flat_has "$ROOT/skills/coordination/SKILL.md" 'is withdrawn on that evidence and never put to him: `coordinator.sh round-close <id> --withdraw "<the evidence read on the artifact>"`')"
 
 # round-close also forgets the sender's fingerprint, as the module's forgetRelayed does, so the
 # same question asked again is entered again: the wait file's `relayed` is nulled when it is the
@@ -9764,6 +9767,8 @@ round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: p
 check "round without the flag prints the round's one order, the very output of --by-urgency, and refuses another argument" \
   "b1 a3 a0 a7 b2 b6 a4 b5 a8|same output|exit 1|coordinator: round: unexpected argument --soon" \
   "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround)" = "$(uround --by-urgency)" ] && echo 'same output')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
+# The flag is kept for the decision round that passes it, and reads no order of its own.
+check "round keeps no second order behind --by-urgency" "0" "$(grep -c 'by_urgency' "$COORD")"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
 echo "== routing: cost =="
