@@ -9,7 +9,7 @@
 // measure's side reads bounded so a walk that cannot answer in time costs the row
 // its name, never the measure.
 import { expect, test } from 'claude-code/testing'
-import { agentPaneRows, answerFromPane, paneRows, readRound, roundLines, scrollTrack, wrapWords, register as registerSupervision, registerWake, registerPaneTool, SUPERVISION_TOOL, PANE_MAIN_THREAD_ONLY, type SessionRow } from '../supervision.ts'
+import { agentPaneRows, answerFromPane, paneRows, readRound, roundLines, scrollTrack, wrapWords, register as registerSupervision, registerWake, registerPaneTool, registerCloseRelay, runsRoundClose, SUPERVISION_TOOL, PANE_MAIN_THREAD_ONLY, type SessionRow } from '../supervision.ts'
 import { paneQuestions, waitsInTab, type RoundEntry } from '../round.ts'
 import { hostRecordOf } from '../session-name.ts'
 import { register as registerAll } from '../register.ts'
@@ -2577,6 +2577,62 @@ test('a question round-close --withdraw closed from another machine carries the 
   expect(sent.length).toBe(1)
   expect(sent[0].text).toContain(`The coordinator withdrew your question since ${asked.since}, settled meanwhile: #12 merged at 10:04Z`)
   expect(sent[0].text).not.toContain('The operator answered')
+})
+
+// The operator's ruling 6.3 of 2026-10-31: each ruling relayed at once by the module, nothing
+// shown between questions — the answer a round-close wrote is sent once the command has run in
+// the coordinator's tab, not at the round's next reading up to 30 seconds later.
+const roundClose = (id: string) => ({ command: `bash "/plugins/orchestrator/skills/coordinator/scripts/coordinator.sh" round-close ${id} --answer 'A, ship it'` })
+const ranBash = async () => ({ result: 'closed' })
+
+test('an answer round-close wrote reaches its sender as soon as the command has run, before the round\'s next reading, and once', async () => {
+  const asked = closedByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa' }))
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  const call = mounted(registerCloseRelay).handlers['tool.call']
+  expect(await call(fx.dollar, roundClose(asked.id), ranBash)).toEqual({ result: 'closed' })
+  expect(sent.map(s => s.text)).toEqual([`[module] The operator answered through the coordinator at ${asked.answer!.at} — A, ship it (question since ${asked.since}, blocks: phase 3)`])
+  expect(storedIn(fx, asked.id).delivery!.state).toBe('delivered')
+  await tick()
+  expect(sent.length).toBe(1)
+})
+
+test('a Bash command that runs no round-close, one refused, or one in a session that is no coordinator, delivers nothing until the reading', async () => {
+  const asked = closedByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa' }))
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  const call = mounted(registerCloseRelay).handlers['tool.call']
+  await call(fx.dollar, { command: 'bash coordinator.sh round' }, ranBash)
+  await call(fx.dollar, roundClose(asked.id), async () => ({ deny: 'refused' }))
+  const orch = fakeDollar({ launchName: 'Orch : belt' })
+  orch.files.set(`${ROUND}/${asked.id}.json`, JSON.stringify(asked) + '\n')
+  const elsewhere: unknown[] = []
+  orch.dollar.session.send = async (args: unknown) => { elsewhere.push(args); return { isDelivered: true } }
+  await call(orch.dollar, roundClose(asked.id), ranBash)
+  expect([sent.length, elsewhere.length]).toEqual([0, 0])
+  await tick()
+  expect(sent.length).toBe(1)
+})
+
+test('a round-close relayed while the round\'s reading runs sends its answer once', async () => {
+  const asked = closedByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa' }))
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  const call = mounted(registerCloseRelay).handlers['tool.call']
+  await Promise.all([tick(), call(fx.dollar, roundClose(asked.id), ranBash)])
+  expect(sent.length).toBe(1)
+  expect(storedIn(fx, asked.id).delivery!.state).toBe('delivered')
+})
+
+test('the relay watches Bash calls and reads a round-close however the script is named', () => {
+  expect(mounted(registerCloseRelay).matchers['tool.call']).toEqual({ tool: 'Bash' })
+  for (const command of [
+    'bash "${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh" round-close a-1 --withdraw "#12 merged"',
+    "/p/skills/coordinator/scripts/coordinator.sh round-close a-1 --answer 'B'",
+    'coordinator.sh round 2>&1; coordinator.sh round-close a-1 --answer A',
+  ]) expect(runsRoundClose(command)).toBe(true)
+  for (const command of ['coordinator.sh round', 'coordinator.sh round-archive', 'echo round-close', 'grep -n round-close coordinator.sh'])
+    expect(runsRoundClose(command)).toBe(false)
 })
 
 test('an answer round-close wrote that the host refuses is written failed on disk, sent once, and a fresh module\'s pane says it', async () => {
