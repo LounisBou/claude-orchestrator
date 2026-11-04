@@ -504,6 +504,23 @@ test('a row idle past the stale bound with no pid is removed, and its sender kee
   expect(statusOf(files, id)).toBe('open')
 })
 
+// D1 of the round-2 verdict: the idle row's removal keeps the successor its session learnt, so
+// that session, living on and ending later, moves its questions to the successor.
+test('a row removed for idleness alone keeps its learnt successor, and its later end moves its entries', async () => {
+  const chains = mounted(register)
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  const idle = new Date(Date.now() - 2 * 3600000).toISOString()
+  await writeSession(dollar, 'idle', { role: 'orchestrator', name: 'Orch : idle', updated_at: idle })
+  files.set(`${STATE}/store/successors/idle`, JSON.stringify({ name: 'Orch : next', from: null, session: 'next', at: SENT }) + '\n')
+  const id = openEntry(files, 'idle', 'operator')
+  await readSessions(dollar)
+  expect(files.has(`${SESSIONS}/idle`)).toBe(false)
+  expect(files.has(`${STATE}/store/successors/idle`)).toBe(true)
+  await drive(chains, 'session.end', dollar, { sessionId: 'idle' })
+  const after = parseRoundEntry(files.get(`${ROUND}/${id}.json`)!)
+  expect([after?.status, after?.session, after?.from, after?.movedFrom]).toEqual(['open', 'next', 'Orch : next', 'idle'])
+})
+
 test('an entry moved to a successor between the read and the withdraw is not overwritten', async () => {
   const { dollar, files } = fakeDollar({ alive: ['501'] })
   await writeSession(dollar, 'killed', { role: 'orchestrator', name: 'Orch : killed', pid: '502' })
