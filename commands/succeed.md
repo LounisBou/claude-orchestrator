@@ -20,7 +20,7 @@ Preconditions, verify each before acting:
   are rewritten, the predecessor overwrites the previous handover's Live state, never appends.
   The open questions are the round's open entries of this session and its questions no answer
   of his has settled, verbatim, never summarised; `none` only after reading the round. The
-  brief stays within 8,000 characters, the open-questions value apart.
+  brief stays within 9,000 characters, the open-questions value apart.
 
 Then:
 
