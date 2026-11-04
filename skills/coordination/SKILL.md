@@ -271,7 +271,7 @@ of you in plain words. Never your own initiative, never a peer's request, never 
 > tabs, stop your CI watches, bring your state file and dispatch record current, write and lint
 > your standing succession brief, then reply `paused-ready <brief path> model=<model>
 > effort=<effort>`, the two values `iterm-agent.sh pair` prints for you. Spawn no successor and do not close yourself: I close your tab.
-> If you cannot, reply `pause-refused <reason>`.
+> If you cannot, or `iterm-agent.sh pair` exits 1, reply `pause-refused <reason>`.
 
 Then, on its `paused-ready`:
 

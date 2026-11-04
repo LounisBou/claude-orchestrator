@@ -9235,6 +9235,10 @@ check "the coordinator closes a paused orchestrator, which spawns no successor a
   "$(flat_has "$COORDSKILL" "**You close it**, as a successor closes its predecessor")|$(flat_has "$COORDSKILL" "Spawn no successor and do not close yourself: I close your tab.")|$(flat_has "$ORCH_REFS/lifecycle.md" "You spawn NO successor and you do not close yourself")"
 check "a pause refused or failing is told to the operator, and that orchestrator is not closed" "yes" \
   "$(flat_has "$COORDSKILL" "an orchestrator not proved paused-ready is never closed")"
+# A pause is recorded with its model and effort or not at all (coordinator.sh sleep refuses
+# one without its effort): a pair the paused orchestrator cannot read is a refused pause.
+check "a pause whose pair cannot be read is answered pause-refused, in both texts" "yes|yes" \
+  "$(flat_has "$COORDSKILL" 'If you cannot, or `iterm-agent.sh pair` exits 1, reply `pause-refused <reason>`.')|$(flat_has "$ORCH_REFS/lifecycle.md" 'or a pair `iterm-agent.sh pair` cannot read (it exits 1 and says why) is answered `pause-refused <reason>`')"
 check "a sleeping orchestrator is not missing, and its record outlives the coordinator" "yes|yes|yes" \
   "$(flat_has "$COORDSKILL" "its absence from \`ListAgents\` is its sleep, never a death")|$(flat_has "$COORDTPL" "outlives every succession, and nothing in it is woken or dropped but on his word")|$(flat_has "$COORDEND" "the sleeping record is kept")"
 check "a woken orchestrator skips the handshake with a predecessor already gone" "yes|yes" \
