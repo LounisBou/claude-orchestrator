@@ -5224,6 +5224,14 @@ check "succeed.md checks the rulings file among its preconditions" "yes" \
   "$(spells "$ROOT/commands/succeed.md" "- the orchestration's rulings file, \`<briefs dir>/rulings.md\`, exists and holds every ruling still")"
 check "the lifecycle gives the rulings file's entry and says a ruling ended leaves it" "yes|yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" '`- <YYYY-MM-DDThh:mm:ssZ> « <his words, verbatim> » — <what it binds> (row N)`')|$(spells "$ORCH_REFS/lifecycle.md" 'leaves the file in the same move as the ruling that ends it')|$(spells "$ORCH_REFS/lifecycle.md" 'outside every brief')"
+# The design gives the filled brief's cap the lint enforces (the operator's ruling of 2026-11-04,
+# 9,000 characters) and sends the reader to a lifecycle heading that exists, the section holding
+# the steps' how whatever its subsections are called. A hand-started predecessor is closed on the
+# tty and the name pattern its brief carries, the title no longer read from `list`.
+check "the design gives the 9,000 cap and points at a lifecycle heading that exists" "yes|yes|yes" \
+  "$(spells "$ROOT/docs/design.md" '6,000 characters of template and 9,000 filled')|$(spells "$ROOT/docs/design.md" "the steps' how in the lifecycle's « Your own context (the orchestrator is not exempt) »")|$(grep -qx '## Your own context (the orchestrator is not exempt)' "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
+check "the design closes a hand-started predecessor on its brief's tty and name pattern, not on a title read from list" "yes|no" \
+  "$(spells "$ROOT/docs/design.md" 'with `close --tty --expect-title` on the tty and the name pattern its brief carries')|$(spells "$ROOT/docs/design.md" 'on the title `list` printed for it')"
 # Rule 230: the silent agent's line keeps its wording and drops the rest.
 check "the agents command reports a silent agent in one short line" "yes|no" \
   "$(spells "$ROOT/commands/agents.md" '5. An agent silent fifteen minutes: « no answer, last artifact activity <time> ».')|$(spells "$ROOT/commands/agents.md" 'probably fine')"
