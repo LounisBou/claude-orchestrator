@@ -30,10 +30,12 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 
 | Step, and the moment | Read |
 |---|---|
-| Plan: before planning phases or dispatching one | `references/briefs.md`, « Prerequisites and phase rules » |
-| Brief: before writing a brief | `references/briefs.md` |
-| Launch, verify, terminate, replace: before spawning by any route, dispatching to a running agent, standing down, closing, rotating or handing over | `references/lifecycle.md` |
-| Review: before a review or comments round, a verdict, recording a round, telling him « ready », the rebase once ready; when a pull request you own is opened or its head moves | `references/review.md` (the CI watch: « Checks, in one background watch ») |
+| Plan: before planning phases or dispatching one | `references/briefs.md` › « Prerequisites and phase rules » |
+| Brief: before writing a brief | `references/briefs.md` › « Agent prompt recipe » |
+| Launch, verify, terminate, replace: before spawning by any route, dispatching to a running agent, standing down, closing, rotating | `references/lifecycle.md` › « The agents' lifecycle is yours » |
+| Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it. | `references/lifecycle.md` › « Succession — the predecessor »; a takeover reads none: its brief carries the steps |
+| Review: before a review or comments round, a verdict, recording a round, telling him « ready », the rebase once ready | `references/review.md` › « The checks » |
+| CI watch: when a pull request you own is opened or its head moves | `references/review.md` › « Checks, in one background watch » |
 
 ## Carried at every step
 
@@ -47,7 +49,6 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 - **Before ending a turn, launch everything that can advance.** Its last line says what it waits on: no line while an agent of yours is busy, else waiting: tool — <what>, waiting: operator — blocks: <what it blocks>, waiting: deferred — <n> items, or, every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words**: `references/review.md`, « Review rounds run in disposable sessions », before drafting a reply.
-- Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it.
 - The hooks module (`docs/design.md` §3) owns the measured facts: each session's fill every turn, the gate's line, `/orchestrator-status`'s rows, and the measure file.
 
 ## Thresholds

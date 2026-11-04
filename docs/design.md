@@ -446,7 +446,7 @@ The module's context gate (`hooks/guards.ts`, on every prompt submitted) speaks 
 | `model-routing` | a decision aid for the orchestrator's choice of tier: the principle, the table by class of work, the five readings, escalation, the cascade, the false economy, the second reader, the record | — |
 | `coordination` | the coordinator's role, outside every orchestration: answers from the facts, flags collisions, gates nothing, relays what is the operator's, succeeds itself at its gate | — |
 
-A rule lives once, where the session that needs it will read it when it needs it. `SKILL.md` holds what the orchestrator must carry at all times; a reference holds the rules of one action, and the step of the core loop that performs that action tells the session to read it at that moment (« before writing a brief, read `references/briefs.md` »). The risk of that shape is a rule sitting in a reference that is not read when it applies, so the load instruction is tied to the action rather than the topic, and every critical case of the eval suite is staged at the moment of the action. Each reference over a hundred lines opens with its table of contents, and each `SKILL.md` stays under five hundred lines.
+A rule lives once, where the session that needs it will read it when it needs it. `SKILL.md` holds what the orchestrator must carry at all times; a reference holds the rules of one action, and the step of the core loop that performs that action tells the session to read it at that moment (« before writing a brief, read `references/briefs.md` › « Agent prompt recipe » »). The risk of that shape is a rule sitting in a reference that is not read when it applies, so the load instruction is tied to the action rather than the topic, and every critical case of the eval suite is staged at the moment of the action. Each reference over a hundred lines opens with its table of contents, and each `SKILL.md` stays under five hundred lines.
 
 Every project-specific fact is removed; the skill states the rule and leaves the project's policy (where briefs live, whether tests are committed, what the policy on workflow artifacts forbids) to the brief the orchestrator writes.
 
@@ -515,7 +515,7 @@ The marketplace is the operator's family one, `lounisbou`, where every plugin of
 
 ### 9.1 A session's life, from launch to close
 
-The orchestrator's core loop — plan, brief, launch, verify, review, terminate, replace — is `skills/orchestrator/SKILL.md`, « The core loop », each step naming the reference to read at the moment of the action.
+The orchestrator's core loop — plan, brief, launch, verify, review, terminate, replace — is `skills/orchestrator/SKILL.md`, « The core loop », each step naming the section of a reference to read at the moment of the action, as `references/<file>.md` › « <heading> », the heading present verbatim in that file. A successor read lifecycle.md whole at its birth when the step named only the file, so each reference opens on a table of contents naming every heading, and the hand-over row says a takeover reads none: its brief carries the steps.
 
 - **Plan.** A validated spec and a phase plan with exact contracts, one kind of change per phase, one agent and one draft pull request per phase stacked on the previous branch head: `skills/orchestrator/references/briefs.md`, « Prerequisites and phase rules ».
 - **Brief.** Written from a template to a path the fresh session can open, carrying its tier and the reading that chose it (`orchestrator:model-routing`, section 10): `references/briefs.md`.
