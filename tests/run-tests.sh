@@ -5070,6 +5070,12 @@ check "the Live state section carries its five placeholders" "1|1|1|1|1" \
   "$(for p in '{{LIVE_ROWS}}' '{{LIVE_PULL_REQUESTS}}' '{{LIVE_AGENTS}}' '{{LIVE_OPEN_QUESTIONS}}' '{{LIVE_NEXT_STEP}}'; do printf '%s' "$LIVE_BODY" | grep -cF -- "$p"; done | paste -sd'|' -)"
 check "the Live state section replaces reading the journal, which is read by grep on the item a task names" "yes|yes" \
   "$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -qF 'replaces reading the journal' && echo yes || echo no)|$(printf '%s' "$SUCC_STANDING" | grep -qF 'the state file by `grep -n` on the item a task names, never by heading' && echo yes || echo no)"
+# A Live state that overflows the 9,000-character cap loses what the successor reads back first:
+# where each pull request stands (its VERIFY runs `pr-status`), then what each row has left (its
+# step 2 lists the open rows), never a number, a head, an id or a label (the operator's ruling of
+# 2026-11-04 on the cap, its template line).
+check "the Live state section says what is cut first when it overflows the cap" "1" \
+  "$(printf '%s' "$LIVE_BODY" | tr '\n' ' ' | tr -s ' ' | grep -cF 'Over the cap, cut first where each pull request stands, then what each row has left.')"
 SUCC5=$(awk '/^5\. /{f=1} /^## /{f=0} f' "$SUCC" | tr '\n' ' ' | tr -s ' ')
 check "step 5 announces the successor's own measured context from its measure file" "1|yes|yes" \
   "$(printf '%s' "$SUCC5" | grep -oF 'your two figures' | wc -l | tr -d ' ')|$(spells "$ORCH_REFS/lifecycle.md" 'Your « first turn » figure is the `context_tokens`')|$(spells "$ORCH_REFS/lifecycle.md" 'Your measure file is')"
