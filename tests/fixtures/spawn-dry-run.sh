@@ -81,7 +81,7 @@ show "agent, no verify, trust" spawn --tier light --title "Agent : a" --prompt p
 show "agent, free title" spawn --tier light --title-free --title "odd" --prompt p
 show "agent, bad title refused" spawn --tier light --title "odd" --prompt p
 show "agent, tier" spawn --title "Agent : a" --prompt p --tier standard --effort low
-show "agent, model" spawn --title "Agent : a" --prompt p --model a-model --permission-mode acceptEdits
+show "agent, model" spawn --title "Agent : a" --prompt p --model a-model --effort high --permission-mode acceptEdits
 show "agent, inherit model" spawn --title "Agent : a" --prompt p --inherit-model
 show "agent, gate tokens" spawn --tier light --title "Agent : a" --prompt p --gate-tokens 200000
 show "agent, tools kept and dropped" spawn --tier light --title "Agent : a" --prompt p --keep-tool Workflow --drop-tool Foo --keep-synced-skills
@@ -101,7 +101,7 @@ show "auditor, tier refused" spawn --auditor --title "Audit : tm" --prompt p --t
 show "coordinator successor" spawn --coordinator-successor --title "Coord : c" --prompt p
 export ORCHESTRATOR_PS_TABLE="$PS_ORCH"
 show "wake" spawn --wake --title "Orch : w" --prompt p --model a-model --effort high
-show "a resumed wake" spawn --wake --title "Orch : w" --prompt p --model a-model --resume abcdef12-3456-4789-8abc-def012345678
+show "a resumed wake" spawn --wake --title "Orch : w" --prompt p --model a-model --effort high --resume abcdef12-3456-4789-8abc-def012345678
 show "resume without wake refused" spawn --tier light --title "Agent : a" --prompt p --resume abcdef12
 show "open" spawn --open --title "Orch : o" --prompt p
 show "open, tier" spawn --open --title "Orch : o" --prompt p --tier deep
