@@ -4264,13 +4264,14 @@ e7() { local ps="$1"; shift
   ORCHESTRATOR_SELF_ID=S-ME CLAUDE_CODE_SESSION_ID="${E7SID:-s-e7}" ORCHESTRATOR_PS_TABLE="$ps" ORCHESTRATOR_MODELS_MAP="${E7MAP:-$WORK/e7-no-map.json}" \
   bash "$AGENT" spawn --dir "$WORK" --prompt p "$@" 2>&1; }
 e7l() { e7 "$@" | sed -n 's/^launch=//p'; }
+e7f() { printf '%s\n' "$1" | sed -n "s/^$2=//p"; }
 E7ORCH="$WORK/ps-e7-orch.txt"; printf '/dev/ttys900 claude --name Orch : f\n' > "$E7ORCH"
 E7AUD="$WORK/ps-e7-aud.txt"; printf '/dev/ttys900 claude --name Audit : tm\n' > "$E7AUD"
 E7NEUTRAL="$WORK/ps-e7-neutral.txt"; printf '/dev/ttys900 claude --name Audit neutre : f\n' > "$E7NEUTRAL"
 E7COORD="$WORK/ps-e7-coord.txt"; printf '/dev/ttys900 claude --name Coord : ops\n' > "$E7COORD"
 E7SUCC=$(e7 "$E7ORCH" --successor)
 check "a successor runs on its caller's model and effort, read from its transcript" "1|0|0|xhigh|transcript $E7TR" \
-  "$(printf '%s' "$E7SUCC" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')|$(printf '%s' "$E7SUCC" | grep -c -- 'a-model')|$(printf '%s' "$E7SUCC" | grep -c -- 'x-small')|$(sfield "$E7SUCC" effort)|$(sfield "$E7SUCC" pair_source)"
+  "$(printf '%s' "$E7SUCC" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')|$(printf '%s' "$E7SUCC" | grep -c -- 'a-model')|$(printf '%s' "$E7SUCC" | grep -c -- 'x-small')|$(e7f "$E7SUCC" effort)|$(e7f "$E7SUCC" pair_source)"
 check "inherit-model types the caller's model and effort" "1|0" \
   "$(e7l "$E7ORCH" --title 'Agent : x' --inherit-model | grep -c -- '--model t-model --effort xhigh')|$(e7l "$E7ORCH" --title 'Agent : x' --inherit-model | grep -c -- 'a-model')"
 check "an auditor runs on the caller's model and effort with no flag to ask for it" "1" \
@@ -4279,7 +4280,7 @@ check "an auditor's successor runs on the caller's model and effort" "1" \
   "$(e7l "$E7AUD" --successor | grep -c -- '--model t-model --effort xhigh')"
 E7NOUT=$(e7 "$E7NEUTRAL" --successor)
 check "an auditor named Audit neutre hands over under its own name" "0|Audit neutre : f|none|1|1" \
-  "$(e7 "$E7NEUTRAL" --successor >/dev/null 2>&1; echo $?)|$(sfield "$E7NOUT" name)|$(sfield "$E7NOUT" chain)|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c 'export ORCHESTRATOR_AUDITOR=1')|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')"
+  "$(e7 "$E7NEUTRAL" --successor >/dev/null 2>&1; echo $?)|$(e7f "$E7NOUT" name)|$(e7f "$E7NOUT" chain)|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c 'export ORCHESTRATOR_AUDITOR=1')|$(printf '%s' "$E7NOUT" | sed -n 's/^launch=//p' | grep -c -- '--model t-model --effort xhigh')"
 printf '/dev/ttys900 claude --name Audit neutre : %s\n' "$(printf 'x%.0s' $(seq 1 26))" > "$WORK/ps-e7-neutral-long.txt"
 check "a qualified auditor's subject of 26 characters derives nothing" "1" \
   "$(e7 "$WORK/ps-e7-neutral-long.txt" --successor >/dev/null 2>&1; echo $?)"
@@ -4301,20 +4302,20 @@ done
 # effort; a model alone is no pair.
 E7OPEN=$(ORCHESTRATOR_TIER_DEEP=deep-model e7 "$E7COORD" --open --title 'Orch : x')
 check "an opened orchestrator types no pair unless the order names one" "0|0|none|host default" \
-  "$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(sfield "$E7OPEN" effort)|$(sfield "$E7OPEN" pair_source)"
+  "$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7OPEN" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(e7f "$E7OPEN" effort)|$(e7f "$E7OPEN" pair_source)"
 check "an opening given a model and an effort types them; a model alone is refused" "1|flag|1|1" \
-  "$(e7l "$E7COORD" --open --title 'Orch : x' --model b-model --effort low | grep -c -- '--model b-model --effort low')|$(sfield "$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model --effort low)" pair_source)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model >/dev/null 2>&1; echo $?)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model | grep -c -- '--effort')"
+  "$(e7l "$E7COORD" --open --title 'Orch : x' --model b-model --effort low | grep -c -- '--model b-model --effort low')|$(e7f "$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model --effort low)" pair_source)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model >/dev/null 2>&1; echo $?)|$(e7 "$E7COORD" --open --title 'Orch : x' --model b-model | grep -c -- '--effort')"
 # A wake: the pair read in the resumed session's own transcript; else its recorded pair;
 # else the host's default. A recorded model without its effort is refused, never guessed.
 pair_transcript s-e7-slept r-model max
 E7WAKE=$(e7 "$E7ORCH" --wake --title 'Orch : w' --resume s-e7-slept --model a-model --effort low)
 check "a wake that resumes a session runs on that session's pair" "1|0|transcript $ORCHESTRATOR_PROJECTS_DIR/p/s-e7-slept.jsonl" \
-  "$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort max')|$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- 'a-model')|$(sfield "$E7WAKE" pair_source)"
+  "$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort max')|$(printf '%s' "$E7WAKE" | sed -n 's/^launch=//p' | grep -c -- 'a-model')|$(e7f "$E7WAKE" pair_source)"
 E7WNONE=$(e7 "$E7ORCH" --wake --title 'Orch : w')
 check "a wake with no transcript pair types none" "0|0|host default" \
-  "$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(sfield "$E7WNONE" pair_source)"
+  "$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--model')|$(printf '%s' "$E7WNONE" | sed -n 's/^launch=//p' | grep -c -- '--effort')|$(e7f "$E7WNONE" pair_source)"
 check "a wake on its recorded pair says so" "1|record" \
-  "$(e7l "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high | grep -c -- '--model a-model --effort high')|$(sfield "$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high)" pair_source)"
+  "$(e7l "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high | grep -c -- '--model a-model --effort high')|$(e7f "$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model --effort high)" pair_source)"
 check "a wake without a recorded effort is refused" "1|1" \
   "$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --wake --title 'Orch : w' --model a-model | grep -c 'never guesses the effort')"
 # An agent's pair is its orchestrator's: a tier, or a model with its effort. The plugin ships
@@ -4323,7 +4324,7 @@ check "a wake without a recorded effort is refused" "1|1" \
 E7PMAP="$WORK/e7-pair-map.json"
 printf '{"deep":"a-model","standard":"b-model","light":{"model":"c-model"}}' > "$E7PMAP"
 check "a tier bound without an effort types the shipped tier effort; deep, the caller's" "1|1|1|tier standard" \
-  "$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier standard | grep -c -- '--model b-model --effort high')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier light | grep -c -- '--model c-model --effort medium')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort xhigh')|$(sfield "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier standard)" pair_source)"
+  "$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier standard | grep -c -- '--model b-model --effort high')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier light | grep -c -- '--model c-model --effort medium')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort xhigh')|$(e7f "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier standard)" pair_source)"
 check "an effort the map binds wins over the shipped one" "1" \
   "$(E7MAP="$PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort high')"
 check "an agent's explicit model without an effort is refused" "1|1|0" \
@@ -4331,7 +4332,7 @@ check "an agent's explicit model without an effort is refused" "1|1|0" \
 check "an agent with no tier and no model is refused, naming both" "1|1" \
   "$(e7 "$E7ORCH" --title 'Agent : x' >/dev/null 2>&1; echo $?)|$(e7 "$E7ORCH" --title 'Agent : x' | grep -c -- 'needs --tier or --model')"
 check "an agent's model and effort typed are a flag's pair" "flag|medium" \
-  "$(sfield "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" pair_source)|$(sfield "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" effort)"
+  "$(e7f "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" pair_source)|$(e7f "$(e7 "$E7ORCH" --title 'Agent : x' --model z-model --effort medium)" effort)"
 # A rotation is a succession: with no pair given it types the ROTATED agent's live pair, read
 # on that agent's transcript; a tier or a model with its effort is the orchestrator naming one.
 printf '/dev/ttys901 7171 claude --name Agent : old\n' > "$WORK/ps-e7-rot.txt"
@@ -4341,11 +4342,11 @@ e7rot() { ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$E7STATE" CLAUDE_CONFIG
   CLAUDE_CODE_SESSION_ID=s-e7 ORCHESTRATOR_MODELS_MAP="$E7PMAP" bash "$AGENT" rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : old" --prompt p "$@" 2>&1; }
 E7ROT=$(e7rot)
 check "a rotation without a pair types the rotated agent's live pair" "1|transcript $ORCHESTRATOR_PROJECTS_DIR/p/s-e7-rot.jsonl" \
-  "$(printf '%s' "$E7ROT" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort medium')|$(sfield "$E7ROT" pair_source)"
+  "$(printf '%s' "$E7ROT" | sed -n 's/^launch=//p' | grep -c -- '--model r-model --effort medium')|$(e7f "$E7ROT" pair_source)"
 check "a rotation given --model and --effort types them, pair_source=flag" "1|flag" \
-  "$(e7rot --model z-model --effort max | sed -n 's/^launch=//p' | grep -c -- '--model z-model --effort max')|$(sfield "$(e7rot --model z-model --effort max)" pair_source)"
+  "$(e7rot --model z-model --effort max | sed -n 's/^launch=//p' | grep -c -- '--model z-model --effort max')|$(e7f "$(e7rot --model z-model --effort max)" pair_source)"
 check "a rotation given a tier types the tier's pair, pair_source=tier" "1|tier standard" \
-  "$(e7rot --tier standard | sed -n 's/^launch=//p' | grep -c -- '--model b-model --effort high')|$(sfield "$(e7rot --tier standard)" pair_source)"
+  "$(e7rot --tier standard | sed -n 's/^launch=//p' | grep -c -- '--model b-model --effort high')|$(e7f "$(e7rot --tier standard)" pair_source)"
 # The reading itself: the last main-thread request, never another thread's, never a guess.
 check "pair prints the caller's model and effort" "model=t-model effort=xhigh" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7 bash "$AGENT" pair 2>&1)"
