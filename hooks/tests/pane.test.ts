@@ -2588,6 +2588,20 @@ test('an entry of kind done closed with a pending delivery is sent nothing at th
   expect(storedIn(fx, asked.id).delivery).toEqual(asked.delivery)
 })
 
+test('a pending delivery stamped for another answer than the entry holds is written failed, naming the mismatch, and sent nothing', async () => {
+  const closed = closedByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa' }))
+  const asked = { ...closed, delivery: { ...closed.delivery!, answerAt: minutesAgo(3) } } as RoundEntry
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  await tick()
+  expect(sent).toEqual([])
+  const stored = storedIn(fx, asked.id)
+  expect(stored.delivery!.state).toBe('failed')
+  expect(stored.delivery!.reason).toContain('stamped for the answer of')
+  await tick()
+  expect(sent).toEqual([])
+})
+
 test('a pane answer not delivered is written failed in its entry, and a fresh module\'s pane still says it', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, render, stored } = await askingPane([asked], { refuse: 'nobody by that name' })

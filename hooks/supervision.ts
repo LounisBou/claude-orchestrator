@@ -2350,6 +2350,17 @@ async function deliverLocal($: any, path: string, entry: RoundEntry, readable: s
   if (reason !== null) $.ui.invalidate('ui.render')
 }
 
+// A pending delivery stamped for another answer than the one the entry holds is never sent: it is
+// written `failed` naming the mismatch, so that it is not left pending for ever.
+async function failMismatched($: any, path: string, entry: RoundEntry): Promise<void> {
+  const was = entry.delivery!
+  const now = parseRoundEntry(String(await $.fs.read(path).catch(() => '')))
+  if (!now?.delivery || now.delivery.state !== 'pending' || now.answer?.at !== entry.answer?.at) return
+  const reason = `the delivery was stamped for the answer of ${was.answerAt}, the entry holds the answer of ${entry.answer?.at}`
+  await logLine($, `round: ${entry.id}: ${reason}`)
+  await writeAtomic($, path, JSON.stringify({ ...now, delivery: { ...now.delivery, state: 'failed', at: new Date().toISOString(), reason } }) + '\n')
+}
+
 // The answers the coordinator closed in its tab, read at each round wake whether the pane is open
 // or not: an entry `coordinator.sh round-close` closed with a delivery pending and never sent is
 // sent once — to its sender's session on this machine (deliverLocal), or as a marked line to
@@ -2362,6 +2373,7 @@ async function deliverClosedAnswers($: any): Promise<void> {
     try {
       if (entry.origin) await sendAnswer($, path, entry, entry.answer.text)
       else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorAnswerText(entry, entry.answer.text, entry.answer.at))
+      else await failMismatched($, path, entry)
     } catch (err) {
       await logLine($, `round delivery: ${entry.id}: ${(err as Error).message}`)
     }
