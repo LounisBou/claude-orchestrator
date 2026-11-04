@@ -2888,6 +2888,8 @@ check "a tab that is neither moves anyway, a warning on stderr and in close.log 
   "$(mv_ --tty /dev/ttys901 --left-of self >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --left-of self | grep -c "^move: warning: /dev/ttys901 is not in this session's chain: moved anyway$")|$(grep -q "move: warning: /dev/ttys901 is not in this session's chain: moved anyway$" "$ISTATE/close.log" && echo 1 || echo 0)"
 check "and it still prints the move" "1" \
   "$(mv_ --tty /dev/ttys901 --left-of self | grep -c '^move=/dev/ttys901 left_of=/dev/ttys900$')"
+check "--force on that tab still moves it: exit 0, the move printed" "0|1" \
+  "$(mv_ --tty /dev/ttys901 --left-of self --force >/dev/null 2>&1; echo $?)|$(mv_ --tty /dev/ttys901 --left-of self --force | grep -c '^move=/dev/ttys901 left_of=/dev/ttys900$')"
 
 # `--leftmost` places a tab at the first place of its window, no neighbour tab named: a
 # third form beside `--left-of` and `--right-of`, exclusive with both.
