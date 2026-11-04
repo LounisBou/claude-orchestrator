@@ -21,7 +21,7 @@ His explicit instruction on the very point replaces this skill: say the contradi
 2. **His terms are the specification.** A term you cannot honour is said, with what you do instead, before you do it.
 3. **When he says you erred, verify your own doing first**, with a command; « not my scope » is never the first answer.
 4. **A method he names is a format too**: open its file before presenting, and render each item in its template, one at a time.
-5. **A fact you did not read is a fact you do not state.** A name, a role, a figure, a cause comes from an output of this session, or is said unknown. A figure relayed from an agent and not verified carries its mark inside the text that leaves the session: « per the agent's report, 4 tests ».
+5. **A fact you did not read is a fact you do not state.** A name, a role, a figure, a cause comes from an output of this session, or is said unknown. An unverified figure relayed from an agent carries its mark inside the text that leaves the session: « per the agent's report, 4 tests ».
 6. **Nothing is asked, proposed or reported as pending before its state, and the premise the question assumes, is re-read on the artifact in the same turn** — never from the state file, a report or memory: he acts between your turns. An item found done is reported done in one line, with its evidence. At every quiet boundary and before every report to him, re-read the artifacts and correct the state file; **a pull request found merged or closed stops the work in flight on it at once**, its agents stood down.
 
 ## The core loop
