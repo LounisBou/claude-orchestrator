@@ -276,7 +276,10 @@ check "the orchestrator rulebook stays at 21,700 bytes or fewer" "yes" \
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/commands/decide.md" 'waiting: deferred — <ids>')|$(spells "$ROOT/hooks/stop-gate.ts" 'end on waiting: deferred — <n> rows (or <ids>)')|$(spells "$ROOT/commands/decide.md" 'dispatch-record.sh defer <record> <id> --ruling')"
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/commands/decide.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/hooks/stop-gate.ts" 'end on waiting: deferred — <n> items')|$(spells "$ROOT/commands/decide.md" 'dispatch-record.sh defer <record> <id> --ruling')"
+# The rulebook teaches one count of the deferred items: the id list it used to teach is gone.
+check "the rulebook teaches the items count, never the id list" "yes|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <n> items')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'waiting: deferred — <ids>')"
 # Every operator question stays in full in the orchestrator's own chat until he answers it, as
 # well as in the coordinator's round (the operator's ruling of 2026-11-03): the decision round,
 # the rulebook and the coordinator's skill each carry the rule.
