@@ -37,10 +37,15 @@ and no file written (this brief aside) — the exchange with your predecessor ex
 ## Standing context
 
 - After the report the operator may keep you on. At your own gate with his work in hand, you
-  succeed the same way: copy `{{SUCCESSION_TEMPLATE}}` beside the report as the next succession
-  brief and fill every placeholder (the report's path, the operator's work still owed with its
-  state, your own name, reference and tty), then spawn — no title, it takes yours:
+  succeed: copy `{{SUCCESSION_TEMPLATE}}` beside the report as the next succession brief and
+  fill every placeholder (the report's path, the operator's work still owed with its state,
+  your own name, reference and tty, the launcher, the template's own absolute path and the
+  repository), then spawn — no title, it takes yours:
 
   ```
   {{ITERM_AGENT_SH}} spawn --dir {{REPOSITORY}} --successor --inherit-model --permission-mode auto --prompt "Read and execute <succession brief path>"
   ```
+
+  Next, tell the operator in one line that you are handing over: to whom, and what is still
+  owed him. THEN wait for « takeover confirmed », answer it with
+  « handed over » as your last message and end the turn: the successor closes this tab.

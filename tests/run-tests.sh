@@ -3676,17 +3676,23 @@ check "the auditor writes nothing but its report, and the operator closes its ta
 # names the template and the spawn line, which the launcher runs as an auditor's succession.
 check "the audit brief still forbids every other file, a commit, a push and any other session" "1|1|1" \
   "$(grep -c '^(no method file, no register, no script), no commit, no push' "$AUDBRIEF")|$(grep -c 'You order nothing and apply nothing' "$AUDBRIEF")|$(grep -c 'message no session other than your own' "$AUDBRIEF")"
-check "and carries the succession: the template, the spawn line in full, the operator told" "1|1|1" \
-  "$(grep -c 'SUCCESSION_TEMPLATE}}. beside the report' "$AUDBRIEF")|$(grep -c -- '--successor --inherit-model --permission-mode auto --prompt "Read and execute ' "$AUDBRIEF")|$(grep -c 'He closes this tab' "$AUDBRIEF")"
+# Rule 78 of the rules review, on the ruling on topic 18: the guarded auditor's steps leave the
+# audit brief for a pointer to the succession template's « Standing context », which carries
+# them once: the copy, the spawn line in full, the operator told, the handshake.
+AUDSUCCTPL="$ROOT/templates/auditor-succession-brief.md"
+check "and carries the succession: a pointer to the template's steps, the launcher, the operator told" "1|1|1|0" \
+  "$(grep -c 'the « Standing context » of `{{SUCCESSION_TEMPLATE}}`' "$AUDBRIEF")|$(grep -c 'the launcher being `{{ITERM_AGENT_SH}}`' "$AUDBRIEF")|$(grep -c 'He closes this tab' "$AUDBRIEF")|$(grep -c -- '--successor --inherit-model' "$AUDBRIEF")"
+check "the succession template carries the copy and the spawn line in full" "1|1" \
+  "$(grep -c 'SUCCESSION_TEMPLATE}}. beside the report' "$AUDSUCCTPL")|$(grep -c -- '--successor --inherit-model --permission-mode auto --prompt "Read and execute ' "$AUDSUCCTPL")"
 # The predecessor tells the operator BEFORE it hands over, as /orchestrator-succeed orders it:
 # « handed over » is its last message, nothing follows it.
-check "the audit brief has the predecessor tell the operator, then wait, then hand over as its last message" "1|1|0" \
-  "$(grep -c 'Tell the operator in one line that you are handing over' "$AUDBRIEF")|$(grep -c 'handed over » as your last message' "$AUDBRIEF")|$(grep -c 'Then tell the operator' "$AUDBRIEF")"
-AUDBRIEFSPAWN=$(grep -m1 -o '{{ITERM_AGENT_SH}} spawn .*' "$AUDBRIEF" 2>/dev/null | sed -e 's/^{{ITERM_AGENT_SH}} spawn //' -e 's/`.*$//' \
+check "the succession template has the predecessor tell the operator, then wait, then hand over as its last message, and the audit brief no longer does" "1|1|0|0" \
+  "$(grep -c 'tell the operator in one line that you are handing over' "$AUDSUCCTPL")|$(grep -c 'handed over » as your last message' "$AUDSUCCTPL")|$(grep -c 'Then tell the operator' "$AUDSUCCTPL")|$(grep -c 'handed over » as your last message' "$AUDBRIEF")"
+AUDBRIEFSPAWN=$(grep -m1 -o '{{ITERM_AGENT_SH}} spawn .*' "$AUDSUCCTPL" 2>/dev/null | sed -e 's/^{{ITERM_AGENT_SH}} spawn //' -e 's/`.*$//' \
   -e 's#{{REPOSITORY}}#'"$WORK"'#' -e 's#<succession brief path>#/tmp/audit-succession-brief.md#')
 audbriefspawn() { eval "set -- $AUDBRIEFSPAWN"; audsucc "$@"; }
 AUDBRIEFSPAWNOUT=$(if [ -n "$AUDBRIEFSPAWN" ]; then audbriefspawn; else echo "no spawn line"; fi)
-check "the brief's spawn line is one the launcher runs as an auditor's succession" "1|none|1" \
+check "the succession template's spawn line is one the launcher runs as an auditor's succession" "1|none|1" \
   "$(printf '%s' "$AUDBRIEFSPAWNOUT" | grep -c '^name=Audit : tm$')|$(printf '%s' "$AUDBRIEFSPAWNOUT" | sed -n 's/^chain=//p')|$(printf '%s' "$AUDBRIEFSPAWNOUT" | sed -n 's/^launch=//p' | grep -c -- "--permission-mode auto")"
 AUDFILLED="$WORK/audit-brief-filled.md"
 if [ -f "$AUDBRIEF" ]; then
@@ -3721,7 +3727,7 @@ check "the auditor's succession brief exists, with its placeholders" \
   "{{ITERM_AGENT_SH}} {{OPERATOR_WORK}} {{PREDECESSOR_TTY}} {{PREDECESSOR}} {{PROJECT}} {{REPORT_PATH}} {{REPOSITORY}} {{SUBJECT}} {{SUCCESSION_TEMPLATE}}" \
   "$(grep -oE '\{\{[A-Z_]+\}\}' "$AUDSUCCTPL" 2>/dev/null | sort -u | paste -sd' ' -)"
 check "it makes the successor confirm, wait for « handed over », close the tab by title, prove it, tell the operator" "1|1|1|1|1" \
-  "$(grep -c 'takeover confirmed' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'its « handed over ». Until' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c -- 'close --tty {{PREDECESSOR_TTY}} --expect-title "Audit : {{SUBJECT}}"' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'ps -t ' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'Tell the operator' "$AUDSUCCTPL" 2>/dev/null)"
+  "$(grep -c 'Message `{{PREDECESSOR}}` « takeover confirmed »' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'its « handed over ». Until' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c -- 'close --tty {{PREDECESSOR_TTY}} --expect-title "Audit : {{SUBJECT}}"' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'ps -t ' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'Tell the operator' "$AUDSUCCTPL" 2>/dev/null)"
 check "and keeps the audit's terms: one report, not rewritten, nothing applied, no session messaged but the predecessor" "1|1|1" \
   "$(grep -c 'not to rewrite' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'apply nothing' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'no session messaged' "$AUDSUCCTPL" 2>/dev/null)"
 # A successor can succeed again: it restates the spawn line in full and finds its own name,
