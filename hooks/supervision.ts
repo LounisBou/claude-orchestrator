@@ -192,6 +192,14 @@ const ROUND_WAKE_MS = 30000
 const ANSWER_RESEND_MS = 30000
 const ANSWER_SENDS = 3
 
+// A coordinator's pane render that takes longer than this is logged with its duration: its reads
+// are bounded one by one, and a pane held past this is one the operator sees frozen.
+const PANE_RENDER_BOUND_MS = 5000
+
+// The bound on the render's read of the origin remote (repoOf): a git that hangs costs the pane
+// its links, never the render.
+const REPO_READ_MS = 2000
+
 // How often an open pane redraws on its own. A render is raised by a measure of
 // this session, and a supervisor mostly waits: without a clock its rows — the
 // others' fills, their ages — froze at its own last turn.
@@ -1033,6 +1041,17 @@ async function wakeTick($: any, wake: WakeMemory, timer: unknown, generation: nu
   if (wake.generation === generation) armWake($, wake)
 }
 
+// The host's clock, read through $ so a render's duration is the host's measure; a $ that carries
+// no clock reading (an older host) reads the process's own.
+async function clockNow($: any): Promise<number> {
+  try {
+    const now = Number(await $.clock.now())
+    return Number.isFinite(now) ? now : Date.now()
+  } catch {
+    return Date.now()
+  }
+}
+
 // What the coordinator's pane took in and left out, module memory the render and the round's
 // wake share, so each line below is written once in the module's life: the open operator entries a
 // render showed (`shown`), each entry left out with its reason (`left`, `<id> <reason>`), the
@@ -1596,7 +1615,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   // and requestId — the pane's id — so the rows are drawn in this plugin's pane
   // alone and never in another plugin's.
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($: any, e: any, next: (e: any) => any) => {
-    trace.lastRender = new Date().toISOString()
+    const started = await clockNow($)
+    trace.lastRender = new Date(started).toISOString()
     try {
       // The store at draw time: the gauge's invalidate after every measure and
       // the pane's own clock re-raise this render. Display only.
@@ -2052,6 +2072,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       // A pane that fails to draw never blocks the render: the engine draws its own.
       await logLine($, (err as Error).message)
       return next(e)
+    } finally {
+      const took = await clockNow($) - started
+      if (took > PANE_RENDER_BOUND_MS) await logLine($, `pane: the render took ${took} ms, past its bound of ${PANE_RENDER_BOUND_MS} ms`)
     }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -3525,10 +3548,11 @@ async function transcriptPathOf($: any, sessionId: string): Promise<string> {
 // repositoryOf holds its own $ and cannot be imported. The read runs in the
 // working directory the host runs the module in, the session's project; null
 // when there is no origin: a session outside any checkout reports no
-// repository, never a failure.
+// repository, never a failure. Bounded (REPO_READ_MS): it runs in the pane's
+// render, and a git that hangs held the render for the host's default 30 s.
 async function repoOf($: any): Promise<string | null> {
   try {
-    const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'])
+    const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: REPO_READ_MS })
     if (remote.exitCode !== 0) return null
     return /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(String(remote.stdout ?? '').trim())?.[1] ?? null
   } catch {
