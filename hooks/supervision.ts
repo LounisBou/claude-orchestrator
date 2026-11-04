@@ -33,7 +33,7 @@ import {
   parseWait, parseStatus, handsOver, waitPatch, clearedWait, fingerprint, relayText, cutQuestion, heldQuestion, withdrawalText, gateText, noStatusText, NO_STATUS_KEY, coordinatorOf, chainOwnerTty, waitLabel, waitParts,
   type WaitKind,
 } from './relay.ts'
-import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, waitsInTab, waitSummary, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, asksNothing, carriesChoices, type RoundAnswer, type RoundChoice, type RoundEntry, type RoundDelivery } from './round.ts'
+import { entryFingerprint, roundEntry, roundEntryId, roundPath, paneQuestions, waitsInTab, waitSummary, entryQuestions, plainText, textSpans, prPieces, repositoryOwners, numberLabel, questionBody, questionShape, isDue, dueText, toldText, asksNothing, carriesChoices, type RoundAnswer, type RoundChoice, type RoundEntry, type RoundDelivery } from './round.ts'
 import {
   remoteRowOf, rowIsNews, rowSent, parseRowSent, rowText, deliveryOf, isPeerOrigin, isMarked, parseRemoteRow,
   remoteKey, withRemote, isRemoteStale, learntOf, parseLearnt, successorOf, parseSuccessor, machineLabel, prsInFlight, ROW_MARKER, REMOTE_STALE_AFTER_MS,
@@ -1136,6 +1136,7 @@ async function wakeForDue($: any): Promise<void> {
   const present = new Set(read.map(entry => entry.id))
   const now = Date.now()
   if (paneOpen) await traceUnseen($, read, now)
+  await tellNew($, read, present)
   const hosted = await hostedSuccessors($, read, local, store.alive)
   const dueBeside = (woken: readonly string[]) => (entry: RoundEntry) =>
     (sessionKey(entry.session) in local || hosted.has(entry.session)) && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
@@ -1149,6 +1150,35 @@ async function wakeForDue($: any): Promise<void> {
     return
   }
   await writeAtomic($, await wokenPath($), JSON.stringify([...woken, ...due.map(entry => entry.id)]) + '\n')
+}
+
+// The entries the coordinator's conversation was told of, `<state>/round-told.json`, a JSON list
+// of ids beside round-woken.json, whose ids keep their own meaning (a wake submitted).
+async function toldPath($: any): Promise<string> {
+  return `${await stateDir($)}/round-told.json`
+}
+
+// Each new open operator question told to the coordinator's conversation in one line, the
+// operator's ruling of 2026-11-04 (« B »): pane open or not, read from the round alone, never from
+// what the pane drew — no live-row filter, no due rule. The line is a transcript notice
+// ($.ui.log), drawn in the conversation and starting no model turn, so nothing is shown between
+// two questions of a decision round (his ruling of 2026-10-31, 6.3). An id is recorded once its
+// line is drawn, and the list keeps the ids the round still holds. A failure is one log line and
+// never holds the due wake.
+async function tellNew($: any, read: readonly RoundEntry[], present: ReadonlySet<string>): Promise<void> {
+  try {
+    const path = await toldPath($)
+    const told = (await readIds($, path)).filter(id => present.has(id))
+    const fresh = read.filter(entry => entry.status === 'open' && entry.kind === 'operator' && !told.includes(entry.id))
+    if (fresh.length === 0) return
+    for (const entry of fresh) {
+      $.ui.log(toldText(entry))
+      told.push(entry.id)
+    }
+    await writeAtomic($, path, JSON.stringify(told) + '\n')
+  } catch (err) {
+    await logLine($, `round told: ${(err as Error).message}`)
+  }
 }
 
 // With the pane open, each open operator entry ROUND_WAKE_MS old that no render of this module

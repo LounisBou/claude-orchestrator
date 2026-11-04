@@ -138,6 +138,7 @@ type Fx = {
   state: Map<string, unknown>
   submitted: string[]
   tools: { name: string; isDeferred?: boolean; inputSchema?: unknown }[]
+  notices: string[]
 }
 
 function fakeDollar(over: {
@@ -161,6 +162,8 @@ function fakeDollar(over: {
   const submitted: string[] = []
   // The tools the module registered at a start.
   const tools: { name: string; isDeferred?: boolean; inputSchema?: unknown }[] = []
+  // The lines the module drew in its session's transcript ($.ui.log): no model turn.
+  const notices: string[] = []
   // The host's $.state for the session: it outlives the module's own variables.
   const state = new Map<string, unknown>()
   const dollar = {
@@ -276,6 +279,7 @@ function fakeDollar(over: {
       },
       panes: async () => [...open].map(id => ({ id, title: '' })),
       toast: () => undefined,
+      log: (text: string) => { notices.push(text) },
       invalidate: (what: string) => { invalidated.push(what) },
       focus: async (args: { requestId: string; key: string }) => {
         focused.push(args)
@@ -299,7 +303,7 @@ function fakeDollar(over: {
       }),
     },
   }
-  return { dollar, files, ran, written, opened, closed, env, timers, invalidated, focused, scrolled, later, state, submitted, tools }
+  return { dollar, files, ran, written, opened, closed, env, timers, invalidated, focused, scrolled, later, state, submitted, tools, notices }
 }
 
 function mounted(register: (on: any) => void): {
@@ -2628,6 +2632,60 @@ test('an orchestrator\'s pane in tmux lists the agents its own pane spawned, not
   }
   expect(await paneText('%3')).toContain('Agent : belt-p3')
   expect(await paneText('%4')).toContain('no agent running')
+})
+
+// --- each new question told to the coordinator's conversation ---------------------------------
+
+// The operator's ruling of 2026-11-04 (« B »): one line per new question in the coordinator's
+// conversation, pane open or not, read from the round alone.
+test('with the pane open, a new question is told to the coordinator once, one line naming its sender and what it blocks, without its text; a second reading tells nothing', async () => {
+  const asked = entry('Orch : a', minutesAgo(1), { session: 'sa', question: '_Question_ : Ship the secret plan?', blocks: 'the release of phase 4' })
+  const urgent = entry('Orch : b', minutesAgo(2), { session: 'sb', urgent: true })
+  // From the round alone: a sender with no row is told too, and nothing waits on the pane's list.
+  const rowless = entry('Orch : c', minutesAgo(3), { session: 'sc' })
+  const answered = entry('Orch : d', minutesAgo(4), { session: 'sd', status: 'answered' })
+  const done = entry('Orch : e', minutesAgo(5), { session: 'se', kind: 'done', blocks: null })
+  const { fx, tick } = await wakingCoordinator([asked, urgent, rowless, answered, done])
+  fx.files.delete(`${SESSIONS}/sc`)
+  expect(fx.files.has(PANE_FILE)).toBe(true)
+  await tick()
+  expect(fx.notices.sort()).toEqual([
+    'Question pending from Orch : a — blocks: the release of phase 4',
+    'Question pending from Orch : b — blocks: phase 3 (urgent)',
+    'Question pending from Orch : c — blocks: phase 3',
+  ])
+  expect(fx.notices.some(line => line.includes('Ship the secret plan'))).toBe(false)
+  // Only the urgent one wakes the model's turn, as before: the told lines start none.
+  expect(fx.submitted.length).toBe(1)
+  await tick()
+  expect(fx.notices.length).toBe(3)
+  // A reload, or a successor over the same state directory, tells none again; a new entry is told.
+  const later = entry('Orch : a', minutesAgo(0), { session: 'sa', blocks: 'phase 5' })
+  fx.files.set(`${ROUND}/${later.id}.json`, JSON.stringify(later) + '\n')
+  await mounted(registerSupervision).handlers['turn.complete'](fx.dollar, firstTurn, (x: unknown) => x)
+  await tick()
+  expect(fx.notices.slice(3)).toEqual(['Question pending from Orch : a — blocks: phase 5'])
+})
+
+test('with the pane closed each new question is told as well, beside its due wake', async () => {
+  const fresh = entry('Orch : a', minutesAgo(1), { session: 'sa' })
+  const { fx, tick } = await wakingCoordinator([fresh], { paneClosed: true })
+  await tick()
+  expect(fx.notices).toEqual(['Question pending from Orch : a — blocks: phase 3'])
+  expect(fx.submitted.length).toBe(1)
+})
+
+test('a told line the host refuses is one log line, is told again at the next reading, and never holds the due wake', async () => {
+  const urgent = entry('Orch : a', minutesAgo(1), { session: 'sa', urgent: true })
+  const { fx, tick } = await wakingCoordinator([urgent])
+  const log = fx.dollar.ui.log
+  fx.dollar.ui.log = () => { throw new Error('no transcript') }
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  expect(fx.written.filter(l => l.endsWith('| supervision | round told: no transcript')).length).toBe(1)
+  fx.dollar.ui.log = log
+  await tick()
+  expect(fx.notices).toEqual(['Question pending from Orch : a — blocks: phase 3 (urgent)'])
 })
 
 // --- what the pane leaves out, and what it shows, said in its log ---------------------------------
