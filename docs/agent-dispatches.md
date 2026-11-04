@@ -77,7 +77,7 @@ The class of each kind of work and its tier: `skills/model-routing/SKILL.md`, «
 - Why: the host's effort setting is the operator's default for new sessions, and he changes
   it by typing an effort command in any tab: every session launched since ran at that level,
   whatever its orchestrator, its tier or its predecessor ran at.
-- Rule: `skills/iterm-agents/SKILL.md`, « Spawn », and `skills/model-routing/SKILL.md`.
+- Rule: `skills/iterm-agents/SKILL.md`, « Safety order for a launch », and `skills/model-routing/SKILL.md`.
 - Superseded: « The top family's default effort is high », until 2026-11-04 — since
   2026-10-12, the operator (calibration decision O2): « the operator's default effort for the
   top family is `high`. It applies to every session on that family that names no effort, the
