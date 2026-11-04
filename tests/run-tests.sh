@@ -5112,7 +5112,7 @@ check "the lifecycle's step 3 points at the brief's first task, not at whole fil
   "$(spells "$ORCH_REFS/lifecycle.md" 'read the brief and its pointed state')|$(spells "$ORCH_REFS/lifecycle.md" "3. The successor's first task is its brief's, step by step")|$(spells "$ORCH_REFS/lifecycle.md" 'then its brief'"'"'s steps 3 to 5')"
 check "the design says what a successor reads at takeover, and why" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'the successor reads the rulebook and its brief'"'"'s live state, the rest by section on demand')|$(spells "$ROOT/docs/design.md" 'input and cache tokens of each assistant turn')"
-# The lint: a succession brief past 8,000 characters is a finding naming the count and the limit.
+# The lint: a succession brief past 9,000 characters is a finding naming the count and the limit.
 SUCCFILL="$WORK/succession-filled.md"
 SUCCRULINGS="$WORK/r/rulings.md"; mkdir -p "$WORK/r"
 printf '%s\n' '# Standing rulings' '' \
@@ -5125,8 +5125,8 @@ printf '%s\n' '# Standing rulings' '' \
 sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#Orch : scratch#g' -e 's#\{\{SCRIPTS\}\}#/tmp#g' -e "s#\{\{RULINGS_FILE\}\}#$SUCCRULINGS#g" \
   -e 's#\{\{LIVE_[A-Z_]+\}\}#none open#g' -e 's#\{\{[A-Z_]+\}\}#/tmp#g' "$SUCC" > "$SUCCFILL"
 # Measured as the lint measures: the open-questions field's value is left out, its label counted.
-check "a succession brief, every placeholder filled, lints clean and stays under 8,000 characters" "0|yes" \
-  "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(sed "/^- The operator's open questions/s/:.*\$/:/" "$SUCCFILL" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')" -le 8000 ] && echo yes || echo no)"
+check "a succession brief, every placeholder filled, lints clean and stays under 9,000 characters" "0|yes" \
+  "$(bash "$LINT" "$SUCCFILL" >/dev/null 2>&1; echo $?)|$([ "$(sed "/^- The operator's open questions/s/:.*\$/:/" "$SUCCFILL" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')" -le 9000 ] && echo yes || echo no)"
 # The Live state carries the operator's open questions, verbatim: the lint refuses a succession
 # brief whose Live state lacks the field, leaves it empty or leaves its placeholder, and passes
 # `none` and a filled one. The fixtures are the filled brief with that one line replaced.
@@ -5193,19 +5193,19 @@ check "the template points at the lifecycle for the measure, the wait and the cl
   "$(spells "$SUCC" '`references/lifecycle.md`, « The takeover'"'"'s measure and close »')|$(grep -qx "### The takeover's measure and close" "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'five fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'ask it again, verbatim')"
-# The open-questions value sits outside the 8,000-character cap, its label inside: a verbatim
+# The open-questions value sits outside the 9,000-character cap, its label inside: a verbatim
 # `Question i of N` block is several hundred characters, and a Live state already brings the
 # brief near the limit, so the cap would refuse the very handover the field exists for.
 OQ_BLOCK="(id q-12) Question 1 of 3"
-while [ "${#OQ_BLOCK}" -lt 3000 ]; do OQ_BLOCK+=$'\n  Should the release wait for the review of the pending pull request, or ship now? A. wait  B. ship'; done
-OQ_BLOCK=${OQ_BLOCK:0:3000}
+while [ "${#OQ_BLOCK}" -lt 4000 ]; do OQ_BLOCK+=$'\n  Should the release wait for the review of the pending pull request, or ship now? A. wait  B. ship'; done
+OQ_BLOCK=${OQ_BLOCK:0:4000}
 OQ_BIG="$WORK/succession-oq-big.md"; oq_brief "$OQ_BIG" "$OQ_BLOCK"
 OQ_BIG_PLUS="$WORK/succession-oq-big-plus.md"
 # The padding brings the rest of the brief past the limit whatever the template's own size.
-OQ_PAD=$(( 8100 - $(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ') + 3000 ))
+OQ_PAD=$(( 9100 - $(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ') + 4000 ))
 { cat "$OQ_BIG"; printf '%s\n' "$(head -c "$OQ_PAD" /dev/zero | tr '\0' 'x')"; } > "$OQ_BIG_PLUS"
-check "a succession brief whose open-questions value is a 3,000-character block, the rest within the limit, lints clean" "yes|0" \
-  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 8000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
+check "a succession brief whose open-questions value is a 4,000-character block, the rest within the limit, lints clean" "yes|0" \
+  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 9000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
 check "succeed.md says the open-questions value is outside the 8,000-character cap" "yes" \
   "$(spells "$ROOT/commands/succeed.md" '8,000 characters, the open-questions value apart')"
 # The operator's standing rulings live once, in the orchestration's rulings file: the decision
@@ -5226,8 +5226,8 @@ check "the agents command reports a silent agent in one short line" "yes|no" \
 # ruling (2026-11-04, « A »: restore 2, 5, 6 and 7, remove 1, 3 and 4).
 check "succeed.md says the Live state rule once and carries no pointer line for the operator" "no|no|no" \
   "$(spells "$ROOT/commands/succeed.md" 'after its first use the six fields hold')|$(spells "$ROOT/commands/succeed.md" 'the lint refuses more')|$(spells "$ROOT/commands/succeed.md" "an operator's question gets one line pointing to the successor")"
-check "the same brief with the rest padded past 8,000 characters is over the limit" "1|1" \
-  "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 8000')"
+check "the same brief with the rest padded past 9,000 characters is over the limit" "1|1" \
+  "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 9000')"
 # The value is read from the label's first colon, on that line and on the lines after it up to
 # the next field of the Live state: a label worded otherwise, and a value that starts on the next
 # line, are read as their real value.
@@ -5249,17 +5249,17 @@ check "an open-questions value that starts on the next line, as items, lints cle
 SUCCBIG="$WORK/succession-big.md"
 { cat "$SUCCFILL"; printf '\n'; head -c 10000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$SUCCBIG"
 SUCCBIG_N=$(LC_ALL=C tr -d '\200-\277' < "$SUCCBIG" | wc -c | tr -d ' ')
-check "a succession brief over 8,000 characters is a finding naming the count and the limit" "1|1|1" \
-  "$(bash "$LINT" "$SUCCBIG" 2>&1 | grep -c "succession brief is $SUCCBIG_N characters, over the limit of 8000")|$(bash "$LINT" "$SUCCBIG" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$SUCCBIG" 2>&1 | grep -c ': 1 finding(s)')"
-# The limit is 8,000 characters: the filled brief padded to 8,100 is refused, to 7,900 it passes.
+check "a succession brief over 9,000 characters is a finding naming the count and the limit" "1|1|1" \
+  "$(bash "$LINT" "$SUCCBIG" 2>&1 | grep -c "succession brief is $SUCCBIG_N characters, over the limit of 9000")|$(bash "$LINT" "$SUCCBIG" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$SUCCBIG" 2>&1 | grep -c ': 1 finding(s)')"
+# The limit is 9,000 characters: the filled brief padded to 9,100 is refused, to 8,900 it passes.
 succ_padded() {  # $1 out file, $2 the characters the lint counts
   local rest; rest=$(sed "/^- The operator's open questions/s/:.*\$/:/" "$SUCCFILL" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' ')
   { cat "$SUCCFILL"; head -c $(( $2 - rest - 1 )) /dev/zero | tr '\0' 'x'; printf '\n'; } > "$1"
 }
-SUCC8100="$WORK/succession-8100.md"; succ_padded "$SUCC8100" 8100
-SUCC7900="$WORK/succession-7900.md"; succ_padded "$SUCC7900" 7900
-check "a filled succession brief of 8,100 characters is refused, one of 7,900 passes" "1|1|0" \
-  "$(bash "$LINT" "$SUCC8100" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$SUCC8100" 2>&1 | grep -c 'over the limit of 8000 once the open-questions value is set apart (8100)')|$(bash "$LINT" "$SUCC7900" >/dev/null 2>&1; echo $?)"
+SUCC9100="$WORK/succession-9100.md"; succ_padded "$SUCC9100" 9100
+SUCC8900="$WORK/succession-8900.md"; succ_padded "$SUCC8900" 8900
+check "a filled succession brief of 9,100 characters is refused, one of 8,900 passes" "1|1|0" \
+  "$(bash "$LINT" "$SUCC9100" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$SUCC9100" 2>&1 | grep -c 'over the limit of 9000 once the open-questions value is set apart (9100)')|$(bash "$LINT" "$SUCC8900" >/dev/null 2>&1; echo $?)"
 # Check 16: the rulings file sits outside the brief's cap. A 20,000-character one beside the same
 # two briefs, its path the same length, changes neither verdict, and is one warning, never a refusal.
 RBIG="$WORK/q/rulings.md"; mkdir -p "$WORK/q"
@@ -5267,10 +5267,10 @@ printf '# Standing rulings\n\n' > "$RBIG"; i=0
 while [ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -lt 20000 ]; do
   i=$((i + 1)); printf -- '- 2026-11-04T10:%02d:00Z « Ruling number %d, kept word for word as he said it. » — the method (row %d)\n' $((i % 60)) "$i" "$i" >> "$RBIG"
 done
-sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC8100" > "$WORK/succession-8100-big.md"
-sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC7900" > "$WORK/succession-7900-big.md"
+sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC9100" > "$WORK/succession-9100-big.md"
+sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC8900" > "$WORK/succession-8900-big.md"
 check "a 20,000-character rulings file beside them changes neither verdict" "yes|1|1|0|1" \
-  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -ge 20000 ] && echo yes || echo no)|$(bash "$LINT" "$WORK/succession-8100-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-8100-big.md" 2>&1 | grep -c '(8100)')|$(bash "$LINT" "$WORK/succession-7900-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-7900-big.md" 2>&1 | grep -c 'warning: rulings file .* characters, over 8000')"
+  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -ge 20000 ] && echo yes || echo no)|$(bash "$LINT" "$WORK/succession-9100-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-9100-big.md" 2>&1 | grep -c '(9100)')|$(bash "$LINT" "$WORK/succession-8900-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-8900-big.md" 2>&1 | grep -c 'warning: rulings file .* characters, over 8000')"
 check "the filled brief with its two-entry rulings file raises no warning" "0" \
   "$(bash "$LINT" "$SUCCFILL" 2>&1 | grep -c 'warning')"
 # Check 16 refuses a succession brief whose rulings file is missing or unnamed, and an entry of
