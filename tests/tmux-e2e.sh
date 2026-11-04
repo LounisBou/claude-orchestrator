@@ -449,8 +449,18 @@ LENV=()
 echo "== the successor: a window of the same session, then window 0 =="
 tm rename-window -t home:0 "Orch : e2e lead"
 LT=home:0
+# A succession runs on its caller's live pair, read on the caller's transcript. Window 0 is
+# started under `env -i`, with no session id and no transcript: give it one, a fixture whose
+# last main-thread request names the pair, under the host's projects directory so the run's
+# cleanup removes it with the rest.
+LEAD_SID=e2e-lead-$$
+mkdir -p "$TRANSCRIPTS"
+printf '{"type":"api-request","sessionId":"%s","querySource":"repl_main_thread","params":{"model":"%s","output_config":{"effort":"low"}}}\n' \
+  "$LEAD_SID" "$MODEL" > "$TRANSCRIPTS/$LEAD_SID.jsonl"
+LENV=(CLAUDE_CODE_SESSION_ID="$LEAD_SID" ORCHESTRATOR_PROJECTS_DIR="$HOSTDIR/projects")
 launcher 120 spawn --successor --dir "$WORKDIR" --permission-mode acceptEdits --title "Orch : e2e lead" \
   --no-remote-control --prompt "$(prompt E2E-HEIR-READY)"
+LENV=()
 HEIR=$(out | tail -1)
 HEIR_PANE=$(tm list-panes -s -t home -F '#{pane_tty} #{pane_id}' | awk -v t="$HEIR" '$1 == t { print $2 }')
 HEIR_WIN=$(tm list-panes -s -t home -F '#{pane_tty} #{window_id}' | awk -v t="$HEIR" '$1 == t { print $2 }')
