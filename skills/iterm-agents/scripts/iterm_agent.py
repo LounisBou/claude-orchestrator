@@ -2998,6 +2998,18 @@ def home_answers(socket):
         probe.close()
 
 
+def remove_exited_home_socket(socket):
+    """Remove the socket file tmux left behind for the server `socket`, once nothing answers
+    there: asked again right before the remove, since a server restarted on the same name
+    since the last probe owns the file."""
+    if home_answers(socket):
+        return
+    try:
+        os.remove(home_socket_path(socket))
+    except OSError:
+        pass
+
+
 def kill_home(socket):
     """End the home server `socket`, every window it holds with it; True when tmux did. The
     socket file goes with it once nothing answers there: tmux leaves it behind on a kill
@@ -3151,11 +3163,8 @@ def cmd_home_watch(argv):
         time.sleep(poll)
     while alive():
         time.sleep(poll)
-    # The server exited by itself and nothing answers on its file: tmux leaves it behind.
-    try:
-        os.remove(home_socket_path(args.socket))
-    except OSError:
-        pass
+    # The server exited by itself and nothing answered on its file: tmux leaves it behind.
+    remove_exited_home_socket(args.socket)
     marker = home_end_marker(args.socket)
     if os.path.exists(marker):
         os.remove(marker)

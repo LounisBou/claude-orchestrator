@@ -5852,6 +5852,18 @@ live = socket.socket(socket.AF_UNIX); live.bind(path); live.listen(1)
 print(ia.kill_home('suite-live'))
 print('kept' if os.path.exists(path) else 'removed')
 live.close(); os.remove(path)" ) | paste -sd'|' -)"
+# The watcher removes the file of a server that exited by itself, but asks once more right before:
+# a server restarted on the same name since its last probe owns the file.
+check "the watcher's removal keeps a file something answers on, and removes one nothing does" "kept|removed" \
+  "$( ( export TMUX_TMPDIR="$SOCKDIR"; ipy "
+import os, socket
+path = ia.home_socket_path('suite-up')
+live = socket.socket(socket.AF_UNIX); live.bind(path); live.listen(1)
+ia.remove_exited_home_socket('suite-up')
+print('kept' if os.path.exists(path) else 'removed')
+live.close()
+ia.remove_exited_home_socket('suite-up')
+print('kept' if os.path.exists(path) else 'removed')" ) | paste -sd'|' -)"
 
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
