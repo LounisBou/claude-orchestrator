@@ -1074,6 +1074,35 @@ async function traceRender($: any, read: readonly RoundEntry[], taken: ReadonlyS
   }
 }
 
+// The sessions open entries were moved to at a succession (`movedFrom`) that have no row yet but
+// that the host runs: its registry (`<config>/sessions/<pid>.json`) names the session, and that
+// pid is live in the read's process table. A successor's first row is written at its first
+// measure, minutes after the move (2026-11-04: 3 min 15 s), and its questions are drawn and due
+// meanwhile. A process table that could not be read judges no record dead, as the store's read
+// keeps its rows.
+async function hostedSuccessors($: any, entries: readonly RoundEntry[], rows: Record<string, SessionRow>, alive: StoreRead['alive']): Promise<Set<string>> {
+  const wanted = new Set(entries
+    .filter(entry => entry.status === 'open' && entry.movedFrom && !entry.origin && entry.session !== '' && !(sessionKey(entry.session) in rows))
+    .map(entry => entry.session))
+  const hosted = new Set<string>()
+  if (wanted.size === 0) return hosted
+  const dir = `${await configDir($)}/sessions`
+  const pids = new Map<string, string>()
+  for (const file of await $.fs.list(dir).catch(() => [])) {
+    if (!file || file.kind !== 'file' || !file.name.endsWith('.json')) continue
+    try {
+      const record = JSON.parse(String(await $.fs.read(`${dir}/${file.name}`)))
+      if (wanted.has(record?.sessionId) && /^\d+$/.test(String(record.pid ?? ''))) pids.set(String(record.pid), record.sessionId)
+    } catch { /* a record being written, or gone: not this one */ }
+  }
+  if (pids.size === 0) return hosted
+  const table = alive instanceof Map ? alive
+    : alive === null ? null
+    : livePids(await $.process.run(livePidsArgv([...pids.keys()])!, { timeoutMs: 5000 }).catch(() => null))
+  for (const [pid, sessionId] of pids) if (table === null || runsLive(table, pid)) hosted.add(sessionId)
+  return hosted
+}
+
 // The questions just due, read in the coordinator's own session: one wake submitted to it for
 // those it was not woken for yet, the pane open as the script reads it. A question whose sender
 // has ended has no one left to answer, as in the pane. The ids woken for are read again just
@@ -1088,8 +1117,9 @@ async function wakeForDue($: any): Promise<void> {
   const present = new Set(read.map(entry => entry.id))
   const now = Date.now()
   if (paneOpen) await traceUnseen($, read, now)
+  const hosted = await hostedSuccessors($, read, local, store.alive)
   const dueBeside = (woken: readonly string[]) => (entry: RoundEntry) =>
-    sessionKey(entry.session) in local && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
+    (sessionKey(entry.session) in local || hosted.has(entry.session)) && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
   if (!read.some(dueBeside(await readWoken($)))) return
   const woken = (await readWoken($)).filter(id => present.has(id))
   const due = read.filter(dueBeside(woken))
@@ -1591,14 +1621,16 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         owners = repositoryOwners([await (ownRepo ??= repoOf($)), ...Object.values(merged).flatMap(row => [row.repo, ...((row as { prs?: unknown }).prs instanceof Array ? (row as { prs: string[] }).prs : [])])])
         none = WORDS.noOrchestrator
         // A question whose sender has ended has no one left to answer: only the entries of a
-        // session with a live row are drawn, and counted; an entry from another machine while a
-        // live remote row of its sender's name was measured on that machine.
+        // session with a live row are drawn, and counted, or of a successor an entry was moved to
+        // that the host runs before its first row (hostedSuccessors); an entry from another
+        // machine while a live remote row of its sender's name was measured on that machine.
         // Stat before the read: a write landing between the two is seen by the next tick.
         pane.roundSeen = await roundMtime($)
         const read = await readRound($)
+        const hosted = await hostedSuccessors($, read.map(found => found.entry), local, store.alive)
         const drawn = read.map(found => found.entry).filter(entry => entry.origin
           ? merged[remoteKey(entry.from)]?.machine === entry.origin.machine
-          : sessionKey(entry.session) in local)
+          : sessionKey(entry.session) in local || hosted.has(entry.session))
         const questions = paneQuestions(drawn)
         for (const wait of waitsInTab(drawn)) if (!tabWaits.has(rowKeyOf(wait))) tabWaits.set(rowKeyOf(wait), waitSummary(wait))
         // What this render takes in, for its trace: every question it counts, and each wait that
