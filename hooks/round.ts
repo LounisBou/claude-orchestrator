@@ -313,15 +313,19 @@ export function roundPath(stateDir: string, id: string): string {
   return `${stateDir}/round/${id}.json`
 }
 
-// The open entries in the round's own order (the coordination skill's): grouped by sender,
-// so one orchestrator's questions stay together; the groups by their earliest wait, each in
-// the order its waits began. The stamps are the module's own ISO strings, compared as text.
+// The open entries in the round's own order, the operator's ruling of 2026-10-31 (6.2): the
+// urgent first, then the others; within each level grouped by sender, so one orchestrator's
+// questions stay together, the groups by their earliest wait in that level, each in the order its
+// waits began. `coordinator.sh round` prints the same order, with or without --by-urgency. The
+// stamps are the module's own ISO strings, compared as text.
 export function openEntries(entries: readonly RoundEntry[]): RoundEntry[] {
   const open = entries.filter(entry => entry.status === 'open')
   const bySince = (a: RoundEntry, b: RoundEntry) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0)
-  const groups = new Map<string, RoundEntry[]>()
-  for (const entry of [...open].sort(bySince)) groups.set(entry.from, [...(groups.get(entry.from) ?? []), entry])
-  return [...groups.values()].flat()
+  return [true, false].flatMap(urgent => {
+    const groups = new Map<string, RoundEntry[]>()
+    for (const entry of open.filter(e => (e.urgent === true) === urgent).sort(bySince)) groups.set(entry.from, [...(groups.get(entry.from) ?? []), entry])
+    return [...groups.values()].flat()
+  })
 }
 
 // A wait whose text asks nothing the pane could offer: no question of it carries a lettered
