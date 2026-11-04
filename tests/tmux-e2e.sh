@@ -382,6 +382,11 @@ check "the session to move replied within 90s" "1" "$CONV_REPLIED"
 CSID=$(sid_on "$CONV_TTY"); CHOME="orch-$(printf '%s' "$CSID" | tr -cd '0-9A-Za-z' | cut -c1-8)"
 HOMES+=("$CHOME")
 CLINES=$(lines_of "$CSID")
+# The move resumes the session on the pair its transcript holds, the model id the host wrote and
+# not the alias the session was launched with: read it there, before the move.
+CONV_PAIR=$(jq -r 'select(.type == "api-request" and .querySource == "repl_main_thread") | "\(.params.model) \(.params.output_config.effort)"' \
+  "$TRANSCRIPTS/$CSID.jsonl" 2>/dev/null | tail -1)
+[ -n "$CONV_PAIR" ] || { echo "refused: the moved session's transcript holds no main-thread request" >&2; exit 1; }
 LT=plain:0; LENV=(ORCHESTRATOR_HOME_NO_TAB=1 ORCHESTRATOR_TEST_RUN=1 "ORCHESTRATOR_HOST_CLI=$REAL_HOST")
 launcher 30 home --session "$CSID" --name "Orch : e2e conv" --prompt "$(recall)"
 check "the move starts the home server named after the session, window 0 named after the orchestrator, the mark set by the conf" \
@@ -395,7 +400,7 @@ if wait_host "$CHOME_TTY" 150; then CUP=1; else CUP=0; fi
 check "the old process ended and window 0 resumed the session" "0|1" "$(hosts_on "$CONV_TTY")|$CUP"
 CLINE=$(ps -t "${CHOME_TTY#/dev/}" -o command= 2>/dev/null | grep -- '--setting-sources project' | head -1)
 check "window 0 replays the launch: its settings, model and mode, the session resumed under the orchestrator's name" "1|1|1|1|1" \
-  "$(printf '%s' "$CLINE" | grep -c -- '--setting-sources project')|$(printf '%s' "$CLINE" | grep -c -- "--model $MODEL")|$(printf '%s' "$CLINE" | grep -c -- '--permission-mode acceptEdits')|$(printf '%s' "$CLINE" | grep -c -- "--resume $CSID")|$(printf '%s' "$CLINE" | grep -c -- '--name Orch : e2e conv$')"
+  "$(printf '%s' "$CLINE" | grep -c -- '--setting-sources project')|$(printf '%s' "$CLINE" | grep -cF -- "--model ${CONV_PAIR% *} --effort ${CONV_PAIR#* }")|$(printf '%s' "$CLINE" | grep -c -- '--permission-mode acceptEdits')|$(printf '%s' "$CLINE" | grep -c -- "--resume $CSID")|$(printf '%s' "$CLINE" | grep -c -- '--name Orch : e2e conv$')"
 resumed_or_exit "$CHOME::home:0"
 if wait_reply "$CHOME::home:0" ready-conv-e2e 120; then CRECALL=1; else CRECALL=0; fi
 audit_rc
