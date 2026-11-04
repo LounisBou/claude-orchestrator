@@ -3356,6 +3356,9 @@ check "the launcher's skill and command reference document move --leftmost" "yes
 # command reference no longer gives the old end-of-window fall as a reason to name one.
 check "neither the launcher's skill nor its reference calls a spawn without an anchor a mistake" "no|no" \
   "$(spells "$ITERMSKILL" 'Spawning without an anchor')|$(spells "$ITERMCMDS" 'one more reason to always name one')"
+# The launcher refuses any other title shape on its own: the reference states the shape once.
+check "the command reference states the title shape once" "1|no|no" \
+  "$(grep -c 'the subject at most 25 characters' "$ITERMCMDS")|$(spells "$ITERMCMDS" 'the spelled-out roles of the older convention')|$(spells "$ITERMCMDS" "because it is the session's name in every listing")"
 # One exception, the operator's order: the rulebook and the decision round route a question for
 # him through a running coordinator. They name it in that one paragraph and nowhere else.
 coordinator_named_in() { # <root>
