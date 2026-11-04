@@ -16,12 +16,9 @@ another, nothing between them, and nothing is relayed, launched or reported unti
 is over.
 
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
-question, in the shape of step 2, ends its turn on `waiting: operator — blocks: <what it
-blocks>`, and the module forwards it; never send it yourself. The first says what you work on,
-for its round of its own where your questions come together. Its pane shows each one, its tab asking
-again only when urgent or no pane is open (his order of 2026-10-24: no question asked
-twice); end on `waiting: operator (urgent) — blocks: …` only for
-what step 1 calls urgent.
+question ends its turn as step 2 says, and the module forwards it. Its pane shows each one,
+its tab asks again only when urgent or no pane is open;
+end on `waiting: operator (urgent) — blocks: …` only for what step 1 calls urgent.
 Its answer, verbatim and dated, is his ruling, recorded as step 4 says. **And each question is
 written in full in your own chat too**: his ruling of 2026-11-03, « […] but also and at the
 same time in their own chat […], in both. »
