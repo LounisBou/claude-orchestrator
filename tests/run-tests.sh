@@ -178,11 +178,13 @@ check "the operator's entry skill stays in the command menu" "0" \
   "$(grep -c '^user-invocable: false$' "$ROOT/skills/orchestrator/SKILL.md")"
 check "the audit brief merges nothing" "1" \
   "$(grep -c 'no label, no merge' "$ROOT/templates/agent-audit-brief.md")"
-# Two locks hold whatever is said — the push guard and the title-verified close — and
-# nothing else the launcher refuses is written as an absolute. Read with the rulebook's
-# line breaks folded.
-check "only the two locks hold whatever is said, never routed around" "1" \
-  "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said, never routed around: the push guard, and the tab close verified by its title." | wc -l | tr -d ' ')"
+# Rule 17 of the rules review, on the ruling on topic 1: the two locks are the tools' own. The
+# push guard refuses a forced push (hooks/tests/push-guard.test.ts, « a marked session refuses a
+# forced push »), and the launcher refuses a close whose title differs (« a close whose title
+# differs is refused », below), so the rulebook no longer states them. Read with its line breaks
+# folded.
+check "the rulebook leaves the two locks to the push guard and the title-checked close" "0" \
+  "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said" | wc -l | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
 # Every agent that works in a checkout keeps its scratch where the close takes it.
 check "the phase, review and comments briefs keep scratch in the session's host scratchpad" "yes|yes|yes" \
