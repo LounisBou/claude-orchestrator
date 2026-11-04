@@ -3590,8 +3590,13 @@ check "the start renames itself before it registers" "1" \
 # A session the launcher cannot read a name for still succeeds: the title is passed by hand.
 check "succeed passes the current name as the title when the launcher reads none" "yes" \
   "$(spells "$ROOT/commands/succeed.md" 'it says to type one: pass `--title "<this session'"'"'s current')"
-check "the orchestrator ends the turn on its rename and the module resumes it under the name" "yes|no" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'once, and END THE TURN: the name is taken when it ends, and the module resumes you under it; a spawn or a message before then is refused')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'so you dispatch from the next turn')"
+# Rule 7 of the rules review, on the ruling on topic 16: the module holds a spawn or a message
+# until the renaming turn ends and resumes the session under its name (hooks/tests/naming.test.ts,
+# « while a rename is pending, a spawn, a rotate and a SendMessage are refused until the turn
+# ends », « the turn that renamed resumes the session under its name »), so the rulebook keeps the
+# call and the turn's end alone.
+check "the orchestrator ends the turn on its rename, and leaves the hold and the resume to the module" "yes|no|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'with `Orch : <subject>` (the project), once, then end the turn.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the module resumes you under it; a spawn or a message before then is refused')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'so you dispatch from the next turn')"
 check "the coordinator ends the turn on its rename and the module resumes it" "yes|no" \
   "$(spells "$COORDCMD" 'END THE TURN: the session takes the name when it ends, and the module resumes you under it')|$(spells "$COORDCMD" 'nothing below waits for it')"
 COORDMOVE=$(grep -m1 -o 'iterm-agent.sh move --tty <your tty> --leftmost' "$COORDCMD" 2>/dev/null | sed -e 's/^iterm-agent.sh move //' -e 's#<your tty>#/dev/ttys950#')
