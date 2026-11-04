@@ -5103,8 +5103,8 @@ check "the design names both figures and why: their gap is the takeover's verifi
 check "the design says why the takeover is measured in the « takeover confirmed » turn" "yes" \
   "$(spells "$ROOT/docs/design.md" 'so that its figures compare from one succession to the next')"
 # The predecessor fills the section before the spawn, and keeps the whole brief short.
-check "succeed.md and the lifecycle reference have the predecessor fill Live state and hold the brief to 8,000 characters" "yes|yes|yes|yes" \
-  "$(spells "$ROOT/commands/succeed.md" 'Live state')|$(spells "$ROOT/commands/succeed.md" '8,000 characters')|$(spells "$ORCH_REFS/lifecycle.md" 'Live state')|$(spells "$ORCH_REFS/lifecycle.md" '8,000 characters')"
+check "succeed.md and the lifecycle reference have the predecessor fill Live state and hold the brief to 9,000 characters" "yes|yes|yes|yes" \
+  "$(spells "$ROOT/commands/succeed.md" 'Live state')|$(spells "$ROOT/commands/succeed.md" '9,000 characters')|$(spells "$ORCH_REFS/lifecycle.md" 'Live state')|$(spells "$ORCH_REFS/lifecycle.md" '9,000 characters')"
 # The brief is standing: after its first use the section holds the last handover, not placeholders.
 check "succeed.md and the lifecycle reference have the predecessor overwrite the previous Live state, never append" "yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" "overwrites the previous handover's Live state")|$(spells "$ORCH_REFS/lifecycle.md" "overwrites the previous handover's Live state")"
@@ -5206,8 +5206,8 @@ OQ_PAD=$(( 9100 - $(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ') 
 { cat "$OQ_BIG"; printf '%s\n' "$(head -c "$OQ_PAD" /dev/zero | tr '\0' 'x')"; } > "$OQ_BIG_PLUS"
 check "a succession brief whose open-questions value is a 4,000-character block, the rest within the limit, lints clean" "yes|0" \
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 9000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
-check "succeed.md says the open-questions value is outside the 8,000-character cap" "yes" \
-  "$(spells "$ROOT/commands/succeed.md" '8,000 characters, the open-questions value apart')"
+check "succeed.md says the open-questions value is outside the 9,000-character cap" "yes" \
+  "$(spells "$ROOT/commands/succeed.md" '9,000 characters, the open-questions value apart')"
 # The operator's standing rulings live once, in the orchestration's rulings file: the decision
 # round writes a ruling there first, verbatim and dated, the predecessor checks it before the
 # handover, and the lifecycle gives its format and what leaves it.
