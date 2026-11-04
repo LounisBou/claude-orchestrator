@@ -309,6 +309,10 @@ check "the rulebook stops real machine load an agent reports or plans" "yes" \
 # once, in the rulebook, without his quote; review.md and the routing skill carry no copy.
 check "the rulebook and the succession brief carry no third-ask ritual and none of the duties' long prose" "no|no|no|no|no" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the third ask of the same question, re-read your own')|$(spells "$SUCC" 'On the third ask of the same')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Seven duties.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A question he has to ask twice is already a')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'delivering a better A')"
+# Rule 7: rename_session refuses a subject over 25 characters (hooks/tests/naming.test.ts), so the
+# rulebook no longer states the limit.
+check "the rulebook leaves the subject's length to rename_session" "no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'twenty-five characters at most')"
 check "the rulebook no longer re-announces the successor's address" "no" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'your first message re-announces your new address')"
 check "the merge and undraft rule has no quote in the rulebook and no copy in review.md or the routing skill" "no|no|no" \
