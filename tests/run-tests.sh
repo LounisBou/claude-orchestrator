@@ -186,9 +186,12 @@ check "the audit brief merges nothing" "1" \
 check "the rulebook leaves the two locks to the push guard and the title-checked close" "0" \
   "$(tr '\n' ' ' < "$ROOT/skills/orchestrator/SKILL.md" | tr -s ' ' | grep -oF -- "Two locks hold whatever is said" | wc -l | tr -d ' ')"
 check "the succession brief closes the predecessor's tab" "1" "$(grep -c 'CLOSE ITS TAB' "$ROOT/templates/orchestrator-succession-brief.md")"
-# Every agent that works in a checkout keeps its scratch where the close takes it.
-check "the phase, review and comments briefs keep scratch in the session's host scratchpad" "yes|yes|yes" \
-  "$(for t in phase review comments; do carries "$ROOT/templates/agent-$t-brief.md" "lives in your own session's host scratchpad directory"; done | paste -sd'|' -)"
+# Every agent that works in a checkout keeps its scratch where the close takes it. Rule 55 of the
+# rules review, on the ruling on topic 18: the phase brief no longer says it, the host names its
+# own scratchpad; the review and comments briefs keep their line, and the brief rules keep the
+# resource envelope's scratch clause.
+check "the review and comments briefs keep scratch in the session's host scratchpad, the phase brief leaves it to the host" "no|yes|yes|yes" \
+  "$(for t in phase review comments; do carries "$ROOT/templates/agent-$t-brief.md" "lives in your own session's host scratchpad directory"; done | paste -sd'|' -)|$(spells "$ORCH_REFS/briefs.md" "**Scratch lives in the session's own host scratchpad directory**")"
 # An orchestrator's context grows after its takeover mostly by the reports it reads: every
 # agent's report is capped, the « wrong or doubtful » line excepted, and no brief still
 # orders the long report with named sections.
