@@ -4418,6 +4418,18 @@ check "caller_pair refuses a transcript with no main-thread request, naming it" 
 check "pair refuses a session with no transcript, naming where it looked" "1|1" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7-none bash "$AGENT" pair >/dev/null 2>&1; echo $?)|$(CLAUDE_CODE_SESSION_ID=s-e7-none bash "$AGENT" pair 2>&1 | grep -cF "no transcript for session s-e7-none under $ORCHESTRATOR_PROJECTS_DIR")"
 pair_transcript s-e7-noeffort t-model ''
+# A transcript removed between the listing and the read of its time is a transcript that is
+# not there: a refusal that names it, never a traceback.
+printf '%s\n' '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"t-model","output_config":{"effort":"low"}}}' > "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-vanish.jsonl"
+check "a transcript that vanishes between the listing and the read is a refusal, not a traceback" "PairUnreadable|0"   "$("$py" -c "
+import os, sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+def gone(path): raise FileNotFoundError(2, 'No such file or directory', path)
+os.path.getmtime = gone
+try: ia.read_pair('s-e7-vanish'); print('read')
+except ia.PairUnreadable: print('PairUnreadable')
+except Exception as exc: print(type(exc).__name__)" 2>&1)"
+rm -f "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-vanish.jsonl"
 check "a main-thread request with no effort is refused, naming what was missing" "1" \
   "$(CLAUDE_CODE_SESSION_ID=s-e7-noeffort bash "$AGENT" pair 2>&1 | grep -c 'names no effort')"
 # The rule is written once: the tab skill states it in two sentences and points to the
