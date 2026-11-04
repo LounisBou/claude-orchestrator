@@ -5802,6 +5802,55 @@ except SystemExit:
     pass
 print('|'.join(said))" 2>/dev/null)"
 
+echo "== iterm-agents: a new tab's tty is waited for, and an ended server leaves no socket file =="
+# The app sets a new session's tty once its job is forked, after the tab is handed back: on a
+# busy app the first read of the variable is empty (measured live, 3 reads in 12). A tab whose
+# tty is read once is a home tab refused for « no tty » while its session is starting.
+check "a tab whose tty variable reads empty at first gives its tty once the app has set it" \
+  "/dev/ttys969|3" \
+  "$(ipy "
+import asyncio
+reads = []
+class S:
+    async def async_get_variable(self, name):
+        reads.append(name)
+        return '/dev/ttys969' if len(reads) > 2 else None
+class T:
+    tab_id = 'NEW'
+    current_session = S()
+print('%s|%d' % (asyncio.run(ia.tty_of(T())), len(reads)))")"
+check "a tab whose tty never comes is given up after its tries, with no tty" "None|3" \
+  "$(ipy "
+import asyncio
+reads = []
+class S:
+    async def async_get_variable(self, name):
+        reads.append(name)
+        return ''
+class T:
+    tab_id = 'NEW'
+    current_session = S()
+print('%s|%d' % (asyncio.run(ia.tty_of(T(), None, 3)) or None, len(reads)))")"
+# tmux leaves its socket file behind when its server is killed (measured: tmux 3.8, every
+# kill-server). A home server the launcher ended takes its file with it; one tmux did not end
+# keeps it, since the server may still listen there.
+SOCKDIR="$WORK/tmux-sockets"; mkdir -p "$SOCKDIR/tmux-$(id -u)"
+kill_sock() { : > "$SOCKDIR/tmux-$(id -u)/$1"
+  ( export TMUX_TMPDIR="$SOCKDIR" ORCHESTRATOR_TMUX="$2"; ipy "print(ia.kill_home('$1'))" )
+  [ -e "$SOCKDIR/tmux-$(id -u)/$1" ] && echo kept || echo removed; }
+check "an ended home server leaves no socket file" "True|removed" \
+  "$(kill_sock suite-ended /usr/bin/true | paste -sd'|' -)"
+check "a server tmux did not end keeps its socket file" "False|kept" \
+  "$(kill_sock suite-alive /usr/bin/false | paste -sd'|' -)"
+check "a file something still answers on is kept, whatever tmux said" "True|kept" \
+  "$( ( export TMUX_TMPDIR="$SOCKDIR" ORCHESTRATOR_TMUX=/usr/bin/true; ipy "
+import os, socket
+path = ia.home_socket_path('suite-live')
+live = socket.socket(socket.AF_UNIX); live.bind(path); live.listen(1)
+print(ia.kill_home('suite-live'))
+print('kept' if os.path.exists(path) else 'removed')
+live.close(); os.remove(path)" ) | paste -sd'|' -)"
+
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
 # checkout it worked in is deleted — through `workspace.sh delete`, never `--discard`, so a
