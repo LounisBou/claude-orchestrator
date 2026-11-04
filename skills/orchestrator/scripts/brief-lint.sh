@@ -12,6 +12,10 @@
 # A brief is the whole specification act: a defect in it reaches a live agent before anything
 # else reads the file. Each check's rule is stated in the comment above its code.
 #
+# Check 14 refuses an implementer brief whose delivery opens a pull request without saying
+# how it comes out labelled `Not Ready`: through the github tool's `pr-create --draft`, or
+# `pr-readiness <n> not-ready` after another way of opening it.
+#
 # What it CANNOT check: whether the scope is right, whether the contracts are the ones the
 # next phase consumes, whether the tier fits the work. Those stay the orchestrator's, and
 # a green lint is not an approved brief.
