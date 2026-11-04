@@ -136,6 +136,7 @@ hooks/tests/models-guard.test.ts     the tier map's guard: the writes it reads i
 hooks/tests/push-guard.test.ts       the push decision's marker, lease and unread-command boundaries, and the wiring over a faked $: denied without the tool asked, unmarked and failing reads passing through
 hooks/tests/stop-gate.test.ts        the stop gate's decision shapes and refusal texts, the once-per-tell CI record, and the wiring over a faked $: the classic.Stop fields pinned, the quiet scope, the degraded read passing
 hooks/tests/one-question.test.ts     the question rules: two numbered blocks refused, an operator wait with none refused, one block passed, fenced examples ignored, in either language
+hooks/tests/question-by-message.test.ts  a question sent to the coordinator by message refused, registered or learnt; a plain message and a question to another peer passed
 hooks/tests/unanswered-question.test.ts  the question still on the operator: open, withdrawn by his prompt, reopened, or only in the wait file; shown in full, cut short, or fenced
 hooks/tests/supervision.test.ts      the store's per-session keys and merges, the stale and truncated rows read as no row, and the wiring over a faked $: the composed register carrying the second measure's figure, the name from the walk, the repository from the origin read
 hooks/tests/short-commands.test.ts  the short commands' sync at start: run from an installed plugin or the override's directory, never from a checkout, bounded, a failure logged and the start let through
