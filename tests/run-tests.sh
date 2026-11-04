@@ -297,6 +297,21 @@ check "the decision round, the rulebook and the coordinator's skill keep every q
 # rulebook and the phase brief template each carry the rule.
 check "the rulebook stops real machine load an agent reports or plans" "yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'is stopped at once, its processes killed, and the work redone under emulated throttling')"
+# Row 151, topic 1: the duties are condensed and the third-ask ritual is gone, from the rulebook
+# and from the succession brief's copy. Rule 19: the successor's re-announce lives in the
+# succession brief's step 3, not in the rulebook. Topic 8: the merge and undraft rule is said
+# once, in the rulebook, without his quote; review.md and the routing skill carry no copy.
+check "the rulebook and the succession brief carry no third-ask ritual and none of the duties' long prose" "no|no|no|no|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the third ask of the same question, re-read your own')|$(spells "$SUCC" 'On the third ask of the same')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Seven duties.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A question he has to ask twice is already a')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'delivering a better A')"
+check "the rulebook no longer re-announces the successor's address" "no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'your first message re-announces your new address')"
+check "the merge and undraft rule has no quote in the rulebook and no copy in review.md or the routing skill" "no|no|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'NEVER has the right to merge a pull request')|$(spells "$ORCH_REFS/review.md" 'and by default none of the three is yours')|$(spells "$ROOT/skills/model-routing/SKILL.md" 'The pull request stays in draft: lifting it is the operator')"
+# Sentences the condensation had dropped with no ruling covering them, restored (rules 16 and 23,
+# 20, and the thresholds' standing): the answer first, then the premise; how an agent works;
+# the thresholds outrank a reference.
+check "the rulebook answers before it reads the premise, reads how an agent works, and holds its thresholds over a reference" "yes|yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the premise and every further reading come after the answer is sent')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Read how an agent works, not only what it reports')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'They hold at every step of the loop, whatever a reference adds.')"
 # The pane draws each pull request reference of a blocks text as a link of its own, and a slash
 # glues two of them into a name it cannot resolve: the rulebook tells the orchestrator to split
 # them by a comma.

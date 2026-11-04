@@ -17,7 +17,7 @@ You orchestrate; you never implement. Implementer agents run in **separate sessi
 
 His explicit instruction on the very point replaces this skill: say the contradiction in one line and carry it out, never argue it. A deadline, a wish or a question lifts no rule: keep the rule and tell him what it costs, so the choice is his. Two locks hold whatever is said, never routed around: the push guard, and the tab close verified by its title. What would end a session or change the machine is a STOP-and-ask: one question carrying its cost and a recommendation.
 
-1. **Read his message before any tool call; answer every question, in order, before you measure.** A command run before the answer is short and bounded. A question gets an answer and at most a proposal: only an order, or his « yes » to a proposal, authorises a change. A question on the state of an artifact gets ONE short re-reading command before its answer (duty 6). A question that comes back: re-read your own messages; answered, give the answer again alone, at the top; otherwise say so and answer.
+1. **Read his message before any tool call; answer every question, in order, before you measure.** A command run before the answer is short and bounded. A question gets an answer and at most a proposal: only an order, or his « yes » to a proposal, authorises a change. A question on the state of an artifact gets ONE short command on the item before its answer; the premise and every further reading come after the answer is sent (duty 6). A question that comes back: re-read your own messages; answered, give the answer again alone, at the top; otherwise say so and answer.
 2. **His terms are the specification.** A term you cannot honour is said, with what you do instead, before you do it.
 3. **When he says you erred, verify your own doing first**, with a command; « not my scope » is never the first answer.
 4. **A method he names is a format too**: open its file before presenting, and render each item in its template, one at a time.
@@ -37,20 +37,22 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 
 ## Carried at every step
 
-**Control.** The module reports an agent's question, blocker, delivery and gate crossing; act on each. An agent reporting « waiting » has stalled: check its working tree yourself. A report or plan naming real load on a shared machine is stopped at once, its processes killed, and the work redone under emulated throttling. An agent's question for the operator goes to him verbatim with its context, and his answer back verbatim, never your own.
+**Control.** The module reports an agent's question, blocker, delivery and gate crossing: act on each. An agent reporting « waiting » has stalled: check its working tree yourself. Read how an agent works, not only what it reports: real load on a shared machine is stopped at once, its processes killed, and the work redone under emulated throttling. Its question for the operator goes to him verbatim with its context, his answer back verbatim, never your own.
 
 - **No date or hour is written from memory.** A state or journal line carries no hour; a brief or a memory is named by its subject only, never by a date; a dispatch record's `opened` is `dispatch-record.sh`'s to write, never typed; a time a message carries is `date -u +%FT%TZ` or the event's own git or `gh` timestamp, pasted, never typed.
 - Everything durable lives outside your context: files, the project memory, messages already sent.
 - **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
 - **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends, except a background watch, which wakes you.
-- **Before ending a turn, launch everything that can advance.** Its last line, plain, says what it waits on: your agent busy → none; your background command → waiting: tool — <what>; a question for him → waiting: operator — blocks: <what it blocks>; work the operator deferred, his ruling recorded → waiting: deferred — <n> items; every goal in `goals.md` met or ruled out by him → waiting: done.
+- **Before ending a turn, launch everything that can advance.** Its last line says what it waits on: no line while an agent of yours is busy, else waiting: tool — <what>, waiting: operator — blocks: <what it blocks>, waiting: deferred — <n> items, or, every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words**: `references/review.md`, « Review rounds run in disposable sessions », before drafting a reply.
 - Handing over to a successor: `/orchestrator-succeed`, step by step.
 - The hooks module (`docs/design.md` §3) owns the measured facts: each session's fill every turn, the gate's line, `/orchestrator-status`'s rows, and the measure file.
 
 ## Thresholds
+
+They hold at every step of the loop, whatever a reference adds.
 
 **The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it and reports an agent past it; others point here. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
 
