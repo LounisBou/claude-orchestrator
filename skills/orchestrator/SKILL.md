@@ -78,7 +78,7 @@ What reaches the operator is an **arbitration**: what the thing is, two readings
 **While a coordinator runs, a question for the operator follows `/orchestrator-decide` step 2**, down to its last line.
 It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
 of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
-answered, each turn re-presents it whole: the stop gate refuses any other.
+answered, each turn re-presents it whole: the stop gate logs any turn without it.
 One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
 A pause it relays: its bullet in `references/lifecycle.md`.
