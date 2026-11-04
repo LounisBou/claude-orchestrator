@@ -9679,12 +9679,13 @@ done
 printf '4242 1 ttys004 hostcli\n' > "$WORK/coord-due-ps"
 printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$DSTATE/pane.json"
 dround() { ORCHESTRATOR_STATE_DIR="$DSTATE" CLAUDE_CONFIG_DIR="$DCFG" COORDINATOR_NOW=2026-10-24T12:00:00Z COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round 2>&1; }
+# The urgent entry leads, the round's one order (6.2).
 check "with the pane open round marks due an urgent entry alone, however old the others" \
-  "round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open
+  "round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
+round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open
 round zdone | done | from Orch : d | since 2026-10-24T09:30:00.000Z | blocks: - | open
 round p15 | operator | from Orch : d | since 2026-10-24T11:45:00.000Z | blocks: phase 3 | open
 round p14 | operator | from Orch : d | since 2026-10-24T11:45:01.000Z | blocks: phase 3 | open
-round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
 round xu | operator | from Orch : d | since 2026-10-24T11:58:00.000Z | blocks: phase 3 | answered
 round wold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | withdrawn" \
   "$(dround | grep '^round ')"
