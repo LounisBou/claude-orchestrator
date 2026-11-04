@@ -292,17 +292,17 @@ fi
 # 8. Retired with the context gauge's script; the number stays unused.
 
 # 11. A succession brief is read whole by a session that has nothing else in its context yet:
-#     past 10,000 characters it costs a successor what the live state was meant to save. The
+#     past 8,000 characters it costs a successor what the live state was meant to save. The
 #     class is read from the first line, as the template writes it. Characters, not bytes: the
 #     continuation bytes of a multibyte character are dropped before counting. The open-questions
 #     field's value is not counted, its label is: a verbatim `Question i of N` block is several
 #     hundred characters, and with the field filled the cap would refuse the very handover the
 #     field exists for.
-succession_limit=10000
+succession_limit=8000
 oq_field() {  # $1 mode: `value` prints the open-questions value, `rest` the brief without it
     awk -v mode="$1" '
         function next_field(s) {
-            return s ~ /^- (Rows open|Pull requests open|Agents running|The operator.s rulings|The operator.s open questions|The next step)/
+            return s ~ /^- (Rows open|Pull requests open|Agents running|The operator.s open questions|The next step)/
         }
         f == 0 && /^- The operator.s open questions/ {
             f = 1; found = 1
