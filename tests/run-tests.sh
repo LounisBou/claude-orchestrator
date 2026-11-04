@@ -5595,6 +5595,34 @@ try:
     ia.row_write('later', {'name': 'x'}, 'later')
 except ValueError:
     print('ValueError')" 2>&1)|$([ -e "$RREF/store/sessions/later" ] && echo present || echo absent)"
+# A write that fails is False and said, writes no row and leaves no temporary file of its
+# own; a temporary name another writer already holds is that writer's file, left to it.
+RFAIL="$WORK/row-fail"; mkdir -p "$RFAIL/store/sessions"
+printf 'other\n' > "$RFAIL/store/sessions/s-taken.tmp-1000-000000"
+out=$(ORCHESTRATOR_MODULE_DIR="$RFAIL" ORCHESTRATOR_PS_TABLE="$WORK/ps-row.txt" ipy "
+def refuse(src, dst):
+    raise OSError('rename refused')
+replace = ia.os.replace
+ia.os.replace = refuse
+failed = ia.row_write('s-fail', {'name': 'Agent : fail'}, 'birth')
+ia.os.replace = replace
+ia.time.time = lambda: 1.0
+ia.os.urandom = lambda n: bytes(n)
+print('%s|%s' % (failed, ia.row_write('s-taken', {'name': 'Agent : taken'}, 'birth')))" 2>"$WORK/row-fail.err")
+check "a write whose rename fails, or whose temporary name is taken, is False and said, no row and none of its temporary files left" \
+  "False|False|2|0|other" \
+  "$out|$(grep -c '^row: the row .* could not be written: ' "$WORK/row-fail.err")|$(ls "$RFAIL/store/sessions" | grep -cvx 's-taken\.tmp-1000-000000')|$(cat "$RFAIL/store/sessions/s-taken.tmp-1000-000000" 2>/dev/null || echo gone)"
+# A row file that holds no row the module parses proves no death: the launcher leaves it byte
+# for byte, and so a file it cannot even stat. Known absent, or known empty (the module's end
+# when its removal fails, deleteSession), it is written.
+printf '{"role":"agent","name":"Agent : torn' > "$RREF/store/sessions/torn"
+cp "$RREF/store/sessions/torn" "$WORK/row-torn.orig"
+: > "$RREF/store/sessions/emptied"
+ln -s looped "$RREF/store/sessions/looped"
+out=$(rowwrite torn birth; rowwrite torn end; rowwrite looped birth)
+check "a row file that does not parse, or cannot be read, is refused, said, and left as it is; an absent or empty one is written" \
+  "3|3|same|looped|True|True|Agent : new|Agent : new" \
+  "$(printf '%s\n' "$out" | grep -cx False)|$(printf '%s\n' "$out" | grep -c '^row: the row .* could not be read, left as it is$')|$(cmp -s "$RREF/store/sessions/torn" "$WORK/row-torn.orig" && echo same || echo differ)|$(readlink "$RREF/store/sessions/looped")|$(rowwrite emptied birth)|$(rowwrite unborn end)|$(jq -r .name "$RREF/store/sessions/emptied")|$(jq -r .name "$RREF/store/sessions/unborn")"
 # process_table and runs_live: the module's livePids and runsLive, ported. The table is the
 # machine's listing (ps -A -o pid=,stat=,tty=), or the stand-in, whose lines carry no state.
 check "process_table reads one listing of every process with its state and tty, and runs_live judges it as runsLive" \

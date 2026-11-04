@@ -927,11 +927,23 @@ def row_write(sid, patch, when):
     `when` is "birth", before the session's host starts, or "end", once it is gone: the
     launcher never writes a row a running host owns. A row whose pid runs live on its tty
     (runs_live) is refused, False, and so is a row naming a pid when the process table cannot
-    be read, which proves no death. A write that fails is False, said on stderr, its
-    temporary file removed."""
+    be read, which proves no death. So is, said on stderr, a row file that holds no row the
+    module parses or whose state cannot be read: only a file known absent, or known empty (the
+    module's end when its removal fails, deleteSession), is written as no row. A write
+    that fails is False, said on stderr, the temporary file it made removed, never one another
+    writer holds under the same name."""
     if when not in ROW_WHEN:
         raise ValueError("row_write: when is birth or end, not %r" % (when,))
+    path = _row_path(sid)
     found = row_read(sid)
+    if found is None:
+        try:
+            unread = os.stat(path).st_size > 0
+        except OSError as exc:
+            unread = not isinstance(exc, FileNotFoundError)
+        if unread:
+            print("row: the row %s could not be read, left as it is" % path, file=sys.stderr)
+            return False
     pid = str((found or {}).get("pid") or "")
     if pid and runs_live(process_table(), pid, found.get("tty")):
         return False
@@ -939,19 +951,21 @@ def row_write(sid, patch, when):
     row.update(patch)
     row["updated_at"] = patch["updated_at"] if patch.get("updated_at") is not None else _row_now()
     text = json.dumps(_row_json(row), ensure_ascii=False, separators=(",", ":")) + "\n"
-    path = _row_path(sid)
     tmp = "%s.tmp-%d-%s" % (path, int(time.time() * 1000),
                             "".join(_BASE36[b % 36] for b in os.urandom(6)))
+    made = False
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(tmp, "x", encoding="utf-8") as fh:
+            made = True
             fh.write(text)
         os.replace(tmp, path)
     except (OSError, UnicodeError) as exc:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
+        if made:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
         print("row: the row %s could not be written: %s" % (path, exc), file=sys.stderr)
         return False
     return True
