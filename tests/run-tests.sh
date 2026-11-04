@@ -3458,10 +3458,10 @@ check "the successor's announcement keeps operator questions coming to it" "yes"
 # dropped or merged. The questions come grouped by the orchestrator that sent them, each group
 # opened by that orchestrator's own account of its work, every message naming the sender and
 # the coordinator, since he runs several coordinators.
-check "the coordinator runs every relayed question as a decision round by default, with its file and end line" "yes|yes|yes|yes" \
-  "$(spells "$COORDSKILL" 'goes through a decision round, by default**: the whole method of `/orchestrator-decide`, run')|$(spells "$COORDSKILL" 'without his asking and without his typing that command, even for a single question')|$(spells "$COORDSKILL" '`decision-round.md` in your scratch directory: number, the sender'"'"'s exact `ListAgents`')|$(spells "$COORDSKILL" '« The round is complete: N/N. »')"
-check "every relayed question reaches the operator: in the ledger first, none dropped or merged" "yes|yes|yes" \
-  "$(spells "$COORDSKILL" 'A question received is written, before anything else is done, to')|$(spells "$COORDSKILL" 'The round file is the ledger: nothing received is dropped, merged or')|$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender, and only its')"
+check "the coordinator runs every relayed question as a decision round by default, with its end line, no parallel ledger, and a question by message sent back to be asked at the end of the turn" "yes|yes|yes|yes|yes" \
+  "$(spells "$COORDSKILL" 'goes through a decision round, by default**: the whole method of `/orchestrator-decide`, run')|$(spells "$COORDSKILL" 'without his asking and without his typing that command, even for a single question')|$(spells "$COORDSKILL" '« The round is complete: N/N. »')|$(grep -qF 'decision-round.md' "$COORDSKILL" && echo no || echo yes)|$(spells "$COORDSKILL" 'message from a session on this machine is not presented: ask its sender to ask it again at the end of its turn')"
+check "a question found settled is not dropped by the coordinator: its sender is asked" "yes" \
+  "$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender, and only its')"
 check "the round groups its questions by the orchestrator that sent them" "yes|yes|yes" \
   "$(spells "$COORDSKILL" 'all the questions of one orchestrator together, consecutive, in the sender'"'"'s own order')|$(spells "$COORDSKILL" 'question arriving mid-round from an orchestrator whose group is not done joins that')|$(spells "$COORDSKILL" '« `<sender'"'"'s exact name>` — 3 questions »')"
 check "the round names the coordinator and each sender, and opens each group with the sender's own context" "yes|yes|yes|yes|yes" \
@@ -5675,6 +5675,8 @@ if command -v tmux >/dev/null 2>&1; then
   i=0; while [ ! -s "$TSTATE_E/close.log" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
   check "a tab closed ends its server and the watcher writes the dated line: socket, cause, tty" "1" \
     "$(grep -cE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: server $TRSRV ended: cause=exit-unattached .* tty=/dev/ttys977\$" "$TSTATE_E/close.log")"
+  check "and the watcher removes the socket file the exited server left" "absent" \
+    "$([ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$TRSRV" ] && echo present || echo absent)"
   trsrv kill-server 2>/dev/null
   pkill -fx "sleep $TRMARK" 2>/dev/null
   # A close command ends the server itself: one line with the cause close, and no second one
@@ -5801,6 +5803,67 @@ try:
 except SystemExit:
     pass
 print('|'.join(said))" 2>/dev/null)"
+
+echo "== iterm-agents: a new tab's tty is waited for, and an ended server leaves no socket file =="
+# The app sets a new session's tty once its job is forked, after the tab is handed back: on a
+# busy app the first read of the variable is empty (measured live, 3 reads in 12). A tab whose
+# tty is read once is a home tab refused for « no tty » while its session is starting.
+check "a tab whose tty variable reads empty at first gives its tty once the app has set it" \
+  "/dev/ttys969|3" \
+  "$(ipy "
+import asyncio
+reads = []
+class S:
+    async def async_get_variable(self, name):
+        reads.append(name)
+        return '/dev/ttys969' if len(reads) > 2 else None
+class T:
+    tab_id = 'NEW'
+    current_session = S()
+print('%s|%d' % (asyncio.run(ia.tty_of(T())), len(reads)))")"
+check "a tab whose tty never comes is given up after its tries, with no tty" "None|3" \
+  "$(ipy "
+import asyncio
+reads = []
+class S:
+    async def async_get_variable(self, name):
+        reads.append(name)
+        return ''
+class T:
+    tab_id = 'NEW'
+    current_session = S()
+print('%s|%d' % (asyncio.run(ia.tty_of(T(), None, 3)) or None, len(reads)))")"
+# tmux leaves its socket file behind when its server is killed (measured: tmux 3.8, every
+# kill-server). A home server the launcher ended takes its file with it; one tmux did not end
+# keeps it, since the server may still listen there.
+SOCKDIR="$WORK/tmux-sockets"; mkdir -p "$SOCKDIR/tmux-$(id -u)"
+kill_sock() { : > "$SOCKDIR/tmux-$(id -u)/$1"
+  ( export TMUX_TMPDIR="$SOCKDIR" ORCHESTRATOR_TMUX="$2"; ipy "print(ia.kill_home('$1'))" )
+  [ -e "$SOCKDIR/tmux-$(id -u)/$1" ] && echo kept || echo removed; }
+check "an ended home server leaves no socket file" "True|removed" \
+  "$(kill_sock suite-ended /usr/bin/true | paste -sd'|' -)"
+check "a server tmux did not end keeps its socket file" "False|kept" \
+  "$(kill_sock suite-alive /usr/bin/false | paste -sd'|' -)"
+check "a file something still answers on is kept, whatever tmux said" "True|kept" \
+  "$( ( export TMUX_TMPDIR="$SOCKDIR" ORCHESTRATOR_TMUX=/usr/bin/true; ipy "
+import os, socket
+path = ia.home_socket_path('suite-live')
+live = socket.socket(socket.AF_UNIX); live.bind(path); live.listen(1)
+print(ia.kill_home('suite-live'))
+print('kept' if os.path.exists(path) else 'removed')
+live.close(); os.remove(path)" ) | paste -sd'|' -)"
+# The watcher removes the file of a server that exited by itself, but asks once more right before:
+# a server restarted on the same name since its last probe owns the file.
+check "the watcher's removal keeps a file something answers on, and removes one nothing does" "kept|removed" \
+  "$( ( export TMUX_TMPDIR="$SOCKDIR"; ipy "
+import os, socket
+path = ia.home_socket_path('suite-up')
+live = socket.socket(socket.AF_UNIX); live.bind(path); live.listen(1)
+ia.remove_exited_home_socket('suite-up')
+print('kept' if os.path.exists(path) else 'removed')
+live.close()
+ia.remove_exited_home_socket('suite-up')
+print('kept' if os.path.exists(path) else 'removed')" ) | paste -sd'|' -)"
 
 echo "== iterm-agents: a close takes the stood-down session's checkout with it =="
 # The session's purpose is over once its close is proved on the process table, so the
@@ -8528,6 +8591,24 @@ check "round-close refuses an unknown id, a path, an unreadable entry and a miss
   "$(coord_status round-close nobody --answer x)|$(coord_status round-close ../coordinator --answer x)|$(coord_status round-close broken --answer x)|$(coord_status round-close a-one)|$(coord_status round-close)|$(cat "$CROUND/broken.json")"
 check "the refusal of an unknown id names it" "coordinator: round-close: no entry nobody in $CROUND" \
   "$(coord round-close nobody --answer x 2>&1 >/dev/null)"
+# round-close is the one gesture: an open entry's answer is left pending for the coordinator's
+# module, which sends it to the sender; a withdrawn one, whose sender waits on nothing, is not.
+check "round-close leaves an open entry's delivery pending, stamped as its answer, for the module to send" "pending|0|1|1" \
+  "$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.at == .answer.at | if . then 1 else 0 end), (.delivery.answerAt == .answer.at | if . then 1 else 0 end)] | join("|")' "$CROUND/b-early.json")"
+check "round-close leaves no delivery on an entry that was not open" "null" "$(jq -c .delivery "$CROUND/a-gone.json")"
+DROUND="$WORK/coord-done/round"
+mkdir -p "$DROUND"
+jq -n '{id:"d-open", from:"Orch : d", session:"s-d", kind:"done", since:"2026-10-18T10:02:00.000Z", blocks:null,
+  question:"Everything merged.", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null}' > "$DROUND/d-open.json"
+check "round-close closes an open done entry but leaves it no delivery to send" "closed d-open|closed|null" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-done" bash "$COORD" round-close d-open --answer ok 2>&1)|$(jq -r .status "$DROUND/d-open.json")|$(jq -c .delivery "$DROUND/d-open.json")"
+FROUND="$WORK/coord-far/round"
+mkdir -p "$FROUND"
+jq -n '{id:"r-far", from:"Orch : r", session:"s-r", kind:"operator", since:"2026-10-18T10:02:00.000Z", blocks:"phase 3",
+  question:"Ship it far?", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null,
+  origin:{machine:"far", address:"uds:/tmp/cc-socks/far.sock"}}' > "$FROUND/r-far.json"
+check "round-close leaves an entry from another machine pending as the module's remote answers are, with no answer stamp" "closed r-far|pending|0|null" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-far" bash "$COORD" round-close r-far --answer B 2>&1)|$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.answerAt | tostring)] | join("|")' "$FROUND/r-far.json")"
 
 # round-close also forgets the sender's fingerprint, as the module's forgetRelayed does, so the
 # same question asked again is entered again: the wait file's `relayed` is nulled when it is the
