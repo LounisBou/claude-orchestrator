@@ -9,7 +9,10 @@ Execute the orchestrator succession described in
 Preconditions, verify each before acting:
 
 - the moment is quiet: no verdict pending, no agent mid-delivery;
-- the project state file is current — status lives once, there;
+- the project state file is current — status lives once, there — and pruned (lifecycle
+  item 0);
+- the orchestration's rulings file, `<briefs dir>/rulings.md`, exists and holds every ruling still
+  standing, each dated and quoted, the brief's « Standing rulings » line naming it;
 - the standing succession brief exists; otherwise instantiate
   `${CLAUDE_PLUGIN_ROOT}/templates/orchestrator-succession-brief.md` into the
   project's briefs directory, filling every `{{PLACEHOLDER}}`, never a brief written by hand;
