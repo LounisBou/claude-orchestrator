@@ -1443,7 +1443,7 @@ test('a successor not found on this machine is recorded by its name: the entries
 
 // The successor's real word of 2026-11-04T17:15:27Z: the phrase, then its report on the same
 // line. Read as no takeover, the hand-over withdrew the open questions instead of moving them.
-const TAKEOVER_REPORT = 'takeover confirmed — Orch : belt-2 [fa9fba] holds the orchestration; the agents are re-addressed and the round is read.'
+const TAKEOVER_REPORT = 'takeover confirmed — Orch : belt-2 [a1b2c3] holds the orchestration; the agents are re-addressed and the round is read.'
 
 test('takeover confirmed followed by the successor\'s report confirms the takeover', async () => {
   expect(confirmsTakeover(TAKEOVER_REPORT)).toBe(true)
