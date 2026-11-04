@@ -1863,6 +1863,10 @@ echo "== brief lint =="
 # a second session reference sitting beside the real one. Both are mechanical; both are
 # caught here, before the dispatch rather than after the round.
 LINT="$ROOT/skills/orchestrator/scripts/brief-lint.sh"
+# Rule 88 of the rules review: the lint's header says what it is for and leaves each check's
+# rule to the comment above its code; the retired check 8 keeps one line.
+check "the lint's header tells no incident and repeats no check" "no|no|no|1" \
+  "$(spells "$LINT" 'Two defects reached a live agent')|$(spells "$LINT" '# Check 13 refuses a pull request title')|$(spells "$LINT" 'demanded an absolute path to context-gauge.sh')|$(grep -c '^# 8\. ' "$LINT")"
 B="$WORK/briefs"; mkdir -p "$B"
 
 ok_brief() {  # a brief with nothing wrong in it
