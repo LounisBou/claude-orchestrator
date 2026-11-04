@@ -2902,6 +2902,35 @@ test('an entry moved to a successor not measured yet is drawn', async () => {
   expect(JSON.stringify(await coordinatorRender(fx))).not.toContain('pending')
 })
 
+// A move whose successor's session was not resolved names none: the host's record of a live
+// session of the successor's name draws it, the predecessor's own record never.
+test('an entry moved to a successor by its name alone is drawn while a live session of that name runs', async () => {
+  const moved = entry('Orch : belt-2', '2026-11-04T17:10:00.000Z', { session: '', movedFrom: 's-old', choices: CHOICES })
+  const drawnWith = async (record: object | null) => {
+    const fx = fakeDollar({ launchName: 'Coord : main' })
+    fx.files.set(`${ROUND}/${moved.id}.json`, JSON.stringify(moved) + '\n')
+    if (record) fx.files.set(`${HOME}/.claude/sessions/${(record as { pid: number }).pid}.json`, JSON.stringify(record))
+    return { fx, tree: JSON.stringify(await coordinatorRender(fx)) }
+  }
+  const live = await drawnWith({ pid: 777, sessionId: 's-two', name: 'Orch : belt-2' })
+  expect(live.tree).toContain('Questions for you — 1 pending')
+  expect(loggedLines(live.fx, `pane: shown ${moved.id}`)).toBe(1)
+  for (const record of [{ pid: 999, sessionId: 's-two', name: 'Orch : belt-2' }, { pid: 777, sessionId: 's-old', name: 'Orch : belt-2' }, { pid: 777, sessionId: 's-two', name: 'Orch : other' }, null]) {
+    const { tree } = await drawnWith(record)
+    expect(tree).not.toContain('pending')
+  }
+})
+
+test('an entry moved to a successor by its name alone is due in the tab with the pane closed', async () => {
+  const moved = entry('Orch : belt-2', minutesAgo(1), { session: '', movedFrom: 's-old' })
+  const { fx, tick } = await wakingCoordinator([moved], { paneClosed: true })
+  fx.files.delete(`${SESSIONS}/`)
+  fx.files.set(`${HOME}/.claude/sessions/777.json`, JSON.stringify({ pid: 777, sessionId: 's-two', name: 'Orch : belt-2' }))
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  expect(fx.submitted[0]).toContain('Orch : belt-2')
+})
+
 test('an entry moved to a successor not measured yet is due in the tab with the pane closed', async () => {
   const moved = entry('Orch : belt-2', minutesAgo(1), { session: 's-two', movedFrom: 's-old' })
   const { fx, tick } = await wakingCoordinator([moved], { paneClosed: true })

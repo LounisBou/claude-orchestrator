@@ -1441,6 +1441,16 @@ test('a successor not found on this machine is recorded by its name: the entries
   expect([moved.status, moved.session, moved.from]).toEqual(['open', '', 'Orch : belt-2'])
 })
 
+// A successor whose session the registry did not name yet when its « takeover confirmed » came:
+// the move resolves it again, or the moved entry names no session, never drawn nor due.
+test('a successor the registry names only after its « takeover confirmed » is resolved at the move', async () => {
+  const { chains, fx, asked, other, settled } = await senderWithEntries()
+  await drive(chains, 'session.receive', fx.dollar, confirmed('Orch : belt-2'))
+  successorRunning(fx)
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expectMoved(fx, asked, other, settled)
+})
+
 // The successor's real word of 2026-11-04T17:15:27Z: the phrase, then its report on the same
 // line. Read as no takeover, the hand-over withdrew the open questions instead of moving them.
 const TAKEOVER_REPORT = 'takeover confirmed — Orch : belt-2 [a1b2c3] holds the orchestration; the agents are re-addressed and the round is read.'
