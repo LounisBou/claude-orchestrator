@@ -65,11 +65,6 @@ export async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T |
 
 // --- the refusal texts (stop_gate.py:126-146, verbatim but where the tool line changed them) -----------------------------------
 
-const NOTHING = 'Nothing will wake you: no agent of yours is running, and no command or monitor you started '
-  + 'runs in the background. Launch what you announced — an agent, or a command whose end or events wake you, '
-  + 'then end with the line waiting: tool — <what is watched> —, or, if a question for the operator truly blocks, '
-  + 'end with the line waiting: operator — blocks: <what it blocks>, or with waiting: done. '
-  + "The line goes as the message's last line, no markup."
 const MALFORMED = 'Your last line is not the machine line: end the message with the line '
   + 'waiting: operator — blocks: <what it blocks>, or with waiting: done, '
   + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <ids>, '
@@ -92,10 +87,6 @@ function fits(busy: boolean, running: readonly string[]): string {
 const blocksNothingReason = (busy: boolean, running: readonly string[]) =>
   'Your wait on the operator blocks nothing: that line is for a question he must answer, and the coordinator '
   + `would put it to him. ${fits(busy, running)} The line goes as the message's last line, no markup.`
-const idleDelivered = (who: string) =>
-  `Idle with its pull request open or merged: ${who}. Stand it down now — or, if it waits on a question you have not answered, answer it.`
-const IDLE_ONE = '%s is idle: its notice was spent. Read its report or relaunch it.'
-const IDLE_MANY = '%s are idle: their notices were spent. Read their reports or relaunch them.'
 const QUESTION = 'Your question blocks nothing declared: advance everything that can advance; its answer will come in a later turn.'
 const NOT_DONE_ONE = 'Not done: %s is still there. Finish it, or say what blocks it.'
 const NOT_DONE_MANY = 'Not done: %s are still there. Finish them, or say what blocks them.'
@@ -112,7 +103,8 @@ const GOALS_OPEN = 'Not done against the spec: %s open%p. Dispatch the work that
   + 'waiting: operator — blocks: <G>: <what he must rule> — or, if he deferred it, record his ruling with '
   + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <ids>.'
 const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <ids>, not on waiting: done.'
-const IDS_WRONG = 'waiting: deferred — <ids> must name every deferred item (rows by their number, goals as G<n>): %s.'
+const COUNT_WRONG = 'waiting: deferred — <n> rows must give the number of deferred rows (and G<n>, the number of deferred goals): the right line is waiting: deferred — %s.'
+const IDS_WRONG = 'waiting: deferred — <n> rows (plus G<m> for deferred goals), or <ids>, must name every deferred item (rows by their number, goals as G<n>): %s.'
 const NOTHING_DEFERRED = 'Nothing is deferred: no open row or goal carries the operator\'s ruling. '
   + 'If everything is finished, end on waiting: done.'
 const GOALS_FAULT = 'goals.md is not a record of the spec: %s.'
@@ -420,7 +412,7 @@ export function checkWake(facts: {
   background?: readonly string[]
   awaiting?: boolean
   hostUnread?: boolean
-}): Held | { blocks: string } | { tool: string; notRunning?: true } | 'read-what-is-left' | null {
+}): Held | { blocks: string } | { tool: string; notRunning?: true } | { warn: 'idle-delivered' | 'idle-agents' | 'nothing-will-wake'; detail: string } | 'read-what-is-left' | null {
   const last = machineLine(facts.message)
   const matched = MACHINE_LINE.exec(last)
   const busy = facts.agents.some(a => a.state === 'busy')
@@ -432,7 +424,8 @@ export function checkWake(facts: {
   if (matched && matched[1]) return { blocks: matched[1] }
   // Before every other release: neither a busy agent beside it nor a running watch lifts it.
   if (facts.delivered.length > 0) {
-    return { case: 'idle-delivered', reason: idleDelivered(facts.delivered.join(', ')) }
+    // Measured, not refused: the log keeps who was idle with its pull request open or merged.
+    return { warn: 'idle-delivered', detail: facts.delivered.join(', ') }
   }
   const tool = TOOL_LINE.exec(last)
   if (tool) {
@@ -446,8 +439,7 @@ export function checkWake(facts: {
   if (facts.awaiting) return null
   if (matched || deferredIds(last) !== null) return 'read-what-is-left'
   if (facts.agents.length > 0) {
-    const names = facts.agents.map(a => a.label).join(', ')
-    return { case: 'idle-agents', reason: (facts.agents.length === 1 ? IDLE_ONE : IDLE_MANY).replace('%s', names) }
+    return { warn: 'idle-agents', detail: facts.agents.map(a => a.label).join(', ') }
   }
   if (DEFERRED_WORD.test(last)) return { case: 'malformed-machine-line', reason: DEFERRED_MALFORMED }
   if (last.toLowerCase().startsWith('waiting') && LOOKS_DECLARED.test(last)) {
@@ -462,7 +454,7 @@ export function checkWake(facts: {
     return null
   }
   if (facts.handedOver) return null
-  return { case: 'nothing-will-wake', reason: NOTHING }
+  return { warn: 'nothing-will-wake', detail: '' }
 }
 
 // How long a subscription to a peer's idle notice counts as something that will wake the
@@ -522,7 +514,14 @@ export function isSuccessorSpawn(command: string): boolean {
 // (`ending: 'deferred'`) takes it when nothing else is open, and is refused when nothing is
 // deferred; `waiting: done` refuses it, and names the line that fits. The ids the line lists
 // (`ids`) must be those deferred items, each named and none unknown.
+// The short form `<n> rows` (plus ` G<m>` when goals are deferred) names the deferred items by count.
+const COUNT_FORM = /^(\d+)\s+rows?(?:\s+G(\d+))?$/i
 function idsMismatch(listed: string, rows: readonly string[], goals: readonly string[]): string | null {
+  const counted = COUNT_FORM.exec(listed.trim())
+  if (counted) {
+    if (Number(counted[1]) === rows.length && Number(counted[2] ?? 0) === goals.length) return null
+    return COUNT_WRONG.replace('%s', `${rows.length} rows${goals.length > 0 ? ` G${goals.length}` : ''}`)
+  }
   const wanted = new Map<string, string>()
   for (const row of rows) wanted.set(row.split(' ')[0].toUpperCase(), `row ${row.split(' ')[0]}`)
   for (const goal of goals) wanted.set(goal.toUpperCase(), goal)
@@ -548,7 +547,8 @@ export function checkWakeDone(left: {
   ending?: 'done' | 'deferred'
   ids?: string
 }): Held | null {
-  const stillThere = [...left.checkouts, ...left.agents.map(a => a.label)]
+  // The working copies are not read by session, so they only warn (the caller logs them); the agents refuse.
+  const stillThere = left.agents.map(a => a.label)
   const putOff = left.deferredRows ?? []
   const rows = left.deferred.filter(row => !putOff.includes(row))
   const goals = { open: left.goalsOpen ?? [], faults: left.goalsFaults ?? [] }

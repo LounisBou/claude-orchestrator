@@ -4722,12 +4722,9 @@ def cmd_move(argv):
             return
         if is_ours:
             return
-        if not args.force:
-            die("move: refused: %s is neither this session's tab nor in its chain "
-                "(pass --force to move it anyway)" % args.tty)
-        # --force is the operator's hand and the layout repair, and it says what it moved:
-        # a forced move is the one an orchestrator has to be able to find afterwards.
-        print("move: forced: %s is not in this session's chain" % args.tty, file=sys.stderr)
+        # Warned, not refused: the move still happens, and the warning (stderr and close.log)
+        # is what an orchestrator finds afterwards when it looks for a tab moved out of place.
+        close_log("move", "warning: %s is not in this session's chain: moved anyway" % args.tty)
 
     if DRY_RUN:
         # No app, so no session id and no tab id: the dry run reads the chain the way the
