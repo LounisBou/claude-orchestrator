@@ -2727,3 +2727,43 @@ test('a question no render showed within 30 s is logged by the wake once, with t
   await closed.tick()
   expect(closed.fx.written.some(l => l.includes('never drawn'))).toBe(false)
 })
+
+// --- a question moved to a successor not measured yet ------------------------------------------
+
+// (d2): a successor has no row until its first turn ends, minutes after the move; its session runs
+// all the same, and the host's own record of it says so.
+test('an entry moved to a successor not measured yet is drawn', async () => {
+  const moved = entry('Orch : belt-2', '2026-11-04T17:10:00.000Z', { session: 's-two', movedFrom: 's-old', choices: CHOICES })
+  const drawnWith = async (record: object | null) => {
+    const fx = fakeDollar({ launchName: 'Coord : main' })
+    fx.files.set(`${ROUND}/${moved.id}.json`, JSON.stringify(moved) + '\n')
+    if (record) fx.files.set(`${HOME}/.claude/sessions/${(record as { pid: number }).pid}.json`, JSON.stringify(record))
+    return { fx, tree: JSON.stringify(await coordinatorRender(fx)) }
+  }
+  const live = await drawnWith({ pid: 777, sessionId: 's-two', name: 'Orch : belt-2' })
+  expect(live.tree).toContain('Questions for you — 1 pending')
+  expect(loggedLines(live.fx, `pane: shown ${moved.id}`)).toBe(1)
+  // The host's record of a process that no longer runs, or of another session, is no successor.
+  for (const record of [{ pid: 999, sessionId: 's-two', name: 'Orch : belt-2' }, { pid: 777, sessionId: 's-other', name: 'Orch : belt-2' }, null]) {
+    const { fx, tree } = await drawnWith(record)
+    expect(tree).not.toContain('pending')
+    expect(loggedLines(fx, `pane: ${moved.id} not drawn: no row for its sender s-two`)).toBe(1)
+  }
+  // An entry no successor took, its session with no row, is not drawn on a live record alone.
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  const plain = { ...moved }
+  delete plain.movedFrom
+  fx.files.set(`${ROUND}/${plain.id}.json`, JSON.stringify(plain) + '\n')
+  fx.files.set(`${HOME}/.claude/sessions/777.json`, JSON.stringify({ pid: 777, sessionId: 's-two' }))
+  expect(JSON.stringify(await coordinatorRender(fx))).not.toContain('pending')
+})
+
+test('an entry moved to a successor not measured yet is due in the tab with the pane closed', async () => {
+  const moved = entry('Orch : belt-2', minutesAgo(1), { session: 's-two', movedFrom: 's-old' })
+  const { fx, tick } = await wakingCoordinator([moved], { paneClosed: true })
+  fx.files.delete(`${SESSIONS}/s-two`)
+  fx.files.set(`${HOME}/.claude/sessions/777.json`, JSON.stringify({ pid: 777, sessionId: 's-two', name: 'Orch : belt-2' }))
+  await tick()
+  expect(fx.submitted.length).toBe(1)
+  expect(fx.submitted[0]).toContain('Orch : belt-2')
+})
