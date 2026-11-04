@@ -342,6 +342,10 @@ check "the decision round sends the coordinator the account its group opens on" 
 # own chat (the operator's ruling of 2026-11-03): the older « asks again only when urgent » is gone.
 check "the decision round shows each question in the pane or the coordinator's tab, never only when urgent" "yes|no" \
   "$(spells "$ROOT/commands/decide.md" "Its pane shows each one, the coordinator's tab when the pane is closed;")|$(spells "$ROOT/commands/decide.md" 'asks again only when urgent or no pane is open')"
+# The condensation renumbered the duties and moved three rules out of « Carried at every step »:
+# each pointer names where its rule lives now, and none names the old place.
+check "the pointers into the rulebook name the duty or the section their rule lives in" "yes|no|yes|no|yes|no|yes|no" \
+  "$(spells "$ORCH_REFS/review.md" "(duty 4 of « The operator's word comes first », in SKILL.md)")|$(spells "$ORCH_REFS/review.md" "duty 5 of « The operator's word comes first »")|$(spells "$ROOT/commands/progress.md" "duty 6 of « The operator's word comes first »")|$(spells "$ROOT/commands/progress.md" '« Refresh the state from the artifacts »')|$(spells "$ORCH_REFS/lifecycle.md" 'the watch is yours, in the background (`references/review.md`, « Checks, in one background watch »)')|$(spells "$ORCH_REFS/lifecycle.md" 'the watch is yours, in the background (SKILL.md, « Carried at every step »)')|$(spells "$ORCH_REFS/lifecycle.md" "**refreshing the state from the artifacts** its duty 6 of « The operator's word comes first »")|$(spells "$ORCH_REFS/lifecycle.md" 'refreshing the state from the artifacts and measuring your own context**: SKILL.md, « Carried at every step »')"
 # Row 151, topic 18: each rule the rules review proposed to merge is written once. The copy each
 # merge removed stays out (rule numbers of the review in brackets).
 ORCH_DIR="$ROOT/skills/orchestrator"
