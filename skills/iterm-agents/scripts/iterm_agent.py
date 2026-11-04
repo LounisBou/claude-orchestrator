@@ -5243,8 +5243,14 @@ def transcript_of_session(sid):
     and the file is named by the id, so the id alone finds it wherever the session ran."""
     if not re.fullmatch(r"[0-9A-Za-z._-]+", sid):
         return None
-    hits = glob.glob(os.path.join(PROJECTS_DIR, "*", sid + ".jsonl"))
-    return max(hits, key=os.path.getmtime) if hits else None
+    dated = []
+    for path in glob.glob(os.path.join(PROJECTS_DIR, "*", sid + ".jsonl")):
+        try:
+            dated.append((os.path.getmtime(path), path))
+        except OSError:
+            # Removed between the listing and the read of its time: not a transcript any more.
+            continue
+    return max(dated)[1] if dated else None
 
 
 def read_offered(path):
