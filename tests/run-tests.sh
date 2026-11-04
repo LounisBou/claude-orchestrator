@@ -9448,6 +9448,26 @@ jq -n '{id:"r-far", from:"Orch : r", session:"s-r", kind:"operator", since:"2026
 check "round-close leaves an entry from another machine pending as the module's remote answers are, with no answer stamp" "closed r-far|pending|0|null" \
   "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-far" bash "$COORD" round-close r-far --answer B 2>&1)|$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.answerAt | tostring)] | join("|")' "$FROUND/r-far.json")"
 
+# round-close --withdraw: a question settled meanwhile is withdrawn by the coordinator on the
+# evidence it read on the artifact, and its sender is told (the operator's ruling 6.1 of
+# 2026-10-31). The entry is closed as an answer closes it, the evidence kept in the answer beside
+# its text, and its delivery left pending for the module, which tells the sender it was withdrawn.
+WROUND="$WORK/coord-withdraw/round"
+mkdir -p "$WROUND"
+for wid in w-open w-again w-both; do
+  jq -n --arg id "$wid" '{id:$id, from:"Orch : w", session:("s-" + $id), kind:"operator", since:"2026-10-18T10:02:00.000Z", blocks:"phase 3",
+    question:"Merge #12?", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null}' > "$WROUND/$wid.json"
+done
+wcoord() { ORCHESTRATOR_STATE_DIR="$WORK/coord-withdraw" bash "$COORD" "$@"; }
+check "round-close --withdraw closes an open entry with its evidence, by the coordinator, its delivery pending as an answer's" \
+  "closed w-open|closed|withdrawn: settled meanwhile — #12 merged at 10:04Z|coordinator|#12 merged at 10:04Z|pending|0|1" \
+  "$(wcoord round-close w-open --withdraw '#12 merged at 10:04Z' 2>&1)|$(jq -r '[.status, .answer.text, .answer.by, .answer.evidence, .delivery.state, .delivery.attempts, (.delivery.answerAt == .answer.at | if . then 1 else 0 end)] | join("|")' "$WROUND/w-open.json")"
+check "round-close --answer writes no evidence" "null" \
+  "$(wcoord round-close w-again --answer A >/dev/null 2>&1; jq -c .answer.evidence "$WROUND/w-again.json")"
+check "round-close refuses --withdraw with no evidence, and beside --answer, writing nothing" \
+  "exit 1|exit 1|exit 1|exit 1|open" \
+  "$(wcoord round-close w-both --withdraw >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw '' >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw x --answer A >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --answer A --withdraw x >/dev/null 2>&1; echo "exit $?")|$(jq -r .status "$WROUND/w-both.json")"
+
 # round-close also forgets the sender's fingerprint, as the module's forgetRelayed does, so the
 # same question asked again is entered again: the wait file's `relayed` is nulled when it is the
 # closed entry's own fingerprint, whatever the entry's kind, blocks, mark and characters, and kept
