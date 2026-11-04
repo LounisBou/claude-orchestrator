@@ -344,6 +344,10 @@ check "review.md enforces an aspirational norms rule on new code and mines no fi
 # The coordinator opens each sender's group on the sender's own account, sent with its questions.
 check "the decision round sends the coordinator the account its group opens on" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'The first says in three to five sentences what you work on, for its round of its own')"
+# The operator's ruling of 2026-11-03 on a deviation, whose section of the rulebook the condensation
+# removed, lives beside the questions a defect gets before its fix.
+check "briefs.md calls any deviation from the expected behaviour a defect, with its row at once" "yes" \
+  "$(spells "$ORCH_REFS/briefs.md" 'A deviation from the expected behaviour is a defect, whoever reports it and however honestly.')"
 # Between the successor's spawn and its takeover the predecessor starts nothing new, and a question
 # of the operator's still gets its line: the rulebook says it, and succeed.md no longer answers nothing.
 check "a predecessor starts nothing new and points the operator's question to its successor" "yes|yes|no" \
