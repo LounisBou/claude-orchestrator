@@ -75,9 +75,7 @@ By default, merging a pull request and taking it out of draft are his, on his cl
 
 What reaches the operator is an **arbitration**: what the thing is, two readings, what each costs, one recommendation, one at a time. A configuration change the tooling needs goes to the session owning it, as a request with its measurement.
 
-**While a coordinator runs, every question for the operator goes to it** — his order —
-and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and
-end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself.
+**A question for the operator follows `/orchestrator-decide` step 2**, down to its last line.
 It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
 of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
 answered, each turn re-presents it whole: the stop gate refuses any other.

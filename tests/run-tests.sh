@@ -3544,8 +3544,12 @@ check "the round is mirrored in the successor's brief, the design and the decisi
   "$(spells "$COORDTPL" 'Then the round file `{{ROUND_FILE}}`')|$(spells "$ROOT/docs/design.md" 'runs every relayed question through the whole decision round of `commands/decide.md`')|$(spells "$ROOT/docs/design.md" 'the questions come grouped by the orchestrator that sent them')|$(spells "$ROOT/commands/decide.md" 'round of its own where your questions come together')"
 # The module carries the question since the turn-end relay: the orchestrator asks in its tab and
 # ends on the machine line; the lookup and the send it once ran itself are gone from its rulebook.
-check "the orchestrator asks in its tab and the module carries the question to a running coordinator" "yes|yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**While a coordinator runs, every question for the operator goes to it** — his order —')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here, in the shape of `/orchestrator-decide` step 2, and')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
+# Rule 41 of the rules review, on the ruling on topic 3: the rulebook keeps one line pointing at
+# the decision round's step 2, which carries the shape, the machine line and the relay through a
+# running coordinator (« a decision round goes through a running coordinator, carried by the
+# module », below); the rulebook's own copy is gone.
+check "the orchestrator points a question for the operator at the decision round's step 2, which carries the relay" "yes|no|no|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '**A question for the operator follows `/orchestrator-decide` step 2**, down to its last line.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'every question for the operator goes to it')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'and the hooks module carries it: ask here')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'end the turn on `waiting: operator — blocks: <what it blocks>`; never send it yourself')"
 # A report that asks nothing, ended on the operator's wait, was drawn in the pane as a question.
 check "the orchestrator ends on the operator's wait only for a question in the decide shape, and the coordinator still records one that asks nothing" "yes|yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Only such a question ends on that line; a report asking nothing, on its own line.')|$(spells "$COORDSKILL" 'and its « Other answer » field: record it all the same, and present it once due.')"
