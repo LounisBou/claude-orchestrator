@@ -4906,6 +4906,12 @@ check "a mechanical base merge is the orchestrator's, in place; one that decides
   "$(spells "$ORCH_REFS/review.md" 'conflicts are mechanical (no behaviour decided) is yours, done in place in a checkout and never by a spawned session')|$(spells "$ORCH_REFS/review.md" 'one that decides behaviour goes to a correction session')"
 check "succession prunes the state file and archives the finished journal" "yes|yes" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'Prune the state file before you hand over')|$(spells "$ORCH_REFS/lifecycle.md" 'the finished journal moves to an archive file')"
+# Rule 201: the successor's first task points at its brief's steps 3 to 5 rather than repeating
+# them. Rule 203: move_send refuses a checkout that is not clean and pushed on its own
+# (hooks/tests/moving.test.ts « a dirty or an unpushed checkout refuses the move »). Rule 207
+# merged the rotation steps: his go once per machine, never per rotation, stays.
+check "lifecycle.md points at the succession brief's steps, leaves the checkout check to the move, and keeps the one approval" "no|no|no|yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" "waits for ever) and subscribe to each one's idle notice")|$(spells "$ORCH_REFS/lifecycle.md" "never on the host's idle notice, which reaches a working session only when its own turn ends")|$(spells "$ORCH_REFS/lifecycle.md" 'your checkouts clean and pushed')|$(spells "$ORCH_REFS/lifecycle.md" 'macOS Automation approval')"
 check "the succession brief inherits a pruned state file and does not load the archive" "yes|no" \
   "$(spells "$SUCC" 'pruned by your predecessor to what is live, its finished journal archived in a file you are not asked to load')|$(spells "$SUCC" 'read the archive')"
 # A successor confirmed its takeover at 75k to 97k tokens because step 1 ordered the spec, the plan,
