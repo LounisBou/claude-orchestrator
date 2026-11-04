@@ -630,8 +630,33 @@ check "plain summary still prints the class lines and the open rows" "2|1" \
 check_status "summary --open of an absent record is not an error" 0 bash "$REC" summary "$WORK/absent.jsonl" --open
 check "summary --open of an absent record says so, as summary does" "dispatch-record: no record at $WORK/absent.jsonl" \
   "$(bash "$REC" summary "$WORK/absent.jsonl" --open)"
+# A takeover reads the count by state and the ids, then the labels of the rows its Live state
+# names, never every label: 99 open rows printed whole were 25,371 characters at one birth.
+RIDS="$WORK/ids-rows.jsonl"; : > "$RIDS"
+for i in $(seq 1 118); do
+  st=open; [ $((i % 6)) = 0 ] && st=closed
+  df=null; [ $((i % 10)) = 0 ] && df='"2026-10-29: later, when I say so"'
+  printf '{"id":%d,"class":"behaviour-phase","tier":"standard","label":"row %d: a label as long as a real one, naming the pull request, the branch, the ruling it applies and what remains to do before it closes","rounds":0,"state":"%s","deferred":%s}\n' "$i" "$i" "$st" "$df" >> "$RIDS"
+done
+RIDS_OPEN=$(bash "$REC" summary "$RIDS" --open | grep -c '^open=\|^deferred=')
+RIDS_OUT=$(bash "$REC" summary "$RIDS" --open --ids)
+check "summary --open --ids on 99 open rows: a count line per state, then the ids, within 1,500 characters" "99|open=91|deferred=8|$(jq -sr 'map(select(.state=="open").id|tostring)|"ids: "+join(" ")' "$RIDS")|3|yes|0" \
+  "$RIDS_OPEN|$(printf '%s\n' "$RIDS_OUT" | sed -n 1p)|$(printf '%s\n' "$RIDS_OUT" | sed -n 2p)|$(printf '%s\n' "$RIDS_OUT" | sed -n 3p)|$(printf '%s\n' "$RIDS_OUT" | wc -l | tr -d ' ')|$([ "$(printf '%s' "$RIDS_OUT" | wc -c | tr -d ' ')" -le 1500 ] && echo yes || echo no)|$(printf '%s' "$RIDS_OUT" | grep -c 'label=')"
+check "summary --open --ids counts a state with no row as zero" "open=1⏎deferred=0⏎ids: 1" \
+  "$(bash "$REC" summary "$RO" --open --ids | tr '\n' '⏎' | sed 's/⏎$//')"
+check "summary --open --label prints exactly the rows named, as --open prints them" \
+  "$(bash "$REC" summary "$RIDS" --open | grep -E '^(open|deferred)=(7|40|113) ')" \
+  "$(bash "$REC" summary "$RIDS" --open --label 113,7,40)"
+check "summary --open --label prints nothing for a closed or unknown row, and says so on stderr" "|yes|yes|0" \
+  "$(bash "$REC" summary "$RIDS" --open --label 6,500 2>/dev/null)|$(bash "$REC" summary "$RIDS" --open --label 6,500 2>&1 >/dev/null | grep -q 'row 6 is not open' && echo yes || echo no)|$(bash "$REC" summary "$RIDS" --open --label 6,500 2>&1 >/dev/null | grep -q 'row 500 is not open' && echo yes || echo no)|$(bash "$REC" summary "$RIDS" --open --label 6,500 >/dev/null 2>&1; echo $?)"
+check_status "summary --label without a list of ids dies" 1 bash "$REC" summary "$RIDS" --open --label
+check_status "summary --label with a list that is not ids dies" 1 bash "$REC" summary "$RIDS" --open --label 3,x
+check_status "summary --ids without --open dies" 1 bash "$REC" summary "$RIDS" --ids
+check_status "summary --ids with --label dies" 1 bash "$REC" summary "$RIDS" --open --ids --label 3
 check "the succession brief's step 2 runs summary --open" "1" \
   "$(grep -c 'dispatch-record.sh summary {{DISPATCH_RECORD}} --open' "$ROOT/templates/orchestrator-succession-brief.md")"
+check "the succession brief's step 2 reads the open rows as counts and ids, not every label" "yes" \
+  "$(spells "$ROOT/templates/orchestrator-succession-brief.md" '`dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids`')"
 check "the succession brief reads the goals by command and points at them" "yes|yes|yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'dispatch-record.sh goals {{DISPATCH_RECORD}} status')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" '{{GOALS}}')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'goals met=m/n')"
 # Done is the spec's goals, said where each session reads it: the rulebook's machine line, the

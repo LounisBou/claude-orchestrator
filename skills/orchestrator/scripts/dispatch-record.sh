@@ -14,14 +14,18 @@
 #   dispatch-record.sh undefer <record> <id>
 #   dispatch-record.sh escaped <record> <id>      (a defect got past this row's review)
 #   dispatch-record.sh cost    <record> <id> --session <session id> [--recount]   (adds that session's measured cost)
-#   dispatch-record.sh summary <record> [--open]
+#   dispatch-record.sh summary <record> [--open [--ids | --label <id>[,<id>...]]]
 #   dispatch-record.sh goals   <record> init --spec <path>|none [--aim "<text>"] [--goal "<text>"]... [--replace]
 #   dispatch-record.sh goals   <record> status | plan <G> --phase "<text>" | met <G> --evidence "<token>"...
 #   dispatch-record.sh goals   <record> rule-out <G> --ruling "<his words>" | defer <G> --ruling "<his words, dated>"
 #   dispatch-record.sh goals   <record> reopen <G> | check [--json]
 #
 # `open` prints the row id. `summary --open` prints only the open rows, for a takeover that
-# has no use for the statistics. A row (or a goal) the operator deferred stays open and carries
+# has no use for the statistics. `--ids` narrows it to one `<state>=<count>` line per state, then
+# `ids: <id> <id> ...`, no label; `--label <ids>` prints the full line of the open rows named,
+# nothing else, and says on stderr which named row is closed or absent. A successor reads the
+# counts and the ids, then the labels of the rows its Live state names: 99 open rows printed
+# whole once cost a birth 25,371 characters. A row (or a goal) the operator deferred stays open and carries
 # his ruling; the summary shows it as `deferred=` with that ruling, and the stop gate takes the
 # ending `waiting: deferred — <n> items`, n the deferred rows and goals together, once every row
 # and goal still open is one. The record is JSON lines: appendable, greppable, and read back
@@ -674,13 +678,38 @@ summary)
     # A deferred row is still open work, but the operator's ruling is what it waits on.
     OPEN_ROWS='.[] | select(.state == "open")
         | if .deferred then "deferred=\(.id) label=\(.label) ruling=\(.deferred)" else "open=\(.id) label=\(.label)" end'
-    only_open=0
-    case "${3:-}" in
-        "") ;;
-        --open) only_open=1 ;;
-        *) die "summary: unknown argument ${3} (expected --open)" ;;
-    esac
+    only_open=0; ids_only=0; label_ids=""
+    shift 2
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --open) only_open=1 ;;
+            --ids) ids_only=1 ;;
+            --label)
+                [[ "${2:-}" =~ ^[0-9]+(,[0-9]+)*$ ]] || die "summary: --label needs the row ids, comma-separated (--label 3,7)"
+                label_ids="$2"; shift ;;
+            *) die "summary: unknown argument $1 (expected --open, --ids or --label <id>[,<id>...])" ;;
+        esac
+        shift
+    done
+    { [ "$ids_only" = 0 ] && [ -z "$label_ids" ]; } || [ "$only_open" = 1 ] || die "summary: --ids and --label read the open rows: add --open"
+    [ "$ids_only" = 0 ] || [ -z "$label_ids" ] || die "summary: --ids and --label are two readings: run one, then the other"
     [ -f "$record" ] || { echo "dispatch-record: no record at $record"; exit 0; }
+    if [ "$ids_only" = 1 ]; then
+        jq -sr 'map(select(.state == "open"))
+            | "open=\(map(select(.deferred | not)) | length)",
+              "deferred=\(map(select(.deferred)) | length)",
+              "ids: \(map(.id | tostring) | join(" "))"' "$record"
+        exit $?
+    fi
+    if [ -n "$label_ids" ]; then
+        ids_json="[$label_ids]"
+        jq -sr --argjson ids "$ids_json" "[.[] | select(.id as \$i | any(\$ids[]; . == \$i))] | $OPEN_ROWS" "$record" || exit $?
+        # A row the Live state names that is closed or absent is a stale hand-over: said, never printed.
+        while IFS= read -r gone; do
+            [ -n "$gone" ] && warn "summary: row $gone is not open in $record"
+        done < <(jq -sr --argjson ids "$ids_json" '[.[] | select(.state == "open") | .id] as $open | $ids[] | select(. as $i | $open | any(. == $i) | not)' "$record")
+        exit 0
+    fi
     if [ "$only_open" = 1 ]; then
         jq -sr "$OPEN_ROWS" "$record"
         exit $?
