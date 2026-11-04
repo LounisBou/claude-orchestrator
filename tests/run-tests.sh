@@ -5053,6 +5053,9 @@ check "succeed.md says the open-questions value is outside the 10,000-character 
 # Rule 237: the lint refuses an over-long brief on its own, and the Live state's rewrite is said
 # once. Rule 32 is a merge into succeed.md: until the takeover confirmation, an operator's
 # question gets one line pointing to the successor.
+# Rule 230: the silent agent's line keeps its wording and drops the rest.
+check "the agents command reports a silent agent in one short line" "yes|no" \
+  "$(spells "$ROOT/commands/agents.md" '5. An agent silent fifteen minutes: « no answer, last artifact activity <time> ».')|$(spells "$ROOT/commands/agents.md" 'probably fine')"
 check "succeed.md says the Live state rule once and points the operator at the successor" "no|no|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'after its first use the six fields hold')|$(spells "$ROOT/commands/succeed.md" 'the lint refuses more')|$(spells "$ROOT/commands/succeed.md" "an operator's question gets one line pointing to the successor")"
 check "the same brief with the rest padded past 10,000 characters is over the limit" "1|1" \
