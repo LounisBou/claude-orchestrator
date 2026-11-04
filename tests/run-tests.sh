@@ -4345,6 +4345,8 @@ E7PMAP="$WORK/e7-pair-map.json"
 printf '{"deep":"a-model","standard":"b-model","light":{"model":"c-model"}}' > "$E7PMAP"
 check "a tier bound without an effort types the shipped tier effort; deep, the caller's" "1|1|1|tier standard" \
   "$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier standard | grep -c -- '--model b-model --effort high')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier light | grep -c -- '--model c-model --effort medium')|$(E7MAP="$E7PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort xhigh')|$(e7f "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier standard)" pair_source)"
+check "a deep agent at its orchestrator's effort names the transcript the effort came from" "tier deep, effort from transcript $E7TR|tier light" \
+  "$(e7f "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier deep)" pair_source)|$(e7f "$(E7MAP="$E7PMAP" e7 "$E7ORCH" --title 'Agent : x' --tier light)" pair_source)"
 check "an effort the map binds wins over the shipped one" "1" \
   "$(E7MAP="$PMAP" e7l "$E7ORCH" --title 'Agent : x' --tier deep | grep -c -- '--model a-model --effort high')"
 check "an agent's explicit model without an effort is refused" "1|1|0" \
