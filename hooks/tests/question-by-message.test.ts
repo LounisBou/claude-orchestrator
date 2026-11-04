@@ -70,3 +70,18 @@ test('a question quoted in a fence, or with no coordinator known, goes through',
   expect(await handler(dollar(REGISTERED).dollar, send(COORD, quoted), sent)).toEqual({ result: { ran: 'SendMessage' } })
   expect(await handler(dollar({}).dollar, send(COORD, QUESTION), sent)).toEqual({ result: { ran: 'SendMessage' } })
 })
+
+test('the address match ignores the reference suffix on either side', async () => {
+  const handler = mountedSend()
+  const bareTo = await handler(dollar(REGISTERED).dollar, send('Coord : ops', QUESTION), sent)
+  expect(bareTo).toEqual({ deny: QUESTION_BY_MESSAGE })
+  const bareRecord = { [`${STATE}/coordinator.json`]: JSON.stringify({ name: 'Coord : ops' }) }
+  const referencedTo = await handler(dollar(bareRecord).dollar, send(COORD, QUESTION), sent)
+  expect(referencedTo).toEqual({ deny: QUESTION_BY_MESSAGE })
+})
+
+test('a wait that blocks nothing, sent to the coordinator, goes through', async () => {
+  const handler = mountedSend()
+  const out = await handler(dollar(REGISTERED).dollar, send(COORD, 'done.\nwaiting: operator — blocks: nothing'), sent)
+  expect(out).toEqual({ result: { ran: 'SendMessage' } })
+})

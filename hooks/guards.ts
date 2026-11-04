@@ -34,7 +34,7 @@ import {
 } from './stop-gate.ts'
 import { logArgv, moduleDirOf, LOG_TIMEOUT_MS } from './module-log.ts'
 import { pendingQuestion, unansweredRefusal, type WaitRead } from './unanswered-question.ts'
-import { parseRoundEntry, parseWaitRecord, waitKey, coordinatorAddress } from './supervision.ts'
+import { parseRoundEntry, parseWaitRecord, waitKey, coordinatorAddress, REFERENCED } from './supervision.ts'
 import type { RoundEntry } from './round.ts'
 import { MODELS_DENY, namesTheMap, typedByOperator, mapPaths, editsTheMap, bashWritesTheMap } from './models-guard.ts'
 
@@ -366,8 +366,10 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     if (to && typeof e.message === 'string' && asksTheOperator(e.message)) {
       try {
         const coordinator = await coordinatorAddress($)
+        // Compared without the ` [ref]` suffix on both sides: « Coord : ops » is « Coord : ops [abc] ».
+        const bare = (name: string) => name.replace(REFERENCED, '').trim()
         const addressed = coordinator !== null
-          && [coordinator.name, typeof coordinator.to === 'string' ? coordinator.to : coordinator.to.sessionId].includes(to)
+          && [coordinator.name, typeof coordinator.to === 'string' ? coordinator.to : coordinator.to.sessionId].some(a => bare(a) === bare(to))
         if (addressed) {
           await logLine($, `a question sent to the coordinator by message refused (${to})`)
           return { deny: QUESTION_BY_MESSAGE }

@@ -65,6 +65,8 @@ export const QUESTION_BY_MESSAGE =
 // Whether a message puts the operator a question: a numbered question block outside the fences, or
 // a machine line that waits on him. The same two readings the stop gate takes of a turn's end.
 export function asksTheOperator(message: string): boolean {
-  if (MACHINE_LINE.exec(machineLine(message))?.[1]) return true
+  const line = machineLine(message)
+  // A wait that blocks nothing asks him nothing: the stop gate reads it as no question.
+  if (MACHINE_LINE.exec(line)?.[1] && !blocksNothing(line)) return true
   return entryQuestions({ question: outsideFences(message), choices: [], recommendation: null }).some(part => part.number !== null)
 }

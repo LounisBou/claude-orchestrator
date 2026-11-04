@@ -184,7 +184,7 @@ reason>"`; and, when it is the question on screen, say so in one line and presen
 question in full in the same message. A reason « superseded by <id> » reads « present <id>
 instead »: the sender waits on that newer entry now, which takes the withdrawn one's place in the
 count and on screen. A notice that matches no open question changes nothing but a line in the
-round file.
+round.
 
 **A question settled elsewhere leaves your tab at once.** `round` records each open entry it
 prints, and the module, for an entry you were shown so (or woken for), closes it itself the
@@ -215,17 +215,16 @@ and present the next one in full in the same message; a superseded one makes <id
    question and context verbatim, its choices and its recommendation if it gave them. Re-verify
    the item on its artifact immediately before
    presenting it; one found settled is not dropped by you: ask its sender, and only its
-   withdrawal, written in the round file as « withdrawn by `<sender>`: <evidence> » (the sender's
+   withdrawal, « withdrawn by `<sender>`: <evidence> » (the sender's
    own, or the module's notice that the operator answered it in the sender's tab), takes it out
    of the count. Then wait: nothing on silence, nothing picked for him.
-6. **On his answer, in the same turn:** « Recorded: <his ruling> »; write it in the round
-   file; send it verbatim and dated (`date -u +%FT%TZ`) to the sender, « the operator
+6. **On his answer, in the same turn:** « Recorded: <his ruling> »; send it verbatim and dated (`date -u +%FT%TZ`) to the sender, « the operator
    answered », and mark it sent; for an entry of the round, run `coordinator.sh round-close
    <id> --answer "<his words>"`; then present the next question IN FULL in the same message.
    After any interruption, the question he must answer is presented again in full, never
    « as above ».
-7. **The end line.** « The round is complete: N/N. » — then one short list: each ruling, the
-   line of the round file that holds it, and the sender told.
+7. **The end line.** « The round is complete: N/N. » — then one short list: each ruling
+   and the sender told.
 
 **You never answer an operator question yourself**: no question reworded, merged, filtered
 or held back, and no verdict, summary or recommendation of your own added to it. A facts
