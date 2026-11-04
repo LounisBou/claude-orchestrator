@@ -9132,6 +9132,8 @@ check "an orchestrator already sleeping is refused" "exit 1|coordinator: sleep: 
 check "sleep refuses a name with its reference, an agent's name, a missing brief, a relative directory, no model, an unknown effort" \
   "exit 1|exit 1|exit 1|exit 1|exit 1|exit 1" \
   "$(slc_status sleep --name 'Orch : b [abc123]' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model m)|$(slc_status sleep --name 'Agent : b' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model m)|$(slc_status sleep --name 'Orch : b' --brief "$SLP/briefs/gone.md" --dir "$SLP" --model m)|$(slc_status sleep --name 'Orch : b' --brief "$SLP/briefs/succession-brief.md" --dir sleep-proj --model m)|$(slc_status sleep --name 'Orch : b' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP")|$(slc_status sleep --name 'Orch : b' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model m --effort huge)"
+check "sleep refuses a pause without an effort, and says where the pair is read" "exit 1|1" \
+  "$(slc_status sleep --name 'Orch : b' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model m)|$(slc sleep --name 'Orch : b' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model m 2>&1 | grep -c 'no effort: a pause records the model with its effort, --effort <level> (the paused orchestrator reads both with iterm-agent.sh pair)')"
 check "a refused sleep records nothing" "1" "$(jq length "$SLREC")"
 slc sleep --name 'Orch : beta' --brief "$SLP/briefs/succession-brief.md" --dir "$SLP" --model a-model >/dev/null 2>&1
 check "sleeping lists each one with its directory, pull requests, checkouts, brief, model and effort" \
