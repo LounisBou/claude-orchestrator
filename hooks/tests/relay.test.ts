@@ -1372,6 +1372,15 @@ test('the session end of a sender whose question was sent and not yet acknowledg
   expect(fx.sent.filter(m => m.text.startsWith('[module]')).length).toBe(1)
 })
 
+test('the session end of a sender with a successor, its question held by a coordinator elsewhere, sends no withdrawal', async () => {
+  const { chains, fx } = await relayedQuestion({ remote: true })
+  successorRunning(fx)
+  await drive(chains, 'session.receive', fx.dollar, confirmed('Orch : belt-2'))
+  fx.sent.length = 0
+  await drive(chains, 'session.end', fx.dollar, { sessionId: 's-one', reason: 'exit' })
+  expect(fx.sent.filter(m => m.text.startsWith('[module]')).length).toBe(0)
+})
+
 test('the session end sends no withdrawal when nothing was asked, or when the coordinator is on this machine', async () => {
   const idle = fake({ remote: true })
   await drive(mounted(), 'session.end', idle.dollar, { sessionId: 's-one', reason: 'exit' })
