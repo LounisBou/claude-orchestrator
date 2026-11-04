@@ -803,10 +803,11 @@ pane_open() {
 }
 
 cmd_round() {
-    local by_urgency=false pane=false
+    local pane=false
     while [ $# -gt 0 ]; do
         case "$1" in
-            --by-urgency) by_urgency=true; shift ;;
+            # Still accepted: the decision round asks for it, and it prints the one order.
+            --by-urgency) shift ;;
             *) die "round: unexpected argument $1" ;;
         esac
     done
@@ -820,22 +821,20 @@ cmd_round() {
     entries=$(round_entries)
     # An entry whose sender's sessions file is absent keeps its place, and its header says the
     # sender is gone: the session ended with its question still open.
-    printf '%s\n' "$entries" | jq -s -r --argjson live "$(live_sessions)" --argjson pane "$pane" --argjson by_urgency "$by_urgency" '
+    printf '%s\n' "$entries" | jq -s -r --argjson live "$(live_sessions)" --argjson pane "$pane" '
         # Grouped by sender, the groups by their earliest wait, each in the order its waits began.
         def grouped: (sort_by(.since) | reduce .[] as $e ({}; if has($e.from) then . else .[$e.from] = $e.since end)) as $first
             | sort_by([$first[.from], .from, .since, .id]);
         # The round order (hooks/round.ts openEntries), the operator ruling of 2026-10-31 (6.2): the
         # urgent first, then the others, each level grouped by sender.
         def ordered: group_by(if .urgent == true then 0 else 1 end) | map(grouped) | add // [];
-        # The order of a decision round over every orchestrator: the same one order.
-        def by_urgency: ordered;
         # The sender is gone when its sessions file is absent; an entry naming no session is not judged.
         def gone: .session | if type == "string" and . != "" then gsub("[^A-Za-z0-9._-]"; "_") as $key | $live | any(. == $key) | not else false end;
         # An open question is due in the tab of the coordinator when its sender marked it urgent, or
         # when no pane of the coordinator is open (hooks/round.ts isDue).
         def due: .status == "open" and .kind == "operator" and (.urgent == true or ($pane | not));
         # The open entries, then those the operator answered from the pane, then the withdrawn.
-        ([("open", "answered", "withdrawn") as $status | map(select(.status == $status)) | if $by_urgency then by_urgency else ordered end] | add)[]
+        ([("open", "answered", "withdrawn") as $status | map(select(.status == $status)) | ordered] | add)[]
         | (if gone then " | sender gone" else "" end) as $gone
         | (if due then " | due" else "" end) as $due
         | "round \(.id) | \(.kind) | from \(.from) | since \(.since) | blocks: \(.blocks // "-") | \(.status)\($due)\($gone)",

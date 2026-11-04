@@ -185,6 +185,10 @@ instead »: the sender waits on that newer entry now, which takes the withdrawn 
 count and on screen. A notice that matches no open question changes nothing but a line in the
 round.
 
+A question settled meanwhile, its artifact already showing the outcome (the pull request merged,
+the branch gone), is withdrawn on that evidence and never put to him: `coordinator.sh round-close
+<id> --withdraw "<the evidence read on the artifact>"`, and the module tells its sender why.
+
 **A question settled elsewhere leaves your tab at once.** `round` records each open entry it
 prints, and the module, for an entry you were shown so (or woken for), closes it itself the
 moment it is settled — « answered from the pane: <answer> » or « withdrawn: <reason> » — and
