@@ -12,8 +12,8 @@ theirs and never ask two things in one message.
 **The operator's time is the scarce thing.** His words: ask every pending question one after
 the other, so that he loses as little time as possible; then draw the consequences and launch
 the work; and if a second wave of questions is needed, chain it. So a round is a WAVE: the questions follow one
-another, nothing between them, and nothing is relayed, launched or reported until the wave
-is over.
+another, nothing shown between them; each ruling is relayed to its agent at once, and nothing
+is launched or reported until the wave is over.
 
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
 question ends its turn as step 2 says, and the module forwards it. Its pane shows each one,
@@ -90,10 +90,12 @@ question before it is presented.
    `dispatch-record.sh defer <record> <id> --ruling "<his words, dated>"` for a row and
    `dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>"` for a goal, never left
    open as a question: the turn then ends on `waiting: deferred — <n> items`, which asks him nothing.
-   Mark it « to relay » in `decision-round.md`.
-3. Present the next question IN FULL (step 2), in this same message, right under the
-   « Recorded » line. Nothing else: no relay to an agent, no launch, no status — all wait
-   for the wave's end (step 7), where they cost him nothing.
+3. Relay it at once, showing nothing of it, to the agent whose STOP it answers, if any — `SendMessage`,
+   the ruling verbatim, dated (`date -u +%FT%TZ`, pasted), « the operator ruled » — and mark
+   it « relayed » in `decision-round.md`.
+4. Present the next question IN FULL (step 2), in this same message, right under the
+   « Recorded » line. Nothing else: no launch, no status — they wait for the wave's end
+   (step 7), where they cost him nothing.
 
 ## 5. Re-present after any interruption
 
@@ -110,9 +112,7 @@ context, appended to the round. Never re-argue a ruled question inside another o
 
 « The wave is complete: N/N. » Then, in this same turn:
 
-1. Relay every ruling marked « to relay » to the agent whose STOP it answers —
-   `SendMessage`, the ruling verbatim, dated (`date -u +%FT%TZ`, pasted), « the operator
-   ruled ».
+1. Check every ruling is marked « relayed », and relay one that is not as step 4 says.
 2. Draw the consequences and launch the work that depended on the rulings: briefs amended,
    directives corrected in the same move, agents relaunched, sessions spawned.
 3. Collect again (step 1): the questions the consequences raise, the STOPs the held agents'
@@ -123,7 +123,7 @@ context, appended to the round. Never re-argue a ruled question inside another o
    which agent was told, what was launched — and the round ends.
 
 Rules that hold throughout: one question per message, the next one presented the moment
-the last is answered; nothing relayed, launched or reported inside a wave; explanation
+the last is answered; nothing launched or reported inside a wave, each ruling relayed at once; explanation
 before options; nothing decided on their behalf.
 
 $ARGUMENTS

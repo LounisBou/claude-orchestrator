@@ -3541,10 +3541,17 @@ check "the successor's announcement keeps operator questions coming to it" "yes"
 # the coordinator, since he runs several coordinators.
 check "the coordinator runs every relayed question as a decision round by default, with its end line, no parallel ledger, and a question by message sent back to be asked at the end of the turn" "yes|yes|yes|yes|yes" \
   "$(spells "$COORDSKILL" 'goes through a decision round, by default**: the whole method of `/orchestrator-decide`, run')|$(spells "$COORDSKILL" 'without his asking and without his typing that command, even for a single question')|$(spells "$COORDSKILL" '« The round is complete: N/N. »')|$(grep -qF 'decision-round.md' "$COORDSKILL" && echo no || echo yes)|$(spells "$COORDSKILL" 'message from a session on this machine is not presented: ask its sender to ask it again at the end of its turn')"
-check "a question found settled is not dropped by the coordinator: its sender is asked" "yes" \
-  "$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender, and only its')"
-check "the round groups its questions by the orchestrator that sent them" "yes|yes|yes" \
-  "$(spells "$COORDSKILL" 'all the questions of one orchestrator together, consecutive, in the sender'"'"'s own order')|$(spells "$COORDSKILL" 'question arriving mid-round from an orchestrator whose group is not done joins that')|$(spells "$COORDSKILL" '« `<sender'"'"'s exact name>` — 3 questions »')"
+# Topic 6.1 of the rules review, the operator's ruling of 2026-10-31: a question found settled is
+# withdrawn on the evidence read on its artifact, and its sender is told it was withdrawn.
+check "a question found settled is withdrawn by the coordinator on its evidence, its sender told" "yes|yes|no" \
+  "$(spells "$COORDSKILL" 'one found settled on its artifact is withdrawn on that evidence:')|$(spells "$COORDSKILL" '`coordinator.sh round-close <id> --withdraw "<evidence>"`, which tells its sender it was')|$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender')"
+# Topic 6.2 of the rules review, the operator's ruling of 2026-10-31: the urgent level first, then
+# within each level the questions grouped by orchestrator, the groups ordered by their oldest wait,
+# in the default round, the pane and --by-urgency alike.
+check "the round puts the urgent first, then groups its questions by the orchestrator that sent them" "yes|yes|yes|no" \
+  "$(spells "$COORDSKILL" 'the urgent level first; within each level, all the questions of one orchestrator together,')|$(spells "$COORDSKILL" 'A question arriving mid-round joins its sender'"'"'s group in its level')|$(spells "$COORDSKILL" '« `<sender'"'"'s exact name>` — 3 questions »')|$(spells "$COORDSKILL" 'in the sender'"'"'s own order')"
+check "coordinator-decide orders its round as the skill does, never across senders" "yes|no" \
+  "$(spells "$ROOT/commands/coordinator-decide.md" 'the urgent level first, then within each level the questions grouped by')|$(spells "$ROOT/commands/coordinator-decide.md" 'with no grouping by orchestrator')"
 check "the round names the coordinator and each sender, and opens each group with the sender's own context" "yes|yes|yes|yes|yes" \
   "$(spells "$COORDSKILL" 'line naming you and the senders it covers, and the count')|$(spells "$COORDSKILL" 'line naming who asks: « Question i of N — from `<sender'"'"'s exact name>` », then the sender'"'"'s')|$(spells "$COORDSKILL" 'context block of three to five plain sentences: what that orchestrator works on')|$(spells "$COORDSKILL" 'you ask the sender for it before presenting the group, and you never invent it')|$(spells "$COORDCMD" 'With your questions, send three to five sentences')"
 # Rule 219 of the rules review, on the ruling on topic 18: the decision round no longer tells the
@@ -3586,7 +3593,7 @@ check "the rulebooks say a question the pane shows is not asked twice, when it f
 CDECIDE="$ROOT/commands/coordinator-decide.md"
 check "coordinator-decide reads round --by-urgency, follows decide.md's shape, relays each ruling verbatim, and is listed" \
   "yes|yes|yes|yes|1|yes" \
-  "$(spells "$CDECIDE" '--by-urgency`: its open `operator` entries are the round')|$(spells "$CDECIDE" "The round's shape is \`/orchestrator-decide\`'s, read from \`commands/decide.md\`")|$(spells "$CDECIDE" 'verbatim and dated (`date -u +%FT%TZ`, pasted) to the sender')|$(spells "$CDECIDE" 'the urgent first, then by `since`, the')|$(sed -n '1,5p' "$CDECIDE" | grep -c '^allowed-tools: .*coordinator\.sh.*SendMessage')|$(spells "$ROOT/README.md" '| `/coordinator-decide` |')"
+  "$(spells "$CDECIDE" '--by-urgency`: its open `operator` entries are the round')|$(spells "$CDECIDE" "The round's shape is \`/orchestrator-decide\`'s, read from \`commands/decide.md\`")|$(spells "$CDECIDE" 'verbatim and dated (`date -u +%FT%TZ`, pasted) to the sender')|$(spells "$CDECIDE" 'orchestrator, the groups ordered by their oldest wait')|$(sed -n '1,5p' "$CDECIDE" | grep -c '^allowed-tools: .*coordinator\.sh.*SendMessage')|$(spells "$ROOT/README.md" '| `/coordinator-decide` |')"
 COORDSPAWN=$(grep -m1 -o 'iterm-agent.sh spawn --coordinator-successor.*' "$COORDSKILL" 2>/dev/null | sed -e 's/^iterm-agent.sh spawn //' \
   -e 's#<subject>#ops#' -e "s#<your working directory>#$WORK#" -e 's#<brief path>#/tmp/coord-brief.md#')
 coordspawn() { eval "set -- $COORDSPAWN"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$CRDSTATE" CLAUDE_CONFIG_DIR="$CRDCFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 \
@@ -4951,10 +4958,19 @@ check "a relayed ruling is dated by a command, pasted, never from memory" "yes|n
   "$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated (`date -u +%FT%TZ`, pasted),')|$(spells "$ROOT/commands/decide.md" 'the ruling verbatim, dated,')"
 # The operator's time: a round is a wave of questions back to back, nothing relayed or launched
 # inside it; the relays and the work come at its end, and a second wave is chained at once.
-check "a decision round asks its questions back to back and acts only when the wave ends" "yes|yes|yes" \
-  "$(spells "$ROOT/commands/decide.md" 'in this same message, right under the')|$(spells "$ROOT/commands/decide.md" 'nothing relayed, launched or reported inside a wave')|$(spells "$ROOT/commands/decide.md" 'announce « Wave 2: M questions, back to back. »')"
-check "a decision round no longer relays a ruling before the next question" "no" \
+# Topic 6.3 of the rules review, the operator's ruling of 2026-10-31: each ruling is relayed at
+# once, nothing is shown between two questions, and the wave launches and reports at its end.
+check "a decision round asks its questions back to back, relays each ruling at once, and launches only when the wave ends" "yes|yes|yes|yes|no|no" \
+  "$(spells "$ROOT/commands/decide.md" 'in this same message, right under the')|$(spells "$ROOT/commands/decide.md" 'nothing launched or reported inside a wave, each ruling relayed at once')|$(spells "$ROOT/commands/decide.md" 'announce « Wave 2: M questions, back to back. »')|$(spells "$ROOT/commands/decide.md" '3. Relay it at once, showing nothing of it')|$(spells "$ROOT/commands/decide.md" 'nothing is relayed, launched or reported until the wave')|$(spells "$ROOT/commands/decide.md" 'no relay to an agent')"
+check "a decision round shows nothing between a ruling and the next question" "no" \
   "$(spells "$ROOT/commands/decide.md" 'Present the next question IN FULL (step 2). Not before.')"
+# Topic 6.3: the coordinator's module relays a ruling as soon as round-close returns.
+check "the coordinator's ruling reaches its sender as soon as round-close returns" "yes|yes" \
+  "$(spells "$COORDSKILL" 'your module sends it to the sender, dated, as soon as `round-close` returns,')|$(spells "$ROOT/commands/coordinator-decide.md" 'which your module sends, dated, to the sender as soon as it returns')"
+# The operator's ruling B of 2026-11-04: the module writes one line per new question in the
+# coordinator's conversation, pane open or not.
+check "the coordination skill says the module writes one line per new question, pane open or not" "yes" \
+  "$(spells "$COORDSKILL" 'the module writes one line in your conversation for each new question, pane open or not')"
 check "a red outside what the pull request touches is re-run once before any correction" "yes|yes" \
   "$(help_has "$CWSCRIPT" 'when its failure is outside what the pull request touches')|$(help_has "$CWSCRIPT" 'Only a second red, or a red in what the pull request touches')"
 check "the re-run is the failed jobs, once, after the failing job's cause is named in one line" "yes|yes" \
