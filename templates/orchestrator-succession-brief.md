@@ -24,7 +24,7 @@ VERIFY each « Live state » item on the artifacts, believing nothing, ONE named
 
 **Woken from a pause**: step 3 finds no agent, step 4 is void — no « takeover confirmed », nothing to close. **Arrived by a move**: first re-verify each checkout from git. Your prompt says which.
 
-Measure, wait and close: `references/lifecycle.md`, « The takeover's measure and close ».
+Measure, wait and close: `references/lifecycle.md`, « Succession — the successor ».
 
 1. Read the rulings file WHOLE, then the rulebook and THIS brief, and nothing else whole.
 2. The Analysis above; then, in `{{SCRIPTS}}`, `dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids` (open rows are work, not history) and `dispatch-record.sh goals {{DISPATCH_RECORD}} status`, read whole.

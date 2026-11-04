@@ -5221,7 +5221,31 @@ check "step 4 sends « takeover confirmed » alone on its message's first line" 
 check "step 5 ends the turn after the announcement, and the dispatch waits for the next one" "1|yes" \
   "$(printf '%s' "$SUCC5" | grep -oF 'END THE TURN: dispatch on your next one.' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | awk '{ a = index($0, "announce in one message"); e = index($0, "END THE TURN"); print (a > 0 && e > a) ? "yes" : "no" }')"
 check "the template points at the lifecycle for the measure, the wait and the close" "yes|yes" \
-  "$(spells "$SUCC" '`references/lifecycle.md`, « The takeover'"'"'s measure and close »')|$(grep -qx "### The takeover's measure and close" "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
+  "$(spells "$SUCC" '`references/lifecycle.md`, « Succession — the successor »')|$(grep -qx "### Succession — the successor" "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
+# A reference is read by section: each opens on a table of contents naming every heading it
+# carries, and none it does not, so a session greps the one it needs instead of reading the file.
+toc_check() {
+  awk '
+    function named(e, h) { return e == h || index(e, h " — ") == 1 }
+    /^## / { body = 1 }
+    !body && /^ *- / { e = $0; sub(/^ *- /, "", e); toc[++n] = e; next }
+    body && /^###? / { h = $0; sub(/^#+ /, "", h); head[++m] = h }
+    END {
+      bad = ""
+      for (i = 1; i <= m; i++) { f = 0; for (j = 1; j <= n; j++) if (named(toc[j], head[i])) f = 1; if (!f) bad = bad "; missing " head[i] }
+      for (j = 1; j <= n; j++) { f = 0; for (i = 1; i <= m; i++) if (named(toc[j], head[i])) f = 1; if (!f) bad = bad "; stale " toc[j] }
+      if (n == 0) bad = "; no table of contents"
+      print (bad == "" ? "ok" : substr(bad, 3))
+    }' "$1"
+}
+check "lifecycle, review and briefs each open on a table of contents naming every heading, and only those" "ok|ok|ok" \
+  "$(toc_check "$ORCH_REFS/lifecycle.md")|$(toc_check "$ORCH_REFS/review.md")|$(toc_check "$ORCH_REFS/briefs.md")"
+# The successor reads its own subsection of the succession, never the whole of « Your own context ».
+SUCCESSOR_SECTION=$(awk '/^### Succession — the successor$/ { f = 1; print; next } f && /^##/ { exit } f' "$ORCH_REFS/lifecycle.md")
+check "the lifecycle splits the succession by role, the successor's subsection at most 3,000 characters" "1|1|1|yes" \
+  "$(grep -cx '### Succession — the predecessor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Succession — the successor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Pause, opening and move' "$ORCH_REFS/lifecycle.md")|$(n=$(printf '%s' "$SUCCESSOR_SECTION" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '); [ "$n" -gt 0 ] && [ "$n" -le 3000 ] && echo yes || echo no)"
+check "review and briefs split « Review on evidence » and « Standing rules » into subsections" "yes|yes" \
+  "$(awk '/^## Review on evidence$/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/review.md")|$(awk '/^## Standing rules/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/briefs.md")"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'five fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'ask it again, verbatim')"
 # The open-questions value sits outside the 9,000-character cap, its label inside: a verbatim
