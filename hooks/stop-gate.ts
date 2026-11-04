@@ -386,12 +386,20 @@ export function projectCheckouts(top: string, listOut: string): string[] {
 // backgrounded) and `session_crons` (scheduled wake-ups), each named by what it runs. Null when
 // the payload carries no task list at all — a host that does not say — so the caller can tell
 // « nothing runs » from « not told ».
+//
+// A task the host lists as settled wakes nothing: its type only promises a string status, so
+// the terminal ones it uses for its tasks (`completed`, `failed`, `killed`, and `stopped` on a
+// task's end notice) are left out. Any other status, or none, still counts: a wrong list must
+// never refuse a real wait. A scheduled wake-up carries no status.
+const SETTLED_TASK = new Set(['completed', 'failed', 'killed', 'stopped'])
+
 export function hostTasks(tasks: unknown, crons: unknown): string[] | null {
   if (!Array.isArray(tasks)) return null
   const named: string[] = []
   for (const task of tasks) {
     if (!task || typeof task !== 'object') continue
-    const t = task as { command?: unknown; description?: unknown; type?: unknown }
+    const t = task as { command?: unknown; description?: unknown; type?: unknown; status?: unknown }
+    if (typeof t.status === 'string' && SETTLED_TASK.has(t.status)) continue
     const what = [t.command, t.description, t.type].find(v => typeof v === 'string' && v.trim() !== '')
     named.push(typeof what === 'string' ? what.trim() : 'a background task')
   }

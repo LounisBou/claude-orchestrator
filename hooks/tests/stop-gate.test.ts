@@ -1626,6 +1626,35 @@ test('the host task list names each task by what it runs, and is null when the h
     .toEqual(['bash deploy.sh', 'search', 'monitor', 'a scheduled wake-up (0 9 * * *)', 'a scheduled wake-up'])
 })
 
+// The host's list carries a status per task and only promises a string: a task it lists as
+// finished wakes nothing, so a tool line resting on it alone is refused. A status not known to
+// be terminal, or none, still counts — a wrong list must never refuse a real wait.
+test('a tool line is refused when the only task the host lists has finished', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({ ps: NOTHING_PS })
+  const held = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ ...TOOL_WAIT, background_tasks: [{ ...SHELL_TASK, status: 'completed' }], session_crons: [] }))
+  expect(String((held.answer as any).block).startsWith('Nothing of yours runs in the background')).toBe(true)
+  expect(held.passed).toBe(null)
+  expect(fx.written.some(l => l.endsWith('| stop gate: check1 tool-not-running'))).toBe(true)
+})
+
+test('a tool line passes with a running task, or one whose status is not known to be terminal', async () => {
+  const { handlers } = mounted()
+  const fx = fakeDollar({ ps: NOTHING_PS })
+  const { status: _, ...unstated } = SHELL_TASK
+  for (const task of [SHELL_TASK, { ...SHELL_TASK, status: 'paused' }, { ...SHELL_TASK, status: 'settling' }, unstated]) {
+    const waited = await stop(handlers['classic.Stop'], fx.dollar, stopEvent({ ...TOOL_WAIT, background_tasks: [task], session_crons: [] }))
+    expect(waited.answer).toBe(waited.passed)
+  }
+})
+
+test('the host task list leaves out a completed, failed, killed or stopped task', () => {
+  const settled = ['completed', 'failed', 'killed', 'stopped'].map(status => ({ ...SHELL_TASK, status, command: `bash ${status}.sh` }))
+  expect(hostTasks(settled, [])).toEqual([])
+  expect(hostTasks([...settled, { ...SHELL_TASK, status: 'pending' }, { id: 'a', type: 'subagent', description: 'search' }], []))
+    .toEqual(['bash deploy.sh', 'search'])
+})
+
 // A predecessor waiting on its successor's confirmation was told « tool-not-running » live: its
 // successor's « takeover confirmed » wakes it, as at its other endings.
 const SUCCESSOR_SPAWN = { tool: 'Bash', tool_use_id: 't9', command: 'bash /plugins/orch-root/skills/iterm-agents/scripts/iterm-agent.sh spawn --successor --title "Orch : belt"' }
