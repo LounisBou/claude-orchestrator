@@ -2767,3 +2767,40 @@ test('an entry moved to a successor not measured yet is due in the tab with the 
   expect(fx.submitted.length).toBe(1)
   expect(fx.submitted[0]).toContain('Orch : belt-2')
 })
+
+// --- the render's own reads, bounded ---------------------------------------------------------
+
+test('a git that hangs holds no render: the origin read is bounded, and a render past its bound is logged with its duration', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low' })) + '\n')
+  const run = fx.dollar.process.run
+  let skew = 0
+  const asked: (object | undefined)[] = []
+  fx.dollar.process.run = async (argv: readonly string[], init?: { timeoutMs?: number }) => {
+    if (argv[0] !== 'git') return run(argv, init)
+    asked.push(init)
+    // A git that never answers: the host ends it at the bound given, else never.
+    if (typeof init?.timeoutMs !== 'number') return new Promise(() => undefined)
+    skew += init.timeoutMs
+    throw new Error(`still running after ${init.timeoutMs} ms`)
+  }
+  fx.dollar.clock.now = async () => Date.now() + skew
+  {
+    const hung = new Promise(resolve => setTimeout(() => resolve('hung'), 1000))
+    const { handlers } = mounted(registerSupervision)
+    const tree = await Promise.race([coordinatorRender(fx, handlers), hung])
+    expect(tree).not.toBe('hung')
+    expect(JSON.stringify(tree)).toContain('Orch : low')
+    expect((asked[0] as { timeoutMs: number }).timeoutMs).toBeLessThanOrEqual(2000)
+    // A render whose reads took longer than its bound says so, once, with its duration: here the
+    // process listing its live row's pid sends the store's read to.
+    fx.files.set(`${SESSIONS}/low`, JSON.stringify({ ...row({ role: 'orchestrator', name: 'Orch : low' }), pid: '501' }) + '\n')
+    fx.dollar.process.run = async (argv: readonly string[], init?: { timeoutMs?: number }) => {
+      if (argv[0] === 'ps') skew += 6000
+      return run(argv, init)
+    }
+    await redraw(fx, handlers)
+    expect(fx.written.filter(l => /\| supervision \| pane: the render took 6\d{3} ms, past its bound of 5000 ms$/.test(l)).length).toBe(1)
+    expect(fx.written.filter(l => l.includes('pane: the render took')).length).toBe(1)
+  }
+})
