@@ -112,7 +112,7 @@ $SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --eff
     # `flag`, `record` or `host default`; a real spawn says the same on stderr.
     # --inherit-model types the calling session's current model AND effort, read on its
     # transcript (its last main-thread request); --tier, --model and --effort are exclusive
-    # with it. A succession reads them the same way whether or not it is typed.
+    # with it. A succession reads them the same way without it.
     # --model <name> --effort <level> types that pair for this one spawn, exclusive with
     # --tier: the pair the orchestrator chose. --model without --effort is refused (an
     # agent's effort is the orchestrator's to name), and so is an agent given neither
@@ -131,9 +131,9 @@ $SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --eff
     #   by hand instead, and so is a name under an older convention, which no longer
     #   derives. An `Orch :` title with --right-of/--left-of
     #   is refused: a plain anchor lands after your chain, which is not a successor's place.
-    #   A successor runs on your live model and effort, read on your transcript, whether or not
-    #   --inherit-model is typed: --tier, --model and --effort are refused beside --successor,
-    #   and a pair that cannot be read refuses the launch, naming the file and what was missing.
+    #   A successor runs on your live model and effort, read on your transcript:
+    #   --tier, --model and --effort are refused beside --successor, and a pair that cannot
+    #   be read refuses the launch, naming the file and what was missing.
     #   From an `Audit : <subject>` session (an auditor kept on past its report, §9.4), or one
     #   whose role word is qualified (`Audit neutre : <subject>`), it takes that name too, comes
     #   up under remote control, keeps your plugin set (the enabledPlugins of your --settings,
