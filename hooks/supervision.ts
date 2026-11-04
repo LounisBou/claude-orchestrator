@@ -1094,32 +1094,36 @@ async function traceRender($: any, read: readonly RoundEntry[], taken: ReadonlyS
   }
 }
 
-// The sessions open entries were moved to at a succession (`movedFrom`) that have no row yet but
-// that the host runs: its registry (`<config>/sessions/<pid>.json`) names the session, and that
-// pid is live in the read's process table. A successor's first row is written at its first
+// The open entries moved to a successor at a succession (`movedFrom`) whose session has no row yet
+// but that the host runs: its registry (`<config>/sessions/<pid>.json`) names the session, and
+// that pid is live in the read's process table. A successor's first row is written at its first
 // measure, minutes after the move (2026-11-04: 3 min 15 s), and its questions are drawn and due
-// meanwhile. A process table that could not be read judges no record dead, as the store's read
-// keeps its rows.
+// meanwhile. A move whose successor's session was not resolved names none: then a record of the
+// successor's name, other than its predecessor's, stands for it. A process table that could not be
+// read judges no record dead, as the store's read keeps its rows. The answer is the entries' ids.
 async function hostedSuccessors($: any, entries: readonly RoundEntry[], rows: Record<string, SessionRow>, alive: StoreRead['alive']): Promise<Set<string>> {
-  const wanted = new Set(entries
-    .filter(entry => entry.status === 'open' && entry.movedFrom && !entry.origin && entry.session !== '' && !(sessionKey(entry.session) in rows))
-    .map(entry => entry.session))
+  const wanted = entries.filter(entry => entry.status === 'open' && entry.movedFrom && !entry.origin && !(entry.session !== '' && sessionKey(entry.session) in rows))
   const hosted = new Set<string>()
-  if (wanted.size === 0) return hosted
+  if (wanted.length === 0) return hosted
+  const takes = (entry: RoundEntry, record: { sessionId: string; name?: unknown }) => entry.session !== ''
+    ? record.sessionId === entry.session
+    : record.name === entry.from && record.sessionId !== entry.movedFrom
   const dir = `${await configDir($)}/sessions`
-  const pids = new Map<string, string>()
+  const pids = new Map<string, string[]>()
   for (const file of await $.fs.list(dir).catch(() => [])) {
     if (!file || file.kind !== 'file' || !file.name.endsWith('.json')) continue
     try {
       const record = JSON.parse(String(await $.fs.read(`${dir}/${file.name}`)))
-      if (wanted.has(record?.sessionId) && /^\d+$/.test(String(record.pid ?? ''))) pids.set(String(record.pid), record.sessionId)
+      if (typeof record?.sessionId !== 'string' || record.sessionId === '' || !/^\d+$/.test(String(record.pid ?? ''))) continue
+      const ids = wanted.filter(entry => takes(entry, record)).map(entry => entry.id)
+      if (ids.length > 0) pids.set(String(record.pid), [...(pids.get(String(record.pid)) ?? []), ...ids])
     } catch { /* a record being written, or gone: not this one */ }
   }
   if (pids.size === 0) return hosted
   const table = alive instanceof Map ? alive
     : alive === null ? null
     : livePids(await $.process.run(livePidsArgv([...pids.keys()])!, { timeoutMs: 5000 }).catch(() => null))
-  for (const [pid, sessionId] of pids) if (table === null || runsLive(table, pid)) hosted.add(sessionId)
+  for (const [pid, ids] of pids) if (table === null || runsLive(table, pid)) for (const id of ids) hosted.add(id)
   return hosted
 }
 
@@ -1140,7 +1144,7 @@ async function wakeForDue($: any): Promise<void> {
   await tellNew($, read, present)
   const hosted = await hostedSuccessors($, read, local, store.alive)
   const dueBeside = (woken: readonly string[]) => (entry: RoundEntry) =>
-    (sessionKey(entry.session) in local || hosted.has(entry.session)) && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
+    (sessionKey(entry.session) in local || hosted.has(entry.id)) && !woken.includes(entry.id) && isDue(entry, now, paneOpen)
   if (!read.some(dueBeside(await readWoken($)))) return
   const woken = (await readWoken($)).filter(id => present.has(id))
   const due = read.filter(dueBeside(woken))
@@ -1722,7 +1726,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const hosted = await hostedSuccessors($, read.map(found => found.entry), local, store.alive)
         const drawn = read.map(found => found.entry).filter(entry => entry.origin
           ? merged[remoteKey(entry.from)]?.machine === entry.origin.machine
-          : sessionKey(entry.session) in local || hosted.has(entry.session))
+          : sessionKey(entry.session) in local || hosted.has(entry.id))
         const questions = paneQuestions(drawn)
         for (const wait of waitsInTab(drawn)) if (!tabWaits.has(rowKeyOf(wait))) tabWaits.set(rowKeyOf(wait), waitSummary(wait))
         // What this render takes in, for its trace: every question it counts, and each wait that
@@ -2928,10 +2932,14 @@ async function learnSuccessor($: any, learnt: LearntSuccessor): Promise<void> {
   const sessionId = await $.session.id()
   const row = parseSessionRow(String(await $.fs.read(`${await storeOf($)}/${sessionKey(sessionId)}`).catch(() => '')))
   if (roleOf(row?.name ?? null) !== 'orchestrator') return
-  const pid = learnt.from?.match(/\/(\d+)\.sock$/)?.[1] ?? null
-  const session = (await registeredSession($, learnt.name, '', { exclude: sessionId, pid }))?.sessionId ?? null
+  const session = (await registeredSession($, learnt.name, '', { exclude: sessionId, pid: successorPid(learnt) }))?.sessionId ?? null
   await writeAtomic($, `${await storeOf($)}/${successorKey(sessionId)}`, JSON.stringify({ ...learnt, session }) + '\n')
   await logLine($, `round: successor learnt: ${learnt.name}${session ? ` (session ${session})` : ''}`)
+}
+
+// The process id a successor's reply address carries (`uds:/…/<pid>.sock`), or none.
+function successorPid(successor: LearntSuccessor): string | null {
+  return successor.from?.match(/\/(\d+)\.sock$/)?.[1] ?? null
 }
 
 async function readSuccessor($: any, sessionId: string): Promise<LearntSuccessor | null> {
@@ -2943,10 +2951,13 @@ async function readSuccessor($: any, sessionId: string): Promise<LearntSuccessor
 // successor's own fingerprint is left as it is. Each move is one log line; one that cannot be
 // written is one too, and the others go on. Nothing is settled: the coordinator is told nothing.
 async function moveToSuccessor($: any, sessionId: string, successor: LearntSuccessor): Promise<Settled[]> {
+  // A successor the registry did not name alone at its « takeover confirmed » is looked up again:
+  // its record may have landed since. One still unnamed is drawn on its name (hostedSuccessors).
+  const session = successor.session ?? (await registeredSession($, successor.name, '', { exclude: sessionId, pid: successorPid(successor) }))?.sessionId ?? ''
   for (const { path, entry } of await readRound($)) {
     if (entry.session !== sessionId || entry.status !== 'open') continue
     try {
-      await writeAtomic($, path, JSON.stringify({ ...entry, session: successor.session ?? '', from: successor.name, movedFrom: sessionId }) + '\n')
+      await writeAtomic($, path, JSON.stringify({ ...entry, session, from: successor.name, movedFrom: sessionId }) + '\n')
       await logLine($, `round: moved to the successor ${successor.name}: ${entry.id}`)
     } catch (err) {
       await logLine($, `round: ${(err as Error).message}`)
