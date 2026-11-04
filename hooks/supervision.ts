@@ -2358,7 +2358,7 @@ async function deliverLocal($: any, path: string, entry: RoundEntry, readable: s
 async function deliverClosedAnswers($: any): Promise<void> {
   for (const { path, entry } of await readRound($)) {
     const delivery = entry.delivery
-    if (entry.status !== 'closed' || entry.answer?.by !== 'coordinator' || delivery?.state !== 'pending' || delivery.attempts !== 0) continue
+    if (entry.kind !== 'operator' || entry.status !== 'closed' || entry.answer?.by !== 'coordinator' || delivery?.state !== 'pending' || delivery.attempts !== 0) continue
     try {
       if (entry.origin) await sendAnswer($, path, entry, entry.answer.text)
       else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorAnswerText(entry, entry.answer.text, entry.answer.at))

@@ -8533,6 +8533,12 @@ check "the refusal of an unknown id names it" "coordinator: round-close: no entr
 check "round-close leaves an open entry's delivery pending, stamped as its answer, for the module to send" "pending|0|1|1" \
   "$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.at == .answer.at | if . then 1 else 0 end), (.delivery.answerAt == .answer.at | if . then 1 else 0 end)] | join("|")' "$CROUND/b-early.json")"
 check "round-close leaves no delivery on an entry that was not open" "null" "$(jq -c .delivery "$CROUND/a-gone.json")"
+DROUND="$WORK/coord-done/round"
+mkdir -p "$DROUND"
+jq -n '{id:"d-open", from:"Orch : d", session:"s-d", kind:"done", since:"2026-10-18T10:02:00.000Z", blocks:null,
+  question:"Everything merged.", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null}' > "$DROUND/d-open.json"
+check "round-close closes an open done entry but leaves it no delivery to send" "closed d-open|closed|null" \
+  "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-done" bash "$COORD" round-close d-open --answer ok 2>&1)|$(jq -r .status "$DROUND/d-open.json")|$(jq -c .delivery "$DROUND/d-open.json")"
 FROUND="$WORK/coord-far/round"
 mkdir -p "$FROUND"
 jq -n '{id:"r-far", from:"Orch : r", session:"s-r", kind:"operator", since:"2026-10-18T10:02:00.000Z", blocks:"phase 3",

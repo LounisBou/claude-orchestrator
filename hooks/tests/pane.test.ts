@@ -2579,6 +2579,15 @@ test('an entry closed with no delivery pending — before round-close carried on
   expect(storedIn(fx, old.id).delivery).toBeUndefined()
 })
 
+test('an entry of kind done closed with a pending delivery is sent nothing at the round\'s reading', async () => {
+  const asked = closedByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa', kind: 'done', blocks: null }))
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  await tick()
+  expect(sent).toEqual([])
+  expect(storedIn(fx, asked.id).delivery).toEqual(asked.delivery)
+})
+
 test('a pane answer not delivered is written failed in its entry, and a fresh module\'s pane still says it', async () => {
   const asked = entry('Orch : low', '2026-10-18T10:03:00.000Z', { session: 'low', choices: CHOICES })
   const { fx, render, stored } = await askingPane([asked], { refuse: 'nobody by that name' })
