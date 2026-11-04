@@ -2939,6 +2939,46 @@ test('an entry moved to a successor by its name alone is drawn while a live sess
   }
 })
 
+// D2 of the round-2 verdict: no withdrawal nor move matches an entry naming no session, so the
+// read that judges it by its successor's name closes it once no session of that name runs.
+test('an entry moved to a successor by its name alone stays open while a session of that name runs, and is withdrawn once none does', async () => {
+  const moved = entry('Orch : belt-2', '2026-11-04T17:10:00.000Z', { session: '', movedFrom: 's-old', choices: CHOICES })
+  const nameless = entry('Orch : belt-2', '2026-11-04T17:11:00.000Z', { session: '' })
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  for (const e of [moved, nameless]) fx.files.set(`${ROUND}/${e.id}.json`, JSON.stringify(e) + '\n')
+  const record = `${HOME}/.claude/sessions/777.json`
+  fx.files.set(record, JSON.stringify({ pid: 777, sessionId: 's-two', name: 'Orch : belt-2' }))
+  const statusOf = (e: RoundEntry) => JSON.parse(String(fx.files.get(`${ROUND}/${e.id}.json`)))
+  const { handlers } = mounted(registerSupervision)
+  expect(JSON.stringify(await coordinatorRender(fx, handlers))).toContain('Questions for you — 1 pending')
+  await redraw(fx, handlers)
+  expect(statusOf(moved).status).toBe('open')
+  // The successor's process ends, its record left behind: a process table that cannot be read
+  // judges nothing, and the entry stays open and drawn.
+  fx.files.set(record, JSON.stringify({ pid: 999, sessionId: 's-two', name: 'Orch : belt-2' }))
+  const run = fx.dollar.process.run
+  fx.dollar.process.run = async (argv: readonly string[], init?: object) =>
+    argv[0] === 'ps' && argv[1] === '-A' ? { exitCode: 1, stdout: '', stderr: 'denied' } : run(argv, init)
+  expect(JSON.stringify(await redraw(fx, handlers))).toContain('Questions for you — 1 pending')
+  expect(statusOf(moved).status).toBe('open')
+  // A registry that cannot be listed says nothing of who runs: the entry stays open.
+  fx.dollar.process.run = run
+  const list = fx.dollar.fs.list
+  fx.dollar.fs.list = async (dir: string) => {
+    if (dir === `${HOME}/.claude/sessions`) throw new Error('EACCES')
+    return list(dir)
+  }
+  await redraw(fx, handlers)
+  expect(statusOf(moved).status).toBe('open')
+  // Both read: no session of that name runs, the entry is withdrawn by its sender.
+  fx.dollar.fs.list = list
+  await redraw(fx, handlers)
+  expect(statusOf(moved).status).toBe('withdrawn')
+  expect(statusOf(moved).answer.by).toBe('sender')
+  // An entry no succession moved is not judged by a name.
+  expect(statusOf(nameless).status).toBe('open')
+})
+
 test('an entry moved to a successor by its name alone is due in the tab with the pane closed', async () => {
   const moved = entry('Orch : belt-2', minutesAgo(1), { session: '', movedFrom: 's-old' })
   const { fx, tick } = await wakingCoordinator([moved], { paneClosed: true })
