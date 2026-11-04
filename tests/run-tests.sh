@@ -5208,6 +5208,16 @@ check "a succession brief whose open-questions value is a 3,000-character block,
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 8000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
 check "succeed.md says the open-questions value is outside the 8,000-character cap" "yes" \
   "$(spells "$ROOT/commands/succeed.md" '8,000 characters, the open-questions value apart')"
+# The operator's standing rulings live once, in the orchestration's rulings file: the decision
+# round writes a ruling there first, verbatim and dated, the predecessor checks it before the
+# handover, and the lifecycle gives its format and what leaves it.
+DECIDE42=$(awk '/^## 4\. /{f=1} /^## 5\. /{f=0} f' "$ROOT/commands/decide.md" | awk '/^2\. /{f=1} /^3\. /{f=0} f' | tr '\n' ' ' | tr -s ' ')
+check "the decision round writes a ruling first to the rulings file, verbatim and dated, then where it applies" "1|1" \
+  "$(printf '%s' "$DECIDE42" | grep -cF "Write the ruling first to the orchestration's rulings file, verbatim and dated")|$(printf '%s' "$DECIDE42" | grep -cF 'then where it applies')"
+check "succeed.md checks the rulings file among its preconditions" "yes" \
+  "$(spells "$ROOT/commands/succeed.md" "- the orchestration's rulings file, \`<briefs dir>/rulings.md\`, exists and holds every ruling still")"
+check "the lifecycle gives the rulings file's entry and says a ruling ended leaves it" "yes|yes|yes" \
+  "$(spells "$ORCH_REFS/lifecycle.md" '`- <YYYY-MM-DDThh:mm:ssZ> « <his words, verbatim> » — <what it binds> (row N)`')|$(spells "$ORCH_REFS/lifecycle.md" 'leaves the file in the same move as the ruling that ends it')|$(spells "$ORCH_REFS/lifecycle.md" 'outside every brief')"
 # Rule 230: the silent agent's line keeps its wording and drops the rest.
 check "the agents command reports a silent agent in one short line" "yes|no" \
   "$(spells "$ROOT/commands/agents.md" '5. An agent silent fifteen minutes: « no answer, last artifact activity <time> ».')|$(spells "$ROOT/commands/agents.md" 'probably fine')"

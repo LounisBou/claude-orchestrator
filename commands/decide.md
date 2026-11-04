@@ -83,9 +83,10 @@ question before it is presented.
 ## 4. On the answer, in the same turn and in this order
 
 1. « Recorded: <the ruling in one line> » — the user sees their decision written back.
-2. Write the ruling where it lives: the project's state file or memory, the register
-   entry, the plan — the durable place, never only the chat, or the next session
-   relitigates it. Only the user's ruling is written
+2. Write the ruling first to the orchestration's rulings file, verbatim and dated
+   (`references/lifecycle.md`, « Prune the state file before you hand over »), then where
+   it applies: the state file or memory, the register entry, the plan — never only the
+   chat, or the next session relitigates it. Only the user's ruling is written
    there; a proposal never is. A ruling that rules out a goal is written with
    `dispatch-record.sh goals <record> rule-out <G> --ruling "<his words>"`, so the stop gate
    reads it. A ruling that defers work (« later, when I say so ») is recorded with
