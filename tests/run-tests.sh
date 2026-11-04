@@ -335,6 +335,10 @@ check "review.md enforces an aspirational norms rule on new code and mines no fi
 # The coordinator opens each sender's group on the sender's own account, sent with its questions.
 check "the decision round sends the coordinator the account its group opens on" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'The first says in three to five sentences what you work on, for its round of its own')"
+# Every question reaches the pane, or the coordinator's tab with the pane closed, and the asker's
+# own chat (the operator's ruling of 2026-11-03): the older « asks again only when urgent » is gone.
+check "the decision round shows each question in the pane or the coordinator's tab, never only when urgent" "yes|no" \
+  "$(spells "$ROOT/commands/decide.md" "Its pane shows each one, the coordinator's tab when the pane is closed;")|$(spells "$ROOT/commands/decide.md" 'asks again only when urgent or no pane is open')"
 # Row 151, topic 18: each rule the rules review proposed to merge is written once. The copy each
 # merge removed stays out (rule numbers of the review in brackets).
 ORCH_DIR="$ROOT/skills/orchestrator"

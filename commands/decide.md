@@ -18,8 +18,8 @@ is launched or reported until the wave is over.
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
 question ends its turn as step 2 says, and the module forwards it.
 The first says in three to five sentences what you work on, for its round of its own where
-your questions come together. Its pane shows each one,
-its tab asks again only when urgent or no pane is open;
+your questions come together.
+Its pane shows each one, the coordinator's tab when the pane is closed;
 end on `waiting: operator (urgent) — blocks: …` only for what step 1 calls urgent.
 Its answer, verbatim and dated, is his ruling, recorded as step 4 says. **And each question is
 written in full in your own chat too**: his ruling of 2026-11-03, « […] but also and at the
