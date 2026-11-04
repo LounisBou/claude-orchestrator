@@ -5038,6 +5038,11 @@ check "a succession brief whose open-questions value is a 1,500-character block,
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$OQ_BIG" | wc -c | tr -d ' ')" -gt 10000 ] && echo yes || echo no)|$(bash "$LINT" "$OQ_BIG" >/dev/null 2>&1; echo $?)"
 check "succeed.md says the open-questions value is outside the 10,000-character cap" "yes" \
   "$(spells "$ROOT/commands/succeed.md" '10,000 characters, the open-questions value apart')"
+# Rule 237: the lint refuses an over-long brief on its own, and the Live state's rewrite is said
+# once. Rule 32 is a merge into succeed.md: until the takeover confirmation, an operator's
+# question gets one line pointing to the successor.
+check "succeed.md says the Live state rule once and points the operator at the successor" "no|no|yes" \
+  "$(spells "$ROOT/commands/succeed.md" 'after its first use the six fields hold')|$(spells "$ROOT/commands/succeed.md" 'the lint refuses more')|$(spells "$ROOT/commands/succeed.md" "an operator's question gets one line pointing to the successor")"
 check "the same brief with the rest padded past 10,000 characters is over the limit" "1|1" \
   "$(bash "$LINT" "$OQ_BIG_PLUS" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$OQ_BIG_PLUS" 2>&1 | grep -c 'succession brief is .* characters, over the limit of 10000')"
 # The value is read from the label's first colon, on that line and on the lines after it up to
