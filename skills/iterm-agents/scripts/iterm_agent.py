@@ -4164,11 +4164,12 @@ def anchor_after_probe(found, anchor, own):
     die("spawn: no session found on %s" % anchor)
 
 
-def tier_pair(tier, effort_flag):
-    """`(model, effort, source)` of an agent's tier: the map's binding, its effort, else the
-    flag's, else the plugin's shipped effort for the tier, else, for the deep tier, the
-    calling orchestrator's own live effort."""
-    model, effort = resolve_tier_pair(tier)
+def tier_pair(tier, effort_flag, bound):
+    """`(model, effort, source)` of an agent's tier: the map's binding `bound` (what
+    resolve_tier_pair answered for it), its effort, else the flag's, else the plugin's
+    shipped effort for the tier, else, for the deep tier, the calling orchestrator's own
+    live effort."""
+    model, effort = bound
     if effort_flag:
         return model, effort_flag, "flag"
     if not effort:
@@ -4202,7 +4203,7 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
             return args.model, args.effort, "record"
         return "", "", "host default"
     if args.tier:
-        return tier_pair(args.tier, args.effort)
+        return tier_pair(args.tier, args.effort, args.tier_bound)
     if args.model:
         if not args.effort:
             die("spawn: refused: --model needs --effort: an agent's effort is the "
@@ -4498,6 +4499,10 @@ def cmd_spawn(argv, pair_from=""):
         die("spawn: --inherit-model reads the caller's effort with its model; drop --effort")
     if args.effort and args.effort not in EFFORTS:
         die("spawn: unknown effort: %s (expected %s)" % (args.effort, EFFORT_LIST))
+    # The tier is resolved before the anchor and the title are checked, as it always was: a
+    # tier that does not resolve is refused first, and carrying the pair must not change
+    # which refusal comes first. Read once, so a map's warning is said once.
+    args.tier_bound = resolve_tier_pair(args.tier) if args.tier else None
     # The anchor first, before a prompt file is written or a trust record changed: an
     # anchor that is not there is a refusal, and a refusal must leave nothing behind.
     side = "right" if args.right_of else "left"
