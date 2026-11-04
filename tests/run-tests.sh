@@ -5114,11 +5114,15 @@ check "the design says what a successor reads at takeover, and why" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'the successor reads the rulebook and its brief'"'"'s live state, the rest by section on demand')|$(spells "$ROOT/docs/design.md" 'input and cache tokens of each assistant turn')"
 # The lint: a succession brief past 8,000 characters is a finding naming the count and the limit.
 SUCCFILL="$WORK/succession-filled.md"
+SUCCRULINGS="$WORK/r/rulings.md"; mkdir -p "$WORK/r"
+printf '%s\n' '# Standing rulings' '' \
+  '- 2026-11-03T14:31:57Z « The four sections always, none when empty. » — every pull request description (row 12)' \
+  '- 2026-11-04T09:10:00Z « No hard cap on this file. » — the rulings file size (row 13)' > "$SUCCRULINGS"
 # {{GAUGE}} is gone from the template with the gauge script it named — the module's measure
 # file replaced both — and what this fill proves is the size limit over a full brief. Each path
 # is one that exists, short and the same on every machine, so the count does not move with the
 # length of the temporary directory the suite runs in.
-sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#Orch : scratch#g' -e 's#\{\{SCRIPTS\}\}#/tmp#g' \
+sed -E -e 's#\{\{PROJECT\}\}#scratch#g' -e 's#\{\{PREDECESSOR_NAME_PATTERN\}\}#Orch : scratch#g' -e 's#\{\{SCRIPTS\}\}#/tmp#g' -e "s#\{\{RULINGS_FILE\}\}#$SUCCRULINGS#g" \
   -e 's#\{\{LIVE_[A-Z_]+\}\}#none open#g' -e 's#\{\{[A-Z_]+\}\}#/tmp#g' "$SUCC" > "$SUCCFILL"
 # Measured as the lint measures: the open-questions field's value is left out, its label counted.
 check "a succession brief, every placeholder filled, lints clean and stays under 8,000 characters" "0|yes" \
@@ -5246,9 +5250,48 @@ SUCC8100="$WORK/succession-8100.md"; succ_padded "$SUCC8100" 8100
 SUCC7900="$WORK/succession-7900.md"; succ_padded "$SUCC7900" 7900
 check "a filled succession brief of 8,100 characters is refused, one of 7,900 passes" "1|1|0" \
   "$(bash "$LINT" "$SUCC8100" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$SUCC8100" 2>&1 | grep -c 'over the limit of 8000 once the open-questions value is set apart (8100)')|$(bash "$LINT" "$SUCC7900" >/dev/null 2>&1; echo $?)"
+# Check 16: the rulings file sits outside the brief's cap. A 20,000-character one beside the same
+# two briefs, its path the same length, changes neither verdict, and is one warning, never a refusal.
+RBIG="$WORK/q/rulings.md"; mkdir -p "$WORK/q"
+printf '# Standing rulings\n\n' > "$RBIG"; i=0
+while [ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -lt 20000 ]; do
+  i=$((i + 1)); printf -- '- 2026-11-04T10:%02d:00Z « Ruling number %d, kept word for word as he said it. » — the method (row %d)\n' $((i % 60)) "$i" "$i" >> "$RBIG"
+done
+sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC8100" > "$WORK/succession-8100-big.md"
+sed "s#$WORK/r/rulings.md#$RBIG#" "$SUCC7900" > "$WORK/succession-7900-big.md"
+check "a 20,000-character rulings file beside them changes neither verdict" "yes|1|1|0|1" \
+  "$([ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -ge 20000 ] && echo yes || echo no)|$(bash "$LINT" "$WORK/succession-8100-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-8100-big.md" 2>&1 | grep -c '(8100)')|$(bash "$LINT" "$WORK/succession-7900-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-7900-big.md" 2>&1 | grep -c 'warning: rulings file .* characters, over 8000')"
+check "the filled brief with its two-entry rulings file raises no warning" "0" \
+  "$(bash "$LINT" "$SUCCFILL" 2>&1 | grep -c 'warning')"
+# Check 16 refuses a succession brief whose rulings file is missing or unnamed, and an entry of
+# that file without its date or its « » quote, naming the file's line.
+rulings_brief() {  # $1 out brief, $2 the rulings file's content, or ABSENT for a path to no file
+  local f="${1%.md}-rulings.md"
+  [ "$2" = ABSENT ] || printf '%s\n' "$2" > "$f"
+  sed "s#$WORK/r/rulings.md#$f#" "$SUCCFILL" > "$1"
+}
+R_MISSING="$WORK/succ-r-missing.md"; rulings_brief "$R_MISSING" ABSENT
+R_NODATE="$WORK/succ-r-nodate.md"
+rulings_brief "$R_NODATE" $'# Standing rulings\n\n- 2026-11-04T09:10:00Z « Dated. » — x (row 1)\n- « Undated. » — y (row 2)'
+R_NOQUOTE="$WORK/succ-r-noquote.md"
+rulings_brief "$R_NOQUOTE" $'# Standing rulings\n\n- 2026-11-04T09:10:00Z He said to ship. — y (row 2)'
+R_SHORTDATE="$WORK/succ-r-shortdate.md"
+rulings_brief "$R_SHORTDATE" $'# Standing rulings\n\n- 2026-11-04 « A day, no time. » — y (row 2)'
+R_UNNAMED="$WORK/succ-r-unnamed.md"; grep -v '^- Standing rulings:' "$SUCCFILL" > "$R_UNNAMED"
+check "a succession brief whose rulings file is missing is refused" "1|1" \
+  "$(bash "$LINT" "$R_MISSING" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_MISSING" 2>&1 | grep -c 'rulings file not found')"
+check "a succession brief that names no rulings file is refused" "1|1" \
+  "$(bash "$LINT" "$R_UNNAMED" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_UNNAMED" 2>&1 | grep -c 'names no rulings file')"
+check "a rulings entry without its date is refused, naming its line" "1|1|0" \
+  "$(bash "$LINT" "$R_NODATE" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_NODATE" 2>&1 | grep -c 'succ-r-nodate-rulings.md:4: rulings entry without its date')|$(bash "$LINT" "$R_NODATE" 2>&1 | grep -c 'succ-r-nodate-rulings.md:3:')"
+check "a rulings entry dated without its time is refused" "1|1" \
+  "$(bash "$LINT" "$R_SHORTDATE" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_SHORTDATE" 2>&1 | grep -c 'succ-r-shortdate-rulings.md:3: rulings entry without its date')"
+check "a rulings entry without its « » quote is refused, naming its line" "1|1" \
+  "$(bash "$LINT" "$R_NOQUOTE" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_NOQUOTE" 2>&1 | grep -c 'succ-r-noquote-rulings.md:3: rulings entry without his words')"
 SUCCOTHER="$WORK/not-a-succession.md"
 { cat "$B/good.md"; head -c 10000 /dev/zero | tr '\0' 'x'; printf '\n'; } > "$SUCCOTHER"
 check "the size limit binds a succession brief only" "0" "$(bash "$LINT" "$SUCCOTHER" >/dev/null 2>&1; echo $?)"
+check "the rulings check binds a succession brief only" "0" "$(bash "$LINT" "$SUCCOTHER" 2>&1 | grep -c 'rulings')"
 # A succession brief written by hand dropped the template's step 4, and the predecessor stayed
 # open a day after the takeover: a brief whose reader confirms the takeover to its predecessor
 # carries the launcher's close, and a brief whose reader is the one handed over from is not held.
