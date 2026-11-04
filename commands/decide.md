@@ -17,9 +17,8 @@ is over.
 
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
 question, in the shape of step 2, ends its turn on `waiting: operator — blocks: <what it
-blocks>`, and the module forwards it; never send it yourself. The first says in three to five
-sentences what you work on, for its
-round of its own where your questions come together. Its pane shows each one, its tab asking
+blocks>`, and the module forwards it; never send it yourself. The first says what you work on,
+for its round of its own where your questions come together. Its pane shows each one, its tab asking
 again only when urgent or no pane is open (his order of 2026-10-24: no question asked
 twice); end on `waiting: operator (urgent) — blocks: …` only for
 what step 1 calls urgent.
@@ -68,7 +67,7 @@ operator's pane draws these fields alone.
   and GAIN, each a materially different piece of work — never shades of one option.
 - `_Recommendation_ : A — <its reason in one sentence>`: exactly one, after the choices.
 - Close with « You decide: A or B? » (the letters offered), then the machine line, plain
-  text, as the message's last line: `waiting: operator — blocks: <the question>`. Split references in `blocks:` by `, `, never `/`. END THE TURN. Nothing else in
+  text, as the message's last line: `waiting: operator — blocks: <the question>`. Split references in `blocks:` by `, `, never `/`. The stop gate refuses a bare question. END THE TURN. Nothing else in
   that message but the « Recorded » line of the answer just given: no status, no other
   question, no agent report.
 

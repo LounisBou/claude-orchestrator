@@ -317,6 +317,10 @@ check "the rulebook answers before it reads the premise, reads how an agent work
 # them by a comma.
 check "the decision round splits the references of a blocks text by commas, never a slash" "yes" \
   "$(spells "$ROOT/commands/decide.md" 'Split references in `blocks:` by `, `, never `/`.')"
+# Rule 221 is lightened, not removed: the round says once that the stop gate refuses a bare
+# question (topic 3's urgent wait is pinned in its new home with the pane checks below).
+check "the decision round says the stop gate refuses a bare question" "yes" \
+  "$(spells "$ROOT/commands/decide.md" 'The stop gate refuses a bare question.')"
 # One copy for the agent, in its brief template (the operator's ruling on topic 16 of the rules review).
 check "the standing rules no longer copy the « under load » rule" "no" \
   "$(spells "$ORCH_REFS/briefs.md" '**« Under load » means emulated throttling, never real load on the machine.**')"
