@@ -19,9 +19,9 @@ and no file written (this brief aside) — the exchange with your predecessor ex
 1. **Read** the report and this brief. Whatever is still owed the operator is yours from here.
 2. **Find yourself.** `ListAgents` — your exact name and reference (its first line); the
    launcher `{{ITERM_AGENT_SH}}`, its `list` — your tty, the row marked `self`.
-3. **Take over.** Message `{{PREDECESSOR}}` « takeover confirmed », then wait for
-   its « handed over ». Until then it forwards you what still reaches it. Five minutes without
-   « handed over »: read its screen with the launcher's `screen --tty {{PREDECESSOR_TTY}}`, and go on
+3. **Take over.** Message `{{PREDECESSOR}}` « takeover confirmed » and wait for its « handed
+   over ». Until then it forwards you what still reaches it. Five minutes without « handed
+   over »: read its screen with the launcher's `screen --tty {{PREDECESSOR_TTY}}`, and go on
    only on a prompt with nothing in flight.
 4. **Close its tab, and prove it.** The launcher's `list` must still show an `Audit :` session
    on {{PREDECESSOR_TTY}} that is not yours. Then:

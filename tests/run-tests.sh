@@ -3736,7 +3736,7 @@ check "the auditor's succession brief exists, with its placeholders" \
   "{{ITERM_AGENT_SH}} {{OPERATOR_WORK}} {{PREDECESSOR_TTY}} {{PREDECESSOR}} {{PROJECT}} {{REPORT_PATH}} {{REPOSITORY}} {{SUBJECT}} {{SUCCESSION_TEMPLATE}}" \
   "$(grep -oE '\{\{[A-Z_]+\}\}' "$AUDSUCCTPL" 2>/dev/null | sort -u | paste -sd' ' -)"
 check "it makes the successor confirm, wait for « handed over », close the tab by title, prove it, tell the operator" "1|1|1|1|1" \
-  "$(grep -c 'Message `{{PREDECESSOR}}` « takeover confirmed »' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'its « handed over ». Until' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c -- 'close --tty {{PREDECESSOR_TTY}} --expect-title "Audit : {{SUBJECT}}"' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'ps -t ' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'Tell the operator' "$AUDSUCCTPL" 2>/dev/null)"
+  "$(grep -c 'Message `{{PREDECESSOR}}` « takeover confirmed »' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'Until then it forwards you what still reaches it' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c -- 'close --tty {{PREDECESSOR_TTY}} --expect-title "Audit : {{SUBJECT}}"' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'ps -t ' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'Tell the operator' "$AUDSUCCTPL" 2>/dev/null)"
 check "and keeps the audit's terms: one report, not rewritten, nothing applied, no session messaged but the predecessor" "1|1|1" \
   "$(grep -c 'not to rewrite' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'apply nothing' "$AUDSUCCTPL" 2>/dev/null)|$(grep -c 'no session messaged' "$AUDSUCCTPL" 2>/dev/null)"
 # A successor can succeed again: it restates the spawn line in full and finds its own name,
@@ -3747,6 +3747,13 @@ AUDSUCCFILLED="$WORK/audit-succession-filled.md"
 [ -f "$AUDSUCCTPL" ] && sed -E -e "s#\{\{[A-Z_]+\}\}#$WORK#g" "$AUDSUCCTPL" > "$AUDSUCCFILLED"
 check "the auditor's succession brief, every placeholder filled, lints clean" "yes|0" \
   "$([ -s "$AUDSUCCFILLED" ] && echo yes || echo no)|$(bash "$ROOT/skills/orchestrator/scripts/brief-lint.sh" "$AUDSUCCFILLED" >/dev/null 2>&1; echo $?)"
+# Rule 82 of the rules review, the operator's ruling of 2026-11-04 (« A »): the successor's
+# handshake stays in each succession template, and the copies may not drift apart. The auditor's
+# and the coordinator's step 3 are one text, read with their line breaks folded; the
+# orchestrator's, longer, carries the same core.
+handshake() { sed -n '/^3\. \*\*Take over\.\*\*/,/nothing in flight\./p' "$1" | tr '\n' ' ' | tr -s ' '; }
+check "the succession templates carry one handshake" "yes|yes|yes|yes|yes" \
+  "$([ -n "$(handshake "$AUDSUCCTPL")" ] && [ "$(handshake "$AUDSUCCTPL")" = "$(handshake "$COORDTPL")" ] && echo yes || echo no)|$(spells "$SUCC" 'Then message the predecessor "takeover confirmed"')|$(spells "$SUCC" 'and wait for its « handed over »')|$(spells "$SUCC" 'five minutes without it, read its screen with `screen --tty`')|$(spells "$SUCC" 'close on a prompt with nothing in flight')"
 # The code cites §52: the section it cites exists.
 check "the design document has the audit's numbered section" "1" \
   "$(grep -c '^## 52\. The audit of an orchestrator$' "$ROOT/docs/design.md")"
