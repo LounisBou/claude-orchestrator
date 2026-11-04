@@ -525,7 +525,8 @@ async function readStore($: any): Promise<StoreRead> {
   const rows: Record<string, SessionRow> = {}
   const dropped = new Map<string, string>()
   const dead: string[] = []
-  const gone: string[] = []
+  // Each row judged dead, with the successor its session learnt: read before the sweep removes it.
+  const gone = new Map<string, LearntSuccessor | null>()
   const now = Date.now()
   for (const [name, text, row] of read) {
     if (row && !isStale(row, now, alive)) {
@@ -535,7 +536,7 @@ async function readStore($: any): Promise<StoreRead> {
     dropped.set(`sessions/${name}`, droppedReason(text, row, alive))
     if (text === '' || row) {
       // A row with no pid removed for idleness alone is not known dead: its sender may live on.
-      if (text === '' || row?.pid) gone.push(`sessions/${name}`)
+      if (text === '' || row?.pid) gone.set(`sessions/${name}`, parseSuccessor(String(await $.fs.read(`${await storeOf($)}/successors/${name}`).catch(() => ''))))
       dead.push(`${dir}/${name}`, `${await storeOf($)}/waits/${name}`, `${await storeOf($)}/gates/${name}`, `${await storeOf($)}/rows/${name}`, `${await storeOf($)}/successors/${name}`)
     }
   }
@@ -543,25 +544,29 @@ async function readStore($: any): Promise<StoreRead> {
   // and the next read that answers sweeps the dead. Removing on it wiped the
   // whole store at every render the pane drew.
   if (alive !== null && dead.length > 0) await $.process.run(['rm', '-f', ...dead], { timeoutMs: 5000 }).catch(() => undefined)
-  if (alive !== null && gone.length > 0) await sweepGoneSenders($, new Set(gone))
+  if (alive !== null && gone.size > 0) await sweepGoneSenders($, gone)
   return { rows, dropped, alive }
 }
 
 // The entries a session left open and no session end closed (a killed host, a tab closed with no
 // clean end, an end past its bound): every open entry of this machine whose sender's row this read
 // has just judged dead and removed is withdrawn, on the read every reader makes — the sender
-// `co round` prints as « sender gone ». Only a row removed here is judged: a session not yet
-// measured (a successor an entry was moved to) has no row and is not gone. An entry naming no
-// session, or from another machine, is not judged. A sweep that fails is one log line and the
-// read goes on.
-async function sweepGoneSenders($: any, removed: ReadonlySet<string>): Promise<void> {
+// `co round` prints as « sender gone » — or, its sender having learnt a successor, moved to that
+// successor, as the sender's own end would have done. Only a row removed here is judged: a
+// session not yet measured (a successor an entry was moved to) has no row and is not gone. An
+// entry naming no session, or from another machine, is not judged. A sweep that fails is one log
+// line and the read goes on.
+async function sweepGoneSenders($: any, removed: ReadonlyMap<string, LearntSuccessor | null>): Promise<void> {
   try {
     const senders = new Set<string>()
     for (const { entry } of await readRound($)) {
       if (entry.status === 'open' && entry.session !== '' && !entry.origin && removed.has(sessionKey(entry.session))) senders.add(entry.session)
     }
     for (const sessionId of senders) {
-      const settled = await withdrawStale($, sessionId, null, "the sender's session ended")
+      const successor = removed.get(sessionKey(sessionId)) ?? null
+      const settled = successor
+        ? await moveToSuccessor($, sessionId, successor)
+        : await withdrawStale($, sessionId, null, "the sender's session ended")
       await tellSettled($, settled, Date.now() + RELAY_BOUND_MS)
     }
   } catch (err) {

@@ -473,6 +473,19 @@ test('a read of the store closes the open entries of a sender whose row it remov
   expect(JSON.parse(files.get(`${ROUND}/${killed}.json`)!).answer.by).toBe('sender')
 })
 
+// A sender that learnt its successor and was killed before its hand-over or its session end: the
+// read that removes its row moves its open entries to the successor, as its end would have.
+test('a read of the store moves the open entries of a removed sender that learnt its successor, and withdraws none', async () => {
+  const { dollar, files } = fakeDollar({ alive: ['501'] })
+  await writeSession(dollar, 'killed', { role: 'orchestrator', name: 'Orch : killed', pid: '502' })
+  files.set(`${STATE}/store/successors/killed`, JSON.stringify({ name: 'Orch : next', from: null, session: 'next', at: SENT }) + '\n')
+  const id = openEntry(files, 'killed', 'operator')
+  await readSessions(dollar)
+  const after = parseRoundEntry(files.get(`${ROUND}/${id}.json`)!)
+  expect([after?.status, after?.session, after?.from, after?.movedFrom]).toEqual(['open', 'next', 'Orch : next', 'killed'])
+  expect(files.has(`${STATE}/store/successors/killed`)).toBe(false)
+})
+
 test('a liveness read that fails does not close the entry of a row it keeps', async () => {
   const { dollar, files } = fakeDollar({ alive: ['501'], psFails: 'exit' })
   await writeSession(dollar, 'kept', { role: 'orchestrator', name: 'Orch : kept', pid: '502' })
