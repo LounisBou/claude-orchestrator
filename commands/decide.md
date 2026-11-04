@@ -16,7 +16,9 @@ another, nothing shown between them; each ruling is relayed to its agent at once
 is launched or reported until the wave is over.
 
 **While a coordinator runs, the wave goes through it**, carried by the hooks module: each
-question ends its turn as step 2 says, and the module forwards it. Its pane shows each one,
+question ends its turn as step 2 says, and the module forwards it.
+The first says in three to five sentences what you work on, for its round of its own where
+your questions come together. Its pane shows each one,
 its tab asks again only when urgent or no pane is open;
 end on `waiting: operator (urgent) — blocks: …` only for what step 1 calls urgent.
 Its answer, verbatim and dated, is his ruling, recorded as step 4 says. **And each question is
