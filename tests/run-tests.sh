@@ -1224,7 +1224,9 @@ check "design.md mirrors the E2E gate under the ready gate" "yes" \
 unset SURFACE_BODIES
 check "the review reference records the surface before ready" "1" \
   "$(grep -c 'dispatch-record.sh surface <record> <id> --ui <owner/repo>#<n>' "$ROOT/skills/orchestrator/references/review.md")"
-check "a screen with no data on the reference account is seeded, never skipped" "1|1|1" \
+# Rule 158 of the rules review, on the ruling on topic 18: review.md's item 12 is lightened, the
+# seeding rule lives in the brief rules and the phase brief.
+check "a screen with no data on the reference account is seeded, never skipped" "0|1|1" \
   "$(grep -c 'A screen the reference account has no data for is not minor and not skipped' "$ROOT/skills/orchestrator/references/review.md")|$(grep -c 'A screen the reference account has no data for is never minor' "$ROOT/skills/orchestrator/references/briefs.md")|$(grep -c 'seed the data on the local environment, and if you cannot, STOP' "$ROOT/templates/agent-phase-brief.md")"
 check "the review brief reports the surface in one line" "1" \
   "$(grep -c 'frontend surface: yes|minor|no' "$ROOT/templates/agent-review-brief.md")"
@@ -10695,11 +10697,18 @@ check "the screenshots agent audits against the checklist and never counts" "yes
   "$(spells "$SHOTS" "against every point of the checklist file.")|$(carries "$SHOTS" 'never counts')"
 check "item 12 dispatches the screenshots agent and keeps the one-image exception" "yes|yes|yes" \
   "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'dispatch `orchestrator:screenshots`')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'never open the batch yourself')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'open that one only')"
-check "item 12 says an unreadable line is an image not audited and ready refuses until it is" "yes" \
-  "$(flat_has "$ROOT/skills/orchestrator/references/review.md" '`unreadable:` line is an image not audited, so the `<audited>` figure stays below the description'"'"'s count and `ready` refuses until the image is fetched and audited')"
+# Rule 158: `ready` refuses an audit covering fewer images than the description carries on its own
+# (the record's message pinned below), so item 12 keeps the reading alone.
+check "item 12 says an unreadable line is an image not audited, and leaves the refusal to ready" "yes|no" \
+  "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'an `unreadable:` line is an image not audited.')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'figure stays below the description')"
 check "the screenshots agent names both fetch commands and the file check" "yes|yes|yes" \
   "$(spells "$SHOTS" 'gh api "repos/<o>/<r>/contents/<path>?ref=<ref>" -H "Accept: application/vnd.github.raw" > <file>')|$(spells "$SHOTS" 'curl -fsSL -H "Authorization: Bearer $(gh auth token)" "<url>" -o <file>')|$(spells "$SHOTS" '`file <file>`')"
-check "item 12 relays the agent's lines and records its figures" "yes|yes" \
+# Rule 158 of the rules review, on the ruling on topic 18: item 12 lightened from 2,500 characters,
+# the pinned behaviours kept.
+check "review.md's item 12 stays at 1,000 characters or fewer" "yes" \
+  "$([ "$(grep '^12\. \*\*A pull request that creates' "$ROOT/skills/orchestrator/references/review.md" | wc -m | tr -d ' ')" -le 1000 ] && echo yes || echo no)"
+# Rule 158: the agent's own file says it never counts (pinned above), item 12 no longer does.
+check "item 12 relays the agent's lines and leaves the counting rule to the agent" "yes|no" \
   "$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'per the screenshots agent')|$(flat_has "$ROOT/skills/orchestrator/references/review.md" 'the agent audits, it never counts')"
 check "the standing rule has the screenshots agent audit each image again" "yes" \
   "$(flat_has "$ROOT/skills/orchestrator/references/briefs.md" 'The orchestrator has each image audited again by the screenshots agent before its verdict (`references/review.md`, item 12).')"
