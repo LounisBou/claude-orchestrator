@@ -4039,6 +4039,15 @@ check "the launch records the orchestrator --orchestrator names" "1" \
 check "a launch without --orchestrator records none" "0" \
   "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --prompt p 2>&1 | grep -c 'ORCHESTRATOR_REPORTS_TO')"
 
+# The launch recipe the lifecycle reference teaches, its placeholders filled, is a spawn the
+# launcher takes: an agent's tier is its orchestrator's to name, and a recipe without one is
+# refused at every orchestrator's first launch.
+LCRECIPE=$(grep -o 'iterm-agent.sh spawn --dir <that path> [^`]*' "$ROOT/skills/orchestrator/references/lifecycle.md" \
+  | sed -e "s|^iterm-agent.sh spawn ||" -e "s|<that path>|'$WORK'|" -e 's/<light|standard|deep>/light/' -e 's/<subject>/recipe/' \
+        -e "s|<brief path>|'$B/good.md'|" -e "s|<your exact ListAgents name and reference>|$ORCHREF|")
+check "the lifecycle's launch recipe, filled, passes the launcher's dry run" "0|1" \
+  "$(eval "set -- $LCRECIPE"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn "$@" >/dev/null 2>&1; echo $?)|$(eval "set -- $LCRECIPE"; ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn "$@" 2>&1 | grep -c '^launch=')"
+
 # A relative brief path still resolves to the absolute one the fresh session can open.
 # A relative path goes through `os.getcwd()`, which the OS resolves PHYSICALLY (symlinks
 # followed) — `pwd -P`, not the `pwd` used above for an already-absolute path, which
