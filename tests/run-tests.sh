@@ -9699,7 +9699,8 @@ check "an entry answered in the pane is never due, and once closed with round-cl
 check "round refuses a pinned clock that is no UTC time" "exit 1|coordinator: round: COORDINATOR_NOW is no UTC time: soon" \
   "$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round >/dev/null 2>&1; echo "exit $?")|$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round 2>&1)"
 # round --by-urgency lists the same lines, due marked the same, each set ordered urgent first,
-# then by start, across senders: the order a decision round over every orchestrator asks in.
+# then grouped by orchestrator within each level, the groups by their earliest wait in it, each
+# oldest first: the operator's ruling of 2026-10-31 (6.2), the order a decision round asks in.
 USTATE="$WORK/coord-urgency"; UCFG="$WORK/coord-urgency-config"
 mkdir -p "$USTATE/round" "$UCFG/claude-orchestrator/store/sessions"
 for spec in "a0:a:open:10:00:false" "b1:b:open:10:01:true" "b2:b:open:10:02:false" "a3:a:open:10:03:true" \
@@ -9715,33 +9716,33 @@ done
 : > "$UCFG/claude-orchestrator/store/sessions/s-orcha"; : > "$UCFG/claude-orchestrator/store/sessions/s-orchb"
 printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$USTATE/pane.json"
 uround() { ORCHESTRATOR_STATE_DIR="$USTATE" CLAUDE_CONFIG_DIR="$UCFG" COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round "$@" 2>&1; }
-check "round --by-urgency orders each set urgent first, then by start, across senders, due marked as without it" \
+check "round --by-urgency orders each set urgent first, then grouped by orchestrator within each level, oldest first, due marked as without it" \
   "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
 round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
 round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open
-round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
 round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
 round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
 round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
 round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
 round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
   "$(uround --by-urgency | grep '^round ')"
-# Two entries started at the same instant (a7, b6) are ordered by id, whoever wrote first; a
-# withdrawn entry is listed last and never due.
+# A withdrawn entry is listed last and never due.
 check "round --by-urgency with no pane open reads the same order, every open entry due" \
   "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
 round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
 round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open | due
-round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open | due
 round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open | due
 round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
 round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
 round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
 round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
   "$(mv "$USTATE/pane.json" "$WORK/coord-urgency-pane"; uround --by-urgency | grep '^round '; mv "$WORK/coord-urgency-pane" "$USTATE/pane.json")"
-check "round without the flag keeps the round's order, its lines those of --by-urgency, and refuses another argument" \
-  "a0 a3 a7 b1 b2 b6 a4 b5 a8|same lines|exit 1|coordinator: round: unexpected argument --soon" \
-  "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround | sort)" = "$(uround --by-urgency | sort)" ] && echo 'same lines')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
+# One order everywhere, the ruling's (6.2): round without the flag prints what --by-urgency prints.
+check "round without the flag prints the round's one order, the very output of --by-urgency, and refuses another argument" \
+  "b1 a3 a0 a7 b2 b6 a4 b5 a8|same output|exit 1|coordinator: round: unexpected argument --soon" \
+  "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround)" = "$(uround --by-urgency)" ] && echo 'same output')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
 
 echo "== routing: cost =="

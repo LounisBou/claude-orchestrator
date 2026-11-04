@@ -17,7 +17,8 @@
 #   coordinator.sh drop --name "Orch : <subject>"        abandons one for good: removes its record
 #                            and moves its brief into an abandoned/ directory beside it
 #   coordinator.sh round [--by-urgency]   the round's entries still to be ruled: the open ones,
-#                            then the withdrawn; --by-urgency puts the urgent first, then the oldest
+#                            then the withdrawn, the urgent first, each level grouped by sender
+#                            (--by-urgency prints the same order)
 #   coordinator.sh round-close <id> --answer "<text>"   closes one entry with the answer relayed;
 #                            prints "closed <id>"
 #   coordinator.sh round-archive   moves every closed entry into round/archive/; prints
@@ -59,9 +60,9 @@
 # it waits. COORDINATOR_NOW, when the suite pins one, must be a UTC time. The entries are read from
 # <state>/round/<id>.json, one JSON entry per file, written whole by the hooks module at the end
 # of a turn of an orchestrator on this machine (hooks/round.ts); a file that does not parse is
-# skipped. Each set is in the round's order: grouped by sender, the groups by their earliest
-# wait, each in the order its waits began. round --by-urgency prints the same lines, each set
-# ordered urgent entries first, then by start, across senders. An answered entry's lines end on
+# skipped. Each set is in the round's order: the urgent entries first, then the others; within
+# each level grouped by sender, the groups by their earliest wait in it, each in the order its
+# waits began. round --by-urgency prints the same lines in the same order. An answered entry's lines end on
 #     answered from the pane at <UTC time>: <letter> : <choice text>
 # and those of an entry its sender withdrew on
 #     withdrawn by the sender at <UTC time>: <why>
@@ -816,12 +817,14 @@ cmd_round() {
     # An entry whose sender's sessions file is absent keeps its place, and its header says the
     # sender is gone: the session ended with its question still open.
     printf '%s\n' "$entries" | jq -s -r --argjson live "$(live_sessions)" --argjson pane "$pane" --argjson by_urgency "$by_urgency" '
-        # The round order (hooks/round.ts openEntries): grouped by sender, the groups by their
-        # earliest wait, each in the order its waits began.
-        def ordered: (sort_by(.since) | reduce .[] as $e ({}; if has($e.from) then . else .[$e.from] = $e.since end)) as $first
+        # Grouped by sender, the groups by their earliest wait, each in the order its waits began.
+        def grouped: (sort_by(.since) | reduce .[] as $e ({}; if has($e.from) then . else .[$e.from] = $e.since end)) as $first
             | sort_by([$first[.from], .from, .since, .id]);
-        # The order of a decision round over every orchestrator: urgent first, then by start.
-        def by_urgency: sort_by([(.urgent == true | not), .since, .id]);
+        # The round order (hooks/round.ts openEntries), the operator ruling of 2026-10-31 (6.2): the
+        # urgent first, then the others, each level grouped by sender.
+        def ordered: group_by(if .urgent == true then 0 else 1 end) | map(grouped) | add // [];
+        # The order of a decision round over every orchestrator: the same one order.
+        def by_urgency: ordered;
         # The sender is gone when its sessions file is absent; an entry naming no session is not judged.
         def gone: .session | if type == "string" and . != "" then gsub("[^A-Za-z0-9._-]"; "_") as $key | $live | any(. == $key) | not else false end;
         # An open question is due in the tab of the coordinator when its sender marked it urgent, or
