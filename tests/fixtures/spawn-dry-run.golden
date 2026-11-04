@@ -816,37 +816,8 @@ home_window0=Orch : o
 home_tab=right of self
 exit=0
 ### open, tier
-spawn: no server catalogue at @WORK@/state/mcp.json: the session loads no server
-launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && printf '\033]0;%s\007' 'Orch : o' && exec @WORK@/bin/host-cli --effort high --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings --strict-mcp-config --permission-mode auto '--session-id' '<new-session-id>' --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Orch---o-@TIME@.txt)" --name 'Orch : o' --remote-control 'Orch : o'
-effort=high
-pair_source=tier deep
-prompt_file=@WORK@/state/prompts/prompt-Orch---o-@TIME@.txt
-self=/dev/ttys900
-anchor=self
-side=right
-trust=already
-successor=no
-auditor=no
-coordinator_successor=no
-wake=no
-open=yes
-chain=none
-resident=no
-name=Orch : o
-title_free=no
-mcp=none
-mcp_file=none
-account_connectors=no
-synced_skills=removed
-tools_removed=Artifact,SendFeedback,Workflow,ScheduleWakeup,ReportFindings
-remote_control=yes
-mode_check=skipped
-program=/bin/sh -l <launch-file>
-home_server=orch-<new>
-home_conf=skills/iterm-agents/tmux/home.conf
-home_window0=Orch : o
-home_tab=right of self
-exit=0
+ERROR: spawn: refused: --tier is not an opening's: an opened orchestrator runs under its own name, on the model and the effort its order names or the host's default, lands immediately right of you, joins no chain, reads its brief from its prompt and comes up under remote control
+exit=1
 ### open, bound deep tier
 spawn: no server catalogue at @WORK@/state/mcp.json: the session loads no server
 launch=cd @WORK@ && export ORCHESTRATOR_SPAWNED=1 && printf '\033]0;%s\007' 'Orch : o' && exec @WORK@/bin/host-cli --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings --strict-mcp-config --permission-mode auto '--session-id' '<new-session-id>' --settings '{"syncClaudeAiSkills":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off"}}' "$(cat @WORK@/state/prompts/prompt-Orch---o-@TIME@.txt)" --name 'Orch : o' --remote-control 'Orch : o'

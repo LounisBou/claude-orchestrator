@@ -3488,8 +3488,8 @@ for OPFLAG in --successor --auditor --wake '--right-of self' '--left-of /dev/tty
   check "an opening refuses $OPFLAG" "1|0" "$(opn 'Coord : ops' --open --title 'Orch : x' $OPFLAG >/dev/null 2>&1; echo $?)|$(opn 'Coord : ops' --open --title 'Orch : x' $OPFLAG | grep -c '^launch=')"
 done
 check "rotate refuses --open" "1" "$(crdrot --old-tty /dev/ttys901 --open | grep -c -- '--open is not a rotation')"
-check "a tier the opening names wins over the deep default" "1" \
-  "$(ORCHESTRATOR_TIER_STANDARD=std-model opn 'Coord : ops' --open --title 'Orch : x' --tier standard | sed -n 's/^launch=//p' | grep -c -- '--model std-model')"
+check "an opening refuses a tier: its pair is the order's or the host's default" "1|0" \
+  "$(ORCHESTRATOR_TIER_STANDARD=std-model opn 'Coord : ops' --open --title 'Orch : x' --tier standard | grep -c -- "--tier is not an opening's")|$(ORCHESTRATOR_TIER_STANDARD=std-model opn 'Coord : ops' --open --title 'Orch : x' --tier standard | grep -c '^launch=')"
 # Outside a dry run the caller is read from the real process table: the suite's two
 # stand-ins would let any session name itself the coordinator. The directory does not
 # exist, so a launcher that let the stand-ins through still stops short of a tab.
