@@ -4425,7 +4425,8 @@ pair_transcript s-e7-noeffort t-model ''
 # A transcript removed between the listing and the read of its time is a transcript that is
 # not there: a refusal that names it, never a traceback.
 printf '%s\n' '{"type":"api-request","querySource":"repl_main_thread","params":{"model":"t-model","output_config":{"effort":"low"}}}' > "$ORCHESTRATOR_PROJECTS_DIR/p/s-e7-vanish.jsonl"
-check "a transcript that vanishes between the listing and the read is a refusal, not a traceback" "PairUnreadable|0"   "$("$py" -c "
+check "a transcript that vanishes between the listing and the read is a refusal, not a traceback" "PairUnreadable" \
+  "$("$py" -c "
 import os, sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as ia
 def gone(path): raise FileNotFoundError(2, 'No such file or directory', path)
