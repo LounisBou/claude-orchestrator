@@ -3620,8 +3620,10 @@ check "the orchestrator rulebook no longer runs the lookup and the send itself" 
 check "a decision round goes through a running coordinator, carried by the module, and leaves the send to the guard" "yes|yes|no" \
   "$(spells "$ROOT/commands/decide.md" '**While a coordinator runs, the wave goes through it**, carried by the hooks module: each')|$(spells "$ROOT/commands/decide.md" 'question ends its turn as step 2 says, and the module forwards it.')|$(spells "$ROOT/commands/decide.md" 'never send it yourself')"
 # Rule 219: the paragraph on the coordinator, up to its 2026-11-03 sentence, lightened from 650.
-check "the decision round's coordinator paragraph stays at 400 characters or fewer" "yes" \
-  "$([ "$(sed -n '/^\*\*While a coordinator runs, the wave goes through it\*\*/,/^Its answer, verbatim and dated/p' "$ROOT/commands/decide.md" | sed '$d' | wc -m | tr -d ' ')" -le 400 ] && echo yes || echo no)"
+# 400 until the sender's account came back (the operator's ruling of 2026-11-04, « restore
+# everything and fix », after an independent control).
+check "the decision round's coordinator paragraph stays at 450 characters or fewer" "yes" \
+  "$([ "$(sed -n '/^\*\*While a coordinator runs, the wave goes through it\*\*/,/^Its answer, verbatim and dated/p' "$ROOT/commands/decide.md" | sed '$d' | wc -m | tr -d ' ')" -le 450 ] && echo yes || echo no)"
 # The module carries each question; the round sending them itself as well delivered one question twice.
 check "the decision round no longer looks the coordinator up or sends it the questions itself, and stays at 8,800 bytes or fewer" "no|no|0|yes" \
   "$(spells "$ROOT/commands/decide.md" 'coordinator.sh lookup')|$(spells "$ROOT/commands/decide.md" 'goes to that coordinator with `SendMessage`')|$(sed -n '1,5p' "$ROOT/commands/decide.md" | grep -c '^allowed-tools: .*coordinator\.sh')|$([ "$(wc -c < "$ROOT/commands/decide.md" | tr -d ' ')" -le 8800 ] && echo yes || echo no)"
