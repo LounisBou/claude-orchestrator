@@ -5317,6 +5317,18 @@ check "a 20,000-character rulings file beside them changes neither verdict" "yes
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -ge 20000 ] && echo yes || echo no)|$(bash "$LINT" "$WORK/succession-9100-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-9100-big.md" 2>&1 | grep -c '(9100)')|$(bash "$LINT" "$WORK/succession-8900-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-8900-big.md" 2>&1 | grep -c 'warning: rulings file .* characters, over 8000')"
 check "the filled brief with its two-entry rulings file raises no warning" "0" \
   "$(bash "$LINT" "$SUCCFILL" 2>&1 | grep -c 'warning')"
+# Check 17: a state file left unpruned is the journal a successor ends up reading (158,176 bytes
+# at one handover). Past 30,000 characters it is one warning naming the pruning rule, never a
+# refusal; at 29,000 nothing is said.
+state_brief() {  # $1 out brief, $2 the state file's size in characters
+  local f="${1%.md}-state.md"
+  head -c "$2" /dev/zero | tr '\0' 'x' > "$f"
+  sed "s#state file \`/tmp\`#state file \`$f\`#" "$SUCCFILL" > "$1"
+}
+S_BIG="$WORK/succ-state-big.md"; state_brief "$S_BIG" 30001
+S_SMALL="$WORK/succ-state-small.md"; state_brief "$S_SMALL" 29000
+check "a state file past 30,000 characters is one warning naming the pruning rule, not a finding" "1|0|1|1|0" \
+  "$(grep -c "state file \`$WORK/succ-state-big-state.md\`" "$S_BIG")|$(bash "$LINT" "$S_BIG" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$S_BIG" 2>&1 | grep -c 'warning')|$(bash "$LINT" "$S_BIG" 2>&1 | grep -c "warning: state file $WORK/succ-state-big-state.md is 30001 characters, over 30000: prune it, lifecycle item 0")|$(bash "$LINT" "$S_SMALL" 2>&1 | grep -c 'warning')"
 # Check 16 refuses a succession brief whose rulings file is missing or unnamed, and an entry of
 # that file without its date or its « » quote, naming the file's line.
 rulings_brief() {  # $1 out brief, $2 the rulings file's content, or ABSENT for a path to no file
