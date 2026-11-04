@@ -5464,6 +5464,10 @@ check "the lifecycle splits the succession by role, the successor's subsection a
   "$(grep -cx '### Succession — the predecessor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Succession — the successor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Pause, opening and move' "$ORCH_REFS/lifecycle.md")|$(n=$(printf '%s' "$SUCCESSOR_SECTION" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '); [ "$n" -gt 0 ] && [ "$n" -le 3000 ] && echo yes || echo no)"
 check "review and briefs split « Review on evidence » and « Standing rules » into subsections" "yes|yes" \
   "$(awk '/^## Review on evidence$/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/review.md")|$(awk '/^## Standing rules/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/briefs.md")"
+# A successor runs on its predecessor's live pair by --successor alone: the succession line
+# types no --inherit-model, which would read as a choice the successor's pair depends on.
+check "the succession line types --successor without --inherit-model" "0|0|yes|yes" \
+  "$(grep -c -- '--inherit-model' "$ROOT/commands/succeed.md")|$(grep -c -- '--inherit-model' "$ORCH_REFS/lifecycle.md")|$(tr '\n' ' ' < "$ROOT/commands/succeed.md" | tr -s ' ' | grep -qF -- '`iterm-agent.sh spawn --dir <worktree> --permission-mode auto --successor --prompt "Read and execute <brief path>"`' && echo yes || echo no)|$(spells "$ORCH_REFS/lifecycle.md" 'with the brief as startup prompt, passing `--successor` — it runs on your live model and effort, read on your transcript, and `--tier`')"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'five fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'ask it again, verbatim')"
 # The open-questions value sits outside the 9,000-character cap, its label inside: a verbatim
