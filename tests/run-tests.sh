@@ -788,7 +788,7 @@ check "a reference set off by two spaces leaves no trailing space in the owner, 
 
 # A ruling that defers work (« later, when I say so ») is recorded, not left as a question: a row
 # or a goal stays open and carries the operator's words, and the stop gate takes the ending
-# `waiting: deferred — <ids>` once nothing else is open.
+# `waiting: deferred — <n> items` once nothing else is open.
 DD="$WORK/deferred-build"; DR="$DD/dispatch.jsonl"; DG="$DD/goals.md"
 bash "$REC" goals "$DR" init --spec none --goal "first goal" --goal "second goal" --goal "third goal" >/dev/null
 d1=$(bash "$REC" open "$DR" --class x --tier light --label "the mini-tech row")
