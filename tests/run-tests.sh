@@ -333,6 +333,10 @@ check "environment preparation, pipelining and the tab-close row live in the lif
   "$(spells "$ORCH_REFS/lifecycle.md" '**Environment preparation is orchestrator housekeeping**')|$(spells "$ORCH_REFS/lifecycle.md" 'An agent may pipeline only when PR N+1 is dispatched to that same agent')|$(spells "$ORCH_REFS/lifecycle.md" 'The agent acknowledged its stand-down, the tab can close')"
 check "the one-round rule, depth versus scope and the publishing rule live in the review reference" "yes|yes|yes" \
   "$(spells "$ORCH_REFS/review.md" '**One review round, one correction round, and you close it.**')|$(spells "$ORCH_REFS/review.md" '**Depth vs scope**')|$(spells "$ORCH_REFS/review.md" 'a thread closed by a change is answered by the change')"
+# Rule 36 of the rules review: the norms check's findings are triaged like any others, said in
+# review.md, where the round runs it; the rulebook keeps the one line that both readings run.
+check "review.md triages the norms check's findings, its exit code no verdict" "yes|yes|yes" \
+  "$(spells "$ORCH_REFS/review.md" "the norms check's exit code is not a verdict")|$(spells "$ORCH_REFS/review.md" 'keep or drop by pertinence AND severity')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the evidence review AND the project'"'"'s norms check**')"
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$WORK/istate2" bash "$ROOT/skills/iterm-agents/scripts/iterm-agent.sh" spawn --dir "$WORK" --prompt p --left-of /dev/ttys001 --right-of self 2>&1 || true)
 case "$out" in *"mutually exclusive"*) anchors="refused" ;; *) anchors="$out" ;; esac
 check "two anchors are refused at spawn" "refused" "$anchors"
