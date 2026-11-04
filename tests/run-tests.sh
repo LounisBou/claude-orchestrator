@@ -353,9 +353,10 @@ check "the decision round sends the coordinator the account its group opens on" 
 check "briefs.md calls any deviation from the expected behaviour a defect, with its row at once" "yes" \
   "$(spells "$ORCH_REFS/briefs.md" 'A deviation from the expected behaviour is a defect, whoever reports it and however honestly.')"
 # Between the successor's spawn and its takeover the predecessor starts nothing new, and a question
-# of the operator's still gets its line: the rulebook says it, and succeed.md no longer answers nothing.
+# of the operator's still gets its line: the rulebook says it, and succeed.md starts nothing new
+# rather than answering nothing (rule 32's pointer line stays out of it, checked below).
 check "a predecessor starts nothing new and points the operator's question to its successor" "yes|yes|no" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Until its takeover, start nothing new: his question gets one line pointing to it.')|$(spells "$ROOT/commands/succeed.md" "Start nothing new: an operator's question gets one line pointing to the successor.")|$(spells "$ROOT/commands/succeed.md" 'Answer nothing new.')"
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Until its takeover, start nothing new: his question gets one line pointing to it.')|$(spells "$ROOT/commands/succeed.md" '5. Start nothing new. Wait for the successor')|$(spells "$ROOT/commands/succeed.md" 'Answer nothing new.')"
 # Every question reaches the pane, or the coordinator's tab with the pane closed, and the asker's
 # own chat (the operator's ruling of 2026-11-03): the older « asks again only when urgent » is gone.
 check "the decision round shows each question in the pane or the coordinator's tab, never only when urgent" "yes|no" \
