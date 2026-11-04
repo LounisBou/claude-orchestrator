@@ -147,6 +147,16 @@ $SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --eff
     #   without its effort is refused. Lands immediately right of you, joins no chain (chain=none) and
     #   comes up under remote control under its name. Refuses --successor, --auditor, an
     #   anchor, --title-free, --tier, --inherit-model, --resident and --no-remote-control.
+    # --open: a new orchestrator opened on the operator's order, by the session that carries
+    #   it out, never by an agent. `--open` comes right after `spawn`. Needs
+    #   --title "Orch : <subject>" without a reference and a prompt (--prompt or --prompt-file).
+    #   Its pair is the one the order names, --model <id> --effort <level>, or neither: the
+    #   host's default for the session applies. A model alone and an effort alone are refused,
+    #   and so are --tier and --inherit-model: a tier or the caller's own live pair would be a
+    #   pair nobody ordered. Lands immediately right of you, joins no chain (chain=none) and
+    #   comes up under remote control under its name. Refuses every succession flag,
+    #   --wake, an anchor (--right-of, --left-of), --title-free, --resident, --brief,
+    #   --orchestrator and --no-remote-control.
 
 $SCRIPT verify --tty /dev/ttysNNN [--pid <pid>]
     # succeeds with the pid when the host CLI runs on that tty; exit 1 otherwise. With --pid

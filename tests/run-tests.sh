@@ -3553,6 +3553,10 @@ check "the launcher's skill lists the anchor left unnamed where a better place i
 # The launcher refuses any other title shape on its own: the reference states the shape once.
 check "the command reference states the title shape once" "1|no|no" \
   "$(grep -c 'the subject at most 25 characters' "$ITERMCMDS")|$(spells "$ITERMCMDS" 'the spelled-out roles of the older convention')|$(spells "$ITERMCMDS" "because it is the session's name in every listing")"
+# The command reference has an entry for --open: the pair its order names or neither, and the
+# options the launcher refuses beside it.
+check "the command reference has an --open entry: its pair, the half pairs and the tier it refuses" "yes|yes|yes|yes" \
+  "$(spells "$ITERMCMDS" '# --open: a new orchestrator opened on the operator')|$(spells "$ITERMCMDS" '--model <id> --effort <level>, or neither')|$(spells "$ITERMCMDS" 'A model alone and an effort alone are refused')|$(spells "$ITERMCMDS" 'and so are --tier and --inherit-model')"
 # One exception, the operator's order: the rulebook and the decision round route a question for
 # him through a running coordinator. They name it in that one paragraph and nowhere else.
 coordinator_named_in() { # <root>
