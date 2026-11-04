@@ -5675,6 +5675,8 @@ if command -v tmux >/dev/null 2>&1; then
   i=0; while [ ! -s "$TSTATE_E/close.log" ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done
   check "a tab closed ends its server and the watcher writes the dated line: socket, cause, tty" "1" \
     "$(grep -cE "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z home: server $TRSRV ended: cause=exit-unattached .* tty=/dev/ttys977\$" "$TSTATE_E/close.log")"
+  check "and the watcher removes the socket file the exited server left" "absent" \
+    "$([ -e "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$TRSRV" ] && echo present || echo absent)"
   trsrv kill-server 2>/dev/null
   pkill -fx "sleep $TRMARK" 2>/dev/null
   # A close command ends the server itself: one line with the cause close, and no second one

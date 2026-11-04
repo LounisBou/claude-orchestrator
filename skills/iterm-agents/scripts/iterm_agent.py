@@ -3151,6 +3151,11 @@ def cmd_home_watch(argv):
         time.sleep(poll)
     while alive():
         time.sleep(poll)
+    # The server exited by itself and nothing answers on its file: tmux leaves it behind.
+    try:
+        os.remove(home_socket_path(args.socket))
+    except OSError:
+        pass
     marker = home_end_marker(args.socket)
     if os.path.exists(marker):
         os.remove(marker)
