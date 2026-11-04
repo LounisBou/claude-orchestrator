@@ -2995,3 +2995,69 @@ test('a git that hangs holds no render: the origin read is bounded, and a render
     expect(fx.written.filter(l => l.includes('pane: the render took')).length).toBe(1)
   }
 })
+
+// A pane redraws every few seconds: a render past its bound is said once per crossing of it, not
+// at every redraw while the reads stay slow.
+test('renders past their bound are logged once per crossing of it', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify({ ...row({ role: 'orchestrator', name: 'Orch : low' }), pid: '501' }) + '\n')
+  const run = fx.dollar.process.run
+  let skew = 0
+  let slow = true
+  fx.dollar.process.run = async (argv: readonly string[], init?: { timeoutMs?: number }) => {
+    if (argv[0] === 'ps' && slow) skew += 6000
+    return run(argv, init)
+  }
+  fx.dollar.clock.now = async () => Date.now() + skew
+  const { handlers } = mounted(registerSupervision)
+  await coordinatorRender(fx, handlers)
+  await redraw(fx, handlers)
+  await redraw(fx, handlers)
+  const said = () => fx.written.filter(l => l.includes('pane: the render took')).length
+  expect(said()).toBe(1)
+  slow = false
+  await redraw(fx, handlers)
+  slow = true
+  await redraw(fx, handlers)
+  await redraw(fx, handlers)
+  expect(said()).toBe(2)
+})
+
+// This session's repository is read once and kept: a read that timed out is no answer, and the
+// next render reads it again, while one that answered is never read twice.
+test('an origin read that timed out is read again at the next render, one that answered is kept', async () => {
+  const fx = fakeDollar({ launchName: 'Coord : main' })
+  fx.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low' })) + '\n')
+  let gits = 0
+  let answer: 'thrown' | 'ended' | 'none' | 'origin' = 'thrown'
+  const gitAnswering = (run: Function) => async (argv: readonly string[], init?: { timeoutMs?: number }) => {
+    if (argv[0] !== 'git') return run(argv, init)
+    gits++
+    if (answer === 'thrown') throw new Error(`still running after ${init?.timeoutMs} ms`)
+    // Ended at its bound by a signal, before it printed a word.
+    if (answer === 'ended') return { exitCode: 143, stdout: '', stderr: '' }
+    if (answer === 'none') return { exitCode: 2, stdout: '', stderr: "error: No such remote 'origin'\n" }
+    return { exitCode: 0, stdout: 'git@github.com:Owner/repo.git\n', stderr: '' }
+  }
+  fx.dollar.process.run = gitAnswering(fx.dollar.process.run)
+  const { handlers } = mounted(registerSupervision)
+  await coordinatorRender(fx, handlers)
+  expect(gits).toBe(1)
+  answer = 'ended'
+  await redraw(fx, handlers)
+  expect(gits).toBe(2)
+  answer = 'origin'
+  await redraw(fx, handlers)
+  expect(gits).toBe(3)
+  await redraw(fx, handlers)
+  expect(gits).toBe(3)
+  // No origin is an answer too: kept, never read again.
+  const bare = fakeDollar({ launchName: 'Coord : main' })
+  bare.files.set(`${SESSIONS}/low`, JSON.stringify(row({ role: 'orchestrator', name: 'Orch : low' })) + '\n')
+  bare.dollar.process.run = gitAnswering(bare.dollar.process.run)
+  answer = 'none'
+  const fresh = mounted(registerSupervision).handlers
+  await coordinatorRender(bare, fresh)
+  await redraw(bare, fresh)
+  expect(gits).toBe(4)
+})

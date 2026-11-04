@@ -1340,8 +1340,11 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
   const pane: PaneMemory = { opened: null, ticker: null, other: new Set(), writing: null, forgotten: new Set(), answering: new Set() }
   // The entry whose recommended choice was last asked the focus: once per entry, never at a redraw.
   let focusedFor: string | null = null
-  // This session's own repository, read once: its owner names the pull requests the pane links.
-  let ownRepo: Promise<string | null> | null = null
+  // This session's own repository, read once it answers: its owner names the pull requests the
+  // pane links. A read that did not answer is no answer, and the next render reads it again.
+  let ownRepo: Promise<string | null | undefined> | null = null
+  // Whether the last render went past its bound: a slow render is said once per crossing of it.
+  let renderSlow = false
   const stopTicker = () => {
     pane.ticker?.cancel()
     pane.ticker = null
@@ -1716,7 +1719,9 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
         const local = store.rows
         const merged = withRemote(local, await readRemoteRows($), Date.now(), REMOTE_STALE_AFTER_MS)
         blocks = paneRows(Object.fromEntries(Object.entries(merged).filter(([, row]) => row.role === 'orchestrator')))
-        owners = repositoryOwners([await (ownRepo ??= repoOf($)), ...Object.values(merged).flatMap(row => [row.repo, ...((row as { prs?: unknown }).prs instanceof Array ? (row as { prs: string[] }).prs : [])])])
+        const repo = await (ownRepo ??= repoRead($))
+        if (repo === undefined) ownRepo = null
+        owners = repositoryOwners([repo ?? null, ...Object.values(merged).flatMap(row => [row.repo, ...((row as { prs?: unknown }).prs instanceof Array ? (row as { prs: string[] }).prs : [])])])
         none = WORDS.noOrchestrator
         // A question whose sender has ended has no one left to answer: only the entries of a
         // session with a live row are drawn, and counted, or of a successor an entry was moved to
@@ -2152,7 +2157,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       return next(e)
     } finally {
       const took = await clockNow($) - started
-      if (took > PANE_RENDER_BOUND_MS) await logLine($, `pane: the render took ${took} ms, past its bound of ${PANE_RENDER_BOUND_MS} ms`)
+      if (took > PANE_RENDER_BOUND_MS && !renderSlow) await logLine($, `pane: the render took ${took} ms, past its bound of ${PANE_RENDER_BOUND_MS} ms`)
+      renderSlow = took > PANE_RENDER_BOUND_MS
     }
   }).catch(async ($: any, e: any, next: any) => {
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
@@ -3649,11 +3655,18 @@ async function transcriptPathOf($: any, sessionId: string): Promise<string> {
 // repository, never a failure. Bounded (REPO_READ_MS): it runs in the pane's
 // render, and a git that hangs held the render for the host's default 30 s.
 async function repoOf($: any): Promise<string | null> {
+  return (await repoRead($)) ?? null
+}
+
+// The same read, undefined when git gave no answer — it could not run, or was ended at its bound
+// before it said anything — a value the render does not keep. No origin, or no checkout, is git's
+// own answer: its `error:` or `fatal:` line.
+async function repoRead($: any): Promise<string | null | undefined> {
   try {
     const remote = await $.process.run(['git', 'remote', 'get-url', 'origin'], { timeoutMs: REPO_READ_MS })
-    if (remote.exitCode !== 0) return null
+    if (remote.exitCode !== 0) return /^(?:error|fatal):/m.test(String(remote.stderr ?? '')) ? null : undefined
     return /[:/]([^/:]+\/[^/]+?)(?:\.git)?$/.exec(String(remote.stdout ?? '').trim())?.[1] ?? null
   } catch {
-    return null
+    return undefined
   }
 }
