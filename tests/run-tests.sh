@@ -319,12 +319,15 @@ check "the decision round, the rulebook and the coordinator's skill keep every q
 # rulebook and the phase brief template each carry the rule.
 check "the rulebook stops real machine load an agent reports or plans" "yes" \
   "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'is stopped at once, its processes killed, and the work redone under emulated throttling')"
-# Row 151, topic 1: the duties are condensed and the third-ask ritual is gone, from the rulebook
-# and from the succession brief's copy. Rule 19: the successor's re-announce lives in the
-# succession brief's step 3, not in the rulebook. Topic 8: the merge and undraft rule is said
+# Row 151, topic 1: the duties are condensed, in the rulebook and in the succession brief's copy.
+# The third ask, whose ritual topic 1 had removed, is back in short form in both, with the offer of a
+# fresh session when the question had gone unanswered: the operator's ruling of 2026-11-04,
+# « restore everything and fix », after an independent control, reverses that removal. Rule 19:
+# the successor's re-announce lives in the succession brief's step 3, not in the rulebook. Topic 8: the merge and undraft rule is said
 # once, in the rulebook, without his quote; review.md and the routing skill carry no copy.
-check "the rulebook and the succession brief carry no third-ask ritual and none of the duties' long prose" "no|no|no|no|no" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the third ask of the same question, re-read your own')|$(spells "$SUCC" 'On the third ask of the same')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Seven duties.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A question he has to ask twice is already a')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'delivering a better A')"
+THIRD_ASK="On the third ask, re-read your messages: answered, repeat the answer alone, at the top; else say you failed, answer, offer the hand-over to a fresh session."
+check "the rulebook and the succession brief keep the third ask in short form and none of the duties' long prose" "yes|yes|no|no|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" "$THIRD_ASK")|$(spells "$SUCC" "$THIRD_ASK")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'Seven duties.')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'A question he has to ask twice is already a')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'delivering a better A')"
 # Rule 7: rename_session refuses a subject over 25 characters (hooks/tests/naming.test.ts), so the
 # rulebook no longer states the limit.
 check "the rulebook leaves the subject's length to rename_session" "no" \
