@@ -2581,14 +2581,14 @@ async function failMismatched($: any, path: string, entry: RoundEntry): Promise<
 // or not: an entry `coordinator.sh round-close` closed with a delivery pending and never sent is
 // sent once — to its sender's session on this machine (deliverLocal), or as a marked line to
 // another machine (sendAnswer, its resends then resendAnswers') — and its outcome written in its
-// delivery. A failure of one entry is one log line, and the others are still read.
+// delivery. One `round-close --withdraw` closed is told as a withdrawal (coordinatorClosedText). A failure of one entry is one log line, and the others are still read.
 async function deliverClosedAnswers($: any): Promise<void> {
   for (const { path, entry } of await readRound($)) {
     const delivery = entry.delivery
     if (entry.kind !== 'operator' || entry.status !== 'closed' || entry.answer?.by !== 'coordinator' || delivery?.state !== 'pending' || delivery.attempts !== 0) continue
     try {
       if (entry.origin) await sendAnswer($, path, entry, entry.answer.text)
-      else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorAnswerText(entry, entry.answer.text, entry.answer.at))
+      else if (delivery.answerAt === entry.answer.at) await deliverLocal($, path, entry, coordinatorClosedText(entry, entry.answer.text, entry.answer.at))
       else await failMismatched($, path, entry)
     } catch (err) {
       await logLine($, `round delivery: ${entry.id}: ${(err as Error).message}`)
@@ -2606,7 +2606,7 @@ async function sendAnswer($: any, path: string, entry: RoundEntry, text: string)
   const carried = cutQuestion(text)
   let reason: string | null = null
   try {
-    const readable = (entry.answer!.by === 'coordinator' ? coordinatorAnswerText : paneAnswerText)(entry, carried, at)
+    const readable = (entry.answer!.by === 'coordinator' ? coordinatorClosedText : paneAnswerText)(entry, carried, at)
     const sent = await $.session.send({ to: entry.origin!.address, text: answerLine(entry.id, entry.since, carried, at, readable) })
     if (!sent?.isDelivered) reason = sent?.reason ?? 'no answer'
   } catch (err) {
@@ -2691,6 +2691,19 @@ export function paneAnswerText(entry: RoundEntry, answer: string, at: string): s
 // The same report for his answer the coordinator closed in its tab with round-close.
 export function coordinatorAnswerText(entry: RoundEntry, answer: string, at: string): string {
   return `[module] The operator answered through the coordinator at ${at} — ${answer} (question since ${entry.since}, blocks: ${entry.blocks})`
+}
+
+// What the sender of a question `round-close --withdraw` closed is told: that the coordinator
+// withdrew it, settled meanwhile, and the evidence it read on the artifact — never that the
+// operator answered it (the operator's ruling 6.1 of 2026-10-31).
+export function withdrawnText(entry: RoundEntry, evidence: string): string {
+  return `[module] The coordinator withdrew your question since ${entry.since}, settled meanwhile: ${evidence} (blocks: ${entry.blocks})`
+}
+
+// The message for an entry the coordinator closed: a withdrawal when its answer carries the
+// evidence of one, the operator's answer otherwise.
+function coordinatorClosedText(entry: RoundEntry, answer: string, at: string): string {
+  return typeof entry.answer?.evidence === 'string' ? withdrawnText(entry, entry.answer.evidence) : coordinatorAnswerText(entry, answer, at)
 }
 
 // The orchestrator acted on an answer that reached it by a message (a relay from another session):

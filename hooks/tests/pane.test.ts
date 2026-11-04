@@ -2549,6 +2549,36 @@ test('an answer round-close wrote reaches its sender once, at the round\'s readi
   expect(sent.length).toBe(1)
 })
 
+// The operator's ruling 6.1 of 2026-10-31: a question settled meanwhile is withdrawn on the
+// evidence read on the artifact, and its sender is told — that it was withdrawn and why, never
+// that the operator answered it.
+function withdrawnByCoordinator(asked: RoundEntry, evidence: string): RoundEntry {
+  const closed = closedByCoordinator(asked, `withdrawn: settled meanwhile — ${evidence}`)
+  return { ...closed, answer: { ...closed.answer!, evidence } } as RoundEntry
+}
+
+test('a question round-close --withdraw closed tells its sender it was withdrawn, with the evidence, never that it was answered', async () => {
+  const asked = withdrawnByCoordinator(entry('Orch : a', minutesAgo(1), { session: 'sa' }), '#12 merged at 10:04Z')
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  await tick()
+  expect(sent).toEqual([{
+    to: { sessionId: 'sa' },
+    text: `[module] The coordinator withdrew your question since ${asked.since}, settled meanwhile: #12 merged at 10:04Z (blocks: phase 3)`,
+  }])
+  expect(storedIn(fx, asked.id).delivery!.state).toBe('delivered')
+})
+
+test('a question round-close --withdraw closed from another machine carries the withdrawal in its marked line', async () => {
+  const asked = withdrawnByCoordinator(remoteEntry({ since: minutesAgo(1) }), '#12 merged at 10:04Z')
+  const { fx, tick } = await wakingCoordinator([asked])
+  const sent = sends(fx)
+  await tick()
+  expect(sent.length).toBe(1)
+  expect(sent[0].text).toContain(`The coordinator withdrew your question since ${asked.since}, settled meanwhile: #12 merged at 10:04Z`)
+  expect(sent[0].text).not.toContain('The operator answered')
+})
+
 test('an answer round-close wrote that the host refuses is written failed on disk, sent once, and a fresh module\'s pane says it', async () => {
   const asked = closedByCoordinator(entry('Orch : low', minutesAgo(1), { session: 'low' }))
   const { fx, tick } = await wakingCoordinator([asked])

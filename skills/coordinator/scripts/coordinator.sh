@@ -21,6 +21,8 @@
 #                            (--by-urgency prints the same order)
 #   coordinator.sh round-close <id> --answer "<text>"   closes one entry with the answer relayed;
 #                            prints "closed <id>"
+#   coordinator.sh round-close <id> --withdraw "<evidence>"   closes one entry settled meanwhile,
+#                            on the evidence read on the artifact; prints "closed <id>"
 #   coordinator.sh round-archive   moves every closed entry into round/archive/; prints
 #                            "archived <n>"
 #
@@ -75,7 +77,9 @@
 # is printed, so the entry is closed with it.
 # round records the ids of the open entries it printed in <state>/round-listed.json (record_listed).
 # round-close rewrites the entry with status closed and the answer {text, by "coordinator", at},
-# in one rename, and refuses an id with no entry. An entry still open and of kind operator, whose sender waits on that
+# in one rename, and refuses an id with no entry. With --withdraw the answer's text is
+# « withdrawn: settled meanwhile — <evidence> » and the answer also holds the evidence, so the
+# module tells the sender its question was withdrawn, with the evidence, never that it was answered. An entry still open and of kind operator, whose sender waits on that
 # answer, also gets its delivery pending, stamped as the answer ({state "pending", at, attempts 0},
 # with answerAt for a sender on this machine): the coordinator's hooks module sends the answer at
 # its next round reading and writes the outcome there, so the close is the one gesture.
@@ -905,22 +909,28 @@ forget_relayed() {
 }
 
 cmd_round_close() {
-    local id="${1:-}" answer="" has_answer=0
-    [ -n "$id" ] && shift || die 'round-close: usage: round-close <id> --answer "<text>"'
+    local id="${1:-}" answer="" has_answer=0 evidence="" has_evidence=0
+    local usage='round-close: usage: round-close <id> --answer "<text>" | --withdraw "<evidence>"'
+    [ -n "$id" ] && shift || die "$usage"
     while [ $# -gt 0 ]; do
         case "$1" in
             --answer) [ $# -ge 2 ] || die "round-close: --answer needs a value"; answer="$2"; has_answer=1; shift 2 ;;
+            --withdraw) [ $# -ge 2 ] && [ -n "$2" ] || die "round-close: --withdraw needs the evidence read on the artifact"
+                evidence="$2"; has_evidence=1; shift 2 ;;
             *) die "round-close: unknown option $1" ;;
         esac
     done
-    [ "$has_answer" = 1 ] || die 'round-close: usage: round-close <id> --answer "<text>"'
+    [ $((has_answer + has_evidence)) = 1 ] || die "$usage"
     # An id names a file of the round, never a path: the module's ids are sanitised the same way.
     printf '%s' "$id" | grep -qE '^[A-Za-z0-9._-]+$' && [ "$id" != . ] && [ "$id" != .. ] \
         || die "round-close: no entry $id in $ROUND"
     local path="$ROUND/$id.json" closed tmp
-    closed=$(jq -c --arg id "$id" --arg text "$answer" --arg at "$(now)" \
+    # A withdrawal is closed as an answer is, its evidence kept beside the text: the module tells
+    # the sender its question was withdrawn, never that the operator answered it.
+    [ "$has_evidence" = 1 ] && answer="withdrawn: settled meanwhile — $evidence"
+    closed=$(jq -c --arg id "$id" --arg text "$answer" --arg at "$(now)" --arg evidence "$evidence" --argjson withdraw "$has_evidence" \
         'select(type == "object" and .id == $id) | (.status == "open") as $open
-         | .status = "closed" | .answer = {text: $text, by: "coordinator", at: $at}
+         | .status = "closed" | .answer = ({text: $text, by: "coordinator", at: $at} + (if $withdraw == 1 then {evidence: $evidence} else {} end))
          | if $open and .kind == "operator" then .delivery = ({state: "pending", at: $at, attempts: 0} + (if .origin then {} else {answerAt: $at} end)) else . end' \
         "$path" 2>/dev/null) && [ -n "$closed" ] || die "round-close: no entry $id in $ROUND"
     # As the module writes it: a temporary file beside it, then one rename.
