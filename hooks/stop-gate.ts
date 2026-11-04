@@ -67,17 +67,17 @@ export async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T |
 
 const MALFORMED = 'Your last line is not the machine line: end the message with the line '
   + 'waiting: operator — blocks: <what it blocks>, or with waiting: done, '
-  + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <ids>, '
+  + 'or, if the operator deferred it, his ruling recorded: waiting: deferred — <n> rows (or <ids>), '
   + "as the message's last line, no markup. "
   + 'waiting: tool — <what is watched> fits only while a command or monitor you started runs in the background.'
 const DEFERRED_MALFORMED = 'Your last line is not the machine line: a deferred ending names what is deferred. '
-  + 'End the message with the line waiting: deferred — <ids> (rows by their number, goals as G<n>), '
+  + 'End the message with the line waiting: deferred — <n> rows (or <ids>) (rows by their number, goals as G<n>), '
   + "as the message's last line, no markup."
 // The lines that fit a turn, by what will wake it: what the two refusals below name.
 const BUSY_FITS = 'An agent of yours is busy: end on no machine line, its idle notice wakes you.'
 const OTHER_FITS = 'If a question for the operator truly blocks, end with the line waiting: operator — blocks: <what it blocks>; '
   + 'if every goal is met or ruled out, with waiting: done; '
-  + 'if the operator deferred it, his ruling recorded: waiting: deferred — <ids>; else launch what you announced.'
+  + 'if the operator deferred it, his ruling recorded: waiting: deferred — <n> rows (or <ids>); else launch what you announced.'
 const runningFits = (what: readonly string[]) =>
   `${what.join(', ')} runs in the background: end with the line waiting: tool — <what is watched>.`
 function fits(busy: boolean, running: readonly string[]): string {
@@ -93,7 +93,7 @@ const NOT_DONE_MANY = 'Not done: %s are still there. Finish them, or say what bl
 // The deferral path beside the others: work the operator put off is recorded with his ruling
 // and ended on its own machine line, never put to him again as a question.
 const DEFER_ROW = 'record his ruling with dispatch-record.sh defer <record> <id> --ruling "<his words, dated>" '
-  + 'and end on waiting: deferred — <ids>'
+  + 'and end on waiting: deferred — <n> rows (or <ids>)'
 const ROW_ONE = `Not done: row %s is open%p. Dispatch it, close it, or say what blocks it — or, if the operator deferred it, ${DEFER_ROW}.`
 const ROW_MANY = `Not done: rows %s are open%p. Dispatch them, close them, or say what blocks them — or, if the operator deferred them, ${DEFER_ROW}.`
 // The spec's goals (goals.md beside a registered record, read by goals.py check): done is
@@ -101,8 +101,8 @@ const ROW_MANY = `Not done: rows %s are open%p. Dispatch them, close them, or sa
 const GOALS_OPEN = 'Not done against the spec: %s open%p. Dispatch the work that meets it and record its evidence '
   + '(dispatch-record.sh goals <record> met <G> --evidence …), or put it to the operator when he has not ruled: '
   + 'waiting: operator — blocks: <G>: <what he must rule> — or, if he deferred it, record his ruling with '
-  + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <ids>.'
-const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <ids>, not on waiting: done.'
+  + 'dispatch-record.sh goals <record> defer <G> --ruling "<his words, dated>" and end on waiting: deferred — <n> rows (or <ids>).'
+const DEFERRED_STILL = 'Not done: %s deferred by the operator, still open. End on waiting: deferred — <n> rows (or <ids>), not on waiting: done.'
 const COUNT_WRONG = 'waiting: deferred — <n> rows must give the number of deferred rows (and G<n>, the number of deferred goals): the right line is waiting: deferred — %s.'
 const IDS_WRONG = 'waiting: deferred — <n> rows (plus G<m> for deferred goals), or <ids>, must name every deferred item (rows by their number, goals as G<n>): %s.'
 const NOTHING_DEFERRED = 'Nothing is deferred: no open row or goal carries the operator\'s ruling. '
