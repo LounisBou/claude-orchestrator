@@ -1176,11 +1176,13 @@ async function tellNew($: any, read: readonly RoundEntry[], present: ReadonlySet
     const told = (await readIds($, path)).filter(id => present.has(id))
     const fresh = read.filter(entry => entry.status === 'open' && entry.kind === 'operator' && !told.includes(entry.id))
     if (fresh.length === 0) return
+    // Each id written as soon as its line is drawn: a later line the host refuses never draws
+    // the earlier ones twice.
     for (const entry of fresh) {
       $.ui.log(toldText(entry))
       told.push(entry.id)
+      await writeAtomic($, path, JSON.stringify(told) + '\n')
     }
-    await writeAtomic($, path, JSON.stringify(told) + '\n')
   } catch (err) {
     await logLine($, `round told: ${(err as Error).message}`)
   }
