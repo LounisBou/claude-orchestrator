@@ -4189,7 +4189,8 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
         # A succession of any role runs on its caller's live pair, with or without the flag:
         # the successor of an orchestrator or of an auditor, an auditor, the coordinator's
         # successor, and an agent spawned with --inherit-model.
-        model, effort, path = own_pair("a successor, an auditor or an inheriting spawn")
+        model, effort, path = args.caller_pair or own_pair(
+            "a successor, an auditor or an inheriting spawn")
         return model, effort, "transcript %s" % path
     if args.wake:
         if args.resume:
@@ -4503,6 +4504,11 @@ def cmd_spawn(argv, pair_from=""):
     # tier that does not resolve is refused first, and carrying the pair must not change
     # which refusal comes first. Read once, so a map's warning is said once.
     args.tier_bound = resolve_tier_pair(args.tier) if args.tier else None
+    # So is the caller's pair, for the launches that always read it there: an inheriting
+    # agent, an auditor and the coordinator's successor.
+    args.caller_pair = (own_pair("a successor, an auditor or an inheriting spawn")
+                        if args.inherit or args.auditor or args.coordinator_successor
+                        else None)
     # The anchor first, before a prompt file is written or a trust record changed: an
     # anchor that is not there is a refusal, and a refusal must leave nothing behind.
     side = "right" if args.right_of else "left"
