@@ -290,8 +290,9 @@ check "the rulebook carries no red-flag list and no pointer list" "0|0" \
 # 21,446 until the hand-over sentence naming the successor to the agents (item 154, « A », 2026-10-19).
 # 21,619 until the deferred ending (the operator's order of 2026-10-29).
 # 21,700 until the rules review: the rules a tool enforces removed, the rest condensed.
-check "the orchestrator rulebook stays at 10,500 bytes or fewer" "yes" \
-  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10500 ] && echo yes || echo no)"
+# 10,500 until the two locks, the coordinator's question format and the naming hold left it.
+check "the orchestrator rulebook stays at 10,300 bytes or fewer" "yes" \
+  "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10300 ] && echo yes || echo no)"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
