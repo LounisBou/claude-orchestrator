@@ -1088,6 +1088,34 @@ check_status "a --none row needs no audit" 0 srec ready "$A" "$a3" --head aaa111
 srec audit "$A" "$a3" --head aaa1111 --images 1 --defect "an unrelated defect" >/dev/null
 check_status "a --none row is not held to an audit's defect" 0 srec ready "$A" "$a3" --head aaa1111 --e2e "$E2EOK"
 check_status "audit without --head is an error" 1 bash "$REC" audit "$A" "$a1" --images 2
+# Code is not an image. An `<img ...>` written as inline code, or inside a fenced block, is
+# text to Markdown, and counting it made `ready` refuse an audit that had covered every
+# image the description renders. An image outside code still counts, markdown or HTML.
+IMGS4=$'![a](https://github.com/user-attachments/assets/a)\n![b](https://github.com/user-attachments/assets/b)\n![c](https://github.com/user-attachments/assets/c)\n![d](https://github.com/user-attachments/assets/d)\n'
+printf 'The attack `<img src=x onerror="alert(1)">` is escaped.\n\n%s' "$IMGS4" > "$SURFACE_BODIES/15"
+printf 'Four images.\n\n%s\n```html\n<img src=x onerror="alert(1)">\n![fake](https://example.test/fake.png)\n```\n\n~~~\n<img width="1">\n~~~\n' "$IMGS4" > "$SURFACE_BODIES/16"
+printf 'One image.\n\n![a](https://github.com/user-attachments/assets/a)\n\nA span ``with a ` and <img src=x>`` and `<img src=y>`, then <img src="z" /> for real.\n' > "$SURFACE_BODIES/17"
+printf 'One image.\n\n![a](https://github.com/user-attachments/assets/a)\n\nAn unclosed ` backtick and <img src="z" /> for real.\n\n```\n<img src=never-closed>\n' > "$SURFACE_BODIES/18"
+C="$WORK/code.jsonl"
+c1=$(srec open "$C" --class behaviour-phase --tier standard --label "inline code")
+srec surface "$C" "$c1" --ui acme/front#15 >/dev/null
+srec review "$C" "$c1" --head aaa1111 --norms tool >/dev/null
+srec audit "$C" "$c1" --head aaa1111 --images 4 >/dev/null
+check_status "an <img> in inline code is not counted: four images, audited four, ready" 0 srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK"
+check "and the ready line counts four" "1" \
+  "$(srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '4 screenshot(s) on acme/front#15')"
+srec surface "$C" "$c1" --ui acme/front#16 >/dev/null
+check_status "an <img> and an image inside fenced blocks are not counted" 0 srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK"
+check "and the ready line counts four there too" "1" \
+  "$(srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '4 screenshot(s) on acme/front#16')"
+srec surface "$C" "$c1" --ui acme/front#17 >/dev/null
+srec audit "$C" "$c1" --head aaa1111 --images 1 >/dev/null
+check_status "an <img> outside code still counts after code spans are skipped" 1 srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK"
+check "and the count is two" "1" \
+  "$(srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK" 2>&1 | grep -c 'ready: the audit covers 1 image(s), the description of acme/front#17 carries 2: audit every image')"
+srec surface "$C" "$c1" --ui acme/front#18 >/dev/null
+check "an unclosed backtick is literal and an unclosed fence runs to the end" "1" \
+  "$(srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK" 2>&1 | grep -c 'ready: the audit covers 1 image(s), the description of acme/front#18 carries 2: audit every image')"
 check_status "audit with a head too short to identify a commit is an error" 1 bash "$REC" audit "$A" "$a1" --head abc123 --images 2
 check_status "audit without --images is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111
 check_status "audit with --images 0 is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111 --images 0
