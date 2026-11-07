@@ -3705,6 +3705,11 @@ check "the round puts the urgent first, then groups its questions by the orchest
 # round's own order.
 check "the skill and the design say the pane draws the questions with choices first, in the round's order" "yes|no|yes|no" \
   "$(spells "$COORDSKILL" 'the pane draws those with lettered choices first, each set in that order')|$(spells "$COORDSKILL" 'in the pane and with `--by-urgency` alike')|$(spells "$ROOT/docs/design.md" 'the pane drawing those with lettered choices first, each set in that order')|$(spells "$ROOT/docs/design.md" "the round's and the pane's own")"
+# Topic 6.3, the operator's ruling of 2026-10-31: the answer a round-close leaves pending is sent
+# once that command has run in the coordinator's session (hooks/supervision.ts registerCloseRelay),
+# the round's next reading taking only what it left; the script's header and the design say so.
+check "the header and the design send a closed answer once round-close has run, not at the next reading" "yes|no|yes|no" \
+  "$(spells "$ROOT/skills/coordinator/scripts/coordinator.sh" "hooks module sends the answer as soon as that round-close has run in")|$(spells "$ROOT/skills/coordinator/scripts/coordinator.sh" "the coordinator's hooks module sends the answer at")|$(spells "$ROOT/docs/design.md" 'sends that answer as soon as the command has run in its session')|$(spells "$ROOT/docs/design.md" 'sends that answer at its next round reading')"
 check "coordinator-decide orders its round as the skill does, never across senders" "yes|no" \
   "$(spells "$ROOT/commands/coordinator-decide.md" 'the urgent level first, then within each level the questions grouped by')|$(spells "$ROOT/commands/coordinator-decide.md" 'with no grouping by orchestrator')"
 check "the round names the coordinator and each sender, and opens each group with the sender's own context" "yes|yes|yes|yes|yes" \
