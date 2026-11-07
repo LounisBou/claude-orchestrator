@@ -33,7 +33,7 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 | Plan: before planning phases or dispatching one | `references/briefs.md` › « Prerequisites and phase rules » |
 | Brief: before writing a brief | `references/briefs.md` › « Agent prompt recipe » |
 | Launch, verify, terminate, replace: before spawning by any route, dispatching to a running agent, standing down, closing, rotating | `references/lifecycle.md` › « The agents' lifecycle is yours » |
-| Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it. | `references/lifecycle.md` › « Succession — the predecessor »; a takeover reads none: its brief carries the steps |
+| Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it. | `references/lifecycle.md` › « Succession — the predecessor »; a takeover: its brief, then › « Succession — the successor » |
 | Review: before a review or comments round, a verdict, recording a round, telling him « ready », the rebase once ready | `references/review.md` › « The checks » |
 | CI watch: when a pull request you own is opened or its head moves | `references/review.md` › « Checks, in one background watch » |
 
