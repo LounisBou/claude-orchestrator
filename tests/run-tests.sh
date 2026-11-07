@@ -8200,6 +8200,23 @@ check "sync leaves a current copy, a foreign file and a removed one as they are"
   "$(date -r "$SNS/coordinator.md" +%Y%m%d%H%M)|$(tail -1 "$SNS/orchestrator-status.md")|$([ -f "$SNS/orchestrator-decide.md" ] && echo present || echo absent)"
 check "sync on a directory that does not exist writes nothing and succeeds" "0|none" \
   "$(bash "$ROOT/short-commands.sh" sync --dir "$WORK/no-such-dir" >/dev/null 2>&1; echo $?)|$([ -d "$WORK/no-such-dir" ] && echo created || echo none)"
+# A row dropped from the table leaves its copy behind on every machine that installed it, and
+# the hook no longer answers that name: install, sync and uninstall remove a marked file that
+# matches no row, and leave an unmarked file of the same name, the operator's, as it is.
+for snmode in install sync uninstall; do
+  SNP="$WORK/short-prune-$snmode"; mkdir -p "$SNP/marked" "$SNP/unmarked"
+  printf -- '---\n%s\ndescription: a dropped command\n---\nstale\n' "$SNMARK" > "$SNP/marked/coordinator-supervision.md"
+  printf -- '---\ndescription: my own command\n---\nmine\n' > "$SNP/unmarked/coordinator-supervision.md"
+  snout=$(bash "$ROOT/short-commands.sh" "$snmode" --dir "$SNP/marked" 2>&1)
+  bash "$ROOT/short-commands.sh" "$snmode" --dir "$SNP/unmarked" >/dev/null 2>&1
+  check "$snmode removes a marked copy no row names, says it, and keeps an unmarked one" "absent|1|mine" \
+    "$(present "$SNP/marked/coordinator-supervision.md")|$(printf '%s\n' "$snout" | grep -c "stale short command removed: $SNP/marked/coordinator-supervision.md")|$(tail -1 "$SNP/unmarked/coordinator-supervision.md")"
+done
+SNP="$WORK/short-prune-dry"; mkdir -p "$SNP"
+printf -- '---\n%s\ndescription: a dropped command\n---\nstale\n' "$SNMARK" > "$SNP/coordinator-supervision.md"
+snout=$(bash "$ROOT/short-commands.sh" uninstall --dry-run --dir "$SNP" 2>&1)
+check "a dry run lists a marked copy no row names and removes nothing" "present|1" \
+  "$(present "$SNP/coordinator-supervision.md")|$(printf '%s\n' "$snout" | grep -c "\[dry-run\] stale short command removed: $SNP/coordinator-supervision.md")"
 
 # A text read before the installer ran cannot name a command the installer writes: the short
 # form does not exist on a fresh machine, the plugin's own `orchestrator:install` does.
