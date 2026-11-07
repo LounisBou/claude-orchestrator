@@ -24,7 +24,7 @@
 # has no use for the statistics. `--ids` narrows it to one `<state>=<count>` line per state, then
 # `ids: <id> <id> ...`, no label; `--label <ids>` prints the full line of the open rows named,
 # nothing else, and says on stderr which named row is closed or absent. A successor reads the
-# counts and the ids, then the labels of the rows its Live state names: 99 open rows printed
+# counts and the ids, then the labels of the rows its Live state omits: 99 open rows printed
 # whole once cost a birth 25,371 characters. A row (or a goal) the operator deferred stays open and carries
 # his ruling; the summary shows it as `deferred=` with that ruling, and the stop gate takes the
 # ending `waiting: deferred — <n> items`, n the deferred rows and goals together, once every row
@@ -704,7 +704,8 @@ summary)
     if [ -n "$label_ids" ]; then
         ids_json="[$label_ids]"
         jq -sr --argjson ids "$ids_json" "[.[] | select(.id as \$i | any(\$ids[]; . == \$i))] | $OPEN_ROWS" "$record" || exit $?
-        # A row the Live state names that is closed or absent is a stale hand-over: said, never printed.
+        # A row asked for, one the Live state omits, that is closed or absent is a stale hand-over:
+        # said, never printed.
         while IFS= read -r gone; do
             [ -n "$gone" ] && warn "summary: row $gone is not open in $record"
         done < <(jq -sr --argjson ids "$ids_json" '[.[] | select(.state == "open") | .id] as $open | $ids[] | select(. as $i | $open | any(. == $i) | not)' "$record")
