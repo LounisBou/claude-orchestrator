@@ -5220,6 +5220,11 @@ check "succeed.md says the open-questions value is outside the 9,000-character c
 DECIDE42=$(awk '/^## 4\. /{f=1} /^## 5\. /{f=0} f' "$ROOT/commands/decide.md" | awk '/^2\. /{f=1} /^3\. /{f=0} f' | tr '\n' ' ' | tr -s ' ')
 check "the decision round writes a ruling first to the rulings file, verbatim and dated, then where it applies" "1|1" \
   "$(printf '%s' "$DECIDE42" | grep -cF "Write the ruling first to the orchestration's rulings file, verbatim and dated")|$(printf '%s' "$DECIDE42" | grep -cF 'then where it applies')"
+# The round writes the ruling, so it must reach the file's path, its entry format and the rule that
+# a ruling carried out or superseded leaves the file in the same move: the step points at the
+# lifecycle item that holds all three, and that item holds them.
+check "the decision round's ruling step points at the lifecycle item giving the rulings file's path, entry and supersede rule" "1|yes|yes" \
+  "$(printf '%s' "$DECIDE42" | grep -cF "(\`references/lifecycle.md\`, « Prune the state file before you hand over »)")|$(spells "$ORCH_REFS/lifecycle.md" '0. **Prune the state file before you hand over.**')|$(sed -n '/0\. \*\*Prune the state file before you hand over\.\*\*/p' "$ORCH_REFS/lifecycle.md" | grep -qF '`<briefs dir>/rulings.md`' && sed -n '/0\. \*\*Prune the state file before you hand over\.\*\*/p' "$ORCH_REFS/lifecycle.md" | grep -qF 'leaves the file in the same move as the ruling that ends it' && echo yes || echo no)"
 check "succeed.md checks the rulings file among its preconditions" "yes" \
   "$(spells "$ROOT/commands/succeed.md" "- the orchestration's rulings file, \`<briefs dir>/rulings.md\`, exists and holds every ruling still")"
 check "the lifecycle gives the rulings file's entry and says a ruling ended leaves it" "yes|yes|yes" \
