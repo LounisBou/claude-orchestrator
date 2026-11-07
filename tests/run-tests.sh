@@ -1125,6 +1125,16 @@ srec audit "$C" "$e1" --head aaa1111 --images 1 >/dev/null
 check_status "an escaped backtick opens no span: its <img is an image, audited" 0 srec ready "$C" "$e1" --head aaa1111 --e2e "$E2EOK"
 check "and the ready line counts one" "1" \
   "$(srec ready "$C" "$e1" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '1 screenshot(s) on acme/front#19')"
+# A fence closes only on a run at least as long as its opener: a 3-backtick line does not
+# close a 4-backtick fence, and the <img inside it stays code.
+printf '````\n```\n<img src=inside>\n````\n<img src=after>\n\n```\n<img src=in2>\n```\n' > "$SURFACE_BODIES/21"
+e3=$(srec open "$C" --class behaviour-phase --tier standard --label "fence closes on its own length")
+srec surface "$C" "$e3" --ui acme/front#21 >/dev/null
+srec review "$C" "$e3" --head aaa1111 --norms tool >/dev/null
+srec audit "$C" "$e3" --head aaa1111 --images 1 >/dev/null
+check_status "a 3-backtick line does not close a 4-backtick fence: the <img inside is code" 0 srec ready "$C" "$e3" --head aaa1111 --e2e "$E2EOK"
+check "and the ready line counts one there" "1" \
+  "$(srec ready "$C" "$e3" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '1 screenshot(s) on acme/front#21')"
 check_status "audit with a head too short to identify a commit is an error" 1 bash "$REC" audit "$A" "$a1" --head abc123 --images 2
 check_status "audit without --images is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111
 check_status "audit with --images 0 is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111 --images 0
