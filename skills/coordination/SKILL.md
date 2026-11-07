@@ -201,8 +201,8 @@ one line, « settled in the pane » or « settled in <sender>'s tab », never as
 and present the next one in full in the same message; a superseded one makes <id> that next one.
 
 2. **Urgent first, then grouped by sender.** The round orders its questions as `round` prints
-   them, in the pane and with `--by-urgency` alike: the urgent level first; within each level, all the questions of one orchestrator together,
-   consecutive, the groups ordered by their oldest wait. A question arriving mid-round joins its sender's group in its level,
+   them, with `--by-urgency` or without: the urgent level first; within each level, all the questions of one orchestrator together,
+   consecutive, the groups ordered by their oldest wait; the pane draws those with lettered choices first, each set in that order. A question arriving mid-round joins its sender's group in its level,
    or opens a new group there. It is announced in one line under the next « Recorded », and
    every count moves with it.
 3. **Collect, then open the round.** Collect every pending question first, then open with one
