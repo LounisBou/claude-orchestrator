@@ -691,6 +691,10 @@ check "the succession brief's step 2 runs summary --open" "1" \
   "$(grep -c 'dispatch-record.sh summary {{DISPATCH_RECORD}} --open' "$ROOT/templates/orchestrator-succession-brief.md")"
 check "the succession brief's step 2 reads the open rows as counts and ids, not every label" "yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" '`dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids`')"
+# The ids alone say neither what an open row is nor a deferred row's ruling: the successor reads
+# the labels of the rows its Live state leaves out, in the same step.
+check "the succession brief's step 2 reads the labels of the open rows the Live state omits" "1" \
+  "$(grep '^2\. ' "$ROOT/templates/orchestrator-succession-brief.md" | grep -cF '`--open --label <ids>` for those Live state omits')"
 check "the succession brief reads the goals by command and points at them" "yes|yes|yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'dispatch-record.sh goals {{DISPATCH_RECORD}} status')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" '{{GOALS}}')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'goals met=m/n')"
 # Done is the spec's goals, said where each session reads it: the rulebook's machine line, the
