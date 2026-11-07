@@ -328,6 +328,11 @@ print("; ".join(bad) or "ok")
 }
 check "every core-loop row names a section, and every section it names is a heading of that file" "ok" \
   "$(core_loop_sections "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS")"
+# A row's section is where the reading enters its file, never the whole of what binds: the rules a
+# moment needs may sit in a sibling section (the record, the rebase, the rotation). The rulebook
+# and the design say so, and each reference's opening line names the moments it is read before.
+check "a core-loop section is the entry into the whole file, as the rulebook, the design and the references' openings say" "yes|yes|yes|yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the section named is where you enter the file, and the whole file binds')|$(spells "$ROOT/docs/design.md" 'the section where that step enters a reference')|$(sed -n 3p "$ORCH_REFS/lifecycle.md" | grep -q '^Read before spawning, .*rotating or handing over' && echo yes || echo no)|$(sed -n 3p "$ORCH_REFS/review.md" | grep -q '^Read before dispatching a review or comments round, before a verdict' && echo yes || echo no)|$(sed -n 3p "$ORCH_REFS/briefs.md" | grep -q '^Read before planning phases or writing a brief' && echo yes || echo no)"
 # A takeover reads the section its brief sends it to: the rulebook's row says the same, never that
 # a takeover reads no reference (the measure, the wait and the close proof live in that section).
 check "the core loop's hand-over row names the predecessor's succession and sends a takeover to the successor's" "yes|1|no" \

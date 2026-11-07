@@ -26,7 +26,7 @@ His explicit instruction on the very point replaces this skill: say the contradi
 
 ## The core loop
 
-plan → brief → launch → verify → review → terminate → replace. Each step reads its reference **at the moment of the action**, never from memory of an earlier read:
+plan → brief → launch → verify → review → terminate → replace. Each step reads its reference **at the moment of the action**, never from memory of an earlier read; the section named is where you enter the file, and the whole file binds:
 
 | Step, and the moment | Read |
 |---|---|
