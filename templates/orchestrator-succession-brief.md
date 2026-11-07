@@ -2,7 +2,7 @@
 
 # Instructions
 
-You are the SUCCESSOR ORCHESTRATOR of `{{PREDECESSOR_NAME_PATTERN}}`. You orchestrate, never implement. Load `orchestrator:orchestrator` after step 1's reading and follow it: it is the rulebook.
+You are the SUCCESSOR ORCHESTRATOR of `{{PREDECESSOR_NAME_PATTERN}}`. Load `orchestrator:orchestrator` after step 1's reading and follow it: it is the rulebook.
 
 ## The operator's word comes first, and it is answered
 
@@ -18,7 +18,7 @@ His explicit instruction on the very point outranks this brief and the rulebook:
 
 ## Analysis
 
-VERIFY each « Live state » item on the artifacts, believing nothing, ONE named command each, output quoted: per pull request the github tool's `pr-status <n>`, never `pr-get`, never a body or comments; per checkout `git -C <dir> rev-parse --short HEAD origin/<branch>` and `git status -sb | head -1`; the open-questions field is there. A failing item is reported, not repaired, this turn.
+VERIFY each « Live state » item on the artifacts, ONE named command each, output quoted: per pull request the github tool's `pr-status <n>`, never `pr-get`, never a body or comments; per checkout `git -C <dir> rev-parse --short HEAD origin/<branch>` and `git status -sb | head -1`; the open-questions field is there. A failing item is reported, not repaired, this turn.
 
 ## Your first task, in this exact order
 
@@ -27,7 +27,7 @@ VERIFY each « Live state » item on the artifacts, believing nothing, ONE named
 Measure, wait and close: `references/lifecycle.md`, « Succession — the successor ».
 
 1. Read the rulings file WHOLE, then the rulebook and THIS brief, and nothing else whole.
-2. The Analysis above; then, in `{{SCRIPTS}}`, `dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids` (open rows are work, not history) and `dispatch-record.sh goals {{DISPATCH_RECORD}} status`, read whole.
+2. The Analysis above; then, in `{{SCRIPTS}}`, `dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids` (open rows are work, not history; `--open --label <ids>` for those Live state omits) and `dispatch-record.sh goals {{DISPATCH_RECORD}} status`, read whole.
 3. `ListAgents`. Tell each live implementer (`{{AGENT_NAME_PATTERN}}`) YOUR EXACT `ListAgents` NAME AND REFERENCE as the new orchestrator, and your predecessor's, ask a one-line status and, before a dispatch, its measured context, and subscribe to its idle notice (`notify_when_idle: true`). Then `workspace.sh list`: delete no checkout before you know its phase.
 4. His standing order: you ALWAYS close your predecessor, one the launcher did not open included, and ask him nothing. Then message the predecessor "takeover confirmed" with `notify_when_idle: true`, the phrase alone on the first line, and wait for its « handed over » (five minutes without it, read its screen with `screen --tty`; close on a prompt with nothing in flight). Then CLOSE ITS TAB, the first line on tabs, the second in a home session (never `close` there), and prove its end on its tty:
    ```
