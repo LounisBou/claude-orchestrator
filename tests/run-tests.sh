@@ -665,7 +665,7 @@ check_status "summary --open of an absent record is not an error" 0 bash "$REC" 
 check "summary --open of an absent record says so, as summary does" "dispatch-record: no record at $WORK/absent.jsonl" \
   "$(bash "$REC" summary "$WORK/absent.jsonl" --open)"
 # A takeover reads the count by state and the ids, then the labels of the rows its Live state
-# names, never every label: 99 open rows printed whole were 25,371 characters at one birth.
+# omits, never every label: 99 open rows printed whole were 25,371 characters at one birth.
 RIDS="$WORK/ids-rows.jsonl"; : > "$RIDS"
 for i in $(seq 1 118); do
   st=open; [ $((i % 6)) = 0 ] && st=closed
@@ -695,6 +695,8 @@ check "the succession brief's step 2 reads the open rows as counts and ids, not 
 # the labels of the rows its Live state leaves out, in the same step.
 check "the succession brief's step 2 reads the labels of the open rows the Live state omits" "1" \
   "$(grep '^2\. ' "$ROOT/templates/orchestrator-succession-brief.md" | grep -cF '`--open --label <ids>` for those Live state omits')"
+check "the record's own comments read the labels of the rows the Live state omits, as the brief does" "0|2" \
+  "$(grep -c 'Live state names' "$REC")|$(grep -c 'Live state omits' "$REC")"
 check "the succession brief reads the goals by command and points at them" "yes|yes|yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'dispatch-record.sh goals {{DISPATCH_RECORD}} status')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" '{{GOALS}}')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'goals met=m/n')"
 # Done is the spec's goals, said where each session reads it: the rulebook's machine line, the
@@ -5179,6 +5181,10 @@ check "succeed.md and the lifecycle reference have the predecessor overwrite the
   "$(spells "$ROOT/commands/succeed.md" "overwrites the previous handover's Live state")|$(spells "$ORCH_REFS/lifecycle.md" "overwrites the previous handover's Live state")"
 check "the lifecycle's step 3 points at the brief's first task, not at whole files" "no|yes|no" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'read the brief and its pointed state')|$(spells "$ORCH_REFS/lifecycle.md" "3. The successor's first task is its brief's, step by step")|$(spells "$ORCH_REFS/lifecycle.md" 'then its brief'"'"'s steps 3 to 5')"
+# The never-implement rule left the succession brief's first paragraph: the design says where a
+# successor meets it now, and the rulebook it names still opens on it.
+check "the design says a successor meets the never-implement rule in the rulebook its first step reads" "0|yes|yes" \
+  "$(grep -c "carried in the succession brief's first paragraph" "$ROOT/docs/design.md")|$(spells "$ROOT/docs/design.md" "A successor meets it before it acts: its brief's first step reads the rulebook, whose Overview opens on « You orchestrate; you never implement. »")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'You orchestrate; you never implement.')"
 check "the design says what a successor reads at takeover, and why" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'the successor reads the rulebook and its brief'"'"'s live state, the rest by section on demand')|$(spells "$ROOT/docs/design.md" 'input and cache tokens of each assistant turn')"
 # The lint: a succession brief past 9,000 characters is a finding naming the count and the limit.

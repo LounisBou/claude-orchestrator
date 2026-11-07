@@ -636,7 +636,7 @@ The succession command spawned the successor at the `deep` tier, so a succession
 
 ## 28. The orchestrator never implements through a subagent of its own
 
-A subagent's diff is the orchestrator's own diff, and its reviewer would be its writer; the method rests on the writer and the reviewer being different sessions. The rule, and why a plan-writing skill's execution header is boilerplate to replace rather than an order to obey, is `skills/orchestrator/references/briefs.md`, « Standing rules (put in every prompt, enforce in every review) », carried in the succession brief's first paragraph for a successor that reads its brief before the rulebook. The suite refuses a document under `docs/` that opens with that foreign header.
+A subagent's diff is the orchestrator's own diff, and its reviewer would be its writer; the method rests on the writer and the reviewer being different sessions. The rule, and why a plan-writing skill's execution header is boilerplate to replace rather than an order to obey, is `skills/orchestrator/references/briefs.md`, « Standing rules (put in every prompt, enforce in every review) ». A successor meets it before it acts: its brief's first step reads the rulebook, whose Overview opens on « You orchestrate; you never implement. » The suite refuses a document under `docs/` that opens with that foreign header.
 
 ## 29. The library's tracebacks are filtered at their source, and nothing else is
 
