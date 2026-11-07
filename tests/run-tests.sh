@@ -5319,13 +5319,13 @@ check "a rulings entry without its « » quote is refused, naming its line" "1|1
   "$(bash "$LINT" "$R_NOQUOTE" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$R_NOQUOTE" 2>&1 | grep -c 'succ-r-noquote-rulings.md:3: rulings entry without his words')"
 check "the unnamed-file message spells the path it asks for, with no stray bracket" "1|0" \
   "$(bash "$LINT" "$R_UNNAMED" 2>&1 | grep -cF 'add "- Standing rulings: `<briefs dir>/rulings.md`", the operator')|$(bash "$LINT" "$R_UNNAMED" 2>&1 | grep -cF 'rulings.md>`')"
-# The path a brief writes is read as its author meant it: a relative one beside the brief, from
-# whatever directory the lint runs in, and a leading `~` as the home. A quote his words carry
-# over two lines is one entry, the continuation indented under its `- `.
+# The successor reads the path from the project directory, not the brief's: a relative one is
+# refused even with a rulings.md beside the brief, and a leading `~` is the home. A quote his
+# words carry over two lines is one entry, the continuation indented under its `- `.
 R_RELDIR="$WORK/r-rel"; mkdir -p "$R_RELDIR"; cp "$SUCCRULINGS" "$R_RELDIR/rulings.md"
 sed "s#\`$WORK/r/rulings.md\`#\`rulings.md\`#" "$SUCCFILL" > "$R_RELDIR/brief.md"
-check "a relative rulings path is read beside the brief, from another directory" "1|0|0" \
-  "$(grep -c '^- Standing rulings: `rulings.md`' "$R_RELDIR/brief.md")|$(cd / && bash "$LINT" "$R_RELDIR/brief.md" >/dev/null 2>&1; echo $?)|$(cd / && bash "$LINT" "$R_RELDIR/brief.md" 2>&1 | grep -c 'rulings file not found')"
+check "a relative rulings path is refused, asking for the absolute one" "1|1|1" \
+  "$(grep -c '^- Standing rulings: `rulings.md`' "$R_RELDIR/brief.md")|$(cd / && bash "$LINT" "$R_RELDIR/brief.md" >/dev/null 2>&1; echo $?)|$(cd / && bash "$LINT" "$R_RELDIR/brief.md" 2>&1 | grep -cF 'rulings path is relative: rulings.md — name it absolute, `<briefs dir>/rulings.md`')"
 R_TILDEHOME="$WORK/r-home"; mkdir -p "$R_TILDEHOME/briefs"; cp "$SUCCRULINGS" "$R_TILDEHOME/briefs/rulings.md"
 sed "s#\`$WORK/r/rulings.md\`#\`~/briefs/rulings.md\`#" "$SUCCFILL" > "$WORK/succ-r-tilde.md"
 check "a rulings path under ~ is read in the home" "1|0|0" \

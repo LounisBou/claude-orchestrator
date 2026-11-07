@@ -348,10 +348,11 @@ fi
 # 16. A succession brief names its orchestration's rulings file, the operator's standing rulings
 #     that its successor reads whole before anything else: the line « - Standing rulings: `<path>` »
 #     the template writes. A brief that names none, or a file that is not there, is refused. The
-#     path is read as its author meant it: a leading `~` is the home, a relative path sits beside
-#     the brief, whatever directory the lint runs in. Each entry of the file, a line that starts
-#     with `- ` and the indented lines under it, opens on its date and carries his words between
-#     « and », as `- <YYYY-MM-DDThh:mm:ssZ> « <his words, verbatim> » — <what it binds> (row N)`,
+#     path is absolute or opens on `~/`, the home: the successor reads it from the project
+#     directory, not the brief's, so a relative path is refused. Each entry of the file, a line
+#     that starts with `- ` and the indented lines under it, opens on its date and carries his
+#     words between « and »,
+#     as `- <YYYY-MM-DDThh:mm:ssZ> « <his words, verbatim> » — <what it binds> (row N)`,
 #     a quote free to span lines: an entry without either is refused, naming the file and the
 #     entry's first line. The file's size is never counted in the brief's cap, and past 8,000
 #     characters it is one warning, never a refusal: the operator's words are not cut by a tool,
@@ -365,14 +366,16 @@ if head -n 1 "$brief" 2>/dev/null | grep -q '^# Orchestrator succession brief'; 
     else
         rl_line=${rl%%:*}
         rulings=$(printf '%s' "$rl" | sed -E 's/^[0-9]+:- Standing rulings: `([^`]*)`.*$/\1/')
+        rel=
         case "$rulings" in
-            '~') rulings=$HOME ;;
             '~/'*) rulings=$HOME/${rulings#\~/} ;;
             /*|'{{'*) ;;
-            *) rulings=$(dirname "$brief")/$rulings ;;
+            *) rel=1 ;;
         esac
         if [[ "$rulings" =~ ^\{\{[A-Za-z0-9_]+\}\}$ ]]; then
             :
+        elif [ -n "$rel" ]; then
+            say "$rl_line" "rulings path is relative: $rulings — name it absolute, \`<briefs dir>/rulings.md\`: the successor reads it from the project directory"
         elif [ ! -f "$rulings" ]; then
             say "$rl_line" "rulings file not found: $rulings — write the standing rulings there, one dated and quoted entry each"
         else
