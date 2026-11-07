@@ -3697,9 +3697,14 @@ check "a question found settled is withdrawn by the coordinator on its evidence,
   "$(spells "$COORDSKILL" 'one found settled on its artifact is withdrawn on that evidence:')|$(spells "$COORDSKILL" '`coordinator.sh round-close <id> --withdraw "<evidence>"`, which tells its sender it was')|$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender')"
 # Topic 6.2 of the rules review, the operator's ruling of 2026-10-31: the urgent level first, then
 # within each level the questions grouped by orchestrator, the groups ordered by their oldest wait,
-# in the default round, the pane and --by-urgency alike.
+# in the default round and --by-urgency alike.
 check "the round puts the urgent first, then groups its questions by the orchestrator that sent them" "yes|yes|yes|no" \
   "$(spells "$COORDSKILL" 'the urgent level first; within each level, all the questions of one orchestrator together,')|$(spells "$COORDSKILL" 'A question arriving mid-round joins its sender'"'"'s group in its level')|$(spells "$COORDSKILL" '« `<sender'"'"'s exact name>` — 3 questions »')|$(spells "$COORDSKILL" 'in the sender'"'"'s own order')"
+# The pane draws the questions that carry lettered choices first, each set in the round's order
+# (hooks/round.ts paneQuestions): the skill and the design say so, never that the pane draws the
+# round's own order.
+check "the skill and the design say the pane draws the questions with choices first, in the round's order" "yes|no|yes|no" \
+  "$(spells "$COORDSKILL" 'the pane draws those with lettered choices first, each set in that order')|$(spells "$COORDSKILL" 'in the pane and with `--by-urgency` alike')|$(spells "$ROOT/docs/design.md" 'the pane drawing those with lettered choices first, each set in that order')|$(spells "$ROOT/docs/design.md" "the round's and the pane's own")"
 check "coordinator-decide orders its round as the skill does, never across senders" "yes|no" \
   "$(spells "$ROOT/commands/coordinator-decide.md" 'the urgent level first, then within each level the questions grouped by')|$(spells "$ROOT/commands/coordinator-decide.md" 'with no grouping by orchestrator')"
 check "the round names the coordinator and each sender, and opens each group with the sender's own context" "yes|yes|yes|yes|yes" \
