@@ -1135,6 +1135,15 @@ srec audit "$C" "$e3" --head aaa1111 --images 1 >/dev/null
 check_status "a 3-backtick line does not close a 4-backtick fence: the <img inside is code" 0 srec ready "$C" "$e3" --head aaa1111 --e2e "$E2EOK"
 check "and the ready line counts one there" "1" \
   "$(srec ready "$C" "$e3" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '1 screenshot(s) on acme/front#21')"
+# A span closes only on a run of its own length: a longer run after a single backtick is text.
+printf 'A single `<img src=x>`` is text.\nTwo ``a ` <img src=z>`` is code.\n' > "$SURFACE_BODIES/20"
+e2=$(srec open "$C" --class behaviour-phase --tier standard --label "span closes on its own length")
+srec surface "$C" "$e2" --ui acme/front#20 >/dev/null
+srec review "$C" "$e2" --head aaa1111 --norms tool >/dev/null
+srec audit "$C" "$e2" --head aaa1111 --images 1 >/dev/null
+check_status "a span closes only on a run of its own length: one <img outside code" 0 srec ready "$C" "$e2" --head aaa1111 --e2e "$E2EOK"
+check "and the ready line counts one there" "1" \
+  "$(srec ready "$C" "$e2" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '1 screenshot(s) on acme/front#20')"
 check_status "audit with a head too short to identify a commit is an error" 1 bash "$REC" audit "$A" "$a1" --head abc123 --images 2
 check_status "audit without --images is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111
 check_status "audit with --images 0 is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111 --images 0
