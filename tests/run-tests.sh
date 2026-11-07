@@ -303,6 +303,40 @@ check "the rulebook carries no red-flag list and no pointer list" "0|0" \
 # 2026-11-04T20:47:18Z, « A », the limit raised to 10,550 bytes).
 check "the orchestrator rulebook stays at 10,550 bytes or fewer" "yes" \
   "$([ "$(wc -c < "$ROOT/skills/orchestrator/SKILL.md" | tr -d ' ')" -le 10550 ] && echo yes || echo no)"
+# Each step of the core loop names the section it reads, `references/<file>.md` › « <heading> »,
+# so a session reads that section and not the file: a step that named only the file had a
+# successor read lifecycle.md whole at its birth. Every row names one, and every heading named
+# is one the file carries, verbatim.
+# bash 3.2 misreads a quoted program inside "$(...)": the reader is a function of its own.
+core_loop_sections() {  # $1 the rulebook, $2 the references directory
+  python3 -I -c '
+import os, re, sys
+skill, refs = sys.argv[1], sys.argv[2]
+loop = open(skill, encoding="utf-8").read().split("## The core loop", 1)[1].split("\n## ", 1)[0]
+rows = [l for l in loop.splitlines() if l.startswith("|") and not l.startswith("|---")][1:]
+bad = [] if len(rows) >= 4 else ["fewer than four rows"]
+for row in rows:
+    named = re.findall(r"`references/([a-z-]+\.md)` › « ([^»]+) »", row)
+    if not named:
+        bad.append("no section: " + row[:50])
+    for f, h in named:
+        heads = [l.rstrip("\n").lstrip("#").strip() for l in open(os.path.join(refs, f), encoding="utf-8") if re.match(r"#{2,3} ", l)]
+        if h not in heads:
+            bad.append("no heading " + f + " › " + h)
+print("; ".join(bad) or "ok")
+' "$1" "$2"
+}
+check "every core-loop row names a section, and every section it names is a heading of that file" "ok" \
+  "$(core_loop_sections "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS")"
+# A row's section is where the reading enters its file, never the whole of what binds: the rules a
+# moment needs may sit in a sibling section (the record, the rebase, the rotation). The rulebook
+# and the design say so, and each reference's opening line names the moments it is read before.
+check "a core-loop section is the entry into the whole file, as the rulebook, the design and the references' openings say" "yes|yes|yes|yes|yes" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" 'the section named is where you enter the file, and the whole file binds')|$(spells "$ROOT/docs/design.md" 'the section where that step enters a reference')|$(sed -n 3p "$ORCH_REFS/lifecycle.md" | grep -q '^Read before spawning, .*rotating or handing over' && echo yes || echo no)|$(sed -n 3p "$ORCH_REFS/review.md" | grep -q '^Read before dispatching a review or comments round, before a verdict' && echo yes || echo no)|$(sed -n 3p "$ORCH_REFS/briefs.md" | grep -q '^Read before planning phases or writing a brief' && echo yes || echo no)"
+# A takeover reads the section its brief sends it to: the rulebook's row says the same, never that
+# a takeover reads no reference (the measure, the wait and the close proof live in that section).
+check "the core loop's hand-over row names the predecessor's succession and sends a takeover to the successor's" "yes|1|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '`references/lifecycle.md` › « Succession — the predecessor »')|$(grep '^| Handing over to a successor' "$ROOT/skills/orchestrator/SKILL.md" | grep -cF 'a takeover: its brief, then › « Succession — the successor »')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a takeover reads none')"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \
@@ -630,8 +664,39 @@ check "plain summary still prints the class lines and the open rows" "2|1" \
 check_status "summary --open of an absent record is not an error" 0 bash "$REC" summary "$WORK/absent.jsonl" --open
 check "summary --open of an absent record says so, as summary does" "dispatch-record: no record at $WORK/absent.jsonl" \
   "$(bash "$REC" summary "$WORK/absent.jsonl" --open)"
+# A takeover reads the count by state and the ids, then the labels of the rows its Live state
+# omits, never every label: 99 open rows printed whole were 25,371 characters at one birth.
+RIDS="$WORK/ids-rows.jsonl"; : > "$RIDS"
+for i in $(seq 1 118); do
+  st=open; [ $((i % 6)) = 0 ] && st=closed
+  df=null; [ $((i % 10)) = 0 ] && df='"2026-10-29: later, when I say so"'
+  printf '{"id":%d,"class":"behaviour-phase","tier":"standard","label":"row %d: a label as long as a real one, naming the pull request, the branch, the ruling it applies and what remains to do before it closes","rounds":0,"state":"%s","deferred":%s}\n' "$i" "$i" "$st" "$df" >> "$RIDS"
+done
+RIDS_OPEN=$(bash "$REC" summary "$RIDS" --open | grep -c '^open=\|^deferred=')
+RIDS_OUT=$(bash "$REC" summary "$RIDS" --open --ids)
+check "summary --open --ids on 99 open rows: a count line per state, then the ids, within 1,500 characters" "99|open=91|deferred=8|$(jq -sr 'map(select(.state=="open").id|tostring)|"ids: "+join(" ")' "$RIDS")|3|yes|0" \
+  "$RIDS_OPEN|$(printf '%s\n' "$RIDS_OUT" | sed -n 1p)|$(printf '%s\n' "$RIDS_OUT" | sed -n 2p)|$(printf '%s\n' "$RIDS_OUT" | sed -n 3p)|$(printf '%s\n' "$RIDS_OUT" | wc -l | tr -d ' ')|$([ "$(printf '%s' "$RIDS_OUT" | wc -c | tr -d ' ')" -le 1500 ] && echo yes || echo no)|$(printf '%s' "$RIDS_OUT" | grep -c 'label=')"
+check "summary --open --ids counts a state with no row as zero" "open=1⏎deferred=0⏎ids: 1" \
+  "$(bash "$REC" summary "$RO" --open --ids | tr '\n' '⏎' | sed 's/⏎$//')"
+check "summary --open --label prints exactly the rows named, as --open prints them" \
+  "$(bash "$REC" summary "$RIDS" --open | grep -E '^(open|deferred)=(7|40|113) ')" \
+  "$(bash "$REC" summary "$RIDS" --open --label 113,7,40)"
+check "summary --open --label prints nothing for a closed or unknown row, and says so on stderr" "|yes|yes|0" \
+  "$(bash "$REC" summary "$RIDS" --open --label 6,500 2>/dev/null)|$(bash "$REC" summary "$RIDS" --open --label 6,500 2>&1 >/dev/null | grep -q 'row 6 is not open' && echo yes || echo no)|$(bash "$REC" summary "$RIDS" --open --label 6,500 2>&1 >/dev/null | grep -q 'row 500 is not open' && echo yes || echo no)|$(bash "$REC" summary "$RIDS" --open --label 6,500 >/dev/null 2>&1; echo $?)"
+check_status "summary --label without a list of ids dies" 1 bash "$REC" summary "$RIDS" --open --label
+check_status "summary --label with a list that is not ids dies" 1 bash "$REC" summary "$RIDS" --open --label 3,x
+check_status "summary --ids without --open dies" 1 bash "$REC" summary "$RIDS" --ids
+check_status "summary --ids with --label dies" 1 bash "$REC" summary "$RIDS" --open --ids --label 3
 check "the succession brief's step 2 runs summary --open" "1" \
   "$(grep -c 'dispatch-record.sh summary {{DISPATCH_RECORD}} --open' "$ROOT/templates/orchestrator-succession-brief.md")"
+check "the succession brief's step 2 reads the open rows as counts and ids, not every label" "yes" \
+  "$(spells "$ROOT/templates/orchestrator-succession-brief.md" '`dispatch-record.sh summary {{DISPATCH_RECORD}} --open --ids`')"
+# The ids alone say neither what an open row is nor a deferred row's ruling: the successor reads
+# the labels of the rows its Live state leaves out, in the same step.
+check "the succession brief's step 2 reads the labels of the open rows the Live state omits" "1" \
+  "$(grep '^2\. ' "$ROOT/templates/orchestrator-succession-brief.md" | grep -cF '`--open --label <ids>` for those Live state omits')"
+check "the record's own comments read the labels of the rows the Live state omits, as the brief does" "0|2" \
+  "$(grep -c 'Live state names' "$REC")|$(grep -c 'Live state omits' "$REC")"
 check "the succession brief reads the goals by command and points at them" "yes|yes|yes" \
   "$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'dispatch-record.sh goals {{DISPATCH_RECORD}} status')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" '{{GOALS}}')|$(spells "$ROOT/templates/orchestrator-succession-brief.md" 'goals met=m/n')"
 # Done is the spec's goals, said where each session reads it: the rulebook's machine line, the
@@ -5116,6 +5181,10 @@ check "succeed.md and the lifecycle reference have the predecessor overwrite the
   "$(spells "$ROOT/commands/succeed.md" "overwrites the previous handover's Live state")|$(spells "$ORCH_REFS/lifecycle.md" "overwrites the previous handover's Live state")"
 check "the lifecycle's step 3 points at the brief's first task, not at whole files" "no|yes|no" \
   "$(spells "$ORCH_REFS/lifecycle.md" 'read the brief and its pointed state')|$(spells "$ORCH_REFS/lifecycle.md" "3. The successor's first task is its brief's, step by step")|$(spells "$ORCH_REFS/lifecycle.md" 'then its brief'"'"'s steps 3 to 5')"
+# The never-implement rule left the succession brief's first paragraph: the design says where a
+# successor meets it now, and the rulebook it names still opens on it.
+check "the design says a successor meets the never-implement rule in the rulebook its first step reads" "0|yes|yes" \
+  "$(grep -c "carried in the succession brief's first paragraph" "$ROOT/docs/design.md")|$(spells "$ROOT/docs/design.md" "A successor meets it before it acts: its brief's first step reads the rulebook, whose Overview opens on « You orchestrate; you never implement. »")|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'You orchestrate; you never implement.')"
 check "the design says what a successor reads at takeover, and why" "yes|yes" \
   "$(spells "$ROOT/docs/design.md" 'the successor reads the rulebook and its brief'"'"'s live state, the rest by section on demand')|$(spells "$ROOT/docs/design.md" 'input and cache tokens of each assistant turn')"
 # The lint: a succession brief past 9,000 characters is a finding naming the count and the limit.
@@ -5196,7 +5265,31 @@ check "step 4 sends « takeover confirmed » alone on its message's first line" 
 check "step 5 ends the turn after the announcement, and the dispatch waits for the next one" "1|yes" \
   "$(printf '%s' "$SUCC5" | grep -oF 'END THE TURN: dispatch on your next one.' | wc -l | tr -d ' ')|$(printf '%s' "$SUCC5" | awk '{ a = index($0, "announce in one message"); e = index($0, "END THE TURN"); print (a > 0 && e > a) ? "yes" : "no" }')"
 check "the template points at the lifecycle for the measure, the wait and the close" "yes|yes" \
-  "$(spells "$SUCC" '`references/lifecycle.md`, « The takeover'"'"'s measure and close »')|$(grep -qx "### The takeover's measure and close" "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
+  "$(spells "$SUCC" '`references/lifecycle.md`, « Succession — the successor »')|$(grep -qx "### Succession — the successor" "$ORCH_REFS/lifecycle.md" && echo yes || echo no)"
+# A reference is read by section: each opens on a table of contents naming every heading it
+# carries, and none it does not, so a session greps the one it needs instead of reading the file.
+toc_check() {
+  awk '
+    function named(e, h) { return e == h || index(e, h " — ") == 1 }
+    /^## / { body = 1 }
+    !body && /^ *- / { e = $0; sub(/^ *- /, "", e); toc[++n] = e; next }
+    body && /^###? / { h = $0; sub(/^#+ /, "", h); head[++m] = h }
+    END {
+      bad = ""
+      for (i = 1; i <= m; i++) { f = 0; for (j = 1; j <= n; j++) if (named(toc[j], head[i])) f = 1; if (!f) bad = bad "; missing " head[i] }
+      for (j = 1; j <= n; j++) { f = 0; for (i = 1; i <= m; i++) if (named(toc[j], head[i])) f = 1; if (!f) bad = bad "; stale " toc[j] }
+      if (n == 0) bad = "; no table of contents"
+      print (bad == "" ? "ok" : substr(bad, 3))
+    }' "$1"
+}
+check "lifecycle, review and briefs each open on a table of contents naming every heading, and only those" "ok|ok|ok" \
+  "$(toc_check "$ORCH_REFS/lifecycle.md")|$(toc_check "$ORCH_REFS/review.md")|$(toc_check "$ORCH_REFS/briefs.md")"
+# The successor reads its own subsection of the succession, never the whole of « Your own context ».
+SUCCESSOR_SECTION=$(awk '/^### Succession — the successor$/ { f = 1; print; next } f && /^##/ { exit } f' "$ORCH_REFS/lifecycle.md")
+check "the lifecycle splits the succession by role, the successor's subsection at most 3,000 characters" "1|1|1|yes" \
+  "$(grep -cx '### Succession — the predecessor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Succession — the successor' "$ORCH_REFS/lifecycle.md")|$(grep -cx '### Pause, opening and move' "$ORCH_REFS/lifecycle.md")|$(n=$(printf '%s' "$SUCCESSOR_SECTION" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' '); [ "$n" -gt 0 ] && [ "$n" -le 3000 ] && echo yes || echo no)"
+check "review and briefs split « Review on evidence » and « Standing rules » into subsections" "yes|yes" \
+  "$(awk '/^## Review on evidence$/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/review.md")|$(awk '/^## Standing rules/ { f = 1; next } f && /^## / { exit } f && /^### / { n++ } END { print (n >= 2 ? "yes" : "no") }' "$ORCH_REFS/briefs.md")"
 check "succeed.md and the lifecycle reference name the open-questions field and the re-ask" "yes|yes|yes" \
   "$(spells "$ROOT/commands/succeed.md" 'five fields')|$(spells "$ROOT/commands/succeed.md" 'never summarised')|$(spells "$ORCH_REFS/lifecycle.md" 'ask it again, verbatim')"
 # The open-questions value sits outside the 9,000-character cap, its label inside: a verbatim
@@ -5292,6 +5385,18 @@ check "a 20,000-character rulings file beside them changes neither verdict" "yes
   "$([ "$(LC_ALL=C tr -d '\200-\277' < "$RBIG" | wc -c | tr -d ' ')" -ge 20000 ] && echo yes || echo no)|$(bash "$LINT" "$WORK/succession-9100-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-9100-big.md" 2>&1 | grep -c '(9100)')|$(bash "$LINT" "$WORK/succession-8900-big.md" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$WORK/succession-8900-big.md" 2>&1 | grep -c 'warning: rulings file .* characters, over 8000')"
 check "the filled brief with its two-entry rulings file raises no warning" "0" \
   "$(bash "$LINT" "$SUCCFILL" 2>&1 | grep -c 'warning')"
+# Check 17: a state file left unpruned is the journal a successor ends up reading (158,176 bytes
+# at one handover). Past 30,000 characters it is one warning naming the pruning rule, never a
+# refusal; at 29,000 nothing is said.
+state_brief() {  # $1 out brief, $2 the state file's size in characters
+  local f="${1%.md}-state.md"
+  head -c "$2" /dev/zero | tr '\0' 'x' > "$f"
+  sed "s#state file \`/tmp\`#state file \`$f\`#" "$SUCCFILL" > "$1"
+}
+S_BIG="$WORK/succ-state-big.md"; state_brief "$S_BIG" 30001
+S_SMALL="$WORK/succ-state-small.md"; state_brief "$S_SMALL" 29000
+check "a state file past 30,000 characters is one warning naming the pruning rule, not a finding" "1|0|1|1|0" \
+  "$(grep -c "state file \`$WORK/succ-state-big-state.md\`" "$S_BIG")|$(bash "$LINT" "$S_BIG" >/dev/null 2>&1; echo $?)|$(bash "$LINT" "$S_BIG" 2>&1 | grep -c 'warning')|$(bash "$LINT" "$S_BIG" 2>&1 | grep -c "warning: state file $WORK/succ-state-big-state.md is 30001 characters, over 30000: prune it, lifecycle item 0")|$(bash "$LINT" "$S_SMALL" 2>&1 | grep -c 'warning')"
 # Check 16 refuses a succession brief whose rulings file is missing or unnamed, and an entry of
 # that file without its date or its « » quote, naming the file's line.
 rulings_brief() {  # $1 out brief, $2 the rulings file's content, or ABSENT for a path to no file
@@ -8943,8 +9048,8 @@ check "a sleeping orchestrator is not missing, and its record outlives the coord
   "$(flat_has "$COORDSKILL" "its absence from \`ListAgents\` is its sleep, never a death")|$(flat_has "$COORDTPL" "outlives every succession, and nothing in it is woken or dropped but on his word")|$(flat_has "$COORDEND" "the sleeping record is kept")"
 check "a woken orchestrator skips the handshake with a predecessor already gone" "yes|yes" \
   "$(flat_has "$SUCC" "**Woken from a pause**")|$(flat_has "$SUCC" "step 4 is void — no « takeover confirmed », nothing to close")"
-check "the rulebook points a pause at the lifecycle, inside its one coordinator paragraph" "yes" \
-  "$(flat_has "$ROOT/skills/orchestrator/SKILL.md" "A pause it relays: its bullet in \`references/lifecycle.md\`.")"
+check "the rulebook points a pause, an opening and a move at their lifecycle section, inside its one coordinator paragraph" "yes|1" \
+  "$(flat_has "$ROOT/skills/orchestrator/SKILL.md" "A pause, opening or move it relays: \`references/lifecycle.md\` › « Pause, opening and move ».")|$(grep -c '^### Pause, opening and move$' "$ORCH_REFS/lifecycle.md")"
 check "the sleeping command lists, asks one confirmation before a drop, and leaves the operator's things alone" "yes|yes|yes|yes" \
   "$(flat_has "$SLCMD" "The hooks module answers it on the spot, with no model turn")|$(flat_has "$SLCMD" "**Ask one confirmation**, naming what is left behind")|$(flat_has "$SLCMD" "It does NOT touch the pull requests, their branches or the checkouts: closing those is the operator's.")|$(flat_has "$SLCMD" "moved, never deleted, so a slip loses nothing")"
 check "the drop runs only on his yes, after the turn ends" "1" \

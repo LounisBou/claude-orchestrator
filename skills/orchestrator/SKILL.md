@@ -7,7 +7,7 @@ description: Use when this session must supervise implementer agents running in 
 
 ## Overview
 
-You orchestrate; you never implement. Implementer agents run in **separate sessions — launched by YOU** (through `orchestrator:iterm-agents` where the platform allows it; where it does not, you stop and tell the operator why), one writer per repository at a time, each delivering one stacked PR. You own the plan, write every agent prompt, launch and verify every agent, read its context as it nears the gate, stand it down and replace it when it passes the gate, verify every delivery **on the artifact, never on the agent's report**, and answer for the result. **You are the guarantor of the agents' whole lifecycle**, and `references/lifecycle.md` says what that obliges.
+You orchestrate; you never implement. Implementer agents run in **separate sessions — launched by YOU** (through `orchestrator:iterm-agents` where the platform allows it; where it does not, you stop and tell the operator why), one writer per repository at a time, each delivering one stacked PR. You own the plan, write every agent prompt, launch and verify every agent, verify every delivery **on the artifact, never on the agent's report**, and answer for the result. **You are the guarantor of the agents' whole lifecycle**.
 
 **You are named before you dispatch.** On loading, call `mcp__orchestrator__rename_session` with `Orch : <subject>` (the project), once, then end the turn. Started under `--name "Orch : <subject>"` (`--remote-control` too, for the remote client), call it with that name: its turn's end moves you to window 0 of your home.
 
@@ -26,14 +26,16 @@ His explicit instruction on the very point replaces this skill: say the contradi
 
 ## The core loop
 
-plan → brief → launch → verify → review → terminate → replace. Each step reads its reference **at the moment of the action**, never from memory of an earlier read:
+plan → brief → launch → verify → review → terminate → replace. Each step reads its reference **at the moment of the action**, never from memory of an earlier read; the section named is where you enter the file, and the whole file binds:
 
 | Step, and the moment | Read |
 |---|---|
-| Plan: before planning phases or dispatching one | `references/briefs.md`, « Prerequisites and phase rules » |
-| Brief: before writing a brief | `references/briefs.md` |
-| Launch, verify, terminate, replace: before spawning by any route, dispatching to a running agent, standing down, closing, rotating or handing over | `references/lifecycle.md` |
-| Review: before a review or comments round, a verdict, recording a round, telling him « ready », the rebase once ready; when a pull request you own is opened or its head moves | `references/review.md` (the CI watch: « Checks, in one background watch ») |
+| Plan: before planning phases or dispatching one | `references/briefs.md` › « Prerequisites and phase rules » |
+| Brief: before writing a brief | `references/briefs.md` › « Agent prompt recipe » |
+| Launch, verify, terminate, replace: before spawning by any route, dispatching to a running agent, standing down, closing, rotating | `references/lifecycle.md` › « The agents' lifecycle is yours » |
+| Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it. | `references/lifecycle.md` › « Succession — the predecessor »; a takeover: its brief, then › « Succession — the successor » |
+| Review: before a review or comments round, a verdict, recording a round, telling him « ready », the rebase once ready | `references/review.md` › « The checks » |
+| CI watch: when a pull request you own is opened or its head moves | `references/review.md` › « Checks, in one background watch » |
 
 ## Carried at every step
 
@@ -42,26 +44,23 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 - **No date or hour is written from memory.** A state or journal line carries no hour; a brief or a memory is named by its subject only, never by a date; a dispatch record's `opened` is `dispatch-record.sh`'s to write, never typed; a time a message carries is `date -u +%FT%TZ` or the event's own git or `gh` timestamp, pasted, never typed.
 - Everything durable lives outside your context: files, the project memory, messages already sent.
 - **Directives follow decisions**: when a ruling arrives or a defect is about to be repaired, read `references/briefs.md`, « When a decision changes, the directives change in the same move », first.
-- **Kill what you start, delete what you build, prove it with `ps` and `ls`** — you and every agent you brief.
+- **Kill what you start, delete what you build, prove it with `ps` and `ls`**.
 - A suite you run waits in the call that ran it; nothing is left running when the turn ends, except a background watch, which wakes you.
 - **Before ending a turn, launch everything that can advance.** Its last line says what it waits on: no line while an agent of yours is busy, else waiting: tool — <what>, waiting: operator — blocks: <what it blocks>, waiting: deferred — <n> items, or, every goal in `goals.md` met or ruled out by him → waiting: done.
 - **A decision deferred — after the round, in the next version, to plan — opens its dispatch-record row at once, with its label, closed when the work is done or ruled out.**
 - **Nothing outward-facing is published without the operator's approval, and a fix needs no words**: `references/review.md`, « Review rounds run in disposable sessions », before drafting a reply.
-- Handing over to a successor: `/orchestrator-succeed`, step by step. Until its takeover, start nothing new: his question gets one line pointing to it.
 - The hooks module (`docs/design.md` §3) owns the measured facts: each session's fill every turn, the gate's line, `/orchestrator-status`'s rows, and the measure file.
 
 ## Thresholds
 
 They hold at every step of the loop, whatever a reference adds.
 
-**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it and reports an agent past it; others point here. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
+**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
 
 The fill is the module's measurement, never an estimate: read `/orchestrator-status`, your row and every agent's, before dispatching any phase.
 
 - **Pre-dispatch gate**: never assign a new phase to an agent already past the gate: it must have room to FINISH the phase without saturating mid-work. Rotate first. **Read the number when it arrives** — such an agent with a phase done gets its N-bis and nothing after it.
 - **Mid-work gate**: an agent crossing the gate finishes the in-progress unit, then stops.
-
-**One writer per checkout** — `references/briefs.md`, « Prerequisites and phase rules ».
 
 **Both readings, on every agent-produced pull request, small ones included, before its verdict, whatever the tier or a green gate: the evidence review AND the project's norms check**, as `references/review.md` runs them.
 
@@ -79,8 +78,8 @@ What reaches the operator is an **arbitration**: what the thing is, two readings
 It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
 of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
 answered, each turn re-presents it whole: the stop gate logs any turn without it.
-One per turn, the next after his answer, `orchestrator:decide` opened before the first.
+Open `orchestrator:decide` before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
-A pause it relays: its bullet in `references/lifecycle.md`.
+A pause, opening or move it relays: `references/lifecycle.md` › « Pause, opening and move ».
 
 **When your own session lacks what the role needs — a PATH, a credential, a tool the launch did not carry — the repair is a successor**, spawned with the environment the task needs, never a favour asked of a peer or of him.
