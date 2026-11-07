@@ -1116,6 +1116,15 @@ check "and the count is two" "1" \
 srec surface "$C" "$c1" --ui acme/front#18 >/dev/null
 check "an unclosed backtick is literal and an unclosed fence runs to the end" "1" \
   "$(srec ready "$C" "$c1" --head aaa1111 --e2e "$E2EOK" 2>&1 | grep -c 'ready: the audit covers 1 image(s), the description of acme/front#18 carries 2: audit every image')"
+# An escaped backtick opens no code span: the <img it escapes is an image, and it counts.
+printf 'The escaped \\`<img src=x>\\` renders as an image.\n' > "$SURFACE_BODIES/19"
+e1=$(srec open "$C" --class behaviour-phase --tier standard --label "escaped backtick")
+srec surface "$C" "$e1" --ui acme/front#19 >/dev/null
+srec review "$C" "$e1" --head aaa1111 --norms tool >/dev/null
+srec audit "$C" "$e1" --head aaa1111 --images 1 >/dev/null
+check_status "an escaped backtick opens no span: its <img is an image, audited" 0 srec ready "$C" "$e1" --head aaa1111 --e2e "$E2EOK"
+check "and the ready line counts one" "1" \
+  "$(srec ready "$C" "$e1" --head aaa1111 --e2e "$E2EOK" 2>/dev/null | grep -c '1 screenshot(s) on acme/front#19')"
 check_status "audit with a head too short to identify a commit is an error" 1 bash "$REC" audit "$A" "$a1" --head abc123 --images 2
 check_status "audit without --images is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111
 check_status "audit with --images 0 is an error" 1 bash "$REC" audit "$A" "$a1" --head aaa1111 --images 0

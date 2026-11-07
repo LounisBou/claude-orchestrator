@@ -289,7 +289,8 @@ without_code() {
     function strip(s,   out, i, n, k, m, found, L) {
         out = ""; i = 1; L = length(s)
         while (i <= L) {
-            if (substr(s, i, 1) != "`") { out = out substr(s, i, 1); i++; continue }
+            # A backtick preceded by a backslash is an escaped literal, and opens no span.
+            if (substr(s, i, 1) != "`" || (i > 1 && substr(s, i - 1, 1) == "\\")) { out = out substr(s, i, 1); i++; continue }
             n = run(s, i, "`"); k = i + n; found = 0
             while (k <= L) {
                 if (substr(s, k, 1) == "`") {
