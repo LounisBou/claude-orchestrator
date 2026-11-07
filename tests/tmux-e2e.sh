@@ -29,11 +29,12 @@
 # the sandbox: its state (ORCHESTRATOR_STATE_DIR, the chain and the launch files among it) and
 # the module's own files (ORCHESTRATOR_MODULE_DIR). What the host itself keeps of a session it
 # ran is its own bookkeeping: the transcript directory of the sandbox's work path is removed at
-# the end, and the prompt history keeps its lines naming the sandbox, which the script only
-# counts. The sandbox lives under ORCHESTRATOR_E2E_DIR (/tmp by default), a directory the host
-# already trusts: the script never accepts the trust question, and refuses to go on when a
-# host asks it. It skips itself without tmux, jq or the host. The banner's plan is the
-# operator's: ORCHESTRATOR_E2E_PLAN=Ultra on a machine whose banner reads so.
+# the end (copied first into the sandbox with --keep), and the prompt history keeps its lines
+# naming the sandbox, which the script only counts. The sandbox lives under ORCHESTRATOR_E2E_DIR
+# (/tmp by default), a directory the host already trusts: the script never accepts the trust
+# question, and refuses to go on when a host asks it. It skips itself without tmux, jq or the
+# host. The banner's plan is the operator's: ORCHESTRATOR_E2E_PLAN=Ultra on a machine whose
+# banner reads so.
 
 set -uo pipefail
 
@@ -96,6 +97,8 @@ cleanup() {
   sleep 2
   local transcripts
   transcripts=$(printf '%s' "$WORKDIR" | sed 's/[^A-Za-z0-9]/-/g')
+  # A kept run keeps what its hosts wrote too, copied into the sandbox before it is removed.
+  [ "$KEEP" = 1 ] && [ -d "$HOSTDIR/projects/$transcripts" ] && cp -R "$HOSTDIR/projects/$transcripts" "$SANDBOX/transcripts"
   case "$transcripts" in *-tmux-e2e-*-work) rm -rf "${HOSTDIR:?}/projects/$transcripts" ;; esac
   rm -f "${TMUX_TMPDIR:-/tmp}/tmux-$(id -u)/$SERVER" "/private/tmp/tmux-$(id -u)/$SERVER"
   [ "$KEEP" = 1 ] || rm -rf "$SANDBOX"
@@ -186,12 +189,20 @@ wait_for() { # <pane> <text> <seconds>
 # The host's reply: a line the host marks with its bullet and that carries the word, in
 # whatever case it answers.
 REPLY_RE() { printf '^[[:space:]]*⏺.*%s' "$1"; }
+# A wait that ends without the reply leaves the pane as it stood then in the sandbox, under
+# the word, with the times (UTC) the wait started and the capture was taken.
 wait_reply() { # <pane> <word> <seconds>
-  local i=0
+  local i=0 started
+  started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   while [ $i -lt $(($3 * 2)) ]; do
     screen_of "$1" | grep -qiE "$(REPLY_RE "$2")" && return 0
     sleep 0.5; i=$((i + 1))
   done
+  mkdir -p "$SANDBOX/missed"
+  { printf 'pane: %s\nword: %s\nwait started: %s\ncaptured: %s\n\n' "$1" "$2" "$started" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    case "$1" in *::*) tmux -L "${1%%::*}" capture-pane -p -S - -t "${1#*::}" ;; *) tm capture-pane -p -S - -t "$1" ;; esac
+  } > "$SANDBOX/missed/$2.txt" 2>&1
+  echo "missed reply: $1 captured in $SANDBOX/missed/$2.txt"
   return 1
 }
 
@@ -235,6 +246,19 @@ prompt() { printf 'Reply with these words joined by hyphens, in lower case, and 
 agent() { # <title> <word>: an agent spawned as the orchestrator spawns one
   launcher 90 spawn --dir "$WORKDIR" --tier light --permission-mode acceptEdits --title "$1" \
     --prompt "$(prompt "$2")" --right-of self
+}
+
+# Every test host's command line, read while it runs: none may lack remoteControlAtStartup=false
+# or carry --remote-control. Offenders accumulate; the last check reads them.
+RC_SEEN=0; RC_BAD=()
+audit_rc() {
+  local line
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    RC_SEEN=$((RC_SEEN + 1))
+    case "$line" in *'"remoteControlAtStartup":false'*) ;; *) RC_BAD+=("no setting: ${line:0:90}") ;; esac
+    case "$line" in *--remote-control*) RC_BAD+=("remote control: ${line:0:90}") ;; esac
+  done < <(ps -axo command= 2>/dev/null | grep -- '--setting-sources project' | grep -v 'grep\|tmux-e2e')
 }
 
 echo "== the switch =="
@@ -321,19 +345,6 @@ W3=$(tm list-panes -s -t home -F '#{pane_tty} #{window_id}' | awk -v t="$THREE" 
 check "the chain holds the replacement's window alone" "tmux:$SOCKET:$W3 $THREE" \
   "$(chain | jq -r '"\(.tab_id) \(.tty)"' | paste -sd'|' -)"
 check "window 0 is still the current window" "0 orch 1" "$(windows | awk '$1 == 0 { print $1, $3, $4 }')"
-
-# Every test host's command line, read while it runs: none may lack remoteControlAtStartup=false
-# or carry --remote-control. Offenders accumulate; the last check reads them.
-RC_SEEN=0; RC_BAD=()
-audit_rc() {
-  local line
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    RC_SEEN=$((RC_SEEN + 1))
-    case "$line" in *'"remoteControlAtStartup":false'*) ;; *) RC_BAD+=("no setting: ${line:0:90}") ;; esac
-    case "$line" in *--remote-control*) RC_BAD+=("remote control: ${line:0:90}") ;; esac
-  done < <(ps -axo command= 2>/dev/null | grep -- '--setting-sources project' | grep -v 'grep\|tmux-e2e')
-}
 
 # The session a host process on a tty registered, and how many live processes hold it.
 sid_on() { # <tty>
