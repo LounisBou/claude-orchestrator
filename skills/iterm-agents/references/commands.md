@@ -2,7 +2,7 @@
 
 Read before typing any `iterm-agent.sh` command, and again when one fails, hangs or says on stderr that a fallback served it. SKILL.md carries when to spawn, close, move or rotate and in what order; the conditions that come with an option stay beside it here.
 
-- Quick reference — `list`, `spawn`, `verify`, `screen`, `close`, `move`, `rotate`, `trust prune`, `tools`, the dry run
+- Quick reference — `list`, `spawn`, `verify`, `screen`, `close`, `move`, `rotate`, `pair`, `trust prune`, `tools`, the dry run
 - Agents as windows of a home session — where the launcher puts an agent, what each command does there, `home`, `takeover`
 - How the launcher builds a tab — trust, servers, focus, the launch file, the shell, the anchor's window, titles, hidden panes, the environment
 - When iTerm2 does not answer — the cause named, the two rungs, what the fallback cannot do
@@ -19,7 +19,7 @@ $SCRIPT list
     # tab title, then the session's NAME (the host registry's, else its --name; `(host
     # default)` when neither gives one), then `self` on YOUR OWN tab.
 
-$SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --inherit-model] [--effort <low|medium|high|xhigh|max>] [--permission-mode auto] \
+$SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --effort <low|medium|high|xhigh|max> | --inherit-model) [--permission-mode auto] \
     --title "Agent : <subject>" --brief <brief-path> --orchestrator "<name [ref]>" [--right-of self | --successor] [--mcp <name>] [--gate-tokens <N>] \
     [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills]
     # --brief lints the brief (skills/orchestrator/scripts/brief-lint.sh) before any tab
@@ -34,12 +34,9 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # three is refused before any tab exists (the host writes no transcript before a first
     # prompt, so the session's mode could never be read, §29) — --no-verify does not lift
     # this, a promptless session stays refused whether or not the mode is checked.
-    # --title has a SHAPE — `Orch : <subject>` for an orchestrator and its successor,
-    # `Agent : <subject>` for anything you spawn, the subject at most 25 characters —
-    # because it is the session's name in every listing and the operator reads that listing.
-    # Anything else is refused; `--title-free` is the escape for a probe that names its tab
-    # otherwise, and only under `--title-free` does no title mean `agent` — without it, a
-    # spawn with no title is refused.
+    # --title is `Orch : <subject>` for an orchestrator and its successor, `Agent : <subject>`
+    # for anything you spawn, the subject at most 25 characters; any other title, or none, is
+    # refused unless `--title-free`, under which no title means `agent`.
     # The session's servers are CHOSEN. The launch is strict by default, and carries a file
     # the launcher writes for that session from the operator's catalogue,
     # <state dir>/mcp.json (ORCHESTRATOR_MCP_CATALOGUE overrides the path): named
@@ -108,15 +105,24 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     # closes that tab, prints its tty on stdout and says on stderr whether the close
     # happened (`the tab on <tty> was NOT closed: close it with close --tty <tty>`), the
     # chain untouched. A caller that is not a tab of the app writes no chain entry.
-    # --inherit-model types the calling session's current model (from the hooks module's measure file); for a successor.
-    # --model <name> types that model for this one spawn, exclusive with --tier: the model the
-    # orchestrator chose where the tier the work needs is unbound.
+    # Every launched session carries its model and its effort (decision 3 of
+    # docs/agent-dispatches.md). The dry run prints what it types and where it came from:
+    # `effort=<level>` (`none` for the host's default) and `pair_source=` — `transcript <path>`,
+    # `tier <t>` (`tier deep, effort from transcript <path>` when the effort is yours),
+    # `flag`, `record` or `host default`; a real spawn says the same on stderr.
+    # --inherit-model types the calling session's current model AND effort, read on its
+    # transcript (its last main-thread request); --tier, --model and --effort are exclusive
+    # with it. A succession reads them the same way without it.
+    # --model <name> --effort <level> types that pair for this one spawn, exclusive with
+    # --tier: the pair the orchestrator chose. --model without --effort is refused (an
+    # agent's effort is the orchestrator's to name), and so is an agent given neither
+    # --tier nor --model.
     # --tier resolves through the operator's map (<state dir>/models.json, or
-    # ORCHESTRATOR_TIER_DEEP/_STANDARD/_LIGHT). An unbound tier and no --tier at all both
-    # type no model argument: the host chooses. `resolve-tier <tier>` prints the binding:
-    # `<model>` or `<model>/<effort>`; a tier may be bound to {"model": "<alias>", "effort": "<level>"}.
-    # --effort types the effort after the model; --tier takes the map's, an explicit one wins.
-    # None anywhere types no effort argument: the host applies its default.
+    # ORCHESTRATOR_TIER_DEEP/_STANDARD/_LIGHT). An unbound tier types no model argument: the
+    # host chooses the model. `resolve-tier <tier>` prints the binding: `<model>` or
+    # `<model>/<effort>`; a tier may be bound to {"model": "<alias>", "effort": "<level>"}.
+    # The effort typed with a tier: --effort, else the map's, else the plugin's shipped one
+    # (standard high, light medium), and for deep the calling orchestrator's own live effort.
     # --successor: the new session takes yours — immediately right of you, chain ignored, your chain handed to it (§34).
     #   With no --title it takes YOUR OWN name, read from the process table, so every brief
     #   that cites you still cites it; and it comes up under remote control under that name
@@ -125,16 +131,32 @@ $SCRIPT spawn --dir <workdir> [--tier deep|standard|light | --model <name> | --i
     #   by hand instead, and so is a name under an older convention, which no longer
     #   derives. An `Orch :` title with --right-of/--left-of
     #   is refused: a plain anchor lands after your chain, which is not a successor's place.
-    #   From an `Audit : <subject>` session (an auditor kept on past its report, §9.4) it takes
-    #   that name too, runs on your model whether or not --inherit-model is typed, comes up
-    #   under remote control, and takes and hands NO chain (chain=none): an auditor has none,
-    #   and written into one it would anchor the orchestrator's next agent. --tier, --model,
-    #   --effort and --no-remote-control are refused there; a typed `Audit :` title still is, off --auditor.
+    #   A successor runs on your live model and effort, read on your transcript:
+    #   --tier, --model and --effort are refused beside --successor, and a pair that cannot
+    #   be read refuses the launch, naming the file and what was missing.
+    #   From an `Audit : <subject>` session (an auditor kept on past its report, §9.4), or one
+    #   whose role word is qualified (`Audit neutre : <subject>`), it takes that name too, comes
+    #   up under remote control, keeps your plugin set (the enabledPlugins of your --settings,
+    #   with or without a plugin directory) and takes and hands NO chain (chain=none): an
+    #   auditor has none, and written into one it would anchor the orchestrator's next agent.
+    #   --no-remote-control is refused there too; a typed audit title still is, off --auditor.
     # --wake: a paused orchestrator relaunched on the operator's word, its predecessor already
-    #   gone. Needs --title "Orch : <subject>" and --model <id>, the ones recorded at its pause;
-    #   --effort as recorded. Lands immediately right of you, joins no chain (chain=none) and
+    #   gone. Needs --title "Orch : <subject>", the one recorded at its pause. Its pair: the one
+    #   the transcript of --resume <session> holds, else the recorded --model <id> --effort
+    #   <level>, else none (the host's default), never asked of the operator; a recorded model
+    #   without its effort is refused. Lands immediately right of you, joins no chain (chain=none) and
     #   comes up under remote control under its name. Refuses --successor, --auditor, an
     #   anchor, --title-free, --tier, --inherit-model, --resident and --no-remote-control.
+    # --open: a new orchestrator opened on the operator's order, by the session that carries
+    #   it out, never by an agent. `--open` comes right after `spawn`. Needs
+    #   --title "Orch : <subject>" without a reference and a prompt (--prompt or --prompt-file).
+    #   Its pair is the one the order names, --model <id> --effort <level>, or neither: the
+    #   host's default for the session applies. A model alone and an effort alone are refused,
+    #   and so are --tier and --inherit-model: a tier or the caller's own live pair would be a
+    #   pair nobody ordered. Lands immediately right of you, joins no chain (chain=none) and
+    #   comes up under remote control under its name. Refuses every succession flag,
+    #   --wake, an anchor (--right-of, --left-of), --title-free, --resident, --brief,
+    #   --orchestrator and --no-remote-control.
 
 $SCRIPT verify --tty /dev/ttysNNN [--pid <pid>]
     # succeeds with the pid when the host CLI runs on that tty; exit 1 otherwise. With --pid
@@ -167,10 +189,15 @@ $SCRIPT move --tty /dev/ttysNNN (--right-of self | --right-of /dev/ttysMMM | --l
     # warning on stderr and in close.log. The tabs that stay refused need --force,
     # which moves them and says so on stderr.
 
-$SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier>] [--expect-title <s>] \
+$SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --model <name> --effort <level>] [--expect-title <s>] \
     [--title <t>] [--prompt <text> | --prompt-file <path>] [--right-of self | --left-of <tty>] [--mcp <name>] [--gate-tokens <N>] \
     [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills]
     # spawns the replacement FIRST and verifies it is running, then closes the old tab
+    # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
+    # live model and effort, read on that agent's transcript (pair_source=transcript <path>);
+    # a tier, or --model with --effort, is the orchestrator naming the pair (an escalation),
+    # typed as given (pair_source=tier <t> or flag). An unreadable pair refuses the rotation
+    # before anything is spawned.
     # every argument it does not consume reaches the spawn, `--trust` and `--mcp <name>`
     # included: an agent that needed a server is replaced by one that still has it.
     # One of --prompt, --prompt-file or --brief is required here too — a promptless
@@ -180,6 +207,11 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier>] [--expe
     # --keep-synced-skills are forwarded like --mcp, and only those given to `rotate`: the
     # replacement is opened with the default set, not the original's, so a rotation of an
     # agent that was given Artifact or the synced skills gives them again.
+
+$SCRIPT pair
+    # read-only: the calling session's model and effort now, `model=<model> effort=<level>`,
+    # read on its transcript; exit 1 and the reason (the file, what was missing) otherwise.
+    # The answer to a pause (`paused-ready`) and a move's record are filled from it.
 
 $SCRIPT trust prune [--apply]      # entries of the trust record whose directory is gone; --apply removes them
 
@@ -227,8 +259,8 @@ An orchestrator's tab holds a tmux session of its own, its **home session**, on 
 - **The tab runs the launch through a login shell** (`ORCHESTRATOR_LOGIN_SHELL`, else `SHELL`, else `/bin/zsh`), so the agent inherits the operator's PATH, the package manager's binaries included. The launch names the CLI by ABSOLUTE path, resolved from the orchestrator's own environment, so a profile that breaks PATH cannot kill it.
 - **The app splits the command into words itself.** A compound command handed over raw is run by no shell at all. The launch goes to a FILE and the app is asked to run `/bin/sh <file>`: a path has no quoting, and quoting for someone else's tokenizer is the losing game the typed version already played.
 - **A window's tab list is a cached copy.** Read a reorder back through the object you already held and it looks like a reorder that never happened — or reports the position the tab used to have. Re-fetch the app after any mutation.
-- **The tab is born in the anchor's window, whichever window is in front.** The anchor is now searched across every window, and an anchor that is not there is refused before a tab exists (`spawn: no session found on <tty>`). A spawn with no anchor still appends to the window in front: that is one more reason to always name one.
-- **The title is the session's name, and the launcher holds it to the shape.** `--title` is passed to the host as the session's name (shown in its prompt, its resume picker, the terminal title, and applied with a variant when a live session already holds it), so it reads `Orch : <subject>` for an orchestrator and its successor or `Agent : <subject>` for anything an orchestrator spawns — an implementer, a review session, a comments agent, a probe, the subject saying which and at most 25 characters — and anything else, the spelled-out roles of the older convention and the old bare `agent` included, is refused before a tab exists. `--title-free` is the escape and the dry run says when it is on.
+- **The tab is born in the anchor's window, whichever window is in front.** The anchor is now searched across every window, and an anchor that is not there is refused before a tab exists (`spawn: no session found on <tty>`).
+- **The title is the session's name.** `--title` is passed to the host as the session's name (shown in its prompt, its resume picker, the terminal title, and applied with a variant when a live session already holds it), in the shape `spawn` gives above. `--title-free` is the escape and the dry run says when it is on.
 - **The tools a session is given are chosen, and the default is lean (§65).** The host sends every loaded tool's schema on every call; five tools no session has called and, for an agent or an auditor, the three that move an orchestrator weigh about 19,400 tokens per call. The launch names them in `--disallowedTools`, placed before the strict flag and the server file so the pair stays closed by `--permission-mode` (the option takes several values, like `--mcp-config`, and is never last). `--keep-tool` and `--drop-tool` change the set for one spawn; `tools` shows what exists and what each costs. The account's synced skills (`anthropic-skills:*`, never invoked) are hidden the same way, through the host's `syncClaudeAiSkills: false` in the launch's own `--settings`, which hides them for that session and moves nothing on disk (the same key in the operator's user settings would move the synced directory to the trash); `--keep-synced-skills` leaves them in. Artifact is removed by name, never by the host's `enableArtifact` setting, which also drops the « Scratchpad directory » line from the session's environment.
 - **The first character of a title is an activity glyph, and it flips on its own** — one shape while the session works, another once it idles. `--expect-title` compares titles with that glyph stripped from both sides.
 - **A pane behind a maximized sibling is still a session, and it is listed as `hidden`.** The host extension's « Chat / Diff / Code Review » bar opens each view as a sibling pane of the agent's tab and maximizes the one shown, so an agent with a review open is hidden and its tab shows the review. The tool reads hidden panes like visible ones; `close --tty` closes that SESSION alone and leaves the review pane and the tab.
