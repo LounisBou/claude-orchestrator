@@ -17,7 +17,8 @@
 #   coordinator.sh drop --name "Orch : <subject>"        abandons one for good: removes its record
 #                            and moves its brief into an abandoned/ directory beside it
 #   coordinator.sh round [--by-urgency]   the round's entries still to be ruled: the open ones,
-#                            then the withdrawn, the urgent first, each level grouped by sender
+#                            then the answered, then the withdrawn, the urgent first, each level
+#                            grouped by sender
 #                            (--by-urgency prints the same order)
 #   coordinator.sh round-close <id> --answer "<text>"   closes one entry with the answer relayed;
 #                            prints "closed <id>"
@@ -81,8 +82,10 @@
 # « withdrawn: settled meanwhile — <evidence> » and the answer also holds the evidence, so the
 # module tells the sender its question was withdrawn, with the evidence, never that it was answered. An entry still open and of kind operator, whose sender waits on that
 # answer, also gets its delivery pending, stamped as the answer ({state "pending", at, attempts 0},
-# with answerAt for a sender on this machine): the coordinator's hooks module sends the answer at
-# its next round reading and writes the outcome there, so the close is the one gesture.
+# with answerAt for a sender on this machine): the coordinator's
+# hooks module sends the answer as soon as that round-close has run in the coordinator's session,
+# and any answer still pending at its next round reading, and writes the outcome there, so the
+# close is the one gesture.
 # round-archive moves each entry file of <state>/round/ whose status is closed into
 # <state>/round/archive/ (created when absent), each in one rename; open, answered and withdrawn
 # entries stay, and so does a file that does not parse. Nothing reads the archive: round and
