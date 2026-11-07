@@ -282,7 +282,9 @@ head_option() {
 # without_code: stdin to stdout, minus what Markdown renders as code - fenced blocks (``` or
 # ~~~, closed by a fence of the same character at least as long, or by the end of the text)
 # and inline code spans (a run of backticks closed by a run of the same length on the same
-# line; a run with no match stays literal). Indented code blocks are not handled.
+# line; a run with no match stays literal). Indented code blocks are not handled. Two more
+# limits: a fence inside a list item or a blockquote is not recognised, and a code span
+# running over two lines is not either. An `<img` in those still counts.
 without_code() {
     awk '
     function run(s, i, ch,   j) { j = i; while (substr(s, j, 1) == ch) j++; return j - i }
