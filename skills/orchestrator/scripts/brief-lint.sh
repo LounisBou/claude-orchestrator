@@ -9,28 +9,8 @@
 # Prints one line per finding and exits 1 when there is any; exits 0 and says so
 # otherwise. Every check is mechanical: this reads the file, it does not judge the work.
 #
-# Why it exists: specification is the largest category of multi-agent failure, and a brief
-# is the whole specification act. Two defects reached a live agent before anything read
-# the file — a path built from a variable the agent's shell does not set, and a second
-# session reference sitting beside the real one, inside the rule whose point is that there
-# is exactly one address.
-#
-# Check 9 also refuses a duty ordered after the delivery in an implementer brief: the
-# phrases that keep a finished agent's tab idle (stand by, stay until merged, clean up
-# after the merge).
-#
-# Check 11 holds an orchestrator succession brief (first line `# Orchestrator succession
-# brief`) to 10,000 characters, the open-questions value apart.
-#
-# Check 12 refuses a succession brief, from the template or written by hand, that does not
-# have its reader close the predecessor's tab.
-#
-# Check 15 refuses a succession brief whose Live state lacks the operator's open questions, leaves
-# them empty or as the placeholder (`none` passes).
-#
-# Check 13 refuses a pull request title the brief imposes (`title \`...\``) of more than 60
-# characters. The operator's writing rule caps a pull request title at 60, and a brief that
-# imposes a longer one makes its implementer choose between the brief and the rule.
+# A brief is the whole specification act: a defect in it reaches a live agent before anything
+# else reads the file. Each check's rule is stated in the comment above its code.
 #
 # Check 14 refuses an implementer brief whose delivery opens a pull request without saying
 # how it comes out labelled `Not Ready`: through the github tool's `pr-create --draft`, or
@@ -309,24 +289,20 @@ if is_class implementer; then
     ' "$brief" 2>/dev/null || true)
 fi
 
-# 8. Retired with the context gauge's shell script (the hooks-module cutover): the
-#    check demanded an absolute path to context-gauge.sh, and the file is gone — the
-#    module measures every session itself, in-process, and no brief cites a script
-#    anymore. The number stays unused rather than renumbering every check above,
-#    which the suite's brief-lint cases cite by their finding texts.
+# 8. Retired with the context gauge's script; the number stays unused.
 
 # 11. A succession brief is read whole by a session that has nothing else in its context yet:
-#     past 10,000 characters it costs a successor what the live state was meant to save. The
+#     past 9,000 characters it costs a successor what the live state was meant to save. The
 #     class is read from the first line, as the template writes it. Characters, not bytes: the
 #     continuation bytes of a multibyte character are dropped before counting. The open-questions
 #     field's value is not counted, its label is: a verbatim `Question i of N` block is several
 #     hundred characters, and with the field filled the cap would refuse the very handover the
 #     field exists for.
-succession_limit=10000
+succession_limit=9000
 oq_field() {  # $1 mode: `value` prints the open-questions value, `rest` the brief without it
     awk -v mode="$1" '
         function next_field(s) {
-            return s ~ /^- (Rows open|Pull requests open|Agents running|The operator.s rulings|The operator.s open questions|The next step)/
+            return s ~ /^- (Rows open|Pull requests open|Agents running|The operator.s open questions|The next step)/
         }
         f == 0 && /^- The operator.s open questions/ {
             f = 1; found = 1
@@ -365,6 +341,77 @@ if grep -q '^## Live state' "$brief" 2>/dev/null; then
             say "$oq_line" "the open-questions field is empty: write each question verbatim, or none after reading the round"
         elif [ "$oq_value" = '{{LIVE_OPEN_QUESTIONS}}' ]; then
             say "$oq_line" "the open-questions field is still its placeholder: write each question verbatim, or none after reading the round"
+        fi
+    fi
+fi
+
+# 16. A succession brief names its orchestration's rulings file, the operator's standing rulings
+#     that its successor reads whole before anything else: the line « - Standing rulings: `<path>` »
+#     the template writes. A brief that names none, or a file that is not there, is refused. The
+#     path is read as its author meant it: a leading `~` is the home, a relative path sits beside
+#     the brief, whatever directory the lint runs in. Each entry of the file, a line that starts
+#     with `- ` and the indented lines under it, opens on its date and carries his words between
+#     « and », as `- <YYYY-MM-DDThh:mm:ssZ> « <his words, verbatim> » — <what it binds> (row N)`,
+#     a quote free to span lines: an entry without either is refused, naming the file and the
+#     entry's first line. The file's size is never counted in the brief's cap, and past 8,000
+#     characters it is one warning, never a refusal: the operator's words are not cut by a tool,
+#     the orchestrator moves out what is carried out or superseded. A path still a placeholder is
+#     check 1's.
+rulings_warn=8000
+if head -n 1 "$brief" 2>/dev/null | grep -q '^# Orchestrator succession brief'; then
+    rl=$(grep -n -m1 '^- Standing rulings: `[^`]*`' "$brief" 2>/dev/null || true)
+    if [ -z "$rl" ]; then
+        say 1 "succession brief names no rulings file: add \"- Standing rulings: \`<briefs dir>/rulings.md\`\", the operator's standing rulings, verbatim and dated"
+    else
+        rl_line=${rl%%:*}
+        rulings=$(printf '%s' "$rl" | sed -E 's/^[0-9]+:- Standing rulings: `([^`]*)`.*$/\1/')
+        case "$rulings" in
+            '~') rulings=$HOME ;;
+            '~/'*) rulings=$HOME/${rulings#\~/} ;;
+            /*|'{{'*) ;;
+            *) rulings=$(dirname "$brief")/$rulings ;;
+        esac
+        if [[ "$rulings" =~ ^\{\{[A-Za-z0-9_]+\}\}$ ]]; then
+            :
+        elif [ ! -f "$rulings" ]; then
+            say "$rl_line" "rulings file not found: $rulings — write the standing rulings there, one dated and quoted entry each"
+        else
+            while IFS= read -r entry; do
+                n=${entry%%:*}; text=${entry#*:}
+                [[ "$text" =~ ^-\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\  ]] \
+                    || say "$rl_line" "$rulings:$n: rulings entry without its date: open it on the ruling's YYYY-MM-DDThh:mm:ssZ"
+                printf '%s' "$text" | grep -q '« *[^ ].*»' \
+                    || say "$rl_line" "$rulings:$n: rulings entry without his words: quote them verbatim between « and »"
+            done < <(awk '
+                function flush() { if (n) print n ":" text; n = 0 }
+                /^- / { flush(); n = NR; text = $0; next }
+                n && /^[ \t]+[^ \t]/ { sub(/^[ \t]+/, " "); text = text $0; next }
+                { flush() }
+                END { flush() }' "$rulings" 2>/dev/null || true)
+            rchars=$(LC_ALL=C tr -d '\200-\277' < "$rulings" | wc -c | tr -d ' ')
+            [ "$rchars" -le "$rulings_warn" ] \
+                || printf '%s:%s: warning: rulings file %s is %s characters, over %s: move out what is carried out or superseded (not a finding)\n' \
+                    "$brief" "$rl_line" "$rulings" "$rchars" "$rulings_warn"
+        fi
+    fi
+fi
+
+# 17. A succession brief's state file is pruned before the handover (lifecycle item 0): it keeps
+#     what is live, and the finished journal moves to an archive. Nothing read that rule, and a
+#     state file of 158,176 bytes was handed over, its « Open » section the journal a successor
+#     then read by section. The file is the one the brief names on « state file `<path>` », as the
+#     template writes it. Past 30,000 characters it is one warning, never a refusal: what is live
+#     is the orchestrator's judgment, not the script's. A path that is no file says nothing here.
+state_warn=30000
+if head -n 1 "$brief" 2>/dev/null | grep -q '^# Orchestrator succession brief'; then
+    sl=$(grep -n -m1 -o 'state file `[^`]*`' "$brief" 2>/dev/null || true)
+    if [ -n "$sl" ]; then
+        state_file=$(printf '%s' "$sl" | sed -E 's/^[0-9]+:state file `([^`]*)`$/\1/')
+        if [ -f "$state_file" ]; then
+            schars=$(LC_ALL=C tr -d '\200-\277' < "$state_file" | wc -c | tr -d ' ')
+            [ "$schars" -le "$state_warn" ] \
+                || printf '%s:%s: warning: state file %s is %s characters, over %s: prune it, lifecycle item 0 — the live part stays, the finished journal goes to an archive (not a finding)\n' \
+                    "$brief" "${sl%%:*}" "$state_file" "$schars" "$state_warn"
         fi
     fi
 fi
