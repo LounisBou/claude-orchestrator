@@ -328,8 +328,10 @@ print("; ".join(bad) or "ok")
 }
 check "every core-loop row names a section, and every section it names is a heading of that file" "ok" \
   "$(core_loop_sections "$ROOT/skills/orchestrator/SKILL.md" "$ORCH_REFS")"
-check "the core loop's hand-over row names the predecessor's succession and says a takeover reads none" "yes|yes" \
-  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '`references/lifecycle.md` › « Succession — the predecessor »')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a takeover reads none: its brief carries the steps')"
+# A takeover reads the section its brief sends it to: the rulebook's row says the same, never that
+# a takeover reads no reference (the measure, the wait and the close proof live in that section).
+check "the core loop's hand-over row names the predecessor's succession and sends a takeover to the successor's" "yes|1|no" \
+  "$(spells "$ROOT/skills/orchestrator/SKILL.md" '`references/lifecycle.md` › « Succession — the predecessor »')|$(grep '^| Handing over to a successor' "$ROOT/skills/orchestrator/SKILL.md" | grep -cF 'a takeover: its brief, then › « Succession — the successor »')|$(spells "$ROOT/skills/orchestrator/SKILL.md" 'a takeover reads none')"
 # Work the operator deferred ends a turn on its own machine line, never on a question to him:
 # the rulebook, the decision round and the gate's reasons name it.
 check "the rulebook, the decision round and the gate's reasons name waiting: deferred" "yes|yes|yes|yes" \

@@ -515,7 +515,7 @@ The marketplace is the operator's family one, `lounisbou`, where every plugin of
 
 ### 9.1 A session's life, from launch to close
 
-The orchestrator's core loop — plan, brief, launch, verify, review, terminate, replace — is `skills/orchestrator/SKILL.md`, « The core loop », each step naming the section of a reference to read at the moment of the action, as `references/<file>.md` › « <heading> », the heading present verbatim in that file. A successor read lifecycle.md whole at its birth when the step named only the file, so each reference opens on a table of contents naming every heading, and the hand-over row says a takeover reads none: its brief carries the steps.
+The orchestrator's core loop — plan, brief, launch, verify, review, terminate, replace — is `skills/orchestrator/SKILL.md`, « The core loop », each step naming the section of a reference to read at the moment of the action, as `references/<file>.md` › « <heading> », the heading present verbatim in that file. A successor read lifecycle.md whole at its birth when the step named only the file, so each reference opens on a table of contents naming every heading, and the hand-over row sends a takeover to its brief, then to lifecycle.md « Succession — the successor », where the measure, the wait and the close proof live.
 
 - **Plan.** A validated spec and a phase plan with exact contracts, one kind of change per phase, one agent and one draft pull request per phase stacked on the previous branch head: `skills/orchestrator/references/briefs.md`, « Prerequisites and phase rules ».
 - **Brief.** Written from a template to a path the fresh session can open, carrying its tier and the reading that chose it (`orchestrator:model-routing`, section 10): `references/briefs.md`.
