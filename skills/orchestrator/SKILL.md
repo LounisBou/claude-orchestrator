@@ -55,7 +55,7 @@ plan → brief → launch → verify → review → terminate → replace. Each 
 
 They hold at every step of the loop, whatever a reference adds.
 
-**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it; others point here. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
+**The gate is the smaller of 300,000 tokens (30 %) and 80 % of the reported window: 300,000 on 1,000,000; 160,000 on 200,000.** The module enforces it. The host compacts where the operator's settings say; the plugin sets only the gates: agent 240,000; `--gate-tokens` sets a session's own.
 
 The fill is the module's measurement, never an estimate: read `/orchestrator-status`, your row and every agent's, before dispatching any phase.
 
@@ -80,6 +80,6 @@ of 2026-11-03, « […] also and at the same time in their own chat […], in bo
 answered, each turn re-presents it whole: the stop gate logs any turn without it.
 Open `orchestrator:decide` before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
-A pause it relays: its bullet in `references/lifecycle.md`.
+A pause, opening or move it relays: `references/lifecycle.md` › « Pause, opening and move ».
 
 **When your own session lacks what the role needs — a PATH, a credential, a tool the launch did not carry — the repair is a successor**, spawned with the environment the task needs, never a favour asked of a peer or of him.

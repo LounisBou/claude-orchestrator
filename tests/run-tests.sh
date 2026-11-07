@@ -9042,8 +9042,8 @@ check "a sleeping orchestrator is not missing, and its record outlives the coord
   "$(flat_has "$COORDSKILL" "its absence from \`ListAgents\` is its sleep, never a death")|$(flat_has "$COORDTPL" "outlives every succession, and nothing in it is woken or dropped but on his word")|$(flat_has "$COORDEND" "the sleeping record is kept")"
 check "a woken orchestrator skips the handshake with a predecessor already gone" "yes|yes" \
   "$(flat_has "$SUCC" "**Woken from a pause**")|$(flat_has "$SUCC" "step 4 is void — no « takeover confirmed », nothing to close")"
-check "the rulebook points a pause at the lifecycle, inside its one coordinator paragraph" "yes" \
-  "$(flat_has "$ROOT/skills/orchestrator/SKILL.md" "A pause it relays: its bullet in \`references/lifecycle.md\`.")"
+check "the rulebook points a pause, an opening and a move at their lifecycle section, inside its one coordinator paragraph" "yes|1" \
+  "$(flat_has "$ROOT/skills/orchestrator/SKILL.md" "A pause, opening or move it relays: \`references/lifecycle.md\` › « Pause, opening and move ».")|$(grep -c '^### Pause, opening and move$' "$ORCH_REFS/lifecycle.md")"
 check "the sleeping command lists, asks one confirmation before a drop, and leaves the operator's things alone" "yes|yes|yes|yes" \
   "$(flat_has "$SLCMD" "The hooks module answers it on the spot, with no model turn")|$(flat_has "$SLCMD" "**Ask one confirmation**, naming what is left behind")|$(flat_has "$SLCMD" "It does NOT touch the pull requests, their branches or the checkouts: closing those is the operator's.")|$(flat_has "$SLCMD" "moved, never deleted, so a slip loses nothing")"
 check "the drop runs only on his yes, after the turn ends" "1" \
