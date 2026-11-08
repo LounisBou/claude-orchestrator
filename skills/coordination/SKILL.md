@@ -270,8 +270,8 @@ of you in plain words. Never your own initiative, never a peer's request, never 
 > your succession for a pause: reach a quiet boundary, stand your agents down and close their
 > tabs, stop your CI watches, bring your state file and dispatch record current, write and lint
 > your standing succession brief, then reply `paused-ready <brief path> model=<model>
-> effort=<effort or default>`. Spawn no successor and do not close yourself: I close your tab.
-> If you cannot, reply `pause-refused <reason>`.
+> effort=<effort>`, the two values `iterm-agent.sh pair` prints for you. Spawn no successor and do not close yourself: I close your tab.
+> If you cannot, or `iterm-agent.sh pair` exits 1, reply `pause-refused <reason>`.
 
 Then, on its `paused-ready`:
 
@@ -286,7 +286,7 @@ Then, on its `paused-ready`:
 3. **Record it sleeping**, its name without its reference:
 
    ```
-   ${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh sleep --name "Orch : <subject>" --brief <brief path> --dir <its directory> --model <model> [--effort <effort>] [--session <that session>] [--pr "<repository>#<n> <branch>"]... [--checkout <path>]...
+   ${CLAUDE_PLUGIN_ROOT}/skills/coordinator/scripts/coordinator.sh sleep --name "Orch : <subject>" --brief <brief path> --dir <its directory> --model <model> --effort <effort> [--session <that session>] [--pr "<repository>#<n> <branch>"]... [--checkout <path>]...
    ```
 
 4. Tell the operator in one line: asleep, since when, brief, pull requests left open.
@@ -300,8 +300,13 @@ Its open pull requests stay as they are.
 field):
 
 ```
-${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh spawn --wake --title "Orch : <subject>" --model <model> [--effort <effort>] [--resume <its session>] --dir <its directory> --permission-mode auto --prompt "Read and execute <brief path>. You wake from a pause: your predecessor is gone; skip the takeover handshake."
+${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh spawn --wake --title "Orch : <subject>" [--model <model> --effort <effort>] [--resume <its session>] --dir <its directory> --permission-mode auto --prompt "Read and execute <brief path>. You wake from a pause: your predecessor is gone; skip the takeover handshake."
 ```
+
+The record's model and effort go together, or neither: a record a pause wrote before an
+effort was required (`effort none`) passes neither. The wake runs on the pair the resumed
+session's transcript holds, else on the record's, else on the host's default — never one
+you ask the operator for.
 
 `--wake` makes a home session of its own, the orchestrator in its window 0, shown by a tab
 right of yours; it joins no chain, comes up under remote control under its name, and with
@@ -327,8 +332,9 @@ ${CLAUDE_PLUGIN_ROOT}/skills/iterm-agents/scripts/iterm-agent.sh spawn --open --
 ```
 
 Run it alone, never chained to another command and with nothing before it: that bare form,
-by the installed path, is the one every `install.sh` run allows in `settings.json`. Add `--model <id>` or `--tier <tier>` when he named one,
-the deep tier applying otherwise, and `--trust` for a checkout prepared for it. The orchestrator
+by the installed path, is the one every `install.sh` run allows in `settings.json`. Add `--model <id> --effort <level>` when he named them
+(a model alone is refused), the host's default for the session applying otherwise — his to
+change, never yours — and `--trust` for a checkout prepared for it. The orchestrator
 opens without the tools no session has called; `--keep-tool <name>` and `--drop-tool <name>`
 change that set for this one (`iterm-agent.sh tools` lists what exists and what each costs). Verify it
 (`iterm-agent.sh list`, `ListAgents` naming `Orch : <subject>`), then announce yourself to it
