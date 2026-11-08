@@ -7793,6 +7793,14 @@ out=$(heir close --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
 rc=$?
 check "close on window 0 of a home session is refused before anything is killed, and names takeover" "1|1|0|0" \
   "$(printf '%s' "$out" | grep -c 'close: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title "Orch : home", which also puts its own window at index 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(calls | grep -c '\[move-window\]')"
+# rotate closes the old window only after its replacement has spawned, so a close that refuses
+# window 0 would leave the replacement running with nothing to close: the rotation refuses window
+# 0 first, before anything is spawned or killed, with the refusal close gives and the same command.
+rm -f "$TR/calls"
+out=$(heir rotate --old-tty /dev/ttys900 --expect-title "Orch : home" --dir "$WORK" --title "Agent : rotated" --tier light --prompt p 2>&1)
+rc=$?
+check "rotate on window 0 of a home session is refused before anything is spawned or killed, and names takeover" "1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c 'rotate: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title "Orch : home", which also puts its own window at index 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
 # The coordinator's pause close is a close on a home tab's tty, which is not a pane of this
 # server: it takes the home server's road, never window 0's refusal, and kills no window. The
 # whole close (tab and server ended) is pinned beside the home close tests.
