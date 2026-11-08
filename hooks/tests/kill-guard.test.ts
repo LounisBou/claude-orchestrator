@@ -67,6 +67,27 @@ const refused = [
   'pgrep node | xargs -I {} kill {}',
   '/usr/bin/pgrep node | xargs kill',
   'pgrep x | xargs -I % kill %',
+  // The string a shell runs, or eval, is a command line of its own.
+  `bash -c 'pkill x'`,
+  'sh -c "killall node"',
+  'bash -lc "pkill -f vite"',
+  'eval "pkill x"',
+  'eval pkill x',
+  'timeout 5 bash -c "pkill -f vite"',
+  `zsh -c 'pkill x'`,
+  `dash -c 'killall node'`,
+  `ksh -c 'pkill x'`,
+  `/bin/bash -c 'pkill x'`,
+  `sudo bash -c 'pkill x'`,
+  `bash -x -c 'pkill x'`,
+  `bash -o pipefail -c 'pkill x'`,
+  `bash -euo pipefail -c 'pkill x'`,
+  `bash -c 'echo ok; pkill x'`,
+  `bash -c 'kill $(pgrep x)'`,
+  `bash -c 'pgrep x | xargs kill'`,
+  `echo x && bash -c 'pkill x'`,
+  `bash -c "bash -c 'pkill x'"`,
+  `xargs -I {} bash -c 'pkill x'`,
 ]
 
 // Not kills: a recorded pid, a variable, a job, a liveness probe, a lister alone,
@@ -122,6 +143,17 @@ const accepted = [
   'pgrep x | cat; xargs kill',
   'pgrep x; echo | xargs kill',
   'pgrep x | kill 5',
+  // A shell string with no kill by pattern, and a shell with no string to run.
+  `bash -c 'kill $pid'`,
+  `bash -c 'echo pkill'`,
+  `bash -c 'kill 1234'`,
+  'bash script.sh',
+  `bash script.sh -c 'pkill x'`,
+  `bash -o pipefail script.sh -c 'pkill x'`,
+  'bash -c',
+  'eval',
+  'eval "echo pkill"',
+  'eval kill 1234',
 ]
 
 test('every kill by name or pattern is read as one, with a reason', () => {
@@ -142,6 +174,20 @@ test('a kill in a pipeline reads the lister before it, not one behind another se
   expect(detectPatternKills('pgrep a | xargs kill')).not.toEqual([])
   expect(detectPatternKills('pgrep a && xargs kill')).toEqual([])
   expect(detectPatternKills('pgrep a & xargs kill')).toEqual([])
+})
+
+test('the string of a shell -c and of eval is read for kills, its reasons joined to the line\'s', () => {
+  expect(detectPatternKills(`bash -c 'pkill x'`)).toEqual(['pkill'])
+  expect(detectPatternKills('eval "killall node"')).toEqual(['killall'])
+  expect(detectPatternKills(`pkill a; bash -c 'killall b'`)).toEqual(['pkill', 'killall'])
+  expect(detectPatternKills(`pkill a; sh -c 'pkill b'`)).toEqual(['pkill'])
+  expect(detectPatternKills(`bash -c 'kill $(pgrep x)'`)).toEqual(['kill of a command substitution'])
+})
+
+test('a shell string nested four deep is still read', () => {
+  const nest = (inner: string) => `bash -c "${inner.replace(/(["\\$`])/g, '\\$1')}"`
+  const four = nest(nest(nest(nest('pkill x'))))
+  expect(detectPatternKills(four)).toEqual(['pkill'])
 })
 
 test('a substitution in one command does not make the next one a kill', () => {

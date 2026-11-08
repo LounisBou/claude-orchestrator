@@ -95,15 +95,27 @@ export function detectForces(command: string): string[] {
 
 // Programs that list processes: what `xargs kill` kills by pattern when one feeds it.
 const LISTERS = new Set(['pgrep', 'pidof', 'lsof', 'ps'])
+// Shells that run a command line given as a string after `-c`.
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh'])
+// How many strings may sit inside one another and still be read as command lines.
+const STRING_DEPTH = 4
 
 // The kills by name or pattern a command line holds, one short reason each, none when
 // there is none. A kill is pkill or killall whatever their options, or a kill whose pids
 // come from a command substitution or, through xargs, from a lister. `kill 1234`,
 // `kill $pid`, `kill %1` and `kill -0 …` (a probe, it kills nothing) are not kills by
-// pattern; words in quotes, heredocs and arguments of other programs are data.
+// pattern; words in quotes, heredocs and arguments of other programs are data, but for
+// the string a shell runs after `-c` and the words eval runs, which are command lines
+// themselves and read as such, to a depth of STRING_DEPTH. The push reading does not
+// read them: detectForces stays on the words of the line.
 export function detectPatternKills(command: string): string[] {
   const found: string[] = []
   const seen = (reason: string) => { if (!found.includes(reason)) found.push(reason) }
+  killsIn(command, 0, seen)
+  return found
+}
+
+function killsIn(command: string, depth: number, seen: (reason: string) => void): void {
   scan(command, ({ words, subst, piped }) => {
     // `xargs -I {} kill {}`: the tokeniser drops the braces, so the replacement string
     // of a separate `-I` may be gone from the words and the next word is the program.
@@ -113,6 +125,8 @@ export function detectPatternKills(command: string): string[] {
       if (k > words.length) continue
       const program = baseName(words[k - 1])
       if (program === 'pkill' || program === 'killall') { seen(program); return }
+      const text = depth < STRING_DEPTH ? stringOf(program, words.slice(k)) : null
+      if (text !== null) { killsIn(text, depth + 1, seen); return }
       if (program !== 'kill' || words[k] === '-0') continue
       if (subst) seen('kill of a command substitution')
       else if (wrappers.includes('xargs')) {
@@ -122,7 +136,19 @@ export function detectPatternKills(command: string): string[] {
       return
     }
   })
-  return found
+}
+
+// The command line a program runs from a string, null when it has none: eval's words
+// joined by spaces, or the word after a shell's `-c` option (a cluster ending in c, like
+// `-lc`, is one) among the options before its first operand. `-o` and `-O` take a value,
+// so `bash -o pipefail -c '…'` still finds its `-c`.
+function stringOf(program: string, args: string[]): string | null {
+  if (program === 'eval') return args.length > 0 ? args.join(' ') : null
+  if (!SHELLS.has(program)) return null
+  for (let j = 0; j < args.length && /^[-+]/.test(args[j]); j += /^[-+][A-Za-z]*[oO]$/.test(args[j]) ? 2 : 1) {
+    if (/^-[A-Za-z]*c$/.test(args[j])) return args[j + 1] ?? null
+  }
+  return null
 }
 
 function prefixOf(name: string, full: string, min: number): boolean {
