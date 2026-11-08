@@ -253,6 +253,100 @@ test('a pid kept in a file is a recorded pid, any other substitution is a lookup
   expect(detectPatternKills('bash -c \'kill $(cat f.pid)\'')).toEqual([])
 })
 
+// Kills wider than one process: -1 is every process of the user, 0 the caller's process
+// group, a negative number a whole group. The signal comes first (-9, -TERM, -s TERM,
+// -n 9), `--` ends the options, and what follows is a target.
+const wide = [
+  'kill -9 -1',
+  'kill -- -1',
+  'kill 0',
+  'kill -TERM -$$',
+  'kill -1',
+  'kill -KILL -1',
+  'kill -SIGKILL -1',
+  'kill -s TERM -1',
+  'kill -s 9 -1',
+  'kill -n 9 -1',
+  'kill -9 -- -1',
+  'kill -s TERM -- -1',
+  'kill -- 0',
+  'kill -9 0',
+  'kill -TERM 0',
+  'kill -1 -1',
+  'kill 1234 -1',
+  'kill -9 1234 0',
+  'kill -9 -1234',
+  'kill -- -1234',
+  'kill -s TERM -1234',
+  'kill -9 -$$',
+  'kill -9 -$pgid',
+  'kill -9 -${pgid}',
+  'kill -9 -"$pgid"',
+  'kill -9 -"$$"',
+  'kill -TERM -$pgid',
+  'kill -9 -$(cat pgid.pid)',
+  '/bin/kill -9 -1',
+  'sudo kill -9 -1',
+  'env kill -9 -1',
+  'kill -9 -1 2>/dev/null',
+  'echo x; kill 0',
+  'git status && kill -9 -1',
+  '(kill -9 -1)',
+  'echo x | xargs kill -9 -1',
+  "bash -c 'kill -9 -1'",
+  'eval "kill -- -1"',
+  'kill -9 $(cat f.pid) -1',
+  'kill -TERM -1 1234',
+]
+
+// One process, or a probe, or a list of signals: none of them wide.
+const narrow = [
+  'kill -9 1234',
+  'kill -s TERM 1234',
+  'kill -n 9 1234',
+  'kill -- 1234',
+  'kill -9 -- 1234',
+  'kill -TERM $(cat f.pid)',
+  'kill -TERM -s',
+  'kill -1 1234',
+  'kill -HUP 1234 5678',
+  'kill 1',
+  'kill 10',
+  'kill 100 200',
+  'kill -9 %1',
+  'kill $pid',
+  'kill -9 "$pid"',
+  'kill -0 -1',
+  'kill -0 0',
+  'kill -l',
+  'kill -L',
+  'kill -l 9',
+  'kill -9',
+  'kill',
+  'echo kill -9 -1',
+  'echo "kill 0"',
+  'git commit -m "kill -9 -1 is refused"',
+  'grep -- -1 file',
+  'ls -1',
+  'sleep 0',
+  'bash -c "kill -9 1234"',
+  'kill -9 -s',
+]
+
+test('a kill of every process or of a process group is read as one, with a reason', () => {
+  for (const c of wide) expect(detectPatternKills(c), c).toEqual(['kill of all processes or a process group'])
+})
+
+test('a kill of one process, a probe and a list of signals are not wide', () => {
+  for (const c of narrow) expect(detectPatternKills(c), c).toEqual([])
+})
+
+test('a wide kill and a kill by lookup name themselves each', () => {
+  expect(detectPatternKills('kill -9 -1 $(pgrep x)')).toEqual(['kill of a command substitution', 'kill of all processes or a process group'])
+  expect(detectPatternKills('kill -9 -1; kill 0')).toEqual(['kill of all processes or a process group'])
+  expect(detectPatternKills('pgrep x | xargs kill -9 -1')).toEqual(['kill fed through xargs by pgrep', 'kill of all processes or a process group'])
+})
+
 // The decision: nothing in a session the launcher did not mark, a refusal in a
 // marked one, the push guard's shape.
 const DENY_START = 'kill refused: this session was spawned by the launcher'
@@ -289,6 +383,7 @@ test('a mark never read refuses a kill by pattern with the reason the guard did 
   expect(d?.deny).toContain('Seen: pkill')
   expect(guardFallback(undefined, 'kill 1234', 'the marker cannot be read')).toBeNull()
   expect(guardFallback(undefined, 'kill $(cat server.pid)', 'the marker cannot be read')).toBeNull()
+  expect(guardFallback(undefined, 'kill -9 -1', 'the marker cannot be read')?.deny).toContain('Seen: kill of all processes or a process group')
   expect(guardFallback(undefined, 'git status', 'the marker cannot be read')).toBeNull()
 })
 
@@ -349,6 +444,17 @@ test("a marked session's kill by pattern is denied, the tool never asked", async
   for (const c of ['pkill -f vite', 'killall node', 'kill $(pgrep -f vite)', 'pgrep node | xargs kill']) {
     const { answer, passedThrough } = await callBash(handlers['tool.call'], dollar, bashCall(c))
     expect((answer as any).deny, c).toContain(DENY_START)
+    expect(passedThrough, c).toBeNull()
+  }
+})
+
+test("a marked session's wide kill is denied, the tool never asked", async () => {
+  const { handlers } = mounted()
+  const { dollar } = fakeDollar({ spawned: '1' })
+  for (const c of ['kill -9 -1', 'kill -- -1', 'kill 0', 'kill -TERM -$$']) {
+    const { answer, passedThrough } = await callBash(handlers['tool.call'], dollar, bashCall(c))
+    expect((answer as any).deny, c).toContain(DENY_START)
+    expect((answer as any).deny, c).toContain('Seen: kill of all processes or a process group.')
     expect(passedThrough, c).toBeNull()
   }
 })

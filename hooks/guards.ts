@@ -122,10 +122,11 @@ export function pushDecision(spawned: string | null | undefined, command: string
 // The kill decision, the push decision's twin: nothing in a session the launcher did not
 // mark, and in a marked one every kill by name or pattern refused — pkill, killall, a
 // kill whose pids come from a substitution other than `cat <file>` or from a lister
-// through xargs. A session kills only what it started, by the pid it recorded in a file
-// (`cmd & echo $! > <file>`, then `kill $(cat <file>)`; a shell variable does not outlive
-// a Bash call, a file does). A kill by pattern reaches other sessions' processes (their
-// dev servers, the sleep of their wait loops).
+// through xargs, a kill of every process or of a process group. A session kills only
+// what it started, by the pid it recorded in a file (`cmd & echo $! > <file>`, then
+// `kill $(cat <file>)`; a shell variable does not outlive a Bash call, a file does). A
+// kill by pattern reaches other sessions' processes (their dev servers, the sleep of
+// their wait loops).
 export function killDecision(spawned: string | null | undefined, command: string): { deny: string } | null {
   if (!spawned) return null                        // the operator's own sessions: untouched
   const kills = detectPatternKills(command)

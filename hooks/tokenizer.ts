@@ -114,10 +114,11 @@ const STRING_DEPTH = 4
 
 // The kills by name or pattern a command line holds, one short reason each, none when
 // there is none. A kill is pkill or killall whatever their options, or a kill whose pids
-// come from a command substitution other than `cat file` (the pid kept in a file) or,
-// through xargs, from a lister. `kill 1234`, `kill $pid`, `kill %1`, `kill $(cat file)`
-// and `kill -0 …` (a probe, it kills nothing) are not kills by pattern, and neither is a
-// `command -v` lookup, which runs nothing. Words in quotes,
+// come from a command substitution or, through xargs, from a lister, or one that reaches
+// more than one process: every process (`-1`), the caller's group (`0`) or a group
+// (`-<pgid>`). `kill 1234`, `kill $pid`, `kill %1`, `kill $(cat file)` (the pid kept in a
+// file) and `kill -0 …` (a probe, it kills nothing) are not kills by pattern, and neither
+// is a `command -v` lookup, which runs nothing. Words in quotes,
 // heredocs and arguments of other programs are data, but for the string a shell runs
 // after `-c` and the words eval runs: those are command lines themselves and read as
 // such, STRING_DEPTH nested at most. The push reading does not read them, detectForces
@@ -148,6 +149,7 @@ function killsIn(command: string, depth: number, seen: (reason: string) => void)
         const lister = piped.find(p => LISTERS.has(p))
         if (lister) seen(`kill fed through xargs by ${lister}`)
       }
+      if (reachesMany(words.slice(k))) seen('kill of all processes or a process group')
       return
     }
   })
@@ -160,6 +162,28 @@ function isRecordedPid(held: Simple[]): boolean {
   if (held.length !== 1) return false
   const { words, substs } = held[0]
   return substs.length === 0 && words.length === 2 && words[0] === 'cat' && !/^-|[*?[]/.test(words[1])
+}
+
+// Whether the words after `kill` aim at more than one process: `0` (the caller's group),
+// `-1` (every process of the user) or `-<digits>`, `-$$`, `-$name` (a group). The options
+// come first, the way the shell reads them: one `-<signal>`, `-s <signal>` or `-n <num>`,
+// and `--` ends them; every word after is a target, a `-` one included. `-l` lists
+// signals and kills nothing. A lone `-1` has no pid to be the signal of, so it is read as
+// the target, which is how a kill that took it as one would take it.
+function reachesMany(args: string[]): boolean {
+  let signal = ''
+  let i = 0
+  for (; i < args.length; i++) {
+    const a = args[i]
+    if (a === '--') { i++; break }
+    if (/^-[lL]$/.test(a)) return false
+    if (a === '-s' || a === '-n') { signal = a; i++; continue }
+    if (!a.startsWith('-') || signal) break
+    signal = a
+  }
+  const targets = args.slice(i)
+  if (targets.length === 0) return signal === '-1'
+  return targets.some(t => /^0+$/.test(t) || /^-($|[0-9$])/.test(t))
 }
 
 // The command line a program runs from a string, null when it has none: eval's words
