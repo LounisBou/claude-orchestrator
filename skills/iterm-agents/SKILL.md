@@ -87,7 +87,7 @@ Prompt and launch files accumulate under the state directory's `prompts/`; they 
 
 1. The old agent must have STOOD DOWN (message it; wait for its acknowledgment) — never close a tab whose session may still be writing. **In a rotation this acknowledgment IS the guard**, not the title.
 2. `list` to confirm the tty is the one you mean.
-3. `rotate`, which spawns the replacement and verifies it is running before the old one is gone. **Do not pass `--expect-title` to a rotation**: a working session rewrites its title during the ten seconds of the spawn. The tty is the identity; a stood-down agent that acknowledged is what makes closing it safe.
+3. `rotate`, which refuses before any spawn whatever `close` would refuse for the old session, then spawns the replacement and verifies it is running before the old one is gone. **Do not pass `--expect-title` to a rotation**: a working session rewrites its title during the ten seconds of the spawn. The tty is the identity; a stood-down agent that acknowledged is what makes closing it safe.
 4. Verify with `list` (the old tab gone, the new one present) AND `ListAgents` (new peer session visible, old one gone) before reporting the rotation done.
 
 `--expect-title` remains right for a STANDALONE `close`, where you read the title from `list` seconds before and nothing runs in between.

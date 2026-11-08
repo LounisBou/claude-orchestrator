@@ -193,6 +193,14 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     [--title <t>] [--prompt <text> | --prompt-file <path>] [--right-of self | --left-of <tty>] [--mcp <name>] [--gate-tokens <N>] \
     [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills]
     # spawns the replacement FIRST and verifies it is running, then closes the old tab
+    # Before any spawn it refuses whatever `close` would refuse for the old session: window 0
+    # of a home session, a window of another tmux session, a window or a title that does not
+    # hold --expect-title, a tab that is no session, a home tab whose window 0 session cannot
+    # be read. Nothing is spawned then, and the message reads `rotate: refused: …`. A refusal
+    # only the close can give (a host that outlives its window) comes after the spawn: the
+    # replacement is then closed by the id its terminal gave it, and the last line says both,
+    # `rotate: the old session on <tty> was not closed, and the replacement on <tty> was closed`,
+    # or `… was NOT closed: close it with close --tty <tty>`. Either way the exit is not 0.
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript (pair_source=transcript <path>);
     # a tier, or --model with --effort, is the orchestrator naming the pair (an escalation),
@@ -247,7 +255,7 @@ An orchestrator's tab holds a tmux session of its own, its **home session**, on 
 - **`spawn`** makes the window with `new-window -d` (the operator's view stays put), named by `-n` with the title, because a window not named takes its program's name. It takes the next free index; `--right-of self` is read as « after my last agent », and a first place or `--left-of` is said to be unsupported there. Its chain entry is `tmux:<socket>:@N`, owned by `tmux:<socket>:%N`.
 - **`list`** prints the home session's windows, one row each, the caller's own marked `self`, then the app's tabs it did not make as windows (an auditor's, for one). **`screen`** reads a window with `capture-pane`.
 - **`close`** kills the window, guarded by `--expect-title` against the window's name, proved gone on the process table (a host still there is sent SIGTERM, then SIGKILL, as for a tab), the checkout deleted as for a tab. A tty of another tmux session is refused. On a tab that shows a home session it ends the whole server first and prints a `home:` line. A home session's window 0 is closed only by `takeover`: `close` refuses it, before anything is killed.
-- **`move`** is `move-window`, with the operator's view kept; window 0 is refused as a subject, as an anchor to place something before, and as `--leftmost`. **`rotate`** spawns, verifies, then closes, as for tabs.
+- **`move`** is `move-window`, with the operator's view kept; window 0 is refused as a subject, as an anchor to place something before, and as `--leftmost`. **`rotate`** spawns, verifies, then closes, as for tabs, after refusing before any spawn whatever `close` would refuse (window 0 included).
 - **`home --session <id> --name "Orch : <subject>"`** is run by the hooks module at the end of the turn that names an orchestrator, never by hand: it makes the server, resumes the same conversation in window 0 and opens a tab showing it, printing `moved: …` or `stay: <why>` (a session that is not an orchestrator, or already in a home session, stays). **`home-release`** is window 0's watcher, closing the tab the orchestrator left once the resumed host is proved running. **`takeover --tty <predecessor> --expect-title <words>`** is a successor's close of its predecessor: window 0 killed (the title being required) and its host proved gone, sent SIGTERM then SIGKILL when it stays, then the successor's window moved to index 0.
 - **The tab bar** shows one block per window — the name, then the state icon the module wrote on the window: busy ●, idle ○, asks ✋, done ✓, gate ⚠. A click on a block or `C-b n` / `C-b p` switches; the windows keep their numbers, so `C-b <digit>` still selects one, though the bar shows none. `C-b C-b` sends a Ctrl-B to the pane.
 - **`ORCHESTRATOR_TMUX`** names the tmux binary (the suite stands a recorder in for it); `ORCHESTRATOR_HOME_WAIT` is how long window 0 waits for the moved session to end in its old place.
