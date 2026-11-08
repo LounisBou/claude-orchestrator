@@ -51,12 +51,16 @@ class _AsyncioSocketNoise(logging.Filter):
 logging.getLogger("asyncio").addFilter(_AsyncioSocketNoise())
 
 HOST_CLI = os.environ.get("ORCHESTRATOR_HOST_CLI", "claude")
+# The API-billed front end an `--api-billed` agent runs under: it takes a budget, then the
+# words the host would have been given, and runs the host with them on the same tty.
+CHAT_CLI = os.environ.get("ORCHESTRATOR_CHAT_CLI", "claude-chat")
 STATE_DIR = os.environ.get("ORCHESTRATOR_STATE_DIR") or os.path.join(
     os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude"),
     "claude-orchestrator",
 )
 PROMPTS_DIR = os.path.join(STATE_DIR, "prompts")
 CHAINS_DIR = os.path.join(STATE_DIR, "chains")
+BILLING_DIR = os.path.join(STATE_DIR, "billing")
 SELF_TTY = os.environ.get("ORCHESTRATOR_SELF_TTY", "")
 
 
@@ -3966,7 +3970,7 @@ def host_cuts(role):
 def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_file="",
                   account_connectors=False, gate_tokens=0, effort="", keep_tools=(),
                   drop_tools=(), keep_synced_skills=False, session=(), plugin_dirs=(),
-                  caller_plugins=None, reports_to=""):
+                  caller_plugins=None, reports_to="", api_budget=""):
     """The command iTerm2 runs in the new tab. It is HANDED to the app, never typed, so
     its length and its bytes stop being a hazard. No model argument at all when neither a
     tier nor an explicit identifier says which: the host's own default is the right
@@ -4003,6 +4007,10 @@ def build_command(dir_, title, model, mode, prompt_file, remote_control="", mcp_
         # the module's own default holds.
         parts.insert(2, "export ORCHESTRATOR_CONTEXT_GATE_TOKENS=%d" % gate_tokens)
     cli = [shq(cli_path)]
+    if api_budget:
+        # An API-billed agent: the front end takes its budget, then exactly the words the host
+        # would have been given, which it hands to the host it runs on this same tty.
+        cli = [shq(shutil.which(CHAT_CLI) or CHAT_CLI), "--agent", "--budget", shq(api_budget)]
     if model:
         cli += ["--model", shq(model)]
     # Right after the model, which it qualifies; none typed leaves the host's own default.
@@ -4230,6 +4238,132 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
         "and effort are its orchestrator's to name")
 
 
+# --- API-billed agents: the switch, its record and the front end on a tty ----------
+
+# At most six digits of dollars, so no amount reads as an infinite one, and anchored at the
+# very end, where `$` would let a trailing newline through.
+BUDGET_SHAPE = re.compile(r"[0-9]{1,6}(\.[0-9]{1,2})?\Z")
+
+
+def refuse_api_billed(args):
+    """The refusals of `--api-billed` and `--budget`, before anything is read or made. Only an
+    agent runs under the API-billed front end, and only on the operator's words, so every such
+    spawn names its budget: there is no default. Its record names the front end's pid, read
+    by the verification, so a spawn that skips the verification is refused too: a rotation
+    could not trust what it wrote."""
+    if args.budget is not None and not args.api_billed:
+        die("spawn: refused: --budget is an API-billed spawn's: pass --api-billed with it")
+    if not args.api_billed:
+        return
+    if args.budget is None:
+        die("spawn: refused: --api-billed needs --budget <dollars>: every API-billed spawn "
+            "names its budget, there is no default")
+    if not BUDGET_SHAPE.match(args.budget) or float(args.budget) <= 0:
+        die("spawn: refused: --budget must be a positive amount of dollars, at most two "
+            "decimals, got %r" % args.budget[:40])
+    for flag, given in (("--successor", args.successor), ("--open", args.open_),
+                        ("--wake", args.wake), ("--auditor", args.auditor),
+                        ("--coordinator-successor", args.coordinator_successor),
+                        ("--no-verify", not args.verify)):
+        if given:
+            die("spawn: refused: %s is not an API-billed spawn's: only a verified agent spawn "
+                "runs under the API-billed front end" % flag)
+    if args.title_free or title_role(args.title) != "Agent":
+        die("spawn: refused: an API-billed spawn is an agent's: its title reads "
+            "\"Agent : <subject>\", got '%s'" % args.title[:40])
+
+
+def billing_path(tty):
+    return os.path.join(BILLING_DIR, os.path.basename(tty) + ".json")
+
+
+def billing_record_write(tty, budget, title, pid):
+    """Record that the agent on `tty` is API-billed, with its budget, its title and the pid of
+    the front end its spawn verified. Rotation reads it back; the child host's own process
+    line shows a plain host and would relaunch the agent on the subscription."""
+    os.makedirs(BILLING_DIR, exist_ok=True)
+    path = billing_path(tty)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump({"budget": budget, "title": title, "pid": str(pid)}, fh)
+    os.replace(tmp, path)
+
+
+def billing_record(tty):
+    """The API-billed record of the agent on `tty`, or None. Trusted only while the pid it
+    names still runs the front end on that tty: a tty is recycled, and a record outlives its
+    agent when the close that drops it never ran. The host's own pid would not do: the front
+    end opens a new host on a reconnect. Read strictly: the budget is a string of the shape a
+    spawn accepts, or there is no record."""
+    try:
+        with open(billing_path(tty)) as fh:
+            record = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(record, dict):
+        return None
+    budget = record.get("budget")
+    if not isinstance(budget, str) or not BUDGET_SHAPE.match(budget):
+        return None
+    pid = record.get("pid")
+    if not isinstance(pid, str) or not pid.isdigit() or pid not in chat_fronts_on(tty):
+        return None
+    return record
+
+
+def billing_record_drop(tty):
+    try:
+        os.remove(billing_path(tty))
+    except OSError:
+        pass
+
+
+# The programs that run the front end as their script: what follows them, past their own
+# options, is the script.
+INTERPRETER_SHAPE = re.compile(r"(python|node|ruby|perl|bash|zsh|sh)[0-9.]*\Z")
+
+
+def front_program(command):
+    """The basename of what one process-table row runs: its program, or, for an interpreter,
+    the first word after it that is not an option. An `env` in front, with its options and
+    assignments, is passed over."""
+    words = command.split()
+    at = 0
+    if words and os.path.basename(words[0]) == "env":
+        at = 1
+        while at < len(words) and (words[at].startswith("-") or "=" in words[at]):
+            at += 1
+    if at >= len(words):
+        return ""
+    program = os.path.basename(words[at])
+    if not INTERPRETER_SHAPE.match(program):
+        return program
+    script = next((word for word in words[at + 1:] if not word.startswith("-")), "")
+    return os.path.basename(script)
+
+
+def chat_fronts_on(tty):
+    """Every API-billed front end on `tty`, in table order: each one's pid, or its command
+    line where the suite's table carries no pid. A row is one when what it runs is named like
+    ORCHESTRATOR_CHAT_CLI or what that resolves to. It does not reuse `is_host_process`,
+    which reads a row's program alone, because the front end runs as an interpreter's
+    script."""
+    import shutil
+    names = {os.path.basename(CHAT_CLI)}
+    try:
+        names.add(os.path.basename(os.path.realpath(shutil.which(CHAT_CLI) or CHAT_CLI)))
+    except Exception:
+        pass
+    names.discard("")
+    return [pid or command for pid, command in ps_rows(tty) if front_program(command) in names]
+
+
+def chat_front_on(tty):
+    """The first API-billed front end on `tty`, its pid or its command line, or None."""
+    every = chat_fronts_on(tty)
+    return every[0] if every else None
+
+
 def cmd_spawn(argv, pair_from=""):
     """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
     read on the rotated agent's transcript, so the launch says where they came from."""
@@ -4267,6 +4401,8 @@ def cmd_spawn(argv, pair_from=""):
     p.add_argument("--drop-tool", dest="drop_tool", action="append", default=[])
     p.add_argument("--keep-synced-skills", dest="keep_synced_skills", action="store_true",
                    default=False)
+    p.add_argument("--api-billed", dest="api_billed", action="store_true", default=False)
+    p.add_argument("--budget", default=None)
     args, unknown = p.parse_known_args(argv)
     if unknown:
         die("spawn: unknown option %s" % unknown[0])
@@ -4282,6 +4418,7 @@ def cmd_spawn(argv, pair_from=""):
     both = [name for name in args.keep_tool if name in args.drop_tool]
     if both:
         die("spawn: refused: '%s' is given to both --keep-tool and --drop-tool" % both[0])
+    refuse_api_billed(args)
     gate_tokens = 0
     if args.gate_tokens is not None:
         if not re.fullmatch(r"[0-9]+", args.gate_tokens) or int(args.gate_tokens) < 1:
@@ -4718,7 +4855,8 @@ def cmd_spawn(argv, pair_from=""):
     launch = build_command(args.dir, title, model, args.mode, prompt_file, remote_control,
                            mcp_file, args.account_connectors, gate_tokens, effort,
                            args.keep_tool, args.drop_tool, args.keep_synced_skills,
-                           session_words, plugin_dirs, caller_plugins, args.orchestrator)
+                           session_words, plugin_dirs, caller_plugins, args.orchestrator,
+                           args.budget if args.api_billed else "")
 
     if DRY_RUN:
         print("launch=%s" % launch)
@@ -4738,6 +4876,9 @@ def cmd_spawn(argv, pair_from=""):
         print("wake=%s" % ("yes" if args.wake else "no"))
         print("open=%s" % ("yes" if args.open_ else "no"))
         print("chain=%s" % effect)
+        if args.api_billed:
+            # Said only for an API-billed spawn: every other dry run reads as it always did.
+            print("api_billed=%s" % args.budget)
         if effect != "none" and tmux_owner():
             print("chain_owner=%s" % tmux_owner())
         print("resident=%s" % ("yes" if args.resident else "no"))
@@ -4842,6 +4983,26 @@ def cmd_spawn(argv, pair_from=""):
                   file=sys.stderr)
         else:
             print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
+    if args.api_billed:
+        # The front end's pid, not the host's: the front end outlives a reconnect, which
+        # replaces the host under it.
+        front = chat_front_on(new_tty)
+        if front and front.isdigit():
+            try:
+                billing_record_write(new_tty, args.budget, title, front)
+            except OSError as exc:
+                # The agent is running: a record missing only costs its rotation, which
+                # refuses until one exists, so the spawn goes on.
+                print("spawn: the API-billed record of %s could not be written (%s): the agent "
+                      "runs, and its rotation will refuse until a record exists"
+                      % (new_tty, str(exc).replace("\n", " ")), file=sys.stderr)
+        else:
+            print("spawn: no API-billed front end on %s could be read, so the API-billed record "
+                  "was not written; a rotation of this agent will refuse until it is spawned "
+                  "again" % new_tty, file=sys.stderr)
+    else:
+        # A record left on this tty by an agent gone before it was closed names a stranger.
+        billing_record_drop(new_tty)
     apply_chain_plan(term, own, new_tty, tab_id, effect, args.resident)
     print(new_tty)
     if misplaced:
@@ -5075,6 +5236,9 @@ def cmd_close(argv):
         print("closed 1 session on %s" % args.tty)
         sys.stdout.flush()
     name_lingering(recorded)
+    # Both ttys, as the pids above: a home session's host runs on another tty than its tab's.
+    for tty in {host_tty, args.tty}:
+        billing_record_drop(tty)
     # The session's purpose is over and its process is proved gone: its checkout goes with
     # it, unless it holds work (`workspace.sh delete` refuses that, and says why).
     if checkout:
@@ -5225,6 +5389,22 @@ def cmd_rotate(argv):
         pane = chosen.lookup(args.old_tty)
         if pane is not None and pane.index == "0":
             refuse_window_zero("rotate", args.old_tty, pane.name)
+    # An API-billed agent is replaced under the front end with the budget its record holds:
+    # the host's process line on that tty shows a plain host, and a replacement rebuilt from
+    # it would run on the subscription without a word. A budget is the record's, not the
+    # caller's; a front end with no record to trust is refused rather than guessed.
+    record = billing_record(args.old_tty)
+    billed = [w for w in rest if w.partition("=")[0] in ("--api-billed", "--budget")]
+    if record:
+        if billed:
+            die("rotate: refused: --api-billed and --budget are the record's: %s runs an "
+                "API-billed agent recorded at %s dollars, and its replacement takes that "
+                "budget" % (args.old_tty, record["budget"]))
+        rest = rest + ["--api-billed", "--budget", record["budget"]]
+    elif chat_front_on(args.old_tty) and not billed:
+        die("rotate: refused: %s runs the API-billed front end and no record of it can be "
+            "trusted, so its replacement would run on the subscription; pass --api-billed "
+            "--budget <dollars>" % args.old_tty)
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript — not on its tier's, which its
     # orchestrator may have escalated since. A tier, or a model with its effort, is the

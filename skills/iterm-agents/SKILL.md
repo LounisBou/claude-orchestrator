@@ -62,6 +62,8 @@ Name an anchor when you know a better place than that default, and name the one 
 
 **Every launched session carries its model and its effort** (decision 3 of `docs/agent-dispatches.md`): an agent's pair is yours to name, `--tier <t>` or `--model <id> --effort <level>`, and a succession of any role runs on its predecessor's live pair, read on its transcript. How a tier's effort is chosen is `orchestrator:model-routing`, « Pairs, tiers and the map », and each form's flags and refusals are in `references/commands.md`.
 
+**`--api-billed --budget <dollars>`** runs an `Agent :` session under the API-billed front end (`ORCHESTRATOR_CHAT_CLI`), on the operator's words only, and `rotate` keeps it from the spawn's record: `orchestrator:orchestrator`, `references/lifecycle.md` › « The agents' lifecycle is yours ».
+
 **A tier nobody bound is not an error**: `spawn` types no model argument and the host applies its default model, at the tier's effort. What to do about it is `orchestrator:model-routing`'s, « Pairs, tiers and the map ».
 
 ## The tools a session is given
