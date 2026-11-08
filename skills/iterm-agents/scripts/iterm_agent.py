@@ -4988,7 +4988,14 @@ def cmd_spawn(argv, pair_from=""):
         # replaces the host under it.
         front = chat_front_on(new_tty)
         if front and front.isdigit():
-            billing_record_write(new_tty, args.budget, title, front)
+            try:
+                billing_record_write(new_tty, args.budget, title, front)
+            except OSError as exc:
+                # The agent is running: a record missing only costs its rotation, which
+                # refuses until one exists, so the spawn goes on.
+                print("spawn: the API-billed record of %s could not be written (%s): the agent "
+                      "runs, and its rotation will refuse until a record exists"
+                      % (new_tty, str(exc).replace("\n", " ")), file=sys.stderr)
         else:
             print("spawn: no API-billed front end on %s could be read, so the API-billed record "
                   "was not written; a rotation of this agent will refuse until it is spawned "

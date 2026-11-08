@@ -4397,6 +4397,9 @@ check "a spawn whose host could not be read: a note on stderr, no record, the ch
   "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEPID='' APILIVEPS=/dev/null apilive --api-billed --budget 1.5)|$(apinote 'record was not written')"
 check "a host with no front end read under it: a note on stderr, no record, the chain applied" "none|1|1|0" \
   "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEPS=/dev/null apilive --api-billed --budget 1.5)|$(apinote 'record was not written')"
+printf 'not a directory\n' > "$WORK/api-notdir"
+check "a record that cannot be written: one line on stderr, the spawn goes on to the chain" "none|1|1|0" \
+  "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEBILL="$WORK/api-notdir/billing" apilive --api-billed --budget 1.5)|$(apinote '^spawn: the API-billed record of /dev/ttys965 could not be written')"
 
 echo "== model tiers =="
 
