@@ -73,6 +73,7 @@
 #   iterm-agent.sh move --tty /dev/ttysNNN (--left-of <tty> | --right-of <tty> | --right-of self | --leftmost)
 #   iterm-agent.sh rotate --old-tty /dev/ttysNNN [--expect-title <s>] <spawn options...>
 #     given no --tier and no --model, the replacement runs on the rotated agent's live pair
+#     window 0 of a home session is refused before anything is spawned: only takeover closes it
 #   iterm-agent.sh trust prune [--apply]
 #     list, then remove with --apply, the trust entries whose directory is gone
 #

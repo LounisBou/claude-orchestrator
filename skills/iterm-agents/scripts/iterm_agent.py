@@ -2842,9 +2842,7 @@ class TmuxTerminal(Terminal):
         a successor there, so a close of it is refused before anything is killed."""
         pane = self.window_of(tty, "close")
         if pane.index == "0":
-            die("close: refused: the window on %s is window 0, the orchestrator's place in this "
-                "home session: a successor takes it with takeover --tty %s --expect-title \"%s\", "
-                "which also puts its own window at index 0" % (tty, tty, pane.name))
+            refuse_window_zero("close", tty, pane.name)
         if expect and stable_title(expect) not in stable_title(pane.name):
             die("close: refused: the window on %s is named '%s', which does not contain '%s'"
                 % (tty, pane.name, expect))
@@ -2953,6 +2951,14 @@ def terminal_for(tty):
                                                     chosen.panes(every=True)):
         return ITERM
     return chosen
+
+
+def refuse_window_zero(what, tty, name):
+    """The refusal of a close or a rotation of window 0 of a home session, said before anything
+    is killed or spawned: only a takeover puts a successor at index 0, and it is named."""
+    die("%s: refused: the window on %s is window 0, the orchestrator's place in this home "
+        "session: a successor takes it with takeover --tty %s --expect-title \"%s\", which also "
+        "puts its own window at index 0" % (what, tty, tty, name))
 
 
 # --- the orchestrator's home session ------------------------------------------------
@@ -5211,6 +5217,14 @@ def cmd_rotate(argv):
                 "and is not rotated (pass --force to rotate it anyway)" % (args.old_tty, audit))
         print("rotate: forced: %s is an auditor's tab ('%s')" % (args.old_tty, audit),
               file=sys.stderr)
+    # Window 0 of a home session is the orchestrator's place. The close below refuses it, but
+    # only after the replacement has spawned, which would leave that replacement running with
+    # nothing to close the old window: the refusal is read here, before the spawn.
+    chosen = terminal()
+    if isinstance(chosen, TmuxTerminal):
+        pane = chosen.lookup(args.old_tty)
+        if pane is not None and pane.index == "0":
+            refuse_window_zero("rotate", args.old_tty, pane.name)
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript — not on its tier's, which its
     # orchestrator may have escalated since. A tier, or a model with its effort, is the
