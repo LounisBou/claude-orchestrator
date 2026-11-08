@@ -4401,6 +4401,32 @@ printf 'not a directory\n' > "$WORK/api-notdir"
 check "a record that cannot be written: one line on stderr, the spawn goes on to the chain" "none|1|1|0" \
   "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEBILL="$WORK/api-notdir/billing" apilive --api-billed --budget 1.5)|$(apinote '^spawn: the API-billed record of /dev/ttys965 could not be written')"
 
+# The close drops the record of the tty it closes, and of the host's own tty when the tab
+# shows a home session: cmd_close driven with the terminal and the process table stubbed.
+apiclose() { # <home tty, or ''>: closes /dev/ttys968
+  ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_PS_TABLE=/dev/null "$py" -c "
+import contextlib, io, sys
+sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+home = sys.argv[1]
+ia.home_of_tab = lambda tty: 'home-sock' if home else None
+ia.home_panes = lambda socket: ([('0', home)], '')
+ia.host_cli_on = lambda tty: '4968'
+ia.host_cli_cwd = lambda tty: None
+ia.recorded_pids = lambda ttys: []
+ia.close_note = lambda *a: ''
+ia.close_tab = lambda *a, **k: None
+ia.close_home_tab = lambda *a, **k: None
+ia.name_lingering = lambda *a: None
+with contextlib.redirect_stdout(io.StringIO()):
+    ia.cmd_close(['--tty', '/dev/ttys968', '--expect-title', 'Agent : api'])
+" "$1" >/dev/null 2>&1; }
+apirecs() { apipy "ia.billing_record_write('/dev/ttys968', '3', 'Agent : api', '4968'); ia.billing_record_write('/dev/ttys978', '3', 'Agent : api', '4978')"; }
+apigone() { printf '%s|%s' "$([ -e "$APISTATE/billing/ttys968.json" ] && echo kept || echo gone)" "$([ -e "$APISTATE/billing/ttys978.json" ] && echo kept || echo gone)"; }
+check "the close drops the record of the tty it closes" "gone|kept" "$(apirecs; apiclose ''; apigone)"
+check "and of the home session's own tty when the tab shows one" "gone|gone" "$(apirecs; apiclose /dev/ttys978; apigone)"
+rm -f "$APISTATE/billing/ttys978.json"
+
 echo "== model tiers =="
 
 # The plugin binds capability tiers, never model names. `a-model` is the repository's

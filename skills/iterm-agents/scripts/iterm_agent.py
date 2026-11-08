@@ -5236,7 +5236,9 @@ def cmd_close(argv):
         print("closed 1 session on %s" % args.tty)
         sys.stdout.flush()
     name_lingering(recorded)
-    billing_record_drop(host_tty)
+    # Both ttys, as the pids above: a home session's host runs on another tty than its tab's.
+    for tty in {host_tty, args.tty}:
+        billing_record_drop(tty)
     # The session's purpose is over and its process is proved gone: its checkout goes with
     # it, unless it holds work (`workspace.sh delete` refuses that, and says why).
     if checkout:
