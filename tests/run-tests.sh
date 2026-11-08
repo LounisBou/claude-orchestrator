@@ -7711,7 +7711,7 @@ reset_home
 out=$(REC_KEEP_WINDOW=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
 rc=$?
 check "a close that refuses after the spawn closes the replacement, and says both" "1|1|1|[-u][kill-window][-t][@1]|[-u][kill-window][-t][@4]|0|1" \
-  "$(printf '%s' "$out" | grep -c 'ERROR: close: the request was accepted but @1 is still there')|$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was closed')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')"
+  "$(printf '%s' "$out" | grep -c 'ERROR: close: the request was accepted but tmux:.*:@1 is still there')|$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was closed')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')"
 reset_home
 out=$(REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
 rc=$?
