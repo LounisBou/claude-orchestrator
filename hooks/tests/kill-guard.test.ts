@@ -52,7 +52,25 @@ const refused = [
   'kill -9 `lsof -ti :3000`',
   '/bin/kill $(pgrep node)',
   'sudo kill $(pgrep node)',
-  'kill $(cat /tmp/pids)',
+  // Only `cat <one file>` is a recorded pid: anything else in a substitution is a lookup.
+  'kill $(cat a | grep x)',
+  'kill $(cat a; pgrep x)',
+  'kill $(cat a && pgrep x)',
+  'kill $(cat a b)',
+  'kill $(cat -n a)',
+  'kill $(cat *.pid)',
+  'kill $(cat pids?.txt)',
+  'kill $(cat)',
+  'kill $(cat $(pgrep x))',
+  'kill $(cat "$(pgrep x)")',
+  'kill $(sudo cat a)',
+  'kill $(ps aux)',
+  'kill $(ps -ef | grep vite)',
+  'kill $(cat a.pid) $(pgrep x)',
+  'kill $(pgrep x) $(cat a.pid)',
+  'kill "$(cat a | grep x)"',
+  'kill `cat a | grep x`',
+  'kill -9 $(cat a; pgrep x)',
   'pgrep node | xargs kill',
   'pgrep -f vite | xargs kill -9',
   'pgrep -f vite | xargs -r kill',
@@ -105,6 +123,23 @@ const accepted = [
   'kill -0 $(pgrep -f vite)',
   'kill -l',
   'sleep 60 & pid=$!; kill $pid',
+  // A pid kept in a file survives from one call to the next: `cmd & echo $! > f`, then `kill $(cat f)`.
+  'kill $(cat /tmp/pids)',
+  'kill $(cat server.pid)',
+  'kill "$(cat /tmp/x.pid)"',
+  'kill `cat server.pid`',
+  'kill -9 $(cat server.pid)',
+  'kill -TERM $(cat f.pid)',
+  'kill -s TERM $(cat f.pid)',
+  'kill $(cat $PIDFILE)',
+  'kill "$(cat "$PIDFILE")"',
+  'kill $(cat ~/run/x.pid)',
+  "kill $(cat 'my server.pid')",
+  'sudo kill $(cat server.pid)',
+  'kill $(cat a.pid) $(cat b.pid)',
+  'kill $(cat a.pid) 1234',
+  'echo $(cat f.pid); kill 1234',
+  'cmd & echo $! > f.pid',
   'pgrep -f vite',
   'pgrep node | wc -l',
   'pgrep node | head -1',
@@ -207,6 +242,16 @@ test('a substitution in one command does not make the next one a kill', () => {
   expect(detectPatternKills('kill 1234; echo $(date)')).toEqual([])
 })
 
+test('a pid kept in a file is a recorded pid, any other substitution is a lookup', () => {
+  expect(detectPatternKills('kill $(cat server.pid)')).toEqual([])
+  expect(detectPatternKills('kill "$(cat /tmp/x.pid)"')).toEqual([])
+  expect(detectPatternKills('kill $(pgrep x)')).toEqual(['kill of a command substitution'])
+  expect(detectPatternKills('kill $(cat a | grep x)')).toEqual(['kill of a command substitution'])
+  expect(detectPatternKills('kill $(cat a.pid) $(pgrep x)')).toEqual(['kill of a command substitution'])
+  expect(detectPatternKills('pgrep x | xargs kill $(cat f.pid)')).toEqual(['kill fed through xargs by pgrep'])
+  expect(detectPatternKills('bash -c \'kill $(cat f.pid)\'')).toEqual([])
+})
+
 // The decision: nothing in a session the launcher did not mark, a refusal in a
 // marked one, the push guard's shape.
 const DENY_START = 'kill refused: this session was spawned by the launcher'
@@ -242,6 +287,7 @@ test('a mark never read refuses a kill by pattern with the reason the guard did 
   expect(d?.deny).toContain('the marker cannot be read')
   expect(d?.deny).toContain('Seen: pkill')
   expect(guardFallback(undefined, 'kill 1234', 'the marker cannot be read')).toBeNull()
+  expect(guardFallback(undefined, 'kill $(cat server.pid)', 'the marker cannot be read')).toBeNull()
   expect(guardFallback(undefined, 'git status', 'the marker cannot be read')).toBeNull()
 })
 
@@ -309,7 +355,7 @@ test("a marked session's kill by pattern is denied, the tool never asked", async
 test("a marked session's kill by pid reaches the tool untouched", async () => {
   const { handlers } = mounted()
   const { dollar } = fakeDollar({ spawned: '1' })
-  for (const c of ['kill 1234', 'kill $pid', 'kill -0 $(pgrep x)']) {
+  for (const c of ['kill 1234', 'kill $pid', 'kill -0 $(pgrep x)', 'kill $(cat server.pid)', 'kill -TERM "$(cat /tmp/x.pid)"', 'kill -9 1234']) {
     const e = bashCall(c)
     const { answer, passedThrough } = await callBash(handlers['tool.call'], dollar, e)
     expect(passedThrough, c).toBe(e)

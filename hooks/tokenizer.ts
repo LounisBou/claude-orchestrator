@@ -21,8 +21,8 @@
 //
 // The reading of the line is shared: scan() splits it into simple commands and hands
 // each to a reader. detectForces reads the pushes; detectPatternKills reads the kills
-// by name or pattern, and needs two facts the push does not — whether a command
-// substitution stood among a command's words (the substitution's own words are a
+// by name or pattern, and needs two facts the push does not — what each command
+// substitution among a command's words held (the substitution's own words are a
 // deeper command, so the outer word is lost to the words list), and which programs
 // fed the pipe the command reads from. It also reads the string of a shell's `-c` and
 // of eval as a command line of its own, which the push reading does not.
@@ -49,12 +49,13 @@ const GITVALUED = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace'
 // push options that take a value: `git push --repo x --force-with-lease` still forces.
 const PUSHVALUED = new Set(['--repo', '--push-option', '--receive-pack', '--exec'])
 
-// One simple command as scan() hands it over: its words, whether a command
-// substitution stood among them, and the programs of the commands before it in the
-// same pipeline (empty when it follows `;`, `&&`, `||`, `&` or a newline).
+// One simple command as scan() hands it over: its words, the simple commands each
+// command substitution among them held (one entry per substitution), and the programs
+// of the commands before it in the same pipeline (empty when it follows `;`, `&&`,
+// `||`, `&` or a newline).
 interface Simple {
   words: string[]
-  subst: boolean
+  substs: Simple[][]
   piped: string[]
 }
 
@@ -113,9 +114,10 @@ const STRING_DEPTH = 4
 
 // The kills by name or pattern a command line holds, one short reason each, none when
 // there is none. A kill is pkill or killall whatever their options, or a kill whose pids
-// come from a command substitution or, through xargs, from a lister. `kill 1234`,
-// `kill $pid`, `kill %1` and `kill -0 …` (a probe, it kills nothing) are not kills by
-// pattern, and neither is a `command -v` lookup, which runs nothing. Words in quotes,
+// come from a command substitution other than `cat file` (the pid kept in a file) or,
+// through xargs, from a lister. `kill 1234`, `kill $pid`, `kill %1`, `kill $(cat file)`
+// and `kill -0 …` (a probe, it kills nothing) are not kills by pattern, and neither is a
+// `command -v` lookup, which runs nothing. Words in quotes,
 // heredocs and arguments of other programs are data, but for the string a shell runs
 // after `-c` and the words eval runs: those are command lines themselves and read as
 // such, STRING_DEPTH nested at most. The push reading does not read them, detectForces
@@ -128,7 +130,7 @@ export function detectPatternKills(command: string): string[] {
 }
 
 function killsIn(command: string, depth: number, seen: (reason: string) => void): void {
-  scan(command, ({ words, subst, piped }) => {
+  scan(command, ({ words, substs, piped }) => {
     // `xargs -I {} kill {}`: the tokeniser drops the braces, so the replacement string
     // of a separate `-I` may be gone from the words and the next word is the program.
     // Both readings are tried; a kill under either is a kill.
@@ -141,7 +143,7 @@ function killsIn(command: string, depth: number, seen: (reason: string) => void)
       const text = depth < STRING_DEPTH ? stringOf(program, words.slice(k)) : null
       if (text !== null) { killsIn(text, depth + 1, seen); return }
       if (program !== 'kill' || words[k] === '-0') continue
-      if (subst) seen('kill of a command substitution')
+      if (substs.some(held => !isRecordedPid(held))) seen('kill of a command substitution')
       else if (wrappers.includes('xargs')) {
         const lister = piped.find(p => LISTERS.has(p))
         if (lister) seen(`kill fed through xargs by ${lister}`)
@@ -149,6 +151,15 @@ function killsIn(command: string, depth: number, seen: (reason: string) => void)
       return
     }
   })
+}
+
+// What a command substitution held, when it is a pid read back from the file that
+// recorded it: `cat` and one file operand, no option, no glob, no other command. A
+// shell variable does not outlive a Bash call, a file does.
+function isRecordedPid(held: Simple[]): boolean {
+  if (held.length !== 1) return false
+  const { words, substs } = held[0]
+  return substs.length === 0 && words.length === 2 && words[0] === 'cat' && !/^-|[*?[]/.test(words[1])
 }
 
 // The command line a program runs from a string, null when it has none: eval's words
@@ -238,9 +249,12 @@ function scan(command: string, onCommand: (c: Simple) => void): void {
   const pd = [0]
   const dq = [0]
   const sk = [0]
-  // A command substitution closed among the words of the simple command being read,
-  // the programs of the pipeline so far, and whether the last separator was a pipe.
-  const subst = [false]
+  // The command substitutions closed among the words of the simple command being read,
+  // each as the simple commands it held; those held so far at each depth below the top
+  // (what pop() hands to the depth above); the programs of the pipeline so far, and
+  // whether the last separator was a pipe.
+  const substs: Simple[][][] = [[]]
+  const held: Simple[][] = [[]]
   const chain: string[][] = [[]]
   const piping = [false]
   let d = 0
@@ -253,11 +267,13 @@ function scan(command: string, onCommand: (c: Simple) => void): void {
 
   function push(cl: string): void {
     flushWord(); d++; closer[d] = cl; words[d] = []; pd[d] = 0; dq[d] = 0; sk[d] = 0
-    subst[d] = false; chain[d] = []; piping[d] = false
+    substs[d] = []; held[d] = []; chain[d] = []; piping[d] = false
   }
   function pop(): void {
-    flushWord(); flushCmd(); d--
-    subst[d] = true
+    flushWord(); flushCmd()
+    const inside = held[d]
+    d--
+    substs[d].push(inside)
     cur = ''
     started = dq[d] ? 1 : 0
   }
@@ -273,14 +289,16 @@ function scan(command: string, onCommand: (c: Simple) => void): void {
     const w = words[d]
     if (w.length > 0) {
       const piped = piping[d] ? chain[d] : []
-      onCommand({ words: w, subst: subst[d], piped })
+      const simple = { words: w, substs: substs[d], piped }
+      if (d > 0) held[d].push(simple)
+      onCommand(simple)
       const { k } = programOf(w)
       chain[d] = [...piped, k <= w.length ? baseName(w[k - 1]) : '']
       piping[d] = false
     }
     words[d] = []
     sk[d] = 0
-    subst[d] = false
+    substs[d] = []
   }
   // `$((...))` is arithmetic, not a command: skipped whole, so a `<<` inside it is no heredoc.
   function arith(j: number): number {
