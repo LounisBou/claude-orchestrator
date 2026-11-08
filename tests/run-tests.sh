@@ -4211,8 +4211,9 @@ echo "== iterm-agents: API-billed agent spawns =="
 APISTATE="$WORK/apistate"; APICFG="$WORK/apicfg"; mkdir -p "$APISTATE" "$APICFG" "$WORK/apichat"
 APICHAT="$WORK/apichat/chat-front"
 printf '#!/bin/sh\nexit 0\n' > "$APICHAT"; chmod +x "$APICHAT"
+# Every dry run here reads an empty process table, never the one of the machine it runs on.
 apispawn() {
-  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" \
+  ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_PS_TABLE=/dev/null \
   ORCHESTRATOR_CHAT_CLI="$APICHAT" bash "$AGENT" spawn --dir "$WORK" --prompt p $(needs_tier "$@") "$@" 2>&1; }
 # The prompt file is named by the time of the launch: two launches differ there and nowhere else.
 apiline() { sed -n 's/^launch=//p' | sed 's/prompt-[^ ]*\.txt/PROMPT/'; }
@@ -4226,7 +4227,16 @@ check "the dry run says the budget, and only for an API-billed spawn" "1|0" \
   "$(apispawn --title 'Agent : api' --api-billed --budget 2.50 | grep -cx 'api_billed=2.50')|$(apispawn --title 'Agent : api' | grep -c '^api_billed=')"
 # G3, a regression guard: the plain launch does not depend on the front end being configured.
 check "without --api-billed the launch is the same whether the front end is set or not" "same" \
-  "$([ "$APIPLAIN" = "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" bash "$AGENT" spawn --dir "$WORK" --prompt p --tier light --title 'Agent : api' 2>&1 | apiline)" ] && echo same || echo differ)"
+  "$([ "$APIPLAIN" = "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_PS_TABLE=/dev/null bash "$AGENT" spawn --dir "$WORK" --prompt p --tier light --title 'Agent : api' 2>&1 | apiline)" ] && echo same || echo differ)"
+# And pinned literally: an agent's plain launch line as the launcher printed it before the
+# switch existed, the working directory and the host's resolved path aside.
+APILITERAL=$(cat <<'EOF'
+cd WORK && export ORCHESTRATOR_SPAWNED=1 && export ORCHESTRATOR_CONTEXT_GATE_TOKENS=240000 && printf '\033]0;%s\007' 'Agent : api' && exec HOST --effort medium --disallowedTools Artifact SendFeedback Workflow ScheduleWakeup ReportFindings mcp__orchestrator__move_send mcp__orchestrator__move_probe mcp__orchestrator__end_session --strict-mcp-config --permission-mode auto --settings '{"remoteControlAtStartup":false,"syncClaudeAiSkills":false,"awaySummaryEnabled":false,"env":{"CLAUDE_CODE_TOTAL_TOKENS_REMINDER":"off","CLAUDE_CODE_SILENT_TURN_REMINDER":"0"}}' "$(cat WORK/apistate/prompts/PROMPT)" --name 'Agent : api'
+EOF
+)
+APIPLAINHOST=$(printf '%s' "$APIPLAIN" | sed 's/&& exec [^ ]* /\&\& exec HOST /')
+check "without --api-billed an agent's launch line is, byte for byte, the one it always was" "$APILITERAL" \
+  "${APIPLAINHOST//"$WORK"/WORK}"
 
 # Refused, one line each, before any launch line: the budget is always named, positive, in
 # dollars and cents, and only an agent is API-billed.
