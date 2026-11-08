@@ -2,7 +2,8 @@
 // The kill guard: what the tokeniser reads as a kill by name or pattern, the
 // decision a launched session gets, and the wiring that serves it — the Bash
 // handler's deny, the tool never asked. A session kills only what it started, by
-// the pid it recorded; `kill <pid>` and `kill $pid` are that, and pass.
+// the pid it recorded in a file; `kill <pid>`, `kill $pid` and `kill $(cat <file>)`
+// are that, and pass.
 import { expect, test } from 'claude-code/testing'
 import { guardFallback, killDecision, register as registerGuards } from '../guards.ts'
 import { detectPatternKills } from '../tokenizer.ts'
@@ -260,14 +261,14 @@ test('a marked session refuses a kill by pattern and names the pid it should kee
   const d = killDecision('1', 'pkill -f vite')
   expect(d?.deny).toContain(DENY_START)
   expect(d?.deny.startsWith(DENY_START)).toBe(true)
-  expect(d?.deny).toContain('cmd & pid=$!')
-  expect(d?.deny).toContain('kill $pid')
+  expect(d?.deny).toContain('cmd & echo $! > <file>')
+  expect(d?.deny).toContain('kill $(cat <file>)')
   expect(d?.deny).toContain('Seen: pkill.')
 })
 
 test('the deny text is the contract, reasons spliced', () => {
   expect(killDecision('1', 'pkill -f a; killall b')?.deny).toBe(
-    'kill refused: this session was spawned by the launcher, and it kills only what it started, by the pid it recorded (start it with `cmd & pid=$!`, end it with `kill $pid`). A kill by name or pattern can end other sessions\' processes. Seen: pkill, killall.',
+    'kill refused: this session was spawned by the launcher, and it kills only what it started, by the pid it recorded in a file (start it with `cmd & echo $! > <file>`, end it with `kill $(cat <file>)`). A kill by name or pattern can end other sessions\' processes. Seen: pkill, killall.',
   )
 })
 

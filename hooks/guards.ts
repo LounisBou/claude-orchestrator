@@ -121,14 +121,16 @@ export function pushDecision(spawned: string | null | undefined, command: string
 
 // The kill decision, the push decision's twin: nothing in a session the launcher did not
 // mark, and in a marked one every kill by name or pattern refused — pkill, killall, a
-// kill whose pids come from a substitution or from a lister through xargs. A session
-// kills only what it started, by the pid it recorded; a kill by pattern reaches other
-// sessions' processes (their dev servers, the sleep of their wait loops).
+// kill whose pids come from a substitution other than `cat <file>` or from a lister
+// through xargs. A session kills only what it started, by the pid it recorded in a file
+// (`cmd & echo $! > <file>`, then `kill $(cat <file>)`; a shell variable does not outlive
+// a Bash call, a file does). A kill by pattern reaches other sessions' processes (their
+// dev servers, the sleep of their wait loops).
 export function killDecision(spawned: string | null | undefined, command: string): { deny: string } | null {
   if (!spawned) return null                        // the operator's own sessions: untouched
   const kills = detectPatternKills(command)
   if (kills.length === 0) return null
-  return { deny: `kill refused: this session was spawned by the launcher, and it kills only what it started, by the pid it recorded (start it with \`cmd & pid=$!\`, end it with \`kill $pid\`). A kill by name or pattern can end other sessions' processes. Seen: ${kills.join(', ')}.` }
+  return { deny: `kill refused: this session was spawned by the launcher, and it kills only what it started, by the pid it recorded in a file (start it with \`cmd & echo $! > <file>\`, end it with \`kill $(cat <file>)\`). A kill by name or pattern can end other sessions' processes. Seen: ${kills.join(', ')}.` }
 }
 
 // The Bash guards' answer when they could not run whole: the mark as last read decides.
