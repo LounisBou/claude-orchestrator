@@ -283,6 +283,48 @@ head_option() {
     echo "$head"
 }
 
+# without_code: stdin to stdout, minus what Markdown renders as code - fenced blocks (``` or
+# ~~~, closed by a fence of the same character at least as long, or by the end of the text)
+# and inline code spans (a run of backticks closed by a run of the same length on the same
+# line; a run with no match stays literal). Indented code blocks are not handled. Two more
+# limits: a fence inside a list item or a blockquote is not recognised, and a code span
+# running over two lines is not either. An `<img` in those still counts.
+without_code() {
+    awk '
+    function run(s, i, ch,   j) { j = i; while (substr(s, j, 1) == ch) j++; return j - i }
+    function strip(s,   out, i, n, k, m, found, L) {
+        out = ""; i = 1; L = length(s)
+        while (i <= L) {
+            # A backtick preceded by a backslash is an escaped literal, and opens no span.
+            if (substr(s, i, 1) != "`" || (i > 1 && substr(s, i - 1, 1) == "\\")) { out = out substr(s, i, 1); i++; continue }
+            n = run(s, i, "`"); k = i + n; found = 0
+            while (k <= L) {
+                if (substr(s, k, 1) == "`") {
+                    m = run(s, k, "`")
+                    if (m == n) { found = 1; break }
+                    k += m
+                } else k++
+            }
+            if (found) { out = out " "; i = k + n } else { out = out substr(s, i, n); i += n }
+        }
+        return out
+    }
+    {
+        line = $0; t = line; sub(/^ ? ? ?/, "", t); c = substr(t, 1, 1)
+        if (infence) {
+            n = run(t, 1, fch)
+            rest = substr(t, n + 1)
+            if (c == fch && n >= flen && rest ~ /^[ \t\r]*$/) infence = 0
+            next
+        }
+        if (c == "`" || c == "~") {
+            n = run(t, 1, c)
+            if (n >= 3 && !(c == "`" && index(substr(t, n + 1), "`"))) { infence = 1; fch = c; flen = n; next }
+        }
+        print strip(line)
+    }'
+}
+
 # same_commit <recorded> <head>: either side may abbreviate the other; the shorter one must
 # still identify a commit.
 same_commit() {
@@ -479,7 +521,9 @@ ready)
             body=$(gh pr view "${pr##*#}" -R "${pr%#*}" --json body -q .body 2>/dev/null) \
                 || die "ready: could not read the description of $pr: its screenshots are unverified, not ready"
             # A markdown image or an HTML one, which is what an uploaded attachment becomes.
-            shots=$(printf '%s\n' "$body" | grep -oiE '!\[[^]]*\]\([^)]+\)|<img[[:space:]]' | wc -l | tr -d ' ')
+            # Code is text to Markdown, so an `<img` written in a code span or a fenced block
+            # is no image: `without_code` drops both before the count.
+            shots=$(printf '%s\n' "$body" | without_code | grep -oiE '!\[[^]]*\]\([^)]+\)|<img[[:space:]]' | wc -l | tr -d ' ')
             [ "$shots" -gt 0 ] || die "ready: $pr changes a frontend surface and its description carries no screenshot: not ready"
             # Counted is not looked at: the screenshots agent's audit of every image, at a head
             # the rules below accept, with no defect seen.
