@@ -4225,6 +4225,8 @@ check "and those words are, byte for byte, the ones the plain spawn gives the ho
   "$([ "${APISW/"exec $APICHAT --agent --budget 3 "/exec HOST }" = "$(printf '%s' "$APIPLAIN" | sed 's/&& exec [^ ]* /\&\& exec HOST /')" ] && echo same || echo differ)"
 check "the dry run says the budget, and only for an API-billed spawn" "1|0" \
   "$(apispawn --title 'Agent : api' --api-billed --budget 2.50 | grep -cx 'api_billed=2.50')|$(apispawn --title 'Agent : api' | grep -c '^api_billed=')"
+check "the --budget=<dollars> form is the same budget" "1" \
+  "$(apispawn --title 'Agent : api' --api-billed --budget=5 | apiline | grep -cF "&& exec $APICHAT --agent --budget 5 --effort medium ")"
 # G3, a regression guard: the plain launch does not depend on the front end being configured.
 check "without --api-billed the launch is the same whether the front end is set or not" "same" \
   "$([ "$APIPLAIN" = "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_PS_TABLE=/dev/null bash "$AGENT" spawn --dir "$WORK" --prompt p --tier light --title 'Agent : api' 2>&1 | apiline)" ] && echo same || echo differ)"
@@ -4270,21 +4272,33 @@ check "--api-billed on an orchestrator's title is refused" "1|0|1" \
 check "--api-billed on a free title is refused" "1|0|1" \
   "$(apirefused 'spawn: refused: an API-billed spawn is an agent' --title-free --title probe --api-billed --budget 3)"
 
-# The record: written by a verified spawn, read back by rotation only while the process it
-# names is still the host on that tty, dropped by the close.
-apipy() { ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_PS_TABLE="$WORK/api-ps.txt" "$py" -c "
+# The record: written by a verified spawn with the front end's pid, read back by rotation
+# only while that pid still runs the front end on that tty, dropped by the close. The front
+# end opens a new host on a reconnect, so the host's pid says nothing about the record.
+apipy() { ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_CHAT_CLI="$APICHAT" ORCHESTRATOR_PS_TABLE="$WORK/api-ps.txt" "$py" -c "
 import sys
 sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as ia
 $1" "${@:2}"; }
 cat > "$WORK/api-ps.txt" <<EOF
-/dev/ttys961 4961 claude --model a-model --name Agent : api
+/dev/ttys961 4961 /venv/bin/python3 $APICHAT --agent --budget 3 --model a-model p --name Agent : api
+/dev/ttys961 4971 claude --model a-model --name Agent : api
 /dev/ttys962 4962 claude --model a-model --name Agent : api
 /dev/ttys962 4963 /venv/bin/python3 $APICHAT --agent --budget 3 --model a-model p --name Agent : api
 /dev/ttys963 4963 claude --model a-model --name Agent : api
+/dev/ttys964 4964 /venv/bin/python3 $APICHAT --agent --budget 2 --model a-model p --name Agent : api
+/dev/ttys964 4974 claude --model a-model --name Agent : api
+/dev/ttys966 4966 claude --model a-model --name Agent : api
+/dev/ttys967 4967 /venv/bin/python3 $APICHAT --agent --budget 3 --model a-model p --name Agent : api
+/dev/ttys981 4981 python3 -u $APICHAT --agent --budget 3
+/dev/ttys982 4982 env X=1 python3 $APICHAT --agent --budget 3
+/dev/ttys983 4983 $APICHAT --agent --budget 3
+/dev/ttys984 4984 python3 other.py $APICHAT --agent
 EOF
+check "the front end is read as the program, or as an interpreter's script whatever its options" "4981|4982|4983|None" \
+  "$(apipy "print('|'.join(str(ia.chat_front_on('/dev/ttys98%d' % n)) for n in (1, 2, 3, 4)))")"
 apipy "ia.billing_record_write('/dev/ttys961', '3', 'Agent : api', '4961'); ia.billing_record_write('/dev/ttys963', '4', 'Agent : api', '4999')"
-check "the record is read back while its process is the host on the tty, and not otherwise" "3|None|None" \
+check "the record is read back while the front end it names runs on the tty, and not otherwise" "3|None|None" \
   "$(apipy "print((ia.billing_record('/dev/ttys961') or {}).get('budget')); print(ia.billing_record('/dev/ttys963')); print(ia.billing_record('/dev/ttys969'))" | paste -sd'|' -)"
 apirot() {
   ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_CHAT_CLI="$APICHAT" \
@@ -4302,23 +4316,75 @@ APIBEFORE=$([ -e "$APISTATE/billing/ttys961.json" ] && echo yes || echo no)
 apipy "ia.billing_record_drop('/dev/ttys961')"
 check "the close's drop removes the record" "yes|no" "$APIBEFORE|$([ -e "$APISTATE/billing/ttys961.json" ] && echo yes || echo no)"
 
+# A reconnect: the front end recorded at the spawn still runs, the host under it is a new one.
+apipy "ia.billing_record_write('/dev/ttys964', '2', 'Agent : api', '4964'); ia.billing_record_write('/dev/ttys966', '6', 'Agent : api', '4966')"
+check "a record is trusted while its front end runs, whatever host it runs now" "2|1" \
+  "$(apipy "print((ia.billing_record('/dev/ttys964') or {}).get('budget'))")|$(apirot --old-tty /dev/ttys964 | grep -cF "&& exec $APICHAT --agent --budget 2 --effort medium ")"
+check "a record whose front end is gone is not trusted, even when its pid runs the host" "None|0|1" \
+  "$(apipy "print(ia.billing_record('/dev/ttys966'))")|$(apirot --old-tty /dev/ttys966 | grep -c -- '--agent --budget')|$(apirot --old-tty /dev/ttys966 | tail -1 | grep -c '^close=/dev/ttys966')"
+check "the --budget=<dollars> form is refused beside a trusted record too" "1|0" \
+  "$(apirot --old-tty /dev/ttys964 --api-billed --budget=5 | grep -c 'rotate: refused: --api-billed and --budget are the record')|$(apirot --old-tty /dev/ttys964 --api-billed --budget=5 | grep -c '^launch=')"
+# The front end with no record: the operator's explicit budget is used, in either form.
+check "an explicit budget on a front end with no record relaunches through the front end" "1|1" \
+  "$(apirot --old-tty /dev/ttys962 --api-billed --budget 5 | grep -cF "&& exec $APICHAT --agent --budget 5 --effort medium ")|$(apirot --old-tty /dev/ttys962 --api-billed --budget=5 | grep -cF "&& exec $APICHAT --agent --budget 5 --effort medium ")"
+# A stale record, its pid not the front end's that runs: refused, unless the budget is explicit.
+apipy "ia.billing_record_write('/dev/ttys962', '7', 'Agent : old', '4999')"
+check "a stale record beside a running front end: refused, unless the budget is explicit" "1|0|1" \
+  "$(apirot --old-tty /dev/ttys962 | grep -c 'rotate: refused: /dev/ttys962 runs the API-billed front end')|$(apirot --old-tty /dev/ttys962 | grep -c '^launch=')|$(apirot --old-tty /dev/ttys962 --api-billed --budget 5 | grep -cF "&& exec $APICHAT --agent --budget 5 --effort medium ")"
+apipy "ia.billing_record_drop('/dev/ttys962')"
+
+# The record is read strictly: a budget that is not an amount in a string, a file that is
+# not JSON or not an object, is no record. The front end there is registered as the host,
+# so a pid check alone would pass: the strict reading is what refuses.
+mkdir -p "$APICFG/sessions"; printf '{}\n' > "$APICFG/sessions/4967.json"
+apistrict() { # <record file contents>: refused|launched|exit code, for a rotation of /dev/ttys967
+  printf '%s' "$1" > "$APISTATE/billing/ttys967.json"
+  local out; out=$(apirot --old-tty /dev/ttys967); local code=$?
+  printf '%s|%s|%s' "$(printf '%s\n' "$out" | grep -c 'rotate: refused: /dev/ttys967 runs the API-billed front end')" \
+    "$(printf '%s\n' "$out" | grep -c '^launch=')" "$([ "$code" != 0 ] && echo 1 || echo 0)"; }
+check "a sound record on that tty is trusted" "0|1|0" \
+  "$(apistrict '{"budget": "3", "title": "Agent : api", "pid": "4967"}')"
+for rec in '{"budget": 3, "title": "Agent : api", "pid": "4967"}' '{"budget": "abc", "title": "Agent : api", "pid": "4967"}' \
+           '{"budget' '["3", "Agent : api", "4967"]'; do
+  check "a record of $rec is no record: rotation refused" "1|0|1" "$(apistrict "$rec")"
+done
+rm -f "$APISTATE/billing/ttys967.json" "$APICFG/sessions/4967.json"
+
 # The verified spawn writes the record: cmd_spawn driven with the terminal stubbed under it.
+# APILIVEPID is the host pid the verification reads ('' for none), APILIVEPS the process
+# table, APILIVEBILL a record directory standing in for the state's; what the spawn said on
+# stderr, and whether it went on to the chain, lands in api-live-err.txt.
+cat > "$WORK/api-live-ps.txt" <<EOF
+/dev/ttys965 4965 /venv/bin/python3 $APICHAT --agent --budget 1.5 --name Agent : live
+/dev/ttys965 4975 claude --name Agent : live
+EOF
 apilive() { # <extra spawn arguments...>: prints the record of /dev/ttys965, or none
   ORCHESTRATOR_STATE_DIR="$APISTATE" CLAUDE_CONFIG_DIR="$APICFG" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_SELF_ID=S-ME \
-  ORCHESTRATOR_CHAT_CLI="$APICHAT" ORCHESTRATOR_PS_TABLE=/dev/null "$py" -c "
-import contextlib, io, sys
+  ORCHESTRATOR_CHAT_CLI="$APICHAT" ORCHESTRATOR_PS_TABLE="${APILIVEPS:-$WORK/api-live-ps.txt}" "$py" -c "
+import contextlib, io, os, sys
 sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
 import iterm_agent as ia
 class Term:
     def chain_state(self, own): return own, None
     def can_place(self, anchor, side): return True
     def create(self, command, title, place, chain, made): return '/dev/ttys965', ''
+host = os.environ.get('APILIVEPID', '4975')
+err = io.StringIO()
 ia.terminal = lambda agent=True: Term()
-ia.cli_pid_on_tty = lambda tty: '4965'
+ia.cli_pid_on_tty = lambda tty: host or None
+if not host:
+    ia.SPAWN_TIMEOUT = 0
+ia.find_transcript = lambda *a, **k: '$WORK/live.jsonl'
+if os.environ.get('APILIVEBILL'):
+    ia.BILLING_DIR = os.environ['APILIVEBILL']
 ia.verify_mode = lambda *a, **k: 'mode ok'
-ia.apply_chain_plan = lambda *a, **k: None
-with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-    ia.cmd_spawn(['--dir', '$WORK', '--prompt', 'p', '--tier', 'light', '--title', 'Agent : live'] + sys.argv[1:])
+ia.apply_chain_plan = lambda *a, **k: print('chain applied', file=err)
+try:
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+        ia.cmd_spawn(['--dir', '$WORK', '--prompt', 'p', '--tier', 'light', '--title', 'Agent : live'] + sys.argv[1:])
+except BaseException as exc:
+    print('raised %s' % type(exc).__name__, file=err)
+open('$WORK/api-live-err.txt', 'w').write(err.getvalue())
 " "$@" >/dev/null 2>&1
   cat "$APISTATE/billing/ttys965.json" 2>/dev/null || echo none; }
 check "a verified API-billed spawn records its budget, title and pid" '{"budget": "1.5", "title": "Agent : live", "pid": "4965"}' \
@@ -4326,6 +4392,11 @@ check "a verified API-billed spawn records its budget, title and pid" '{"budget"
 apistale() { apipy "ia.billing_record_write('/dev/ttys965', '9', 'Agent : old', '1')"; [ -s "$APISTATE/billing/ttys965.json" ] && echo yes || echo no; }
 check "a plain spawn records nothing, and drops a record left on its tty" "yes|none" \
   "$(apistale)|$(apilive)"
+apinote() { printf '%s|%s|%s' "$(grep -c "$1" "$WORK/api-live-err.txt")" "$(grep -c '^chain applied$' "$WORK/api-live-err.txt")" "$(grep -c '^raised ' "$WORK/api-live-err.txt")"; }
+check "a spawn whose host could not be read: a note on stderr, no record, the chain applied" "none|1|1|0" \
+  "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEPID='' APILIVEPS=/dev/null apilive --api-billed --budget 1.5)|$(apinote 'record was not written')"
+check "a host with no front end read under it: a note on stderr, no record, the chain applied" "none|1|1|0" \
+  "$(rm -f "$APISTATE/billing/ttys965.json"; APILIVEPS=/dev/null apilive --api-billed --budget 1.5)|$(apinote 'record was not written')"
 
 echo "== model tiers =="
 

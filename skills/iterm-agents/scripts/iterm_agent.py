@@ -4248,9 +4248,9 @@ BUDGET_SHAPE = re.compile(r"[0-9]{1,6}(\.[0-9]{1,2})?\Z")
 def refuse_api_billed(args):
     """The refusals of `--api-billed` and `--budget`, before anything is read or made. Only an
     agent runs under the API-billed front end, and only on the operator's words, so every such
-    spawn names its budget: there is no default. Its record names the verified host pid, so a
-    spawn that skips the verification is refused too: a rotation could not trust what it
-    wrote."""
+    spawn names its budget: there is no default. Its record names the front end's pid, read
+    by the verification, so a spawn that skips the verification is refused too: a rotation
+    could not trust what it wrote."""
     if args.budget is not None and not args.api_billed:
         die("spawn: refused: --budget is an API-billed spawn's: pass --api-billed with it")
     if not args.api_billed:
@@ -4278,9 +4278,9 @@ def billing_path(tty):
 
 
 def billing_record_write(tty, budget, title, pid):
-    """Record that the agent on `tty` is API-billed, with its budget, its title and the host
-    pid its spawn verified. Rotation reads it back; the child host's own process line shows
-    a plain host and would relaunch the agent on the subscription."""
+    """Record that the agent on `tty` is API-billed, with its budget, its title and the pid of
+    the front end its spawn verified. Rotation reads it back; the child host's own process
+    line shows a plain host and would relaunch the agent on the subscription."""
     os.makedirs(BILLING_DIR, exist_ok=True)
     path = billing_path(tty)
     tmp = path + ".tmp"
@@ -4291,17 +4291,22 @@ def billing_record_write(tty, budget, title, pid):
 
 def billing_record(tty):
     """The API-billed record of the agent on `tty`, or None. Trusted only while the pid it
-    names is still the host on that tty: a tty is recycled, and a record outlives its agent
-    when the close that drops it never ran."""
+    names still runs the front end on that tty: a tty is recycled, and a record outlives its
+    agent when the close that drops it never ran. The host's own pid would not do: the front
+    end opens a new host on a reconnect. Read strictly: the budget is a string of the shape a
+    spawn accepts, or there is no record."""
     try:
         with open(billing_path(tty)) as fh:
             record = json.load(fh)
     except (OSError, ValueError):
         return None
-    if not isinstance(record, dict) or not BUDGET_SHAPE.match(str(record.get("budget", ""))):
+    if not isinstance(record, dict):
         return None
-    pid = host_cli_on(tty)
-    if not pid or str(record.get("pid")) != str(pid):
+    budget = record.get("budget")
+    if not isinstance(budget, str) or not BUDGET_SHAPE.match(budget):
+        return None
+    pid = record.get("pid")
+    if not isinstance(pid, str) or not pid.isdigit() or pid not in chat_fronts_on(tty):
         return None
     return record
 
@@ -4313,19 +4318,50 @@ def billing_record_drop(tty):
         pass
 
 
-def chat_front_on(tty):
-    """Whether the API-billed front end runs on `tty`: a process whose program, or the script
-    an interpreter runs, is named like ORCHESTRATOR_CHAT_CLI or what it resolves to."""
+# The programs that run the front end as their script: what follows them, past their own
+# options, is the script.
+INTERPRETER_SHAPE = re.compile(r"(python|node|ruby|perl|bash|zsh|sh)[0-9.]*\Z")
+
+
+def front_program(command):
+    """The basename of what one process-table row runs: its program, or, for an interpreter,
+    the first word after it that is not an option. An `env` in front, with its options and
+    assignments, is passed over."""
+    words = command.split()
+    at = 0
+    if words and os.path.basename(words[0]) == "env":
+        at = 1
+        while at < len(words) and (words[at].startswith("-") or "=" in words[at]):
+            at += 1
+    if at >= len(words):
+        return ""
+    program = os.path.basename(words[at])
+    if not INTERPRETER_SHAPE.match(program):
+        return program
+    script = next((word for word in words[at + 1:] if not word.startswith("-")), "")
+    return os.path.basename(script)
+
+
+def chat_fronts_on(tty):
+    """Every API-billed front end on `tty`, in table order: each one's pid, or its command
+    line where the suite's table carries no pid. A row is one when what it runs is named like
+    ORCHESTRATOR_CHAT_CLI or what that resolves to. It does not reuse `is_host_process`,
+    which reads a row's program alone, because the front end runs as an interpreter's
+    script."""
     import shutil
     names = {os.path.basename(CHAT_CLI)}
     try:
         names.add(os.path.basename(os.path.realpath(shutil.which(CHAT_CLI) or CHAT_CLI)))
     except Exception:
         pass
-    for _, command in ps_rows(tty):
-        if any(os.path.basename(word) in names for word in command.split()[:2]):
-            return True
-    return False
+    names.discard("")
+    return [pid or command for pid, command in ps_rows(tty) if front_program(command) in names]
+
+
+def chat_front_on(tty):
+    """The first API-billed front end on `tty`, its pid or its command line, or None."""
+    every = chat_fronts_on(tty)
+    return every[0] if every else None
 
 
 def cmd_spawn(argv, pair_from=""):
@@ -4948,11 +4984,14 @@ def cmd_spawn(argv, pair_from=""):
         else:
             print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
     if args.api_billed:
-        if pid:
-            billing_record_write(new_tty, args.budget, title, pid)
+        # The front end's pid, not the host's: the front end outlives a reconnect, which
+        # replaces the host under it.
+        front = chat_front_on(new_tty)
+        if front and front.isdigit():
+            billing_record_write(new_tty, args.budget, title, front)
         else:
-            print("spawn: no host process on %s could be read, so the API-billed record was "
-                  "not written; a rotation of this agent will refuse until it is spawned "
+            print("spawn: no API-billed front end on %s could be read, so the API-billed record "
+                  "was not written; a rotation of this agent will refuse until it is spawned "
                   "again" % new_tty, file=sys.stderr)
     else:
         # A record left on this tty by an agent gone before it was closed names a stranger.
