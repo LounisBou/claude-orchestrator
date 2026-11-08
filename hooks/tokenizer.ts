@@ -55,12 +55,19 @@ interface Simple {
   piped: string[]
 }
 
+// `command`'s lookup options: -v and -V (alone or clustered with -p) print where a
+// program is and run nothing.
+const LOOKUP = /^-[pvV]*[vV][pvV]*$/
+
 // Where the command's own program starts: assignments, reserved words and wrappers
 // (with their options and their options' values) skipped. k is the 1-based index of
-// the program in words, past the end when there is none; wrappers names those skipped.
-function programOf(w: string[], valued: Set<string> = VALUED): { k: number; wrappers: string[] } {
+// the program in words, past the end when there is none; wrappers names those skipped;
+// lookup tells that a `command -v` or `command -V` was among them, so the program is
+// looked up and not run.
+function programOf(w: string[], valued: Set<string> = VALUED): { k: number; wrappers: string[]; lookup: boolean } {
   const n = w.length
   const wrappers: string[] = []
+  let lookup = false
   let k = 1
   while (k <= n) {
     const word = w[k - 1]
@@ -70,6 +77,7 @@ function programOf(w: string[], valued: Set<string> = VALUED): { k: number; wrap
       wrappers.push(wrap)
       k++
       while (k <= n && w[k - 1].startsWith('-')) {
+        if (wrap === 'command' && LOOKUP.test(w[k - 1])) lookup = true
         k += valued.has(`${wrap} ${w[k - 1]}`) ? 2 : 1
       }
       if (wrap === 'timeout' || wrap === 'gtimeout') k++
@@ -77,7 +85,7 @@ function programOf(w: string[], valued: Set<string> = VALUED): { k: number; wrap
     }
     break
   }
-  return { k, wrappers }
+  return { k, wrappers, lookup }
 }
 
 // The program's name, its directory dropped: `/usr/bin/pkill` is `pkill`.
@@ -104,10 +112,11 @@ const STRING_DEPTH = 4
 // there is none. A kill is pkill or killall whatever their options, or a kill whose pids
 // come from a command substitution or, through xargs, from a lister. `kill 1234`,
 // `kill $pid`, `kill %1` and `kill -0 …` (a probe, it kills nothing) are not kills by
-// pattern; words in quotes, heredocs and arguments of other programs are data, but for
-// the string a shell runs after `-c` and the words eval runs, which are command lines
-// themselves and read as such, to a depth of STRING_DEPTH. The push reading does not
-// read them: detectForces stays on the words of the line.
+// pattern, and neither is a `command -v` lookup, which runs nothing. Words in quotes,
+// heredocs and arguments of other programs are data, but for the string a shell runs
+// after `-c` and the words eval runs: those are command lines themselves and read as
+// such, STRING_DEPTH nested at most. The push reading does not read them, detectForces
+// stays on the words of the line.
 export function detectPatternKills(command: string): string[] {
   const found: string[] = []
   const seen = (reason: string) => { if (!found.includes(reason)) found.push(reason) }
@@ -121,8 +130,9 @@ function killsIn(command: string, depth: number, seen: (reason: string) => void)
     // of a separate `-I` may be gone from the words and the next word is the program.
     // Both readings are tried; a kill under either is a kill.
     for (const valued of [VALUED, VALUED_BRACELESS]) {
-      const { k, wrappers } = programOf(words, valued)
+      const { k, wrappers, lookup } = programOf(words, valued)
       if (k > words.length) continue
+      if (lookup) return
       const program = baseName(words[k - 1])
       if (program === 'pkill' || program === 'killall') { seen(program); return }
       const text = depth < STRING_DEPTH ? stringOf(program, words.slice(k)) : null

@@ -154,6 +154,11 @@ const accepted = [
   'eval',
   'eval "echo pkill"',
   'eval kill 1234',
+  // A lookup finds the program and runs nothing.
+  'command -v pkill',
+  'command -V killall',
+  'command -pv pkill',
+  'command -v pkill >/dev/null && echo found',
 ]
 
 test('every kill by name or pattern is read as one, with a reason', () => {
@@ -188,6 +193,13 @@ test('a shell string nested four deep is still read', () => {
   const nest = (inner: string) => `bash -c "${inner.replace(/(["\\$`])/g, '\\$1')}"`
   const four = nest(nest(nest(nest('pkill x'))))
   expect(detectPatternKills(four)).toEqual(['pkill'])
+})
+
+test('a lookup with command -v or -V runs nothing, a command that runs still reads', () => {
+  expect(detectPatternKills('command -v pkill')).toEqual([])
+  expect(detectPatternKills('command -V killall')).toEqual([])
+  expect(detectPatternKills('command -v pkill && pkill -f x')).toEqual(['pkill'])
+  expect(detectPatternKills('command -p pkill -f x')).toEqual(['pkill'])
 })
 
 test('a substitution in one command does not make the next one a kill', () => {
