@@ -4164,6 +4164,46 @@ check "without --gate-tokens the startup prompt says no gate" "0" \
 out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" ORCHESTRATOR_PS_TABLE=/dev/null bash "$AGENT" rotate --tier light --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : gate" --prompt p --gate-tokens 200000 2>&1)
 check "rotate passes --gate-tokens to the replacement" "1" "$(printf '%s\n' "$out" | grep -c '^launch=.*export ORCHESTRATOR_CONTEXT_GATE_TOKENS=200000 && ')"
 
+check_status "--brief with --prompt is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt x
+check_status "--brief with --prompt-file is mutually exclusive" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt-file "$B/good.md"
+check_status "--brief without --orchestrator is refused" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md"
+check_status "a brief that does not exist refuses the spawn" 1 \
+  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/absent.md" --orchestrator "$ORCHREF"
+
+# A brief with a lint finding no longer refuses the spawn: the finding prints as a
+# warning on stderr and the launch goes on, prompt built and all.
+out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1); code=$?
+check "a brief with a lint finding still spawns" "0" "$code"
+# Twice in the combined stream: once in the stderr warning, once in the dry run's own
+# "lint=" introspection field, which a refusal used to make unreachable.
+check "the finding is printed" "2" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
+check "the finding is a warning on stderr, and the launch still built a prompt" "1|1" \
+  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1 1>/dev/null | grep -c 'unfilled placeholder')|$(printf '%s\n' "$out" | grep -c '^prompt=Read and execute')"
+
+D9STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" >/dev/null 2>&1
+check "a dry run still writes no prompt file, warning or not" "0" \
+  "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
+rm -rf "$D9STATE"
+
+# A dry run touches nothing: a passing `spawn --brief`, a `--prompt` and a spawn with
+# servers each name the files a real launch would write, and none is written.
+D11STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
+check "a passing brief dry run writes nothing under the state directory" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^prompt_file=$D11STATE/prompts/prompt-")"
+ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : prompt" --prompt p >/dev/null 2>&1
+check "a --prompt dry run writes nothing either" "0" "$(find "$D11STATE" -type f | wc -l | tr -d ' ')"
+D11CAT="$D11STATE-cat.json"
+printf '{"servers":{"a":{"command":"a-cmd"}},"default":["a"]}\n' > "$D11CAT"
+d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" ORCHESTRATOR_MCP_CATALOGUE="$D11CAT" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : mcp" --prompt p 2>&1)
+check "nor a dry run with servers, which still names its file" "0|1" \
+  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^mcp_file=$D11STATE/prompts/mcp-")"
+rm -rf "$D11STATE" "$D11CAT"
+
 echo "== iterm-agents: API-billed agent spawns =="
 # An agent spawned with --api-billed runs under the API-billed front end (a stand-in here,
 # never the real program), which takes a budget and then the very words the host would have
@@ -4267,46 +4307,6 @@ check "a verified API-billed spawn records its budget, title and pid" '{"budget"
 apistale() { apipy "ia.billing_record_write('/dev/ttys965', '9', 'Agent : old', '1')"; [ -s "$APISTATE/billing/ttys965.json" ] && echo yes || echo no; }
 check "a plain spawn records nothing, and drops a record left on its tty" "yes|none" \
   "$(apistale)|$(apilive)"
-
-check_status "--brief with --prompt is mutually exclusive" 1 \
-  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt x
-check_status "--brief with --prompt-file is mutually exclusive" 1 \
-  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" --prompt-file "$B/good.md"
-check_status "--brief without --orchestrator is refused" 1 \
-  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md"
-check_status "a brief that does not exist refuses the spawn" 1 \
-  env ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/absent.md" --orchestrator "$ORCHREF"
-
-# A brief with a lint finding no longer refuses the spawn: the finding prints as a
-# warning on stderr and the launch goes on, prompt built and all.
-out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1); code=$?
-check "a brief with a lint finding still spawns" "0" "$code"
-# Twice in the combined stream: once in the stderr warning, once in the dry run's own
-# "lint=" introspection field, which a refusal used to make unreachable.
-check "the finding is printed" "2" "$(printf '%s\n' "$out" | grep -c 'unfilled placeholder')"
-check "the finding is a warning on stderr, and the launch still built a prompt" "1|1" \
-  "$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$ISTATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" 2>&1 1>/dev/null | grep -c 'unfilled placeholder')|$(printf '%s\n' "$out" | grep -c '^prompt=Read and execute')"
-
-D9STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
-ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D9STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/placeholder.md" --orchestrator "$ORCHREF" >/dev/null 2>&1
-check "a dry run still writes no prompt file, warning or not" "0" \
-  "$(find "$D9STATE/prompts" -type f 2>/dev/null | wc -l | tr -d ' ')"
-rm -rf "$D9STATE"
-
-# A dry run touches nothing: a passing `spawn --brief`, a `--prompt` and a spawn with
-# servers each name the files a real launch would write, and none is written.
-D11STATE=$(mktemp -d "${TMPDIR:-/tmp}/orchestrator-XXXXXX")
-d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : brief" --brief "$B/good.md" --orchestrator "$ORCHREF" 2>&1)
-check "a passing brief dry run writes nothing under the state directory" "0|1" \
-  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^prompt_file=$D11STATE/prompts/prompt-")"
-ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : prompt" --prompt p >/dev/null 2>&1
-check "a --prompt dry run writes nothing either" "0" "$(find "$D11STATE" -type f | wc -l | tr -d ' ')"
-D11CAT="$D11STATE-cat.json"
-printf '{"servers":{"a":{"command":"a-cmd"}},"default":["a"]}\n' > "$D11CAT"
-d11out=$(ORCHESTRATOR_DRY_RUN=1 ORCHESTRATOR_STATE_DIR="$D11STATE" ORCHESTRATOR_MCP_CATALOGUE="$D11CAT" bash "$AGENT" spawn --tier light --dir "$WORK" --title "Agent : mcp" --prompt p 2>&1)
-check "nor a dry run with servers, which still names its file" "0|1" \
-  "$(find "$D11STATE" -type f | wc -l | tr -d ' ')|$(printf '%s\n' "$d11out" | grep -c "^mcp_file=$D11STATE/prompts/mcp-")"
-rm -rf "$D11STATE" "$D11CAT"
 
 echo "== model tiers =="
 
