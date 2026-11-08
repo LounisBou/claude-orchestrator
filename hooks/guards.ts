@@ -4,7 +4,9 @@
 // orchestration named, the fill the gauge measured, said to the model past the
 // gate — never a line the user must relay. The push guard beside it,
 // hooks/push-guard.sh ported: every Bash call of a session the launcher
-// spawned read for a force, every force but the rebase's lease refused. And
+// spawned read for a force, every force but the rebase's lease refused. The
+// kill guard beside the push guard, on the same calls: every kill by name or
+// pattern refused, since a session kills only what it started, by pid. And
 // the stop gate, hooks/stop_gate.py ported: a stop is held until something
 // will wake the orchestrator — a busy agent's idle notice, the answer to a
 // declared block, the end of a watched pull request's checks. The shell
@@ -433,12 +435,13 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     return next(e)
   })
 
-  // The push guard (push-guard.sh ported). tool.call's input carries the tool's
-  // arguments beside the tool's name — `e.command`, never a nested `input` —
-  // and the deny the engine documents for the event is `{ deny: reason }`, the
-  // decision's own shape already; the matcher keeps it to Bash calls. The same
-  // hook watches for the successor's spawn: run without error, it is the
-  // hand-over the stop gate releases on.
+  // The push guard (push-guard.sh ported) and the kill guard beside it: the push
+  // decision answers first, the kill decision next, one deny for either.
+  // tool.call's input carries the tool's arguments beside the tool's name —
+  // `e.command`, never a nested `input` — and the deny the engine documents for
+  // the event is `{ deny: reason }`, the decision's own shape already, the
+  // matcher keeping it to Bash calls. The same hook watches for the successor's
+  // spawn: run without error, it is the hand-over the stop gate releases on.
   on('tool.call', { tool: 'Bash' }, async ($: any, e: any, next: (e: any) => any) => {
     const command = String(e.command ?? '')
     try {
@@ -466,7 +469,8 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
     // call already run beneath is let through (next is replay-safe in a catch).
     // One not run yet — a re-entry, a guard past its budget — is decided on the
     // launcher's mark as last read: closed in a spawned session, open in one the
-    // operator started, and a forced push refused while the mark is unknown.
+    // operator started, and a forced push or a kill by pattern refused while the
+    // mark is unknown.
     await logLine($, `unhandled (${next.error?.kind ?? 'failure'}): ${next.error?.message ?? 'the hook did not finish'}`)
     if (next.called) return next(e)
     const fallback = guardFallback(spawnedMark, String(e.command ?? ''), next.error?.message ?? 'the guard did not finish')

@@ -3,17 +3,19 @@
 // header comment of that script: the command line is tokenised the way the shell
 // reads it, and only a command whose first word is git followed by its global
 // options and `push` is read for a force. The awk source stays in the repo until
-// Task 12; the sets below are its BEGIN block verbatim, and every function maps
-// to one awk function, same behaviour, same order:
+// Task 12; the sets below are its BEGIN block verbatim, and the functions follow
+// the awk's, same behaviour, same order:
 //   push()/pop()     — the depth stack with each opener's closer
 //   flushWord()      — a finished word joins the current simple command
-//   flushCmd()       — a finished simple command goes to analyze()
+//   flushCmd()       — a finished simple command goes to the reader scan() was given
 //   arith()          — skip $((...)) whole, it may contain `<<`
 //   heredoc()        — read <<[-]"delim" and fast-forward past its body lines
-//   analyze()        — assignments, then wrappers (skipping their options and
-//                      their option arguments), then: git + valued global
-//                      options + `push` + valued push options, and the force
-//                      rules on the remaining words
+//   scan()           — the main pass: the line read once, each simple command handed
+//                      to a reader
+//   programOf()      — assignments, then wrappers (skipping their options and
+//                      their option arguments), to the command's own program
+//   forcesOf()       — git + valued global options + `push` + valued push
+//                      options, and the force rules on the remaining words
 // Everything else — non-git commands, heredoc bodies, comments, text in quotes
 // that is an argument not an option — is data and never a force.
 //
@@ -22,7 +24,8 @@
 // by name or pattern, and needs two facts the push does not — whether a command
 // substitution stood among a command's words (the substitution's own words are a
 // deeper command, so the outer word is lost to the words list), and which programs
-// fed the pipe the command reads from.
+// fed the pipe the command reads from. It also reads the string of a shell's `-c` and
+// of eval as a command line of its own, which the push reading does not.
 
 // Words that end a simple command or open a group: skipped in command position
 // the way an assignment is. The awk's own list, kept exactly — the shell's
