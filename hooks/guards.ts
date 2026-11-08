@@ -23,7 +23,7 @@ import { tripGate, parseMeasure, measureFilePath } from './gauge-core.ts'
 import { takeDrift } from './gauge.ts'
 import { isEnding } from './naming.ts'
 import { oneQuestionRefusal, operatorWaitRefusal, asksTheOperator, QUESTION_BY_MESSAGE } from './one-question.ts'
-import { detectForces } from './tokenizer.ts'
+import { detectForces, detectPatternKills } from './tokenizer.ts'
 import {
   refuse, withDeadline, isDegradedPass, type DegradedPass,
   listing, chainEntries, chainOwner, ownAgents, hostStatusOf, pullRequestOf, openRows, deferredRows, deferredIds, machineLine, projectCheckouts,
@@ -117,16 +117,30 @@ export function pushDecision(spawned: string | null | undefined, command: string
   return { deny: `git push refused: this session was spawned by the launcher, and the only forced push allowed here is --force-with-lease=<branch>:<sha> with the sha you read. Seen: ${forces.join(', ')}. If the command only mentions a push, put text that mentions a push in a file (\`git commit -F\`, \`gh … --body-file\`).` }
 }
 
-// The push guard's answer when it could not run whole: the mark as last read decides.
-// A session the launcher marked refuses its forced pushes as the guard would; a mark
-// never read refuses a forced push with the reason the guard did not finish — the
-// safe side when nothing says which session this is; an operator's own session is
-// left alone.
+// The kill decision, the push decision's twin: nothing in a session the launcher did not
+// mark, and in a marked one every kill by name or pattern refused — pkill, killall, a
+// kill whose pids come from a substitution or from a lister through xargs. A session
+// kills only what it started, by the pid it recorded; a kill by pattern reaches other
+// sessions' processes (their dev servers, the sleep of their wait loops).
+export function killDecision(spawned: string | null | undefined, command: string): { deny: string } | null {
+  if (!spawned) return null                        // the operator's own sessions: untouched
+  const kills = detectPatternKills(command)
+  if (kills.length === 0) return null
+  return { deny: `kill refused: this session was spawned by the launcher, and it kills only what it started, by the pid it recorded (start it with \`cmd & pid=$!\`, end it with \`kill $pid\`). A kill by name or pattern can end other sessions' processes. Seen: ${kills.join(', ')}.` }
+}
+
+// The Bash guards' answer when they could not run whole: the mark as last read decides.
+// A session the launcher marked refuses its forced pushes and its kills by pattern as
+// the guards would; a mark never read refuses either with the reason the guard did not
+// finish — the safe side when nothing says which session this is; an operator's own
+// session is left alone.
 export function guardFallback(mark: string | null | undefined, command: string, why: string): { deny: string } | null {
-  if (mark !== undefined) return pushDecision(mark, command)
+  if (mark !== undefined) return pushDecision(mark, command) ?? killDecision(mark, command)
   const forces = detectForces(command)
-  if (forces.length === 0) return null
-  return { deny: `git push refused: the push guard could not read whether the launcher spawned this session (${why}), and a forced push waits until it can. Seen: ${forces.join(', ')}.` }
+  if (forces.length > 0) return { deny: `git push refused: the push guard could not read whether the launcher spawned this session (${why}), and a forced push waits until it can. Seen: ${forces.join(', ')}.` }
+  const kills = detectPatternKills(command)
+  if (kills.length === 0) return null
+  return { deny: `kill refused: the kill guard could not read whether the launcher spawned this session (${why}), and a kill by name or pattern waits until it can. Seen: ${kills.join(', ')}.` }
 }
 
 // prompt.submit's `context` is a list of blocks: what the model reads beside the
@@ -436,7 +450,7 @@ export function register(on: (...args: [event: string, handler: Function] | [eve
       if (fallback) return fallback
       return next(e)
     }
-    const decision = pushDecision(spawnedMark, command)
+    const decision = pushDecision(spawnedMark, command) ?? killDecision(spawnedMark, command)
     if (decision) return decision
     const out = await next(e)
     if (!e.agentId && isSuccessorSpawn(command) && out && !out.isError && !out.deny) {
