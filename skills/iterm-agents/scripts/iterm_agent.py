@@ -4240,7 +4240,9 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
 
 # --- API-billed agents: the switch, its record and the front end on a tty ----------
 
-BUDGET_SHAPE = re.compile(r"[0-9]+(\.[0-9]{1,2})?\Z")
+# At most six digits of dollars, so no amount reads as an infinite one, and anchored at the
+# very end, where `$` would let a trailing newline through.
+BUDGET_SHAPE = re.compile(r"[0-9]{1,6}(\.[0-9]{1,2})?\Z")
 
 
 def refuse_api_billed(args):
@@ -4258,7 +4260,7 @@ def refuse_api_billed(args):
             "names its budget, there is no default")
     if not BUDGET_SHAPE.match(args.budget) or float(args.budget) <= 0:
         die("spawn: refused: --budget must be a positive amount of dollars, at most two "
-            "decimals, got '%s'" % args.budget[:40])
+            "decimals, got %r" % args.budget[:40])
     for flag, given in (("--successor", args.successor), ("--open", args.open_),
                         ("--wake", args.wake), ("--auditor", args.auditor),
                         ("--coordinator-successor", args.coordinator_successor),

@@ -4252,6 +4252,15 @@ for bad in 0 0.00 -1 abc nan inf 1.234 1e3 ""; do
   check "a budget of '$bad' is refused" "1|0|1" \
     "$(apirefused 'spawn: refused: --budget must be a positive amount of dollars' --title 'Agent : api' --api-billed --budget "$bad")"
 done
+# A budget has a ceiling, so no amount reads as an infinite one, and a trailing newline is
+# not part of an amount.
+APIHUGE=$(printf '1%.0s' $(seq 400))
+check "a budget of 400 digits is refused" "1|0|1" \
+  "$(apirefused 'spawn: refused: --budget must be a positive amount of dollars' --title 'Agent : api' --api-billed --budget "$APIHUGE")"
+check "a budget with a trailing newline is refused" "1|0|1" \
+  "$(apirefused 'spawn: refused: --budget must be a positive amount of dollars' --title 'Agent : api' --api-billed --budget $'3\n')"
+check "the refused budget is echoed as a literal, on one line, cut at 40 characters" "1|1" \
+  "$(apispawn --title 'Agent : api' --api-billed --budget $'3\n' | grep -cF "got '3\\n'")|$(apispawn --title 'Agent : api' --api-billed --budget "$APIHUGE" | grep -c "got '1\{40\}'\$")"
 for flag in --successor --open --wake --auditor --coordinator-successor --no-verify; do
   check "--api-billed with $flag is refused" "1|0|1" \
     "$(apirefused "spawn: refused: $flag is not an API-billed spawn's" --title 'Agent : api' --api-billed --budget 3 "$flag")"
