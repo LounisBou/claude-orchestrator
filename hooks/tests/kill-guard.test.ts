@@ -66,6 +66,7 @@ const refused = [
   'pgrep node | xargs -n 1 kill',
   'pgrep node | xargs -I {} kill {}',
   '/usr/bin/pgrep node | xargs kill',
+  'pgrep x | xargs -I % kill %',
 ]
 
 // Not kills: a recorded pid, a variable, a job, a liveness probe, a lister alone,
@@ -116,6 +117,11 @@ const accepted = [
   'echo $(pgrep node)',
   'git status',
   '',
+  // The lister is read only from the pipe the kill is in: another separator, or a
+  // kill with no xargs, takes no pid from it.
+  'pgrep x | cat; xargs kill',
+  'pgrep x; echo | xargs kill',
+  'pgrep x | kill 5',
 ]
 
 test('every kill by name or pattern is read as one, with a reason', () => {
