@@ -1381,9 +1381,7 @@ def as_close(tty, expect):
         name = as_run(as_close_script(tty, False), "a title read")
         if not name:
             die("close: no session found on %s" % tty)
-        if stable_title(expect) not in stable_title(name):
-            die("close: refused: session on %s is titled '%s', which does not contain '%s'"
-                % (tty, name, expect))
+        refuse_title("close", tty, name, expect)
     name = as_run(as_close_script(tty, True), "a close")
     if not name:
         die("close: no session found on %s" % tty)
@@ -2836,16 +2834,24 @@ class TmuxTerminal(Terminal):
                        "screen")
         return last_lines([l.rstrip() for l in out.split("\n")], lines)
 
-    def close(self, tty, expect):
-        """Guarded on the window's name, fixed at its making, rather than on a title the
-        host rewrites as it works. Window 0 is the orchestrator's place: only a takeover puts
-        a successor there, so a close of it is refused before anything is killed."""
-        pane = self.window_of(tty, "close")
+    def close_refusals(self, what, tty, expect):
+        """What a close of the window on `tty` refuses, read before anything is killed or
+        spawned, and the window when nothing is refused. `what` names the command that
+        speaks: a rotation reads it before its spawn, so a refusal leaves no replacement.
+
+        Guarded on the window's name, fixed at its making, rather than on a title the host
+        rewrites as it works. Window 0 is the orchestrator's place: only a takeover puts a
+        successor there, so a close of it is refused."""
+        pane = self.window_of(tty, what)
         if pane.index == "0":
-            refuse_window_zero("close", tty, pane.name)
+            refuse_window_zero(what, tty, pane.name)
         if expect and stable_title(expect) not in stable_title(pane.name):
-            die("close: refused: the window on %s is named '%s', which does not contain '%s'"
-                % (tty, pane.name, expect))
+            die("%s: refused: the window on %s is named '%s', which does not contain '%s'"
+                % (what, tty, pane.name, expect))
+        return pane
+
+    def close(self, tty, expect):
+        pane = self.close_refusals("close", tty, expect)
         self.kill(pane.window, "close")
         return self.stable_id(pane.window)
 
@@ -3449,13 +3455,12 @@ def home_panes(socket):
     return [l.split() for l in done.stdout.splitlines() if len(l.split()) == 2], ""
 
 
-def end_home(socket, what, listed=None, tab=""):
-    """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
-    server left on its socket. `(session id of window 0, the ttys it held)`. A server whose
-    window 0 session id cannot be read is NOT ended, and the death says why: a pause that
-    recorded no session would wake a fresh conversation, the orchestrator's own lost. `listed`
-    is `home_panes`' answer, when the caller has asked already. `tab` is the tab's tty, for the
-    line that says an end was not proved."""
+def window0_session(what, socket, listed=None):
+    """`(panes, session id of window 0)` of the home server `socket`, read and never changed:
+    a server whose window 0 session cannot be read dies, saying it was NOT ended, because a
+    pause that recorded no session would wake a fresh conversation, the orchestrator's own
+    lost. `listed` is `home_panes`' answer, when the caller has asked already. A rotation
+    reads it before its spawn, as the close it ends with reads it before the server is."""
     panes, why = listed if listed is not None else home_panes(socket)
     session_id = ""
     if panes is not None:
@@ -3473,6 +3478,17 @@ def end_home(socket, what, listed=None, tab=""):
         die("%s: refused: the session of the orchestrator in window 0 of the home server %s "
             "cannot be read: %s; the server was NOT ended and the orchestrator stays where it "
             "is: its conversation would be lost" % (what, socket, why))
+    return panes, session_id
+
+
+def end_home(socket, what, listed=None, tab=""):
+    """End a home server and prove it: no host left on any of its windows' ttys, and no tmux
+    server left on its socket. `(session id of window 0, the ttys it held)`. A server whose
+    window 0 session id cannot be read is NOT ended, and the death says why: a pause that
+    recorded no session would wake a fresh conversation, the orchestrator's own lost. `listed`
+    is `home_panes`' answer, when the caller has asked already. `tab` is the tab's tty, for the
+    line that says an end was not proved."""
+    panes, session_id = window0_session(what, socket, listed)
     ttys = [tty for _, tty in panes or []]
     # Read before the server is ended, as for a tab: a host the end of its pane does not end
     # is ended by its pid and start time.
@@ -3505,6 +3521,14 @@ def end_home(socket, what, listed=None, tab=""):
     return session_id, ttys
 
 
+def session_title(tty):
+    """The title of the iTerm2 session on `tty`, or None when there is none: a read, served
+    by the rung the close would be, and nothing closed."""
+    return served_by("close", {
+        "api": lambda: iterm_title(tty),
+        "applescript": lambda: as_run(as_close_script(tty, False), "a title read") or None})
+
+
 def iterm_title(tty):
     """The name iTerm2 shows for the session on `tty`, or None when it has none there."""
     async def go(iterm2, connection):
@@ -3514,18 +3538,23 @@ def iterm_title(tty):
     return run(go)
 
 
+def refuse_home_title(what, tty, expect):
+    """The title check of a close of a tab that shows a home session, read-only: with no
+    `expect` there is nothing to compare, and the server is what the close is about."""
+    if not expect:
+        return
+    name = iterm_title(tty)
+    if name is None:
+        die("%s: no session found on %s" % (what, tty))
+    refuse_title(what, tty, name, expect)
+
+
 def close_home_tab(tty, socket, expect, listed=None):
     """Close a tab that shows a home session: its title checked first, then the server
     ended, every window of it proved gone, then the tab if it outlived its client. Prints
     the close's contract line, then the server and the session window 0 ran, which a pause
     records for the wake."""
-    if expect:
-        name = iterm_title(tty)
-        if name is None:
-            die("close: no session found on %s" % tty)
-        if stable_title(expect) not in stable_title(name):
-            die("close: refused: session on %s is titled '%s', which does not contain '%s'"
-                % (tty, name, expect))
+    refuse_home_title("close", tty, expect)
     session_id, ttys = end_home(socket, "close", listed, tty)
     trace_home(socket, "server", "close", tty)
     deadline = time.time() + CLOSE_TIMEOUT
@@ -4846,6 +4875,7 @@ def cmd_spawn(argv, pair_from=""):
     print(new_tty)
     if misplaced:
         sys.exit(misplaced)
+    return made
 
 
 def cmd_screen(argv):
@@ -4902,6 +4932,14 @@ def stable_title(name):
     every rotation instead. Both sides are stripped, so a caller that captured the glyph
     still matches."""
     return name.lstrip().lstrip("".join(c for c in name if not (c.isalnum() or c.isspace()))).strip()
+
+
+def refuse_title(what, tty, name, expect):
+    """The refusal of a close whose expected words are not in the session's title. With no
+    `expect` there is nothing to compare."""
+    if expect and stable_title(expect) not in stable_title(name):
+        die("%s: refused: session on %s is titled '%s', which does not contain '%s'"
+            % (what, tty, name, expect))
 
 
 def close_made(made):
@@ -4974,9 +5012,7 @@ async def close_session(app, tty, expect):
     if tab is None:
         die("close: no session found on %s" % tty)
     name = await sess.async_get_variable("autoName") or ""
-    if expect and stable_title(expect) not in stable_title(name):
-        die("close: refused: session on %s is titled '%s', which does not contain '%s'"
-            % (tty, name, expect))
+    refuse_title("close", tty, name, expect)
     await sess.async_close(force=True)
     return name
 
@@ -5177,6 +5213,31 @@ def cmd_pair(argv):
     print("model=%s effort=%s" % (model, effort))
 
 
+def close_refusals(what, tty, expect):
+    """Everything a close of the session on `tty` refuses before it kills, read and never
+    changed, dying with the refusal in `what`'s name. A rotation spawns its replacement
+    first and closes the old session after: asked here before the spawn, a refusal leaves no
+    replacement running beside the session it was meant to replace. What only the close can
+    learn (a host that outlives its window) cannot be asked here. A dry run has no app and
+    no home server to ask: only a window of a home session, which tmux answers, is read."""
+    socket = home_of_tab(tty)
+    if socket:
+        if not DRY_RUN:
+            refuse_home_title(what, tty, expect)
+            window0_session(what, socket)
+        return
+    term = terminal_for(tty)
+    if isinstance(term, TmuxTerminal):
+        term.close_refusals(what, tty, expect)
+        return
+    if DRY_RUN:
+        return
+    name = session_title(tty)
+    if name is None:
+        die("%s: no session found on %s" % (what, tty))
+    refuse_title(what, tty, name, expect)
+
+
 def cmd_rotate(argv):
     p = argparse.ArgumentParser(prog="rotate", add_help=False)
     p.add_argument("--old-tty", dest="old_tty")
@@ -5217,14 +5278,11 @@ def cmd_rotate(argv):
                 "and is not rotated (pass --force to rotate it anyway)" % (args.old_tty, audit))
         print("rotate: forced: %s is an auditor's tab ('%s')" % (args.old_tty, audit),
               file=sys.stderr)
-    # Window 0 of a home session is the orchestrator's place. The close below refuses it, but
-    # only after the replacement has spawned, which would leave that replacement running with
-    # nothing to close the old window: the refusal is read here, before the spawn.
-    chosen = terminal()
-    if isinstance(chosen, TmuxTerminal):
-        pane = chosen.lookup(args.old_tty)
-        if pane is not None and pane.index == "0":
-            refuse_window_zero("rotate", args.old_tty, pane.name)
+    # The close below refuses window 0 of a home session, a window of another session, a title
+    # that does not match, a session that does not exist, but only after the replacement has
+    # spawned, which would leave that replacement running with nothing to close the old
+    # session: every refusal the close can give is read here, before the spawn.
+    close_refusals("rotate", args.old_tty, args.expect)
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript — not on its tier's, which its
     # orchestrator may have escalated since. A tier, or a model with its effort, is the
@@ -5243,12 +5301,24 @@ def cmd_rotate(argv):
     # The spawn verifies the replacement is RUNNING before anything is closed: a rotation
     # that killed the old agent on a spawn that never started would leave zero agents,
     # which is the one outcome this order exists to prevent.
-    cmd_spawn(rest, pair_from)
+    made = cmd_spawn(rest, pair_from)
     # The replacement works in the same checkout: a rotation deletes nothing.
     close_args = ["--tty", args.old_tty, "--keep-checkout"]
     if args.expect:
         close_args += ["--expect-title", args.expect]
-    cmd_close(close_args)
+    try:
+        cmd_close(close_args)
+    except SystemExit as exc:
+        if not exc.code:
+            raise
+        # A refusal only the close could give (a host that outlives its window): the old
+        # session is still there, and so would the replacement be, running beside it. It is
+        # closed by the id its terminal gave it, and the refusal says so.
+        tty = (made or {}).get("tty") or ""
+        closed = bool(made) and close_made(made)
+        die("rotate: the old session on %s was not closed, and the replacement on %s was %s"
+            % (args.old_tty, tty or "its tty",
+               "closed" if closed else "NOT closed: close it with close --tty %s" % tty))
 
 
 def cmd_resolve_tier(argv):
