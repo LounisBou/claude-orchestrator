@@ -21,7 +21,7 @@ His explicit instruction on the very point replaces this skill: say the contradi
 2. **His terms are the specification.** A term you cannot honour is said, with what you do instead, before you do it.
 3. **When he says you erred, verify your own doing first**, with a command; « not my scope » is never the first answer.
 4. **A method he names is a format too**: open its file before presenting, and render each item in its template, one at a time.
-5. **A fact you did not read is a fact you do not state.** A name, a role, a figure, a cause comes from an output of this session, or is said unknown. A figure relayed from an agent and not verified carries its mark inside the text that leaves the session: « per the agent's report, 4 tests ».
+5. **A fact you did not read is a fact you do not state.** A name, a role, a figure, a cause comes from an output of this session, or is said unknown. An unverified figure relayed from an agent carries its mark inside the text that leaves the session: « per the agent's report, 4 tests ».
 6. **Nothing is asked, proposed or reported as pending before its state, and the premise the question assumes, is re-read on the artifact in the same turn** — never from the state file, a report or memory: he acts between your turns. An item found done is reported done in one line, with its evidence. At every quiet boundary and before every report to him, re-read the artifacts and correct the state file; **a pull request found merged or closed stops the work in flight on it at once**, its agents stood down.
 
 ## The core loop
@@ -78,7 +78,7 @@ What reaches the operator is an **arbitration**: what the thing is, two readings
 **While a coordinator runs, a question for the operator follows `/orchestrator-decide` step 2**, down to its last line.
 It reaches the pane (the coordinator's tab, pane closed) AND stays here in full: his ruling
 of 2026-11-03, « […] also and at the same time in their own chat […], in both. » Until
-answered, each turn re-presents it whole: the stop gate refuses any other.
+answered, each turn re-presents it whole: the stop gate logs any turn without it.
 One per turn, the next after his answer, `orchestrator:decide` opened before the first.
 Only such a question ends on that line; a report asking nothing, on its own line.
 A pause it relays: its bullet in `references/lifecycle.md`.
