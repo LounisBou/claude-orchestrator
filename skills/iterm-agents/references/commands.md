@@ -21,7 +21,20 @@ $SCRIPT list
 
 $SCRIPT spawn --dir <workdir> (--tier deep|standard|light | --model <name> --effort <low|medium|high|xhigh|max> | --inherit-model) [--permission-mode auto] \
     --title "Agent : <subject>" --brief <brief-path> --orchestrator "<name [ref]>" [--right-of self | --successor] [--mcp <name>] [--gate-tokens <N>] \
-    [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills]
+    [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills] \
+    [--api-billed --budget <dollars>]
+    # --api-billed --budget <dollars> runs this agent under the API-billed front end
+    # (ORCHESTRATOR_CHAT_CLI), which bills the API key: the line becomes
+    # `<front end> --agent --budget <dollars>` followed by the host's own words. On the
+    # operator's words only. The verified spawn records the budget with the front end's pid
+    # (<state dir>/billing/<tty>.json), and `close` drops it. Refused, one line each:
+    #   --api-billed without --budget: every such spawn names its budget, there is no default
+    #   --budget without --api-billed
+    #   a budget that is not a positive amount: at most six digits, at most two decimals
+    #   with --no-verify, --successor, --open, --wake, --auditor or another special spawn
+    #   a title other than "Agent : <subject>", or --title-free
+    # A record that cannot be written is said on stderr and the spawn goes on: the agent runs,
+    # and its rotation refuses until a record exists.
     # --brief lints the brief (skills/orchestrator/scripts/brief-lint.sh) before any tab
     # exists; a finding no longer refuses the spawn — it is printed on stderr as a warning
     # and the launch goes on. It builds the startup prompt itself either way, exactly
@@ -207,6 +220,11 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     # --keep-synced-skills are forwarded like --mcp, and only those given to `rotate`: the
     # replacement is opened with the default set, not the original's, so a rotation of an
     # agent that was given Artifact or the synced skills gives them again.
+    # An API-billed agent is replaced under the front end with its record's budget, the
+    # record trusted while the front end it names still runs on --old-tty. An explicit
+    # --api-billed --budget is refused when a record exists. The front end on --old-tty with
+    # no record to trust refuses the rotation; there, an explicit --api-billed --budget
+    # <dollars> is taken, and is passed only on the operator's words.
 
 $SCRIPT pair
     # read-only: the calling session's model and effort now, `model=<model> effort=<level>`,
