@@ -185,6 +185,10 @@ instead »: the sender waits on that newer entry now, which takes the withdrawn 
 count and on screen. A notice that matches no open question changes nothing but a line in the
 round.
 
+A question settled meanwhile, its artifact already showing the outcome (the pull request merged,
+the branch gone), is withdrawn on that evidence and never put to him: `coordinator.sh round-close
+<id> --withdraw "<the evidence read on the artifact>"`, and the module tells its sender why.
+
 **A question settled elsewhere leaves your tab at once.** `round` records each open entry it
 prints, and the module, for an entry you were shown so (or woken for), closes it itself the
 moment it is settled — « answered from the pane: <answer> » or « withdrawn: <reason> » — and
@@ -197,8 +201,8 @@ one line, « settled in the pane » or « settled in <sender>'s tab », never as
 and present the next one in full in the same message; a superseded one makes <id> that next one.
 
 2. **Urgent first, then grouped by sender.** The round orders its questions as `round` prints
-   them, in the pane and with `--by-urgency` alike: the urgent level first; within each level, all the questions of one orchestrator together,
-   consecutive, the groups ordered by their oldest wait. A question arriving mid-round joins its sender's group in its level,
+   them, with `--by-urgency` or without: the urgent level first; within each level, all the questions of one orchestrator together,
+   consecutive, the groups ordered by their oldest wait; the pane draws those with lettered choices first, each set in that order. A question arriving mid-round joins its sender's group in its level,
    or opens a new group there. It is announced in one line under the next « Recorded », and
    every count moves with it.
 3. **Collect, then open the round.** Collect every pending question first, then open with one

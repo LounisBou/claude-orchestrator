@@ -3697,9 +3697,19 @@ check "a question found settled is withdrawn by the coordinator on its evidence,
   "$(spells "$COORDSKILL" 'one found settled on its artifact is withdrawn on that evidence:')|$(spells "$COORDSKILL" '`coordinator.sh round-close <id> --withdraw "<evidence>"`, which tells its sender it was')|$(spells "$COORDSKILL" 'one found settled is not dropped by you: ask its sender')"
 # Topic 6.2 of the rules review, the operator's ruling of 2026-10-31: the urgent level first, then
 # within each level the questions grouped by orchestrator, the groups ordered by their oldest wait,
-# in the default round, the pane and --by-urgency alike.
+# in the default round and --by-urgency alike.
 check "the round puts the urgent first, then groups its questions by the orchestrator that sent them" "yes|yes|yes|no" \
   "$(spells "$COORDSKILL" 'the urgent level first; within each level, all the questions of one orchestrator together,')|$(spells "$COORDSKILL" 'A question arriving mid-round joins its sender'"'"'s group in its level')|$(spells "$COORDSKILL" '« `<sender'"'"'s exact name>` — 3 questions »')|$(spells "$COORDSKILL" 'in the sender'"'"'s own order')"
+# The pane draws the questions that carry lettered choices first, each set in the round's order
+# (hooks/round.ts paneQuestions): the skill and the design say so, never that the pane draws the
+# round's own order.
+check "the skill and the design say the pane draws the questions with choices first, in the round's order" "yes|no|yes|no" \
+  "$(spells "$COORDSKILL" 'the pane draws those with lettered choices first, each set in that order')|$(spells "$COORDSKILL" 'in the pane and with `--by-urgency` alike')|$(spells "$ROOT/docs/design.md" 'the pane drawing those with lettered choices first, each set in that order')|$(spells "$ROOT/docs/design.md" "the round's and the pane's own")"
+# Topic 6.3, the operator's ruling of 2026-10-31: the answer a round-close leaves pending is sent
+# once that command has run in the coordinator's session (hooks/supervision.ts registerCloseRelay),
+# the round's next reading taking only what it left; the script's header and the design say so.
+check "the header and the design send a closed answer once round-close has run, not at the next reading" "yes|no|yes|no" \
+  "$(spells "$ROOT/skills/coordinator/scripts/coordinator.sh" "hooks module sends the answer as soon as that round-close has run in")|$(spells "$ROOT/skills/coordinator/scripts/coordinator.sh" "the coordinator's hooks module sends the answer at")|$(spells "$ROOT/docs/design.md" 'sends that answer as soon as the command has run in its session')|$(spells "$ROOT/docs/design.md" 'sends that answer at its next round reading')"
 check "coordinator-decide orders its round as the skill does, never across senders" "yes|no" \
   "$(spells "$ROOT/commands/coordinator-decide.md" 'the urgent level first, then within each level the questions grouped by')|$(spells "$ROOT/commands/coordinator-decide.md" 'with no grouping by orchestrator')"
 check "the round names the coordinator and each sender, and opens each group with the sender's own context" "yes|yes|yes|yes|yes" \
@@ -3734,6 +3744,10 @@ check "the decision round's coordinator paragraph stays at 450 characters or few
 # The module carries each question; the round sending them itself as well delivered one question twice.
 check "the decision round no longer looks the coordinator up or sends it the questions itself, and stays at 8,800 bytes or fewer" "no|no|0|yes" \
   "$(spells "$ROOT/commands/decide.md" 'coordinator.sh lookup')|$(spells "$ROOT/commands/decide.md" 'goes to that coordinator with `SendMessage`')|$(sed -n '1,5p' "$ROOT/commands/decide.md" | grep -c '^allowed-tools: .*coordinator\.sh')|$([ "$(wc -c < "$ROOT/commands/decide.md" | tr -d ' ')" -le 8800 ] && echo yes || echo no)"
+# The store's read moves or withdraws the open questions of a sender dead without an end: the
+# design no longer leaves them to the pane.
+check "the design no longer leaves a dead sender's questions to the pane" "no" \
+  "$(spells "$ROOT/docs/design.md" 'a session that dies without an end is left to the pane')"
 # The operator's order of 2026-10-24: a question the pane shows is asked in the coordinator's tab
 # only once due — urgent, or no pane open — and never twice; whether the pane is open decides.
 # A hold on his word keeps the other questions open, and the urgent ones still signalled. The
@@ -9448,6 +9462,29 @@ jq -n '{id:"r-far", from:"Orch : r", session:"s-r", kind:"operator", since:"2026
 check "round-close leaves an entry from another machine pending as the module's remote answers are, with no answer stamp" "closed r-far|pending|0|null" \
   "$(ORCHESTRATOR_STATE_DIR="$WORK/coord-far" bash "$COORD" round-close r-far --answer B 2>&1)|$(jq -r '[.delivery.state, .delivery.attempts, (.delivery.answerAt | tostring)] | join("|")' "$FROUND/r-far.json")"
 
+# round-close --withdraw: a question settled meanwhile is withdrawn by the coordinator on the
+# evidence it read on the artifact, and its sender is told (the operator's ruling 6.1 of
+# 2026-10-31). The entry is closed as an answer closes it, the evidence kept in the answer beside
+# its text, and its delivery left pending for the module, which tells the sender it was withdrawn.
+WROUND="$WORK/coord-withdraw/round"
+mkdir -p "$WROUND"
+for wid in w-open w-again w-both; do
+  jq -n --arg id "$wid" '{id:$id, from:"Orch : w", session:("s-" + $id), kind:"operator", since:"2026-10-18T10:02:00.000Z", blocks:"phase 3",
+    question:"Merge #12?", choices:[], recommendation:null, status:"open", at:"2026-10-18T10:02:00.000Z", answer:null}' > "$WROUND/$wid.json"
+done
+wcoord() { ORCHESTRATOR_STATE_DIR="$WORK/coord-withdraw" bash "$COORD" "$@"; }
+check "round-close --withdraw closes an open entry with its evidence, by the coordinator, its delivery pending as an answer's" \
+  "closed w-open|closed|withdrawn: settled meanwhile — #12 merged at 10:04Z|coordinator|#12 merged at 10:04Z|pending|0|1" \
+  "$(wcoord round-close w-open --withdraw '#12 merged at 10:04Z' 2>&1)|$(jq -r '[.status, .answer.text, .answer.by, .answer.evidence, .delivery.state, .delivery.attempts, (.delivery.answerAt == .answer.at | if . then 1 else 0 end)] | join("|")' "$WROUND/w-open.json")"
+check "round-close --answer writes no evidence" "null" \
+  "$(wcoord round-close w-again --answer A >/dev/null 2>&1; jq -c .answer.evidence "$WROUND/w-again.json")"
+check "round-close refuses --withdraw with no evidence, and beside --answer, writing nothing" \
+  "exit 1|exit 1|exit 1|exit 1|open" \
+  "$(wcoord round-close w-both --withdraw >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw '' >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --withdraw x --answer A >/dev/null 2>&1; echo "exit $?")|$(wcoord round-close w-both --answer A --withdraw x >/dev/null 2>&1; echo "exit $?")|$(jq -r .status "$WROUND/w-both.json")"
+# The coordinator is told to withdraw on evidence, or no coordinator ever runs --withdraw.
+check "the coordination skill closes a question settled meanwhile with round-close --withdraw and its evidence" "yes" \
+  "$(flat_has "$ROOT/skills/coordination/SKILL.md" 'is withdrawn on that evidence and never put to him: `coordinator.sh round-close <id> --withdraw "<the evidence read on the artifact>"`')"
+
 # round-close also forgets the sender's fingerprint, as the module's forgetRelayed does, so the
 # same question asked again is entered again: the wait file's `relayed` is nulled when it is the
 # closed entry's own fingerprint, whatever the entry's kind, blocks, mark and characters, and kept
@@ -9679,12 +9716,13 @@ done
 printf '4242 1 ttys004 hostcli\n' > "$WORK/coord-due-ps"
 printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$DSTATE/pane.json"
 dround() { ORCHESTRATOR_STATE_DIR="$DSTATE" CLAUDE_CONFIG_DIR="$DCFG" COORDINATOR_NOW=2026-10-24T12:00:00Z COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round 2>&1; }
+# The urgent entry leads, the round's one order (6.2).
 check "with the pane open round marks due an urgent entry alone, however old the others" \
-  "round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open
+  "round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
+round pold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | open
 round zdone | done | from Orch : d | since 2026-10-24T09:30:00.000Z | blocks: - | open
 round p15 | operator | from Orch : d | since 2026-10-24T11:45:00.000Z | blocks: phase 3 | open
 round p14 | operator | from Orch : d | since 2026-10-24T11:45:01.000Z | blocks: phase 3 | open
-round u1 | operator | from Orch : d | since 2026-10-24T11:59:00.000Z | blocks: phase 3 | open | due
 round xu | operator | from Orch : d | since 2026-10-24T11:58:00.000Z | blocks: phase 3 | answered
 round wold | operator | from Orch : d | since 2026-10-24T09:00:00.000Z | blocks: phase 3 | withdrawn" \
   "$(dround | grep '^round ')"
@@ -9699,7 +9737,8 @@ check "an entry answered in the pane is never due, and once closed with round-cl
 check "round refuses a pinned clock that is no UTC time" "exit 1|coordinator: round: COORDINATOR_NOW is no UTC time: soon" \
   "$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round >/dev/null 2>&1; echo "exit $?")|$(ORCHESTRATOR_STATE_DIR="$DSTATE" COORDINATOR_NOW=soon bash "$COORD" round 2>&1)"
 # round --by-urgency lists the same lines, due marked the same, each set ordered urgent first,
-# then by start, across senders: the order a decision round over every orchestrator asks in.
+# then grouped by orchestrator within each level, the groups by their earliest wait in it, each
+# oldest first: the operator's ruling of 2026-10-31 (6.2), the order a decision round asks in.
 USTATE="$WORK/coord-urgency"; UCFG="$WORK/coord-urgency-config"
 mkdir -p "$USTATE/round" "$UCFG/claude-orchestrator/store/sessions"
 for spec in "a0:a:open:10:00:false" "b1:b:open:10:01:true" "b2:b:open:10:02:false" "a3:a:open:10:03:true" \
@@ -9715,34 +9754,42 @@ done
 : > "$UCFG/claude-orchestrator/store/sessions/s-orcha"; : > "$UCFG/claude-orchestrator/store/sessions/s-orchb"
 printf '{"session":"s-coord","pid":"4242","at":"2026-10-24T09:00:00.000Z"}\n' > "$USTATE/pane.json"
 uround() { ORCHESTRATOR_STATE_DIR="$USTATE" CLAUDE_CONFIG_DIR="$UCFG" COORDINATOR_PS_TABLE="$WORK/coord-due-ps" bash "$COORD" round "$@" 2>&1; }
-check "round --by-urgency orders each set urgent first, then by start, across senders, due marked as without it" \
+check "round --by-urgency orders each set urgent first, then grouped by orchestrator within each level, oldest first, due marked as without it" \
   "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
 round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
 round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open
-round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
 round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open
 round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open
 round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
 round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
 round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
   "$(uround --by-urgency | grep '^round ')"
-# Two entries started at the same instant (a7, b6) are ordered by id, whoever wrote first; a
-# withdrawn entry is listed last and never due.
+# A withdrawn entry is listed last and never due.
 check "round --by-urgency with no pane open reads the same order, every open entry due" \
   "round b1 | operator | from Orch : b | since 2026-10-24T10:01:00.000Z | blocks: phase 3 | open | due
 round a3 | operator | from Orch : a | since 2026-10-24T10:03:00.000Z | blocks: phase 3 | open | due
 round a0 | operator | from Orch : a | since 2026-10-24T10:00:00.000Z | blocks: phase 3 | open | due
-round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open | due
 round a7 | operator | from Orch : a | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
+round b2 | operator | from Orch : b | since 2026-10-24T10:02:00.000Z | blocks: phase 3 | open | due
 round b6 | operator | from Orch : b | since 2026-10-24T10:06:00.000Z | blocks: phase 3 | open | due
 round a4 | operator | from Orch : a | since 2026-10-24T10:04:00.000Z | blocks: phase 3 | answered
 round b5 | operator | from Orch : b | since 2026-10-24T10:05:00.000Z | blocks: phase 3 | answered
 round a8 | operator | from Orch : a | since 2026-10-24T10:08:00.000Z | blocks: phase 3 | withdrawn" \
   "$(mv "$USTATE/pane.json" "$WORK/coord-urgency-pane"; uround --by-urgency | grep '^round '; mv "$WORK/coord-urgency-pane" "$USTATE/pane.json")"
-check "round without the flag keeps the round's order, its lines those of --by-urgency, and refuses another argument" \
-  "a0 a3 a7 b1 b2 b6 a4 b5 a8|same lines|exit 1|coordinator: round: unexpected argument --soon" \
-  "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround | sort)" = "$(uround --by-urgency | sort)" ] && echo 'same lines')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
+# One order everywhere, the ruling's (6.2): round without the flag prints what --by-urgency prints.
+check "round without the flag prints the round's one order, the very output of --by-urgency, and refuses another argument" \
+  "b1 a3 a0 a7 b2 b6 a4 b5 a8|same output|exit 1|coordinator: round: unexpected argument --soon" \
+  "$(uround | grep '^round ' | cut -d' ' -f2 | tr '\n' ' ' | sed 's/ $//')|$([ "$(uround)" = "$(uround --by-urgency)" ] && echo 'same output')|$(uround --soon >/dev/null 2>&1; echo "exit $?")|$(uround --soon)"
+# The flag is kept for the decision round that passes it, and reads no order of its own.
+check "round keeps no second order behind --by-urgency" "0" "$(grep -c 'by_urgency' "$COORD")"
 if [ -n "$RCFG_HAD" ]; then export CLAUDE_CONFIG_DIR="$RCFG_WAS"; else unset CLAUDE_CONFIG_DIR; fi
+
+# The question relay's live proof in its dry mode: each fixture judged as expected, those where a
+# question is lost at the succession failing (tests/question-relay-proof.sh).
+QRDRY=$(bash "$ROOT/tests/question-relay-proof.sh" --dry 2>&1); QRCODE=$?
+check "the question relay proof's dry run judges each of its fixtures as expected" "passed (dry)|0" \
+  "$(printf '%s\n' "$QRDRY" | tail -1)|$QRCODE"
 
 echo "== routing: cost =="
 
