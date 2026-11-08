@@ -7687,6 +7687,37 @@ check "a window whose session never started is killed by its own id, and the cha
   "$(printf '%s' "$out" | grep -c 'never started on /dev/ttys903 after 2s; the tab was closed')|$(calls | grep -F '[kill-window]')|$(chainf | wc -l | tr -d ' ')"
 check "nothing of iTerm2 was asked by any of these, in a marked session" "none" "$(asked)"
 
+# A rotation spawns the replacement first and closes the old window after, so whatever the close
+# would refuse is refused before the spawn: the replacement would otherwise be left running
+# beside the session it was meant to replace. Nothing is spawned and nothing is killed.
+reset_home
+out=$(home rotate --old-tty /dev/ttys950 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "rotate of a window of another tmux session is refused before anything is spawned or killed" "1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c 'rotate: refused: /dev/ttys950 is a window of another tmux session')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
+reset_home
+out=$(home rotate --old-tty /dev/ttys902 --expect-title "Agent : one" --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "rotate of a window whose name does not hold the expected words is refused before anything is spawned or killed" "1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c "rotate: refused: the window on /dev/ttys902 is named 'Agent : two', which does not contain 'Agent : one'")|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
+reset_home
+out=$(home rotate --old-tty /dev/ttys900 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "rotate of window 0 stays refused before anything is spawned, through the check close shares" "1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c 'rotate: refused: the window on /dev/ttys900 is window 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
+# What only the close can know: the replacement exists by then, and is closed by its own window
+# id, its chain entry with it; the refusal says what was refused and what became of it.
+reset_home
+out=$(REC_KEEP_WINDOW=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "a close that refuses after the spawn closes the replacement, and says both" "1|1|1|[-u][kill-window][-t][@1]|[-u][kill-window][-t][@4]|0|1" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: close: the request was accepted but @1 is still there')|$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was closed')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')"
+reset_home
+out=$(REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "and a replacement that cannot be closed is said to be left, with the way to close it" "1|1" \
+  "$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was NOT closed: close it with close --tty /dev/ttys903')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+
 # A home caller still reaches the iTerm2 tabs it did not make as windows (the coordinator's,
 # an auditor's): a command naming a tty that is no pane of the server goes to the app.
 for c in "close --tty /dev/ttys777" "screen --tty /dev/ttys777 --lines 5" \
@@ -8284,6 +8315,8 @@ class FakeIterm(ia.Terminal):
         return "/dev/ttys970", "NEW-TAB"
     def close(self, tty, expect): calls.append("close %s" % tty); return "TAB"
     def close_made(self, made): calls.append("close_made %s" % made.get("session_id")); return True
+    def chain_state(self, own): return None, None
+    def owner(self, own): return ""
 ia.ITERM = FakeIterm()
 ia.time.sleep = lambda s: None
 ia.SPAWN_TIMEOUT = 1
@@ -8293,7 +8326,7 @@ real_client_on = ia.client_on
 ia.client_on = lambda socket, tty: (setattr(ia, "SPAWN_TIMEOUT", 0), real_client_on(socket, tty), setattr(ia, "SPAWN_TIMEOUT", 1))[1]
 ia.self_tty = lambda: "/dev/ttys900"
 ia.session_name_on = lambda tty: "Coord : c" if tty == "/dev/ttys900" else None
-ia.iterm_title = lambda tty: "✳ Orch : w"
+ia.iterm_title = lambda tty: None if tty == "/dev/ttys999" else "✳ Orch : w"
 ia.cli_pid_on_tty = lambda tty: "4242" if scenario != "never" else None
 ia.host_registry = lambda pid: {"sessionId": "abcdef12-3456-4789-8abc-def012345678"} if pid == "4242" else None
 ia.wait_gone = lambda tty, timeout=None: None
@@ -8408,6 +8441,23 @@ reset_homerec; printf '1 /dev/ttys962\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps" life ok '["close","--tty","/dev/ttys970","--expect-title","Orch : w"]')
 check "and one with no window 0 refuses the same way" "1|0|1" \
   "$(sfield "$res" exit)|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'no host of window 0 was found on the server')"
+
+# A rotation reads what the close of the old session would refuse BEFORE it spawns: an iTerm2
+# tab that is no session, one whose title does not hold the expected words, and a home tab
+# whose server cannot say which session its window 0 runs. Each leaves no replacement.
+rot_args() { printf '["rotate","--old-tty","%s","--dir","%s","--title","Agent : r","--prompt","p","--model","a-model","--effort","high","--trust"%s]' "$1" "$WORK" "${2:+,\"--expect-title\",\"$2\"}"; }
+reset_homerec
+res=$(life ok "$(rot_args /dev/ttys999)")
+check "rotate of a tab that is no session is refused before the replacement is created" "1|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(sfield "$res" ERR | grep -c 'rotate: no session found on /dev/ttys999')"
+reset_homerec
+res=$(life ok "$(rot_args /dev/ttys998 'Agent : other')")
+check "rotate of a tab whose title does not hold the expected words is refused before the replacement is created" "1|0|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(sfield "$res" calls | tr ',' '\n' | grep -c '^close ')|$(sfield "$res" ERR | grep -c "rotate: refused: session on /dev/ttys998 is titled '✳ Orch : w', which does not contain 'Agent : other'")"
+reset_homerec; printf '1 /dev/ttys962\n' > "$HR/panes"
+res=$(LIFE_PS="$WORK/life-ps" life ok "$(rot_args /dev/ttys970)")
+check "rotate of a home tab whose window 0 session cannot be read is refused before the replacement is created, the server untouched" "1|0|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'rotate: refused: the session of the orchestrator in window 0 of the home server orch-abcdef12 cannot be read')"
 reset_homerec; printf '0 /dev/ttys961\n1 /dev/ttys962\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps" life never '["close","--tty","/dev/ttys970","--expect-title","Orch : w"]')
 check "and one whose window 0 runs no host whose session can be read refuses, naming the pane" "1|0|1" \
