@@ -2838,8 +2838,13 @@ class TmuxTerminal(Terminal):
 
     def close(self, tty, expect):
         """Guarded on the window's name, fixed at its making, rather than on a title the
-        host rewrites as it works."""
+        host rewrites as it works. Window 0 is the orchestrator's place: only a takeover puts
+        a successor there, so a close of it is refused before anything is killed."""
         pane = self.window_of(tty, "close")
+        if pane.index == "0":
+            die("close: refused: the window on %s is window 0, the orchestrator's place in this "
+                "home session: a successor takes it with takeover --tty %s --expect-title \"%s\", "
+                "which also puts its own window at index 0" % (tty, tty, pane.name))
         if expect and stable_title(expect) not in stable_title(pane.name):
             die("close: refused: the window on %s is named '%s', which does not contain '%s'"
                 % (tty, pane.name, expect))
