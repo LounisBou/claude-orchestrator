@@ -7872,15 +7872,25 @@ class Made(Tab):
         if mode == "create-sigterm":
             signal.raise_signal(signal.SIGTERM)
         return rep_tty, "T903"
+    def close_made(self, made):
+        """In « refuse-interrupt », the spawn's own close of the session it refused, interrupted."""
+        calls.append("close_made %s" % made["tty"])
+        if mode == "refuse-interrupt":
+            raise KeyboardInterrupt()
+        return True
 def waits(tty):
     raise KeyboardInterrupt()
 def launch_file(launch, title):
     signal.raise_signal(signal.SIGTERM)
-if mode in ("create-sigterm", "verify-interrupt", "before-create"):
+if mode in ("create-sigterm", "verify-interrupt", "before-create", "refuse-interrupt"):
     ia.terminal = lambda *a, **k: Made()
     ia.cli_pid_on_tty = waits
     if mode == "before-create":
         ia.write_launch_script = launch_file
+    if mode == "refuse-interrupt":
+        # A replacement that never starts: the spawn refuses it and closes it itself.
+        ia.cli_pid_on_tty = lambda tty: None
+        ia.find_transcript = lambda dir_, epoch: ""
 else:
     ia.cmd_spawn = lambda argv, pair_from="", old_tty="", made=None: (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
 def sent(tty):
@@ -8031,6 +8041,11 @@ check "an interrupt once the replacement is made, while the spawn waits for its 
 res=$(rprobe before-create)
 check "and one before the replacement is made says nothing was spawned, the old session left as it was" "1|0||1|yes|0" \
   "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM before its replacement was made: nothing was spawned, and the old session on /dev/ttys901 was left as it was")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+# An interrupt while the spawn closes the replacement it refused: the line says that close was
+# under way, that whether it went through is not known, and that the old session was not touched.
+res=$(ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe refuse-interrupt)
+check "an interrupt during the spawn's own close of a refused replacement says so, the old session untouched" "1|1|close_made /dev/ttys903|1|0|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF 'rotate: the rotation was interrupted by SIGINT while the spawn closed the replacement it made on /dev/ttys903, which it refused (claude never started on /dev/ttys903 after 2s): whether that close went through is not known: if list still shows a session on /dev/ttys903, close it with close --tty /dev/ttys903; the old session on /dev/ttys901 was not touched')|$(sfield "$res" ERR | grep -c 'is kept')|$(printf '%s' "$res" | grep -c 'Traceback')"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \

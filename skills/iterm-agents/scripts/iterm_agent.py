@@ -355,7 +355,12 @@ def refuse_made(made, msg):
     A refusal used to say « the tab was closed » whatever the close did, and the « never
     started » refusal closed nothing at all and kept the tty to its stderr line: the
     operator was told of a failure over a tab still open, possibly holding a running agent
-    nobody would now stop."""
+    nobody would now stop.
+
+    The refusal is recorded in `made` before the close: an interrupt during that close then
+    finds what it interrupted, and a rotation does not take the session being closed for a
+    replacement it keeps."""
+    made["refusing"] = msg
     closed = close_made(made)
     tty = made.get("tty") or ""
     if tty:
@@ -5680,6 +5685,8 @@ def spawn_interrupted(spawned, old, name):
         hold_signals()
         die("rotate: the rotation was interrupted by %s before its replacement was made: nothing "
             "was spawned, and the old session on %s was left as it was" % (name, old["tty"]))
+    if spawned.get("refusing"):
+        refused_interrupted(spawned, old, name)
     refuse_recycled(spawned, old, None)
     late_refusal(spawned, old, False, "", lead=(
         "the rotation was interrupted by %s during the spawn, once its replacement was made on "
@@ -5687,6 +5694,22 @@ def spawn_interrupted(spawned, old, name):
         "the replacement runs on %s, verified, and is kept, its chain entry may be missing"
         if spawned.get("verified") else "the replacement made on %s is kept, though whether it "
         "started was not verified, and its chain entry may be missing") % tty)
+
+
+def refused_interrupted(made, old, name):
+    """A rotation interrupted by `name` while its spawn closed the session it had just made and
+    refused (it never started, or came up in another mode): that session is no replacement, the
+    close of it was under way, and the old session was never touched."""
+    hold_signals()
+    tty = made["tty"]
+    why = made["refusing"]
+    for prefix in ("spawn: ", "refused: "):
+        if why.startswith(prefix):
+            why = why[len(prefix):]
+    die("rotate: the rotation was interrupted by %s while the spawn closed the replacement it "
+        "made on %s, which it refused (%s): whether that close went through is not known: if "
+        "list still shows a session on %s, close it with close --tty %s; the old session on %s "
+        "was not touched" % (name, tty, why, tty, tty, old["tty"]))
 
 
 def refuse_recycled(made, old, after):
