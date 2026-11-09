@@ -5420,6 +5420,18 @@ class AfterSpawn(Exception):
         self.tty, self.runs, self.why = tty, runs, why
 
 
+def mute_stdout():
+    """Point stdout at the null device once a write to it failed on a reader gone: the
+    interpreter flushes stdout again at exit, and that flush would fail too, print its own
+    complaint and change the exit status."""
+    try:
+        null = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(null, sys.stdout.fileno())
+        os.close(null)
+    except (OSError, ValueError, AttributeError):
+        pass
+
+
 def refuse_own_home(what, tty):
     """Refuse the rotation of the tab that shows the caller's own home server: the replacement
     is made as a window of that server, and a close of the tab ends the server, every window
@@ -5595,6 +5607,8 @@ def finish_rotation(made, old, after):
             raise
         late_refusal(made, old, True, "")
     except Exception as exc:
+        if isinstance(exc, BrokenPipeError):
+            mute_stdout()
         late_refusal(made, old, False, str(exc) or type(exc).__name__)
 
 

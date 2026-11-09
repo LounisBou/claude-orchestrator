@@ -7928,6 +7928,12 @@ check "a close that closed the old session and then raised says it closed, and w
 res=$(lprobe closed-pipe)
 check "a broken pipe on the close's « closed » line is no failed close: the old session is said closed" "1|1|0|0" \
   "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was closed, but what followed failed ([Errno 32] Broken pipe); $KEPT; nothing left to close")|$(sfield "$res" ERR | grep -c 'close of the old session on /dev/ttys901 failed')|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A stdout whose reader is gone, for real: the rotation exits 1 on its one line, and the
+# interpreter's own flush at exit neither fails again nor changes that status.
+"$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" pipe-real 2>"$WORK/pipe-err"
+rc=$?
+check "a broken pipe on the « closed » line exits 1 on the rotation's line, with nothing after it" "1|1|0|0" \
+  "$rc|$(grep -cF "ERROR: rotate: the old session on /dev/ttys901 was closed, but what followed failed ([Errno 32] Broken pipe); $KEPT; nothing left to close" "$WORK/pipe-err")|$(grep -c 'Exception ignored' "$WORK/pipe-err")|$(grep -c 'BrokenPipeError' "$WORK/pipe-err")"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \
