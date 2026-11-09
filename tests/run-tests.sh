@@ -7505,7 +7505,8 @@ echo "== iterm-agents: agents as windows of a home session =="
 # starts); a window it kills leaves both, unless REC_KEEP_WINDOW keeps its pane listed or
 # REC_KEEP_HOST keeps its host in the table (1 for every window, or one window's tty).
 # While it makes a window, REC_RENAME_ON_NEW ('<window id> <name>') renames another and
-# REC_GONE_ON_NEW (a window id) drops one from the listing.
+# REC_GONE_ON_NEW (a window id) drops one from the listing, and REC_ADD_ON_NEW (a listing line,
+# its fields separated by \t) adds one.
 TR="$WORK/tmuxrec"; mkdir -p "$TR"
 cat > "$TR/tmux" <<'SH'
 #!/bin/bash
@@ -7525,6 +7526,7 @@ case "$1" in
     # What changes elsewhere while the window is made: a window renamed, or one gone.
     [ -n "${REC_RENAME_ON_NEW:-}" ] && awk -F'\t' -v OFS='\t' -v w="${REC_RENAME_ON_NEW%% *}" -v n="${REC_RENAME_ON_NEW#* }" '$3 == w { $6 = n } 1' "$d/panes" > "$d/panes.tmp" && mv "$d/panes.tmp" "$d/panes"
     [ -n "${REC_GONE_ON_NEW:-}" ] && awk -F'\t' -v w="$REC_GONE_ON_NEW" '$3 != w' "$d/panes" > "$d/panes.tmp" && mv "$d/panes.tmp" "$d/panes"
+    [ -n "${REC_ADD_ON_NEW:-}" ] && printf '%b\n' "$REC_ADD_ON_NEW" >> "$d/panes"
     [ -n "${REC_NEW_RAW:-}" ] && { printf '%s\n' "$REC_NEW_RAW"; exit 0; }
     printf '$1\t9\t%s\t%s\t%s\t%s\t%s\n' "$win" "$pane" "$tty" "$name" "$name" >> "$d/panes"
     if [ -z "${REC_NO_HOST:-}" ]; then
@@ -7724,32 +7726,42 @@ reset_home
 out=$(REC_KEEP_WINDOW=1 REC_KEEP_HOST=1 REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
 check "a close whose kill tmux refused keeps the replacement, and names the close of the old window that still stands" "1|1|1|[-u][kill-window][-t][@1]|1|1|/dev/ttys903" \
-  "$(printf '%s' "$err" | grep -c 'ERROR: close: tmux refused kill-window: server busy')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys901 failed; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
+  "$(printf '%s' "$err" | grep -c 'ERROR: close: tmux refused kill-window: server busy')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys901 failed; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
 reset_home
 out=$(REC_KEEP_HOST=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
 check "a close that took the old window but not its host keeps the replacement, and names a kill, never a close of a window that is gone" "1|1|0|1|[-u][kill-window][-t][@1]|1|1|/dev/ttys903" \
   "$(printf '%s' "$err" | grep -c 'ERROR: close: the request was accepted but .* is still running on /dev/ttys901')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys901 failed; the replacement runs on /dev/ttys903 and is kept; its host still runs on /dev/ttys901, and no command of this tool ends it: end it with kill <its pid>, which ps -t ttys901 shows; its window or tab is gone, and its chain entry is left')|$(printf '%s' "$err" | grep '^ERROR: rotate:' | grep -c 'close --tty /dev/ttys901')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
 # A window renamed during the spawn: the close refuses it by its name, before any kill, and the
-# replacement stays beside it, its window never killed and its chain entry kept.
+# replacement stays beside it, its window never killed and its chain entry kept. The window is
+# still the one read before the spawn (its id, not its name), so the line names its close.
 reset_home
 out=$(REC_RENAME_ON_NEW='@1 Agent : renamed' home rotate --old-tty /dev/ttys901 --expect-title "Agent : one" --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
 check "a close refused by its name before any kill keeps the replacement, and names the close of the old window that still stands" "1|1|1|0|1|1|/dev/ttys903" \
-  "$(printf '%s' "$err" | grep -c "ERROR: close: refused: the window on /dev/ttys901 is named 'Agent : renamed'")|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
-# The old window gone during the spawn: the reads after the spawn are the rotation's too, and a
-# read that fails keeps the replacement and names it, nothing killed, with the host left behind.
+  "$(printf '%s' "$err" | grep -c "ERROR: close: refused: the window on /dev/ttys901 is named 'Agent : renamed'")|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
+# The old window gone during the spawn: it is read by its id before the spawn and looked for
+# again before the close, so nothing is killed; the replacement is kept, and the one line names
+# it and the host left behind.
 reset_home
 out=$(REC_GONE_ON_NEW=@1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
-check "an old window gone during the spawn keeps the replacement, and the line names it and the host left" "1|1|1|0|1|/dev/ttys903" \
-  "$(printf '%s' "$err" | grep -c 'ERROR: rotate: no window of this home session runs on /dev/ttys901')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 could not be read after the spawn, so it was not closed; the replacement runs on /dev/ttys903 and is kept; its host still runs on /dev/ttys901, and no command of this tool ends it: end it with kill <its pid>, which ps -t ttys901 shows; whether its window or tab is still there could not be read: if it is, close it with close --tty /dev/ttys901; its chain entry is left')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$out"
+check "an old window gone during the spawn keeps the replacement, and one line names it and the host left" "0|1|1|1|0|1|/dev/ttys903" \
+  "$(printf '%s' "$err" | grep -c 'no window of this home session runs on /dev/ttys901')|$(printf '%s' "$err" | grep -c '^ERROR:')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 was not closed: its window or tab is gone since the spawn; the replacement runs on /dev/ttys903 and is kept; its host still runs on /dev/ttys901, and no command of this tool ends it: end it with kill <its pid>, which ps -t ttys901 shows; its window or tab is gone, and its chain entry is left')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$out"
+# Another window given the old window's tty during the spawn is no « still there »: the old
+# window is read by its id before the spawn, the window on its tty by the close is another's,
+# and that one is neither closed nor named in a close step.
+reset_home
+out=$(REC_GONE_ON_NEW=@1 REC_ADD_ON_NEW='$1\t5\t@7\t%7\t/dev/ttys901\tstranger\t✳ Agent : stranger' home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
+rc=$?; err=$(cat "$WORK/rot-err")
+check "a stranger on the old window's tty after the spawn is never closed, and no close of its tty is printed" "1|0|1|0|1|/dev/ttys903" \
+  "$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(printf '%s' "$err" | grep -cF "ERROR: rotate: the old session on /dev/ttys901 was not closed: /dev/ttys901 now holds another session (window @7, named 'stranger'), not the window @1 read before the spawn; the replacement runs on /dev/ttys903 and is kept; ")|$(printf '%s' "$err" | grep -c 'close --tty /dev/ttys901')|$(chainf | grep -c '@4')|$out"
 
 # The same rule read on stubs that name pids: whatever the close of the old session did, the
 # replacement is never closed (no close of it, no kill, its chain entry never dropped), and the
 # line says what is left of the old session and how to end it.
 cat > "$WORK/late_probe.py" <<'PYEOF'
-import contextlib, io, sys
+import contextlib, io, os, signal, sys
 sys.path.insert(0, sys.argv[1])
 import iterm_agent as ia
 mode = sys.argv[2]
@@ -7766,8 +7778,24 @@ ia.time.sleep = lambda s: None
 ia.CLOSE_TIMEOUT = ia.TERM_GRACE = ia.KILL_GRACE = 0
 # No signal leaves this probe, whatever pid it names.
 ia.os.kill = lambda pid, sig: calls.append("kill %s" % pid)
-ia.close_refusals = lambda what, tty, expect: None
+ia.close_refusals = lambda what, tty, expect: (None, "Agent : one", "")
 ia.terminal_for = lambda tty: ia.ITERM
+# The app's id of the session on the old tab: the old one's before the spawn; after it, gone in
+# « vanished » and once the close began in « sent-gone », another's in « stranger », and in
+# « read-interrupt » a first read after the spawn interrupted.
+spawned, reads = [], []
+def session_id_on(tty, what):
+    if not spawned:
+        return "S-OLD"
+    reads.append(tty)
+    if mode == "read-interrupt" and len(reads) == 1:
+        raise KeyboardInterrupt()
+    if mode == "stranger":
+        return "S-STRANGER"
+    if mode == "vanished" or (mode == "sent-gone" and "cmd_close" in calls):
+        return ""
+    return "S-OLD"
+ia.session_id_on = session_id_on
 # The old tab: gone by the close in « vanished » and « sent-gone », there otherwise.
 ia.session_title = lambda tty, what: None if mode in ("sent-gone", "vanished") else "Agent : one"
 def close_host_tty(tty):
@@ -7788,7 +7816,7 @@ ia.wait_gone = lambda tty, timeout=None: None
 ia.chain_drop_tab = lambda tab_id: calls.append("drop %s" % tab_id)
 # The replacement, or one handed the tty its old session ran on.
 rep_tty = "/dev/ttys901" if mode == "recycled" else "/dev/ttys903"
-ia.cmd_spawn = lambda argv, pair_from="", old_tty="": dict(tty=rep_tty, terminal=Tab(), tab_id="T903")
+ia.cmd_spawn = lambda argv, pair_from="", old_tty="": (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
 def sent(tty):
     ia.KILL_SENT.add(tty)
     ia.die("close: the request was accepted but 4242 is still running on %s" % tty)
@@ -7800,11 +7828,21 @@ def name_lingering(pids):
 def raises(argv):
     calls.append("cmd_close")
     raise RuntimeError("app gone")
+def interrupted(argv):
+    """The close interrupted: by the keyboard, or by a signal this probe sends itself."""
+    calls.append("cmd_close")
+    if mode == "sent-interrupt":
+        ia.KILL_SENT.add(argv[1])
+    if mode in ("sigterm", "sighup"):
+        signal.raise_signal(signal.SIGTERM if mode == "sigterm" else signal.SIGHUP)
+    raise KeyboardInterrupt()
 if mode == "closed-then-raises":
     ia.close_tab = closed_tab
     ia.name_lingering = name_lingering
-elif mode == "closed-pipe":
+elif mode in ("closed-pipe", "pipe-real"):
     ia.close_tab = closed_tab
+elif mode in ("interrupt", "sent-interrupt", "sigterm", "sighup"):
+    ia.cmd_close = interrupted
 elif mode in ("sent-gone", "sent-there"):
     ia.cmd_close = lambda argv: (calls.append("cmd_close"), sent(argv[1]))
 elif mode == "raises":
@@ -7818,29 +7856,46 @@ class Out(io.StringIO):
     def flush(self):
         if mode == "closed-pipe" and "closed 1 session" in self.getvalue():
             raise BrokenPipeError(32, "Broken pipe")
+rotate = ["--old-tty", "/dev/ttys901", "--dir", "/x", "--title", "T", "--tier", "light"]
+if mode == "pipe-real":
+    # A real stdout whose reader is gone: the process's own exit status and its last words on
+    # stderr are what is read, the interpreter's flush at exit included.
+    r, w = os.pipe()
+    os.close(r)
+    os.dup2(w, 1)
+    os.close(w)
+    ia.cmd_rotate(rotate)
+handlers = [signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)]
 out, err = Out(), io.StringIO()
 code = 0
 try:
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-        ia.cmd_rotate(["--old-tty", "/dev/ttys901", "--dir", "/x", "--title", "T", "--tier", "light"])
+        ia.cmd_rotate(rotate)
 except SystemExit as e:
     code = e.code
 print("exit=%s" % code)
+print("spawned=%d" % len(spawned))
+print("restored=%s" % ("yes" if handlers == [signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)] else "no"))
 print("calls=%s" % ",".join(calls))
 print("OUT:" + "|".join(out.getvalue().split("\n")).strip("|"))
 print("ERR:" + " ".join(err.getvalue().split()))
 PYEOF
 lprobe() { ORCHESTRATOR_STATE_DIR="$WORK/latestate" "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" 2>&1; }
 KEPT='the replacement runs on /dev/ttys903 and is kept'
-THERE='its window or tab is still there: close it with close --tty /dev/ttys901 (its chain entry is left for that close)'
+THERE='its window or tab is still there, the same session S-OLD as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)'
 # Nothing of the replacement is touched: no close of it, no signal to its host, no chain drop.
 untouched() { sfield "$1" calls | tr ',' '\n' | grep -cE '^(close_made|kill|drop) '; }
 res=$(lprobe refused)
 check "a close refused before it ended anything keeps the replacement, and names the close of the old tab still there" "1|cmd_close|0|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
 res=$(lprobe vanished)
-check "a tab that vanished during the spawn, its close finding no session, keeps the replacement: nothing left to close" "1|cmd_close|0|1|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; its window or tab and its host are gone: nothing left to close (its chain entry is left)")|$(sfield "$res" ERR | grep -c 'close --tty /dev/ttys901')"
+check "a tab that vanished during the spawn is found gone before any close, and keeps the replacement: nothing left to close" "1||0|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its window or tab is gone since the spawn; $KEPT; its window or tab and its host are gone: nothing left to close (its chain entry is left)")|$(sfield "$res" ERR | grep -c 'close --tty /dev/ttys901')"
+# Another session on the old tab's tty after the spawn is not the old one: it is never closed,
+# no close of its tty is printed, and only the old host, by the pid read before the spawn, is named.
+res=$(lprobe stranger)
+check "a stranger on the old tab's tty after the spawn is never closed, and gets no close step" "1||0|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: /dev/ttys901 now holds another session (session S-STRANGER), not the session S-OLD read before the spawn; $KEPT; its host (pid 4242) still runs on /dev/ttys901, and no command of this tool ends it: end it with kill 4242; its window or tab is gone, and its chain entry is left; no close of /dev/ttys901 is to be made: it would end the session now on it")|$(sfield "$res" ERR | grep -c 'close --tty /dev/ttys901')"
 res=$(lprobe sent-there)
 check "a close that began ending the old session and failed keeps the replacement, its window still there" "1|cmd_close|0|1" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the close of the old session on /dev/ttys901 failed; $KEPT; $THERE")"
@@ -7850,9 +7905,11 @@ check "and with its window gone and its host left, the line names the pid and th
 res=$(lprobe raises)
 check "a close that raises keeps the replacement, the error named, never a traceback" "1|cmd_close|0|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the close of the old session on /dev/ttys901 failed (app gone); $KEPT; $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+# The old session is read before the spawn, its host and its id: a read that fails then refuses
+# the rotation, nothing spawned and nothing closed.
 res=$(lprobe read-raises)
-check "a read after the spawn that raises keeps the replacement and names it, the close never reached" "1||1|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 could not be read after the spawn (timed out after 5s), so it was not closed; $KEPT; its host (pid 4242) still runs on /dev/ttys901, and no command of this tool ends it: end it with kill 4242; whether its window or tab is still there could not be read: if it is, close it with close --tty /dev/ttys901; its chain entry is left")|$(printf '%s' "$res" | grep -c 'Traceback')"
+check "a read of the old session that raises before the spawn refuses the rotation, nothing spawned" "1|0||1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: refused: the old session on /dev/ttys901 cannot be read before the spawn (timed out after 5s): nothing was spawned")|$(printf '%s' "$res" | grep -c 'Traceback')"
 res=$(lprobe closed-then-raises)
 check "a close that closed the old session and then raised says it closed, and what failed after" "1||closed 1 session on /dev/ttys901|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" OUT)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was closed, but what followed failed (close.log is read-only); $KEPT; nothing left to close")|$(sfield "$res" ERR | grep -c 'not closed')"
@@ -8449,6 +8506,8 @@ sys.path.insert(0, sys.argv[1])
 import iterm_agent as ia
 scenario, rec, workdir = sys.argv[2], sys.argv[3], sys.argv[4]
 calls = []
+# The words each close of the app was guarded on.
+guards = []
 class FakeIterm(ia.Terminal):
     def find(self, tty):
         calls.append("find %s" % tty)
@@ -8471,11 +8530,16 @@ class FakeIterm(ia.Terminal):
         return "/dev/ttys970", "NEW-TAB"
     def close(self, tty, expect):
         calls.append("close %s" % tty)
+        guards.append(expect)
         # A close the app refuses, or one it cannot be asked, once the replacement exists.
         if scenario == "close-refuses": ia.die("close: the app refused to close %s" % tty)
         if scenario == "close-raises": raise ia.Unreachable("iTerm2 did not answer a close")
         return "TAB"
     def close_made(self, made): calls.append("close_made %s" % made.get("session_id")); return True
+    def identity(self, tty, fresh=False):
+        # The app's id of a session, read by the API alone: it cannot serve 997.
+        if tty == "/dev/ttys997": raise ia.Unreachable("the API is not enabled")
+        return ("OLD-%s" % tty[-3:], "TAB") if tty not in ("/dev/ttys999", "/dev/ttys971") else ("", "")
     def chain_state(self, own): return None, None
     def owner(self, own): return ""
 ia.ITERM = FakeIterm()
@@ -8515,6 +8579,7 @@ except SystemExit as e:
     code = e.code
 print("exit=%s" % code)
 print("calls=%s" % ",".join(calls))
+print("guards=%s" % ",".join(guards))
 print("OUT:" + "|".join(out.getvalue().split("\n")).strip("|"))
 print("ERR:" + " ".join(err.getvalue().split()))
 PYEOF
@@ -8666,17 +8731,29 @@ check "and through the AppleScript rung when the API cannot serve, its fallback 
 reset_homerec
 res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life close-refuses "$(rot_args /dev/ttys998)")
 check "a tab the app refuses to close after the spawn keeps its replacement, never closed" "1|close /dev/ttys998|1|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -c 'ERROR: close: the app refused to close /dev/ttys998')|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the old session on /dev/ttys998 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys970 and is kept; its window or tab is still there: close it with close --tty /dev/ttys998 (its chain entry is left for that close)')"
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -c 'ERROR: close: the app refused to close /dev/ttys998')|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the old session on /dev/ttys998 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys970 and is kept; its window or tab is still there, the same session OLD-998 as before the spawn: close it with close --tty /dev/ttys998 (its chain entry is left for that close)')"
 reset_homerec
 res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life close-raises "$(rot_args /dev/ttys998)")
 check "a close that raises an error after the spawn keeps the replacement, the error named" "1|close /dev/ttys998|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys998 failed (iTerm2 did not answer a close); the replacement runs on /dev/ttys970 and is kept; its window or tab is still there: close it with close --tty /dev/ttys998 (its chain entry is left for that close)')"
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys998 failed (iTerm2 did not answer a close); the replacement runs on /dev/ttys970 and is kept; its window or tab is still there, the same session OLD-998 as before the spawn: close it with close --tty /dev/ttys998 (its chain entry is left for that close)')"
 # What fails in the spawn once the replacement is verified running ends on one line that names
 # it, never a traceback: in a rotation the old session is then left, and nothing is closed.
 reset_homerec
 res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life chain-raises "$(rot_args /dev/ttys998)")
 check "a chain write that fails after a rotation's spawn names the running replacement and the old session, nothing closed" "1||1|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the replacement runs on /dev/ttys970, verified, but what followed its spawn failed (chain file is read-only), so the old session on /dev/ttys998 was not closed; the replacement is kept, its chain entry may be missing; close the old one with close --tty /dev/ttys998')|$(printf '%s' "$res" | grep -c 'Traceback')"
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the replacement runs on /dev/ttys970, verified, but what followed its spawn failed (chain file is read-only), so the old session on /dev/ttys998 was not closed; the replacement is kept, its chain entry may be missing; its window or tab is still there, the same session OLD-998 as before the spawn: close it with close --tty /dev/ttys998 (its chain entry is left for that close)')|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A replacement given the old tab's own tty, whose spawn then fails: no close of that tty is
+# named, for it would end the replacement.
+reset_homerec
+res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life chain-raises "$(rot_args /dev/ttys970)")
+check "a chain write that fails after a rotation's spawn on the old tab's own tty names no close of it" "1||1|0|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the replacement was given /dev/ttys970, the tty of the old session on /dev/ttys970: that session is no longer on it, so nothing was closed, for a close --tty /dev/ttys970 would end the replacement; the replacement runs on /dev/ttys970 and is kept, and the chain entry of the old session is left; what followed its spawn failed too (chain file is read-only): its own chain entry may be missing')|$(sfield "$res" ERR | grep -c 'close the old one')|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A tab whose id the app cannot give (the API off, the AppleScript rung serving): its close is
+# guarded on the title it had before the spawn, and so is the step the line names.
+reset_homerec
+res=$(ORCHESTRATOR_OSASCRIPT="$WORK/osa-title" LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life close-refuses "$(rot_args /dev/ttys997)")
+check "a tab whose id cannot be read is closed on its old title, and the line's step carries it" "1|close /dev/ttys997|Orch : w|1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" guards)|$(sfield "$res" ERR | grep -cF "ERROR: rotate: the old session on /dev/ttys997 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys970 and is kept; a session titled '✳ Orch : w' is on /dev/ttys997, and the old one's id could not be read before the spawn (no terminal backend could serve this")|$(sfield "$res" ERR | grep -cF 'close it with close --tty /dev/ttys997 --expect-title "Orch : w", which closes it only while its title holds the old one'"'"'s (its chain entry is left for that close)')"
 reset_homerec
 res=$(LIFE_TRANSCRIPT=1 life chain-raises "[\"spawn\",\"--dir\",\"$WORK\",\"--title\",\"Agent : s\",\"--prompt\",\"p\",\"--model\",\"a-model\",\"--effort\",\"high\",\"--trust\"]")
 check "and after a spawn's, the session it made named as running and kept" "1||1|0" \
@@ -8687,7 +8764,7 @@ printf '/dev/ttys972 tmux -u -L orch-abcdef12 attach -t home\n/dev/ttys961 /opt/
 reset_homerec; printf '0 /dev/ttys961\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps-972" LIFE_TRANSCRIPT=1 life home-lingers "$(rot_args /dev/ttys972 'Orch : w')")
 check "a home tab whose server end leaves a host behind keeps the replacement, and names the kill and the close" "1|0|1|1|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^close_made')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'ERROR: close: the home server orch-abcdef12 was asked to end, and a host still runs on /dev/ttys961')|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys972 failed; the replacement runs on /dev/ttys970 and is kept; its host still runs on /dev/ttys961, and no command of this tool ends it: end it with kill <its pid>, which ps -t ttys961 shows; its window or tab is still there: close it with close --tty /dev/ttys972 (its chain entry is left for that close)')"
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^close_made')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'ERROR: close: the home server orch-abcdef12 was asked to end, and a host still runs on /dev/ttys961')|$(sfield "$res" ERR | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys972 failed; the replacement runs on /dev/ttys970 and is kept; its host still runs on /dev/ttys961, and no command of this tool ends it: end it with kill <its pid>, which ps -t ttys961 shows; its window or tab is still there, the same session OLD-972 as before the spawn: close it with close --tty /dev/ttys972 (its chain entry is left for that close)')"
 rm -rf "$LIFEPROJ/r"
 reset_homerec; printf '0 /dev/ttys961\n1 /dev/ttys962\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps" life never '["close","--tty","/dev/ttys970","--expect-title","Orch : w"]')
