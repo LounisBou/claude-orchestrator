@@ -5393,6 +5393,14 @@ def cmd_rotate(argv):
     # that killed the old agent on a spawn that never started would leave zero agents,
     # which is the one outcome this order exists to prevent.
     made = cmd_spawn(rest, pair_from)
+    # A tty is handed to another window once its session has let it go: a replacement given
+    # the old session's tty means that session is no longer on it, and a close of that tty
+    # would end the replacement.
+    if made and made.get("tty") == args.old_tty:
+        die("rotate: the replacement was given %s, the tty of the old session on %s: that "
+            "session is no longer on it, so nothing was closed, for a close --tty %s would end "
+            "the replacement; the replacement runs on %s and is kept, and the chain entry of "
+            "the old session is left" % ((args.old_tty,) * 4))
     # The replacement works in the same checkout: a rotation deletes nothing.
     close_args = ["--tty", args.old_tty, "--keep-checkout"]
     if args.expect:
