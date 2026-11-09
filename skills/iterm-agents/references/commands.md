@@ -211,8 +211,9 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     # - `rotate: refused: the old session on <tty> cannot be read before the spawn (…):
     #   nothing was spawned`, and `rotate: refused: the session on <tty> can be told from
     #   another neither by its id (…) nor by its title (…): nothing was spawned`
-    # - `rotate: refused: <tty> is the coordinator's tab (…)` and `… is an auditor's tab (…)`
-    #   without --force, a flag that is not a rotation's, a pair that cannot be read (below)
+    # - `rotate: refused: <tty> is an auditor's tab (…)`, and a line of the same shape for the
+    #   tab of the machine's supervising session: neither is an agent, so both are refused without
+    #   --force, as are a flag that is not a rotation's and a pair that cannot be read (below)
     # On success stdout carries the spawn's tty line, then the close's `closed 1 session on
     # <old tty>` line, and for a home tab a third line, `home: ended the server <server> and
     # its <n> window(s), session <id>`.
