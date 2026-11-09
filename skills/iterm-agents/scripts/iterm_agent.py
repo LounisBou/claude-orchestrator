@@ -4262,7 +4262,8 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
 
 def cmd_spawn(argv, pair_from=""):
     """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
-    read on the rotated agent's transcript, so the launch says where they came from."""
+    read on the rotated agent's transcript, so the launch says where they came from.
+    Returns `made`, what the terminal recorded of the new session, for `rotate` to close it."""
     p = argparse.ArgumentParser(prog="spawn", add_help=False)
     p.add_argument("--dir")
     p.add_argument("--model", default="")
