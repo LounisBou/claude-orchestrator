@@ -5133,42 +5133,64 @@ def close_host_tty(tty):
     return socket, listed, host_tty
 
 
-def kill_step(pid, tty):
-    """The command that ends the host `pid` on `tty` when no command of this tool can: its pid
-    when it was read, else where `ps` shows it."""
-    if pid and str(pid).isdigit():
-        return "kill %s" % pid
-    return "kill <its pid>, which ps -t %s shows" % tty.replace("/dev/", "")
+def host_fate(host):
+    """What became of a host read before a rotation's spawn, by its pid and its start time:
+    "runs" while that same process runs, "ended" once it is gone (its pid free, or held by a
+    process started at another time), "unknown" when the process table could not be read."""
+    try:
+        state = process_state(host[0])
+    except Exception:
+        return "unknown"
+    if state == UNREADABLE:
+        return "unknown"
+    return "ended" if process_gone(host[0], host[1], state) else "runs"
+
+
+def host_unknown(host):
+    """The words for a host whose fate the process table could not tell: its kill is named
+    only for the process started when it was read, which the reader checks first."""
+    return ("whether its host (pid %s, started %s) still runs is not known (the process table "
+            "could not be read): if pid %s still shows that start time, end it with kill %s"
+            % (host[0], host[1], host[0], host[0]))
 
 
 def host_reading(host_tty, host):
-    """What became of the host a rotation's old session ran, `(gone, words)`: gone True, False,
-    or None when it cannot be read, and the words of the rotation's line, with the step that
-    ends the host when it may still run. By its pid and start time when they were read before
-    the close, else by what runs on its tty; a process table that cannot be read says nothing
-    either way."""
+    """What became of the host a rotation's old session ran, `(gone, words, note)`: gone True,
+    False, or None when it cannot be told, the words of the rotation's line, and a note on
+    another host found on its tty, or "". A pid is named for a kill only when it is `host`,
+    the old host read before the spawn by its pid and start time, and still that process: what
+    else runs on its tty (a stranger given the tty, the replacement itself) is described and
+    never named for a kill, and with no host read before the spawn none is named at all."""
+    if not host:
+        try:
+            listed = host_cli_on(host_tty)
+        except Exception:
+            return None, ("whether a host runs on %s is not known (the process table could not "
+                          "be read)" % host_tty), ""
+        if listed is None:
+            return True, "no host is listed on %s" % host_tty, ""
+        return None, ("a host runs on %s, but the old one's pid was not read before the spawn, "
+                      "so it cannot be told from another session's: no kill is named"
+                      % host_tty), ""
+    fate = host_fate(host)
+    if fate == "unknown":
+        return None, host_unknown(host), ""
+    if fate == "runs":
+        return False, ("its host (pid %s) still runs on %s, and no command of this tool ends it: "
+                       "end it with kill %s" % (host[0], host_tty, host[0])), ""
     try:
-        if host:
-            state = process_state(host[0])
-            if state == UNREADABLE:
-                return None, ("whether its host (pid %s) still runs is not known (the process "
-                              "table could not be read): if it does, end it with kill %s"
-                              % (host[0], host[0]))
-            gone = process_gone(host[0], host[1], state)
-            others = others_on(host_tty, host[0]) if gone else []
-            if gone and not others:
-                return True, "its host ended"
-            pid = others[0] if gone else host[0]
-        else:
-            pid = host_cli_on(host_tty)
-            if pid is None:
-                return True, "no host is listed on %s" % host_tty
+        others = others_on(host_tty, host[0])
     except Exception:
-        return None, ("whether its host still runs is not known (the process table could not "
-                      "be read)")
-    return False, ("its host%s still runs on %s, and no command of this tool ends it: end it "
-                   "with %s" % (" (pid %s)" % pid if str(pid).isdigit() else "", host_tty,
-                                kill_step(pid, host_tty)))
+        others = []
+    note = ("another host runs on %s now, not the one read before the spawn, and no step here "
+            "ends it" % host_tty if others else "")
+    return True, "its host ended", note
+
+
+def host_words(reading):
+    """A `host_reading`'s words with its note, as the rotation's line carries them."""
+    _, words, note = reading
+    return "%s; %s" % (words, note) if note else words
 
 
 def cmd_close(argv):
@@ -5670,17 +5692,26 @@ def spawn_interrupted(spawned, old, name):
 def refuse_recycled(made, old, after):
     """A tty is handed to another session once its own has let it go: a replacement given the
     old session's tty means that session is no longer on it, and a close of that tty would end
-    the replacement. Nothing is closed then, and the line says why."""
-    tty = old["tty"]
+    the replacement. So with the tty its host ran on, window 0's behind a home tab: that host is
+    gone, and what runs there now is the replacement's. Nothing is closed then, no kill is
+    named, and the line says why."""
+    tty, host_tty = old["tty"], old["host_tty"]
     new_tty = (made or {}).get("tty") or ""
+    failed = ("; what followed its spawn failed too (%s): its own chain entry may be missing"
+              % after.why if after else "")
+    if new_tty and new_tty == host_tty and host_tty != tty:
+        hold_signals()
+        die("rotate: the replacement was given %s, the tty the host of the old session on %s ran "
+            "on: that host is no longer on it, so nothing was closed, for a kill of what runs on "
+            "%s would end the replacement; the replacement runs on %s and is kept, and the tab "
+            "on %s and the chain entry of the old session are left%s"
+            % (new_tty, tty, new_tty, new_tty, tty, failed))
     if new_tty and new_tty == tty:
         hold_signals()
         die("rotate: the replacement was given %s, the tty of the old session on %s: that "
             "session is no longer on it, so nothing was closed, for a close --tty %s would end "
             "the replacement; the replacement runs on %s and is kept, and the chain entry of "
-            "the old session is left%s" % ((tty,) * 4 + (
-                "; what followed its spawn failed too (%s): its own chain entry may be missing"
-                % after.why if after else "",)))
+            "the old session is left%s" % ((tty,) * 4 + (failed,)))
 
 
 def finish_rotation(made, old, after):
@@ -5790,12 +5821,13 @@ def old_steps(old, reading=None):
     if state in ("same", "untold"):
         if old["host_tty"] == tty:
             return step + (retitled_step(old) if state == "untold" else "")
-        return "%s; %s" % (host_reading(old["host_tty"], old["host"])[1], step)
-    gone, host = host_reading(old["host_tty"], old["host"])
+        return "%s; %s" % (host_words(host_reading(old["host_tty"], old["host"])), step)
+    reading = host_reading(old["host_tty"], old["host"])
+    gone, host = reading[0], host_words(reading)
     if state == "gone":
         if gone is True:
             return ("its window or tab and its host are gone: nothing left to close (its chain "
-                    "entry is left)")
+                    "entry is left)%s" % ("; %s" % reading[2] if reading[2] else ""))
         return "%s; its window or tab is gone, and its chain entry is left" % host
     return ("%s; whether its window or tab is still there could not be read (%s): if it is, close "
             "it with close --tty %s%s; its chain entry is left" % (host, words, tty, guard))
@@ -5809,15 +5841,10 @@ def retitled_step(old):
     host = old["host"]
     if not host:
         return ""
-    try:
-        state = process_state(host[0])
-    except Exception:
-        state = UNREADABLE
-    if state == UNREADABLE:
-        return ("; should that close refuse on a title rewritten since, whether its host (pid %s) "
-                "read before the spawn still runs is not known (the process table could not be "
-                "read): if it does, end it with kill %s" % (host[0], host[0]))
-    if process_gone(host[0], host[1], state):
+    fate = host_fate(host)
+    if fate == "unknown":
+        return "; should that close refuse on a title rewritten since, %s" % host_unknown(host)
+    if fate == "ended":
         return ""
     return ("; should that close refuse on a title rewritten since, end the old session alone "
             "with kill %s, its host (pid %s) read before the spawn, which still runs"
@@ -5828,19 +5855,15 @@ def old_host(old):
     """The old host, when another session holds the old tty: by the pid and start time read
     before the spawn, and never by what runs on that tty, which is the other session's."""
     if old["host_tty"] != old["tty"]:
-        return host_reading(old["host_tty"], old["host"])[1]
+        return host_words(host_reading(old["host_tty"], old["host"]))
     host = old["host"]
     if not host:
         return ("its host's pid was not read before the spawn, and what runs on %s now is the "
                 "other session's: no host is named" % old["tty"])
-    try:
-        state = process_state(host[0])
-    except Exception:
-        state = UNREADABLE
-    if state == UNREADABLE:
-        return ("whether its host (pid %s) still runs is not known (the process table could not "
-                "be read): if it does, end it with kill %s" % (host[0], host[0]))
-    if process_gone(host[0], host[1], state):
+    fate = host_fate(host)
+    if fate == "unknown":
+        return host_unknown(host)
+    if fate == "ended":
         return "its host ended"
     return ("its host (pid %s) still runs on %s, and no command of this tool ends it: end it "
             "with kill %s" % (host[0], old["tty"], host[0]))
