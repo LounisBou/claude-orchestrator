@@ -3544,7 +3544,7 @@ def refuse_home_title(what, tty, expect):
     `expect` there is nothing to compare, and the server is what the close is about."""
     if not expect:
         return
-    name = iterm_title(tty)
+    name = session_title(tty, what)
     if name is None:
         die("%s: no session found on %s" % (what, tty))
     refuse_title(what, tty, name, expect)
