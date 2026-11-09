@@ -7709,18 +7709,28 @@ out=$(home rotate --old-tty /dev/ttys900 --dir "$WORK" --title "Agent : rotated"
 rc=$?
 check "rotate of window 0 stays refused before anything is spawned, through the check close shares" "1|1|0|0" \
   "$(printf '%s' "$out" | grep -c 'rotate: refused: the window on /dev/ttys900 is window 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
-# What only the close can know: the replacement exists by then, and is closed by its own window
-# id, its chain entry with it; the refusal says what was refused and what became of it.
+# What only the close can know comes after the spawn. The old agent's host is read then: still
+# running, the replacement is closed by its own window id, its chain entry with it; already
+# ended (the window outlived the process), the replacement is kept, for closing it would leave
+# no agent at all. Either way the rotation exits non-zero, saying so on stderr, and stdout
+# carries the spawn's tty line and nothing after it.
 reset_home
-out=$(REC_KEEP_WINDOW=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
-rc=$?
-check "a close that refuses after the spawn closes the replacement, and says both" "1|1|1|[-u][kill-window][-t][@1]|[-u][kill-window][-t][@4]|0|1" \
-  "$(printf '%s' "$out" | grep -c 'ERROR: close: the request was accepted but tmux:.*:@1 is still there')|$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was closed')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')"
+out=$(REC_KEEP_WINDOW=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
+rc=$?; err=$(cat "$WORK/rot-err")
+check "a close that refuses after the old agent ended keeps the replacement, and says so on stderr" "1|1|1|[-u][kill-window][-t][@1]|1|1|/dev/ttys903" \
+  "$(printf '%s' "$err" | grep -c 'ERROR: close: the request was accepted but tmux:.*:@1 is still there')|$(printf '%s' "$err" | grep -c 'ERROR: rotate: the old agent on /dev/ttys901 ended, but its window or tab is still there; the replacement runs on /dev/ttys903 and is kept')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
 reset_home
-out=$(REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+out=$(REC_KEEP_WINDOW=1 REC_KEEP_HOST=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
+rc=$?; err=$(cat "$WORK/rot-err")
+check "a close that refuses with the old agent still running closes the replacement, and says both on stderr" "1|1|1|[-u][kill-window][-t][@1]|[-u][kill-window][-t][@4]|0|1|/dev/ttys903" \
+  "$(printf '%s' "$err" | grep -c 'ERROR: close: the request was accepted but .* is still running on /dev/ttys901')|$(printf '%s' "$err" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was closed')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
+reset_home
+out=$(REC_KEEP_HOST=1 REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
 rc=$?
 check "and a replacement that cannot be closed is said to be left, with the way to close it" "1|1" \
   "$(printf '%s' "$out" | grep -c 'ERROR: rotate: the old session on /dev/ttys901 was not closed, and the replacement on /dev/ttys903 was NOT closed: close it with close --tty /dev/ttys903')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)"
+check "both kills were tried, the old window's then the replacement's, and the chain still names both" "[-u][kill-window][-t][@1]|[-u][kill-window][-t][@4]|1|1" \
+  "$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@1')|$(chainf | grep -c '@4')"
 
 # A home caller still reaches the iTerm2 tabs it did not make as windows (the coordinator's,
 # an auditor's): a command naming a tty that is no pane of the server goes to the app.
@@ -8316,8 +8326,22 @@ class FakeIterm(ia.Terminal):
     def create(self, command, title, place, chain, made):
         calls.append("create %s %s %s %s" % (place.at, place.anchor, place.side, title))
         made["session_id"] = "NEW-SESSION"
+        if os.environ.get("LIFE_TRANSCRIPT"):
+            # The session comes up: its transcript, in the launch directory, carries its mode.
+            proj = os.path.join(os.environ["ORCHESTRATOR_PROJECTS_DIR"], "r")
+            os.makedirs(proj, exist_ok=True)
+            path = os.path.join(proj, "new-session.jsonl")
+            if os.path.exists(path):
+                os.remove(path)
+            with open(path, "w") as fh:
+                fh.write('{"permissionMode":"auto"}\n{"cwd":"%s"}\n' % os.path.realpath(workdir))
         return "/dev/ttys970", "NEW-TAB"
-    def close(self, tty, expect): calls.append("close %s" % tty); return "TAB"
+    def close(self, tty, expect):
+        calls.append("close %s" % tty)
+        # A close the app refuses, or one it cannot be asked, once the replacement exists.
+        if scenario in ("close-refuses", "made-empty"): ia.die("close: the app refused to close %s" % tty)
+        if scenario == "close-raises": raise ia.Unreachable("iTerm2 did not answer a close")
+        return "TAB"
     def close_made(self, made): calls.append("close_made %s" % made.get("session_id")); return True
     def chain_state(self, own): return None, None
     def owner(self, own): return ""
@@ -8330,7 +8354,15 @@ real_client_on = ia.client_on
 ia.client_on = lambda socket, tty: (setattr(ia, "SPAWN_TIMEOUT", 0), real_client_on(socket, tty), setattr(ia, "SPAWN_TIMEOUT", 1))[1]
 ia.self_tty = lambda: "/dev/ttys900"
 ia.session_name_on = lambda tty: "Coord : c" if tty == "/dev/ttys900" else None
-ia.iterm_title = lambda tty: None if tty == "/dev/ttys999" else "✳ Orch : w"
+def iterm_title(tty):
+    # No session on 999, nor behind the home tab on 971; the API cannot serve 997.
+    if tty == "/dev/ttys997": raise ia.Unreachable("the API is not enabled")
+    return None if tty in ("/dev/ttys999", "/dev/ttys971") else "✳ Orch : w"
+ia.iterm_title = iterm_title
+# A spawn whose terminal recorded nothing of what it made.
+if scenario == "made-empty":
+    spawned = ia.cmd_spawn
+    ia.cmd_spawn = lambda argv, pair_from="": (spawned(argv, pair_from), {})[1]
 ia.cli_pid_on_tty = lambda tty: "4242" if scenario != "never" else None
 ia.host_registry = lambda pid: {"sessionId": "abcdef12-3456-4789-8abc-def012345678"} if pid == "4242" else None
 ia.wait_gone = lambda tty, timeout=None: None
@@ -8462,6 +8494,47 @@ reset_homerec; printf '1 /dev/ttys962\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps" life ok "$(rot_args /dev/ttys970)")
 check "rotate of a home tab whose window 0 session cannot be read is refused before the replacement is created, the server untouched" "1|0|0|1" \
   "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'rotate: refused: the session of the orchestrator in window 0 of the home server orch-abcdef12 cannot be read')"
+# And a home tab: the title the app shows for it, or no session at all behind it.
+reset_homerec; printf '0 /dev/ttys961\n' > "$HR/panes"
+res=$(LIFE_PS="$WORK/life-ps" life ok "$(rot_args /dev/ttys970 'Orch : other')")
+check "rotate of a home tab whose title does not hold the expected words is refused before the replacement is created, the server untouched" "1|0|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c "rotate: refused: session on /dev/ttys970 is titled '✳ Orch : w', which does not contain 'Orch : other'")"
+printf '/dev/ttys971 9002 tmux -u -L orch-abcdef12 attach -t home\n' > "$WORK/life-ps-971"
+reset_homerec; printf '0 /dev/ttys961\n' > "$HR/panes"
+res=$(LIFE_PS="$WORK/life-ps-971" life ok "$(rot_args /dev/ttys971 'Orch : w')")
+check "rotate of a home tab with no session behind it is refused before the replacement is created, the server untouched" "1|0|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^create ')|$(hcalls | grep -c 'kill-server')|$(sfield "$res" ERR | grep -c 'rotate: no session found on /dev/ttys971')"
+
+# A tab whose title holds the expected words is rotated: the replacement made, the old tab
+# closed after it, through the API's title or, when the API cannot serve, the AppleScript's,
+# whose fallback is said once and in the rotation's name.
+printf '/dev/ttys998 /opt/x/host --name Agent\n/dev/ttys997 /opt/x/host --name Agent\n' > "$WORK/life-ps-old"
+reset_homerec
+res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life ok "$(rot_args /dev/ttys998 'Orch : w')")
+check "rotate of a tab whose title holds the expected words spawns, then closes the old tab" "0|create beside /dev/ttys900 right Agent : r,close /dev/ttys998|/dev/ttys970|closed 1 session on /dev/ttys998" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" OUT)"
+printf '#!/bin/bash\ncat >/dev/null\necho "✳ Orch : w"\n' > "$WORK/osa-title"; chmod +x "$WORK/osa-title"
+reset_homerec
+res=$(ORCHESTRATOR_OSASCRIPT="$WORK/osa-title" LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life ok "$(rot_args /dev/ttys997 'Orch : w')")
+check "and through the AppleScript rung when the API cannot serve, its fallback said once, as the rotation's" "0|create beside /dev/ttys900 right Agent : r,close /dev/ttys997|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -o 'rotate: served by the applescript rung' | grep -c '')|$(sfield "$res" ERR | grep -c 'close: served by')"
+
+# A close that fails after the spawn on the app's path, by a refusal or by an error, with the
+# old agent still running: the replacement is closed by the id the app gave it, and the
+# message says why. A spawn that recorded nothing says how to close the replacement by hand.
+reset_homerec
+res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life close-refuses "$(rot_args /dev/ttys998)")
+check "a tab the app refuses to close after the spawn has its replacement closed by its id" "1|close /dev/ttys998,close_made NEW-SESSION|1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -c 'ERROR: close: the app refused to close /dev/ttys998')|$(sfield "$res" ERR | grep -c 'ERROR: rotate: the old session on /dev/ttys998 was not closed, and the replacement on /dev/ttys970 was closed')"
+reset_homerec
+res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life close-raises "$(rot_args /dev/ttys998)")
+check "a close that raises an error after the spawn is a refusal too: the replacement closed, the error named" "1|close /dev/ttys998,close_made NEW-SESSION|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep '^close' | paste -sd, -)|$(sfield "$res" ERR | grep -c 'ERROR: rotate: the old session on /dev/ttys998 was not closed (iTerm2 did not answer a close), and the replacement on /dev/ttys970 was closed')"
+reset_homerec
+res=$(LIFE_PS="$WORK/life-ps-old" LIFE_TRANSCRIPT=1 life made-empty "$(rot_args /dev/ttys998)")
+check "a spawn that recorded nothing has its replacement named as left, with the way to close it by hand" "1|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls | tr ',' '\n' | grep -c '^close_made')|$(sfield "$res" ERR | grep -c 'ERROR: rotate: the old session on /dev/ttys998 was not closed, and the replacement was NOT closed: its tty was not recorded; close it with close --tty <the tty the spawn printed>')"
+rm -rf "$LIFEPROJ/r"
 reset_homerec; printf '0 /dev/ttys961\n1 /dev/ttys962\n' > "$HR/panes"
 res=$(LIFE_PS="$WORK/life-ps" life never '["close","--tty","/dev/ttys970","--expect-title","Orch : w"]')
 check "and one whose window 0 runs no host whose session can be read refuses, naming the pane" "1|0|1" \
