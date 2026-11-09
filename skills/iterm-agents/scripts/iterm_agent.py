@@ -5952,6 +5952,13 @@ def finish_rotation(made, old, after):
             late_refusal(made, old, False, "", reading=reading, lead=(
                 "the old session on %s could not be read after the spawn (%s), so it was not "
                 "closed" % (tty, words)))
+    # A tab with no id is known by its title alone, which a stranger given its tty may carry too:
+    # once the old host read before the spawn has ended, nothing tells the session on it from
+    # another's, and nothing is closed.
+    if not (old["window"] or old["session"]) and not DRY_RUN and untold_left(old):
+        late_refusal(made, old, False, "", lead=(
+            "the old session on %s was not closed: its tab is known by its title alone, and its "
+            "host read before the spawn has ended" % tty))
     # The replacement works in the same checkout: a rotation deletes nothing. A session whose
     # identity was never read is closed only while its title holds the one it had.
     close_args = ["--tty", tty, "--keep-checkout"]
@@ -6034,10 +6041,13 @@ def old_steps(old, reading=None):
     name or title, and for a tab the kill of its host should that title have been rewritten; a
     kill of its host's pid when no window is left and a host lingers; nothing when both are
     gone. A tty that now holds another session gets no step, and only the old host is named
-    then, by the pid read before the spawn; nor does a tty another host was just seen on. A host
-    the close of the window does not end is read too: the window or tab gone or unread, or a home
-    tab, whose host runs in window 0. Every value a step carries is quoted for the shell, so the
-    step is safe to paste. `reading` is `presence`'s, when it was just taken."""
+    then, by the pid read before the spawn; nor does a tty another host was just seen on, a tab
+    known by its title alone whose old host has ended, or an unread one whose host was never
+    read while one may run there. A host the close of the window does not end is read too: the
+    window or tab gone or unread, or a home tab, whose host runs in window 0. Every close named
+    keeps the checkout, which the replacement works in, and every value a step carries is quoted
+    for the shell, so the step is safe to paste. `reading` is `presence`'s, when it was just
+    taken."""
     tty = old["tty"]
     q = shlex.quote
     state, words = reading or presence(old)
@@ -6054,12 +6064,17 @@ def old_steps(old, reading=None):
         if not named:
             return untitled_steps(old)
         step = ("its window or tab is still there, the same %s as before the spawn: close it with "
-                "close --tty %s --expect-title %s (its chain entry is left for that close)"
-                % (words, q(tty), q(named)))
+                "close --tty %s --expect-title %s --keep-checkout (its chain entry is left for "
+                "that close)" % (words, q(tty), q(named)))
     elif state == "untold":
+        left = untold_left(old)
+        if left:
+            return ("%s; a session titled '%s' is on %s, and the old one's id could not be read "
+                    "before the spawn (%s): nothing tells it from another session's, so no close "
+                    "of %s is named; its chain entry is left" % (left, words, tty, old["why"], tty))
         step = ("a session titled '%s' is on %s, and the old one's id could not be read before "
-                "the spawn (%s): close it with close --tty %s%s, which closes it only while its "
-                "title holds the old one's (its chain entry is left for that close)"
+                "the spawn (%s): close it with close --tty %s%s --keep-checkout, which closes it "
+                "only while its title holds the old one's (its chain entry is left for that close)"
                 % (words, tty, old["why"], q(tty), guard))
     if state in ("same", "untold"):
         # A home tab's close ends its server and window 0's host with it: the close is its step,
@@ -6081,12 +6096,29 @@ def old_steps(old, reading=None):
         return ("%s; whether its window or tab is still there could not be read (%s), and "
                 "another host runs on %s: no close of %s is named; its chain entry is left"
                 % (host, words, old["host_tty"], tty))
+    if not old["host"] and gone is None:
+        # No host was read before the spawn, and one may run on the tty now: it cannot be told
+        # from another session's, so no close is named either.
+        return ("%s; whether its window or tab is still there could not be read (%s), and nothing "
+                "tells the session on %s from another's: no close of %s is named; its chain entry "
+                "is left" % (host, words, tty, tty))
     if not guard:
         return ("%s; whether its window or tab is still there could not be read (%s), and its title "
                 "holds no word a close could be guarded on: no close of %s is named; its chain "
                 "entry is left" % (host, words, tty))
     return ("%s; whether its window or tab is still there could not be read (%s): if it is, close "
-            "it with close --tty %s%s; its chain entry is left" % (host, words, q(tty), guard))
+            "it with close --tty %s%s --keep-checkout; its chain entry is left"
+            % (host, words, q(tty), guard))
+
+
+def untold_left(old):
+    """For an old session known by its title alone: the words of its host's fate when the host
+    read before the spawn has ended, a stranger seen on its tty described and never named for a
+    kill; "" while it runs, or when none was read."""
+    if not old["host"]:
+        return ""
+    reading = host_reading(old["host_tty"], old["host"])
+    return host_words(reading) if reading[0] is True else ""
 
 
 def untitled_steps(old):
