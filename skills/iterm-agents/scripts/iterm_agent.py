@@ -3573,6 +3573,7 @@ def close_home_tab(tty, socket, expect, listed=None):
             ITERM.close(tty, "")
             break
         time.sleep(0.3)
+    CLOSE_DONE.add(tty)
     print("closed 1 session on %s" % tty)
     print("home: ended the server %s and its %d window(s)%s"
           % (socket, len(ttys), ", session %s" % session_id if session_id else ""))
@@ -5048,7 +5049,8 @@ def close_note(tty, was_running):
 # may have ended the session, its window or its host; one that fails before it refused with the
 # session as it was. The line of a rotation whose close failed says which.
 KILL_SENT = set()
-# The ttys whose close went through: what fails after it fails after the session was closed.
+# The ttys whose close went through, marked before the « closed » line is printed: what fails
+# after, that line's own write included, fails after the session was closed.
 CLOSE_DONE = set()
 
 
@@ -5192,13 +5194,13 @@ def cmd_close(argv):
             print(note, file=sys.stderr)
     else:
         close_tab(args.tty, args.expect)
+        CLOSE_DONE.add(args.tty)
         if note:
             print(note, file=sys.stderr)
         # The first line is the contract every skill, command and brief parses; the reading
         # that qualifies it goes to stderr rather than changing it.
         print("closed 1 session on %s" % args.tty)
         sys.stdout.flush()
-    CLOSE_DONE.add(args.tty)
     name_lingering(recorded)
     # The session's purpose is over and its process is proved gone: its checkout goes with
     # it, unless it holds work (`workspace.sh delete` refuses that, and says why).
