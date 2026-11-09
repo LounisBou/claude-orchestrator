@@ -3521,10 +3521,11 @@ def end_home(socket, what, listed=None, tab=""):
     return session_id, ttys
 
 
-def session_title(tty):
+def session_title(tty, what):
     """The title of the iTerm2 session on `tty`, or None when there is none: a read, served
-    by the rung the close would be, and nothing closed."""
-    return served_by("close", {
+    by the rung the close would be, and nothing closed. `what` names the command that reads
+    it, and speaks for it when a rung falls."""
+    return served_by(what, {
         "api": lambda: iterm_title(tty),
         "applescript": lambda: as_run(as_close_script(tty, False), "a title read") or None})
 
@@ -5247,7 +5248,7 @@ def close_refusals(what, tty, expect):
         return
     if DRY_RUN:
         return
-    name = session_title(tty)
+    name = session_title(tty, what)
     if name is None:
         die("%s: no session found on %s" % (what, tty))
     refuse_title(what, tty, name, expect)
