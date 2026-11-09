@@ -193,40 +193,78 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     [--title <t>] [--prompt <text> | --prompt-file <path>] [--right-of self | --left-of <tty>] [--mcp <name>] [--gate-tokens <N>] \
     [--keep-tool <name>] [--drop-tool <name>] [--keep-synced-skills]
     # spawns the replacement FIRST and verifies it is running, then closes the old tab
-    # Before any spawn it refuses what `close` refuses by its own checks for the old session:
-    # window 0 of a home session, a window of another tmux session, a window or a title that
-    # does not hold --expect-title, a tab that is no session, a home tab whose window 0
-    # session cannot be read. Nothing is spawned then, and the message reads `rotate:
-    # refused: …`. On success stdout carries the spawn's tty line, then the close's `closed 1
-    # session on <old tty>` line.
+    # Before any spawn it refuses what `close` refuses by its own checks for the old session,
+    # and what a rotation cannot do safely. Nothing is spawned then; the exact lines:
+    # - `rotate: refused: the window on <tty> is window 0, …` (window 0 of a home session)
+    # - `rotate: refused: <tty> is a window of another tmux session (…), …`
+    # - `rotate: refused: the window on <tty> is named '…', which does not contain '…'` and
+    #   `rotate: refused: session on <tty> is titled '…', which does not contain '…'` (a
+    #   window's name or a tab's title that does not hold --expect-title)
+    # - `rotate: no session found on <tty>` (a tab, or a home tab, with no session behind it)
+    #   and `rotate: no window of this home session runs on <tty>`
+    # - `rotate: no terminal backend could serve this. …` (a title no rung can read)
+    # - `rotate: refused: the session of the orchestrator in window 0 of the home server
+    #   <server> cannot be read: …` (a home tab)
+    # - `rotate: refused: <tty> is the tab that shows this session's own home server
+    #   <server>, where the replacement would be made as a window: …` (its close would end
+    #   that server, the replacement and the caller with it)
+    # - `rotate: refused: the old session on <tty> cannot be read before the spawn (…):
+    #   nothing was spawned`, and `rotate: refused: the session on <tty> can be told from
+    #   another neither by its id (…) nor by its title (…): nothing was spawned`
+    # - `rotate: refused: <tty> is the coordinator's tab (…)` and `… is an auditor's tab (…)`
+    #   without --force, a flag that is not a rotation's, a pair that cannot be read (below)
+    # On success stdout carries the spawn's tty line, then the close's `closed 1 session on
+    # <old tty>` line, and for a home tab a third line, `home: ended the server <server> and
+    # its <n> window(s), session <id>`.
+    # Before the spawn the old session is read by who it is, not by its tty, which may be
+    # handed to another session meanwhile: a window by its tmux id, a tab by the app's id of
+    # its session, and its host by pid and start time. It is closed only while that same
+    # window or session is on its tty. When the app gives no id (the AppleScript rung), its
+    # close is guarded on the title it had before the spawn (`--expect-title`).
     # Once spawned, the replacement is never closed, for two agents can be recovered by hand
-    # and none cannot. Whatever fails after the spawn leaves both sessions and ends on one
-    # `rotate:` line on stderr that names both, with `the replacement runs on <tty> and is
-    # kept`; the exit is not 0, and stdout carries the spawn's tty line, and the `closed`
-    # line only when the old session was closed:
+    # and none cannot. Whatever fails after the spawn ends on one `rotate:` line on stderr
+    # that names both, with `the replacement runs on <tty> and is kept`; the exit is 1, and
+    # stdout carries the spawn's tty line, and the `closed` line only when the old session
+    # was closed:
+    # - the old session no longer on its tty: `rotate: the old session on <tty> was not
+    #   closed: its window or tab is gone since the spawn; …`, or `…: <tty> now holds another
+    #   session (…), not the <window @N | session <id>> read before the spawn; …`
+    # - a read of it before the close that failed (tmux not answering): `rotate: the old
+    #   session on <tty> could not be read after the spawn (…), so it was not closed; …`
     # - a close refused by its own checks before it ended anything (a title that changed
-    #   during the spawn, a tab gone during it: `no session found`): `rotate: the old
-    #   session on <tty> was not closed: its close refused before it ended anything; …`
+    #   during the spawn): `rotate: the old session on <tty> was not closed: its close refused
+    #   before it ended anything; …`
     # - a close that began ending the old session (a signal, a window or tab closed, a home
     #   server asked to end) and failed, or an error of any kind: `rotate: the close of the
     #   old session on <tty> failed (…); …`
-    # - a read of the old session after the spawn that failed (its window gone, tmux not
-    #   answering): `rotate: the old session on <tty> could not be read after the spawn (…),
-    #   so it was not closed; …`
-    # - a close that went through and failed after, the write of its `closed` line
-    #   included: `rotate: the old session on <tty> was closed, but what followed failed
-    #   (…); …; nothing left to close`
-    # The first three end on what is left of the old session and the step that ends it. Its
-    # window or tab still there: `close it with close --tty <old tty> (its chain entry is
-    # left for that close)`. Gone with a host still running there, which no command of this
-    # tool ends: `end it with kill <pid>`, then `its window or tab is gone, and its chain
-    # entry is left`. Gone with its host: `nothing left to close`. The host of a home tab, in
-    # window 0 of its server, is named the same way.
+    # - a close that went through and failed after, the write of its `closed` line to a
+    #   reader gone included: `rotate: the old session on <tty> was closed, but what followed
+    #   failed (…); …; nothing left to close`
+    # - an interrupt (SIGINT, SIGTERM, SIGHUP) once the replacement runs: `rotate: the
+    #   rotation was interrupted by <signal> after the spawn, before the close of the old
+    #   session on <tty>, so it was not closed; …`, `rotate: the old session on <tty> was not
+    #   closed: its close was interrupted by <signal> before it ended anything; …`, or `rotate:
+    #   the close of the old session on <tty> failed (interrupted by <signal>); …`
+    # Each but the `was closed` one ends on what is left of the old session and the step that
+    # ends it, and only it. Still there: `its window or tab is still there, the same <window
+    # @N | session <id>> as before the spawn: close it with close --tty <old tty> (its chain
+    # entry is left for that close)`; its identity never read: `a session titled '…' is on
+    # <tty>, and the old one's id could not be read before the spawn (…): close it with close
+    # --tty <tty> --expect-title "<old title>", which closes it only while its title holds
+    # the old one's`. Gone with a host still running there, which no command of this tool
+    # ends: `end it with kill <pid>`, then `its window or tab is gone, and its chain entry is
+    # left`. Gone with its host: `nothing left to close`. Its tty held by another session:
+    # the old host alone, by the pid read before the spawn, and `no close of <tty> is to be
+    # made: it would end the session now on it`. Unread: `if it is, close it with close --tty
+    # <tty> --expect-title "<old title>"`. The host of a home tab, in window 0 of its server,
+    # is named the same way.
     # A replacement given the old session's own tty is not closed either, and nothing is:
     # a close of that tty would end it, and the line says so. A failure of the spawn once the
-    # replacement is verified running (its chain entry's write) ends on `rotate: the
-    # replacement runs on <tty>, verified, but what followed its spawn failed (…)`, the old
-    # session left, with `close the old one with close --tty <old tty>`.
+    # replacement is verified running (its chain entry's write) prints no tty line on stdout
+    # and ends on `rotate: the replacement runs on <tty>, verified, but what followed its spawn
+    # failed (…), so the old session on <old tty> was not closed; the replacement is kept, its
+    # chain entry may be missing; …`, then the step as above; on the old session's own tty,
+    # the recycled line, with `what followed its spawn failed too (…)`, and no close step.
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript (pair_source=transcript <path>);
     # a tier, or --model with --effort, is the orchestrator naming the pair (an escalation),
