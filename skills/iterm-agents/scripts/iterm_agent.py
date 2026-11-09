@@ -5372,6 +5372,10 @@ def cmd_rotate(argv):
                 "and is not rotated (pass --force to rotate it anyway)" % (args.old_tty, audit))
         print("rotate: forced: %s is an auditor's tab ('%s')" % (args.old_tty, audit),
               file=sys.stderr)
+    # The tab that shows the caller's own home server: the replacement is made as a window of
+    # that server, and the close of the tab ends the server, the replacement and the caller with
+    # it. Read before the spawn, so nothing is made.
+    refuse_own_home("rotate", args.old_tty)
     # The close below refuses window 0 of a home session, a window of another session, a title
     # that does not match, a session that does not exist, but only after the replacement has
     # spawned, which would leave that replacement running with nothing to close the old
@@ -5414,6 +5418,18 @@ class AfterSpawn(Exception):
     def __init__(self, tty, runs, why):
         super().__init__(why)
         self.tty, self.runs, self.why = tty, runs, why
+
+
+def refuse_own_home(what, tty):
+    """Refuse the rotation of the tab that shows the caller's own home server: the replacement
+    is made as a window of that server, and a close of the tab ends the server, every window
+    of it with the replacement, and the caller in window 0."""
+    socket = home_of_tab(tty)
+    own = os.path.basename(os.environ.get("TMUX", "").split(",")[0]) if tmux_owner() else ""
+    if socket and socket == own and in_home_session():
+        die("%s: refused: %s is the tab that shows this session's own home server %s, where the "
+            "replacement would be made as a window: the close of that tab ends the server, the "
+            "replacement and this session with it" % (what, tty, socket))
 
 
 class Unread(Exception):

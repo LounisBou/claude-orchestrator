@@ -7756,6 +7756,17 @@ out=$(REC_GONE_ON_NEW=@1 REC_ADD_ON_NEW='$1\t5\t@7\t%7\t/dev/ttys901\tstranger\t
 rc=$?; err=$(cat "$WORK/rot-err")
 check "a stranger on the old window's tty after the spawn is never closed, and no close of its tty is printed" "1|0|1|0|1|/dev/ttys903" \
   "$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(printf '%s' "$err" | grep -cF "ERROR: rotate: the old session on /dev/ttys901 was not closed: /dev/ttys901 now holds another session (window @7, named 'stranger'), not the window @1 read before the spawn; the replacement runs on /dev/ttys903 and is kept; ")|$(printf '%s' "$err" | grep -c 'close --tty /dev/ttys901')|$(chainf | grep -c '@4')|$out"
+# The tab that shows the caller's own home server: the replacement would be a window of that
+# server, and the close of the tab ends the server, the replacement and the caller with it.
+# Refused before anything is spawned.
+TSOCK_KEPT=$TSOCK; TSOCK=/private/tmp/tmux-501/orch-abcdef12
+reset_home
+printf '/dev/ttys960 tmux -L orch-abcdef12 attach\n' >> "$TR/ps"
+out=$(home rotate --old-tty /dev/ttys960 --dir "$WORK" --title "Agent : rotated" --prompt p 2>&1)
+rc=$?
+check "rotate of the tab that shows the caller's own home server is refused before anything is spawned or killed" "1|1|0|0" \
+  "$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(printf '%s' "$out" | grep -cF "ERROR: rotate: refused: /dev/ttys960 is the tab that shows this session's own home server orch-abcdef12, where the replacement would be made as a window: the close of that tab ends the server, the replacement and this session with it")|$(calls | grep -c '\[new-window\]')|$(calls | grep -c 'kill-')"
+TSOCK=$TSOCK_KEPT
 
 # The same rule read on stubs that name pids: whatever the close of the old session did, the
 # replacement is never closed (no close of it, no kill, its chain entry never dropped), and the
