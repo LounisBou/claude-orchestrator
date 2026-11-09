@@ -7802,15 +7802,24 @@ ia.time.sleep = lambda s: None
 ia.CLOSE_TIMEOUT = ia.TERM_GRACE = ia.KILL_GRACE = 0
 # No signal leaves this probe, whatever pid it names.
 ia.os.kill = lambda pid, sig: calls.append("kill %s" % pid)
-# In « glyphs » the old tab's title is made of the host's activity glyph alone.
-ia.close_refusals = lambda what, tty, expect: (None, "✳" if mode == "glyphs" else "Agent : one", "")
+# In « glyphs » the old tab's title is made of the host's activity glyph alone, in « quoted » it
+# holds what a shell would run, and in « glyph-window » the old session is window @1 of a home
+# session, named with a glyph alone.
+QUOTED = 'Fix "quotes" $(id) `id`'
+class WinTerm(ia.Terminal):
+    def panes(self, every=False):
+        return [ia.Pane("$1", "1", "@1", "%1", "/dev/ttys901", "✳", "✳ Agent : one")]
+TITLES = {"glyphs": "✳", "quoted": QUOTED, "glyph-window": "✳"}
+ia.close_refusals = lambda what, tty, expect: (
+    WinTerm() if mode == "glyph-window" else None, TITLES.get(mode, "Agent : one"),
+    "@1" if mode == "glyph-window" else "")
 ia.terminal_for = lambda tty: ia.ITERM
 # The app's id of the session on the old tab: the old one's before the spawn; after it, gone in
 # « vanished » and once the close began in « sent-gone », another's in « stranger », and in
 # « read-interrupt » a first read after the spawn interrupted.
 spawned, reads = [], []
 def session_id_on(tty, what):
-    if mode in ("renamed", "glyphs"):
+    if mode in ("renamed", "glyphs", "quoted"):
         return None
     if not spawned:
         return "S-OLD"
@@ -7819,7 +7828,7 @@ def session_id_on(tty, what):
         raise KeyboardInterrupt()
     if mode == "unread-stranger":
         return None
-    if mode == "unidentified":
+    if mode in ("unidentified", "unidentified-unread", "unknown-fate"):
         return ""
     if mode == "stranger":
         return "S-STRANGER"
@@ -7834,22 +7843,27 @@ def session_title(tty, what):
         return None
     if mode == "glyphs":
         return "✳"
+    if mode == "quoted":
+        return QUOTED
     return "Renamed by its host" if mode == "renamed" and spawned else "Agent : one"
 ia.session_title = session_title
 # A home tab in « home-recycled » and « home-same »: its host runs in window 0 of its server, on
 # /dev/ttys905.
 HOME = mode in ("home-recycled", "home-same")
-def close_host_tty(tty):
+def close_host_tty(tty, strict=False):
     if mode == "read-raises":
         raise ia.TmuxError("timed out after 5s")
     return None, None, "/dev/ttys905" if HOME else tty
 ia.close_host_tty = close_host_tty
-# In « unidentified » no host of the old session is identified before the spawn.
-ia.host_identity = lambda tty: None if mode == "unidentified" else (
+# In « unidentified » and « unidentified-unread » no host of the old session is identified
+# before the spawn.
+ia.host_identity = lambda tty: None if mode in ("unidentified", "unidentified-unread") else (
     ("4242", "S0") if tty in ("/dev/ttys901", "/dev/ttys905") else ("5555", "S1"))
 # The old host: ended with its tab in « vanished », ended during the spawn in « home-recycled »
-# and « unread-stranger », running otherwise.
+# and « unread-stranger », its fate unreadable in « unknown-fate », running otherwise.
 def process_state(pid):
+    if str(pid) == "4242" and mode == "unknown-fate":
+        return ia.UNREADABLE
     if str(pid) == "4242":
         return None if mode in ("vanished", "home-recycled", "unread-stranger") else ("S0", "S+")
     return "S1", "S+"
@@ -7860,7 +7874,14 @@ ia.process_state = process_state
 CLIS = {"home-recycled": {"/dev/ttys905": ["6363"]}, "unread-stranger": {"/dev/ttys901": ["7777"]},
         "unidentified": {"/dev/ttys901": ["7777"]}}
 if mode in CLIS:
-    ia.host_clis_on = lambda tty: CLIS[mode].get(tty, [])
+    ia.host_clis_on = lambda tty, strict=False: CLIS[mode].get(tty, [])
+elif mode == "unidentified-unread":
+    # A process table that cannot be read: nothing, or with `strict` the failure.
+    def ps_rows(tty, strict=False):
+        if strict:
+            raise OSError("ps could not be run")
+        return []
+    ia.ps_rows = ps_rows
 else:
     ia.host_cli_on = lambda tty: None if mode == "vanished" else ("4242" if tty == "/dev/ttys901" else "5555")
     ia.others_on = lambda tty, ended: []
@@ -7880,17 +7901,21 @@ class Made(Tab):
     def can_place(self, anchor, side):
         return True
     def create(self, command, title, place, chain, made):
+        """In « create-raises », the app's call fails inside the creation, nothing handed back."""
         spawned.append(1)
+        if mode == "create-raises":
+            raise RuntimeError("the websocket closed")
         made.update(tab_id="T903", session_id="S-NEW")
         if mode == "create-sigterm":
             signal.raise_signal(signal.SIGTERM)
         return rep_tty, "T903"
     def close_made(self, made):
-        """In « refuse-interrupt », the spawn's own close of the session it refused, interrupted."""
+        """In « refuse-interrupt », the spawn's own close of the session it refused, interrupted;
+        in « refuse-unclosed » and « pipe-refuse-unclosed », a close that fails."""
         calls.append("close_made %s" % made["tty"])
         if mode == "refuse-interrupt":
             raise KeyboardInterrupt()
-        return True
+        return mode not in ("refuse-unclosed", "pipe-refuse-unclosed")
 def waits(tty):
     raise KeyboardInterrupt()
 def launch_file(launch, title):
@@ -7911,7 +7936,10 @@ class TmuxMade(ia.TmuxTerminal):
     def close_made(self, made):
         calls.append("close_made %s" % made.get("tty"))
         return True
-if mode == "group-sigint":
+if mode in ("group-sigint", "tmux-timeout", "tmux-killed"):
+    # The keyboard's interrupt raises here whatever the probe inherited: a suite started in the
+    # background, or under nohup, hands its children SIGINT ignored.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
     # The probe leads a process group of its own, so the stand-in's interrupt to its group
     # reaches the probe and its children alone; with no group of its own, nothing is sent.
     try:
@@ -7925,16 +7953,17 @@ if mode == "group-sigint":
     # Never started: a creation whose interrupt was lost ends on the spawn's own refusal.
     ia.cli_pid_on_tty = lambda tty: None
     ia.find_transcript = lambda dir_, epoch: ""
-if mode in ("create-sigterm", "verify-interrupt", "before-create", "refuse-interrupt"):
+NEVER = ("refuse-interrupt", "refuse-unclosed", "refuse-closed", "pipe-refuse-unclosed")
+if mode in ("create-sigterm", "verify-interrupt", "before-create", "create-raises") + NEVER:
     ia.terminal = lambda *a, **k: Made()
     ia.cli_pid_on_tty = waits
     if mode == "before-create":
         ia.write_launch_script = launch_file
-    if mode == "refuse-interrupt":
+    if mode in NEVER:
         # A replacement that never starts: the spawn refuses it and closes it itself.
         ia.cli_pid_on_tty = lambda tty: None
         ia.find_transcript = lambda dir_, epoch: ""
-elif mode != "group-sigint":
+elif mode not in ("group-sigint", "tmux-timeout", "tmux-killed"):
     def spawn(argv, pair_from="", old_tty="", made=None):
         """The replacement made; in « pipe-recycled » and « pipe-refused » its tty printed on
         stdout, as the spawn prints it."""
@@ -7954,6 +7983,11 @@ def name_lingering(pids):
 def raises(argv):
     calls.append("cmd_close")
     raise RuntimeError("app gone")
+def refused_seeing_hangup(argv):
+    """The close refused late, noting whether a hangup is still ignored while it runs."""
+    calls.append("hup=%s" % ("ignored" if signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+                             else "taken"))
+    ia.die("close: refused late")
 def interrupted(argv):
     """The close interrupted: by the keyboard, or by a signal this probe sends itself."""
     calls.append("cmd_close")
@@ -7967,8 +8001,21 @@ if mode == "closed-then-raises":
     ia.name_lingering = name_lingering
 elif mode in ("closed-pipe", "pipe-real"):
     ia.close_tab = closed_tab
-elif mode in ("interrupt", "sent-interrupt", "sigterm", "sighup"):
+elif mode in ("interrupt", "sent-interrupt", "sigterm", "sighup", "second-signal"):
     ia.cmd_close = interrupted
+    if mode == "second-signal":
+        # A second signal the moment the rotation turns to its line: its second reading of a
+        # recycled tty, the first being the one before the close.
+        first, seen = ia.refuse_recycled, []
+        def refuse_recycled(*a):
+            seen.append(1)
+            if len(seen) == 2:
+                signal.raise_signal(signal.SIGTERM)
+            return first(*a)
+        ia.refuse_recycled = refuse_recycled
+elif mode == "nohup":
+    signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    ia.cmd_close = refused_seeing_hangup
 elif mode in ("sent-gone", "sent-there"):
     ia.cmd_close = lambda argv: (calls.append("cmd_close"), sent(argv[1]))
 elif mode == "raises":
@@ -8008,10 +8055,19 @@ print("restored=%s" % ("yes" if handlers == [signal.getsignal(s) for s in (signa
 print("calls=%s" % ",".join(calls))
 print("OUT:" + "|".join(out.getvalue().split("\n")).strip("|"))
 print("ERR:" + " ".join(err.getvalue().split()))
+# Every close step the line prints, split as a shell splits it: the title it guards on comes back
+# as one argument, exactly as it was read.
+import re, shlex
+steps = re.findall(r"close --tty \S+ --expect-title (?:'[^']*'|\"[^\"]*\")", err.getvalue())
+print("split=%s" % ("yes" if any(shlex.split(step) == ["close", "--tty", "/dev/ttys901",
+                                                      "--expect-title", QUOTED]
+                                 for step in steps) else "no"))
 PYEOF
 lprobe() { ORCHESTRATOR_STATE_DIR="$WORK/latestate" "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" 2>&1; }
 KEPT='the replacement runs on /dev/ttys903 and is kept'
-THERE='its window or tab is still there, the same session S-OLD as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)'
+THERE="its window or tab is still there, the same session S-OLD as before the spawn: close it with close --tty /dev/ttys901 --expect-title 'Agent : one' (its chain entry is left for that close); should that close refuse on a title rewritten since, end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs"
+# A replacement whose start was not verified is checked before anything of the old session ends.
+CHECKED='check that it runs with verify --tty /dev/ttys903 before ending the old session'
 # Nothing of the replacement is touched: no close of it, no signal to its host, no chain drop.
 untouched() { sfield "$1" calls | tr ',' '\n' | grep -cE '^(close_made|kill|drop) '; }
 res=$(lprobe refused)
@@ -8040,13 +8096,40 @@ check "a close that raises keeps the replacement, the error named, never a trace
 # kill of the host by the pid read before the spawn.
 res=$(lprobe renamed)
 check "a close refused on a title rewritten since the spawn keeps its guarded step and names the old host's kill" "1|cmd_close|0|1|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; a session titled 'Renamed by its host' is on /dev/ttys901, and the old one's id could not be read before the spawn (the app gave no id for it): close it with close --tty /dev/ttys901 --expect-title \"Agent : one\", which closes it only while its title holds the old one's (its chain entry is left for that close); should that close refuse on a title rewritten since, end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs")|$(sfield "$res" ERR | grep -c 'kill 4242')"
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; a session titled 'Renamed by its host' is on /dev/ttys901, and the old one's id could not be read before the spawn (the app gave no id for it): close it with close --tty /dev/ttys901 --expect-title 'Agent : one', which closes it only while its title holds the old one's (its chain entry is left for that close); should that close refuse on a title rewritten since, end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs")|$(sfield "$res" ERR | grep -c 'kill 4242')"
 # A tab the app gives no id for, whose title is made of glyphs alone: that title guards nothing,
-# so it is no identity. No close of its tty is made or named; its host, read before the spawn and
-# still running, is the one thing named, by its kill.
+# so it is no identity, and no close of it could ever be made once the replacement runs. Known
+# before the spawn, it is refused then: nothing spawned, nothing closed.
 res=$(lprobe glyphs)
-check "a tab with no id and a title of glyphs alone is never closed, and only its old host's kill is named" "1||0|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'close --tty')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: the app gave no id for it before the spawn, and its title holds no word a close could be guarded on; $KEPT; end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs; its tab and its chain entry are left")"
+check "a tab with no id and a title of glyphs alone is refused before the spawn" "1|0||1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: refused: the session on /dev/ttys901 can be told from another neither by its id (the app gave no id for it) nor by its title ('✳'), which holds no word a close could be guarded on: nothing was spawned")|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A window whose name is made of glyphs alone: its close step would guard nothing, so its host
+# alone is named, by the pid read before the spawn.
+res=$(lprobe glyph-window)
+check "a window named with glyphs alone gets no close step, only its old host's kill" "1|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -c 'close --tty')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs; its window and its chain entry are left")"
+# A title holding quotes, a command substitution and backquotes: every step printed is safe to
+# paste, its title coming back as one argument, exactly as it was read.
+res=$(lprobe quoted)
+check "a printed close step quotes the title for the shell: split, it gives the title back whole" "1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" split)|$(printf '%s' "$res" | grep -c 'Traceback')"
+cat > "$WORK/zero_probe.py" <<'PYEOF'
+import contextlib, io, re, shlex, sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+name = 'Orch "home" $(id) `id`'
+err = io.StringIO()
+try:
+    with contextlib.redirect_stderr(err):
+        ia.refuse_window_zero("close", "/dev/ttys900", name)
+except SystemExit:
+    pass
+step = re.search(r"takeover --tty \S+ --expect-title (?:'[^']*'|\"[^\"]*\")", err.getvalue())
+print("yes" if step and shlex.split(step.group(0)) == ["takeover", "--tty", "/dev/ttys900",
+                                                       "--expect-title", name] else "no")
+PYEOF
+check "the takeover step of window 0's refusal quotes the name for the shell" "yes" \
+  "$("$py" "$WORK/zero_probe.py" "$ROOT/skills/iterm-agents/scripts" 2>&1)"
 # The old session is read before the spawn, its host and its id: a read that fails then refuses
 # the rotation, nothing spawned and nothing closed.
 res=$(lprobe read-raises)
@@ -8099,17 +8182,18 @@ rprobe() { ORCHESTRATOR_STATE_DIR="$WORK/latestate" ORCHESTRATOR_SELF_TTY=/dev/t
   "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" "$WORK" 2>&1; }
 res=$(rprobe create-sigterm)
 check "a SIGTERM while the terminal makes the replacement ends on the rotation's line once it is made, both named" "1|1||1|yes|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $CHECKED: $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 res=$(rprobe verify-interrupt)
 check "an interrupt once the replacement is made, while the spawn waits for its host, ends on the same line" "1|1||1|yes|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $CHECKED: $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 res=$(rprobe before-create)
 check "and one before the replacement is made says nothing was spawned, the old session left as it was" "1|0||1|yes|0" \
   "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM before its replacement was made: nothing was spawned, and the old session on /dev/ttys901 was left as it was")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 # A home tab still there, its close refused before it ended anything: its close ends the server
-# and window 0's host with it, so that close is the one step named, and no kill.
+# and window 0's host with it, so that close is the step named, guarded on the title read before
+# the spawn, and the kill of window 0's host only should that close refuse on a rewritten title.
 res=$(lprobe home-same)
-check "a home tab still there gets its close alone, no kill of window 0's host" "1|cmd_close|0|1|0" \
+check "a home tab still there gets its guarded close, and its host's kill only should it refuse on a rewritten title" "1|cmd_close|1|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'kill')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
 # An interrupt while the spawn closes the replacement it refused: the line says that close was
 # under way, that whether it went through is not known, and that the old session was not touched.
@@ -8125,7 +8209,7 @@ printf '#!/bin/bash\nexec "%s" "%s" "$@"\n' "$py" "$WORK/group-tmux.py" > "$WORK
 chmod +x "$WORK/group-tmux"
 res=$(PROBE_TMUX="$WORK/group-tmux" TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe group-sigint)
 check "a group interrupt while tmux makes the replacement is held until the window is made, and the line names both" "1|1||1|0|yes|0" \
-  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" ERR | grep -c 'refused new-window')|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $CHECKED: $THERE")|$(sfield "$res" ERR | grep -c 'refused new-window')|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \
@@ -8138,11 +8222,93 @@ res=$(lprobe home-recycled)
 check "a home tab whose window 0's tty went to the replacement: nothing closed, no kill named" "1||0|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cE 'kill [0-9]')|$(sfield "$res" ERR | grep -cF 'rotate: the replacement was given /dev/ttys905, the tty the host of the old session on /dev/ttys901 ran on: that host is no longer on it, so nothing was closed, for a kill of what runs on /dev/ttys905 would end the replacement; the replacement runs on /dev/ttys905 and is kept, and the tab on /dev/ttys901 and the chain entry of the old session are left')|$(printf '%s' "$res" | grep -c 'Traceback')"
 res=$(lprobe unread-stranger)
-check "a stranger on an unread tab whose old host ended is described, never named for a kill" "1||0|1" \
-  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'kill 7777')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 could not be read after the spawn (the app gave no id for the session on it), so it was not closed; the replacement runs on /dev/ttys903 and is kept; its host ended; another host runs on /dev/ttys901 now, not the one read before the spawn, and no step here ends it; whether its window or tab is still there could not be read (the app gave no id for the session on it): if it is, close it with close --tty /dev/ttys901 --expect-title \"Agent : one\"; its chain entry is left")"
+check "a stranger on an unread tab whose old host ended is described, never named for a kill nor for a close" "1||0|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'kill 7777')|$(sfield "$res" ERR | grep -c 'close --tty')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 could not be read after the spawn (the app gave no id for the session on it), so it was not closed; the replacement runs on /dev/ttys903 and is kept; its host ended; another host runs on /dev/ttys901 now, not the one read before the spawn, and no step here ends it; whether its window or tab is still there could not be read (the app gave no id for the session on it), and another host runs on /dev/ttys901: no close of /dev/ttys901 is named; its chain entry is left")"
 res=$(lprobe unidentified)
 check "a host never identified before the spawn is never named for a kill" "1||0|1" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'kill 7777')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its window or tab is gone since the spawn; the replacement runs on /dev/ttys903 and is kept; a host runs on /dev/ttys901, but the old one's pid was not read before the spawn, so it cannot be told from another session's: no kill is named; its window or tab is gone, and its chain entry is left")"
+res=$(lprobe unidentified-unread)
+check "with no host identified and a process table that cannot be read, whether a host runs is not known" "1|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -c 'no host is listed')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its window or tab is gone since the spawn; $KEPT; whether a host runs on /dev/ttys901 is not known (the process table could not be read); its window or tab is gone, and its chain entry is left")"
+res=$(lprobe unknown-fate)
+check "an old host whose fate the process table cannot tell is named for a kill only at the start time read before the spawn" "1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its window or tab is gone since the spawn; $KEPT; whether its host (pid 4242, started S0) still runs is not known (the process table could not be read): if pid 4242 still shows that start time, end it with kill 4242; its window or tab is gone, and its chain entry is left")"
+
+# Whatever ends the spawn once its replacement may exist ends on one `rotate:` line that names
+# both: the replacement's tty when it is known, else the window that may exist by its name, and
+# the old session with its step, to take only once the replacement is seen running.
+res=$(rprobe create-raises)
+check "an error inside the creation ends on the rotation's line: a window may exist, the old session's step after a check" "1|1||1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the spawn failed while its replacement was being made (the websocket closed), so the old session on /dev/ttys901 was not closed; a window may exist, named 'Agent : two', which list shows; check that it runs before ending the old session: $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+printf 'import os, signal, sys, time\nif "new-window" in sys.argv:\n    if os.environ.get("PROBE_STALL"):\n        time.sleep(3)\n    else:\n        os.kill(os.getpid(), signal.SIGTERM)\n' > "$WORK/odd-tmux.py"
+printf '#!/bin/bash\nexec "%s" "%s" "$@"\n' "$py" "$WORK/odd-tmux.py" > "$WORK/odd-tmux"
+chmod +x "$WORK/odd-tmux"
+res=$(PROBE_STALL=1 ORCHESTRATOR_PROBE_TIMEOUT=1 PROBE_TMUX="$WORK/odd-tmux" TMUX="$TSOCK,4242,1" TMUX_PANE=%0 rprobe tmux-timeout)
+check "a tmux new-window that times out ends on the rotation's line, the window it may have made named" "1|1|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" ERR | grep -cF "rotate: the spawn failed while its replacement was being made (tmux new-window: timed out after 1s), so the old session on /dev/ttys901 was not closed; a window may exist, named 'Agent : two', which list shows; check that it runs before ending the old session: $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+res=$(PROBE_TMUX="$WORK/odd-tmux" TMUX="$TSOCK,4242,1" TMUX_PANE=%0 rprobe tmux-killed)
+check "a tmux client killed by a signal ends on the rotation's line, saying it was killed" "1|1|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" ERR | grep -cF "rotate: the spawn failed while its replacement was being made (the tmux client of new-window was killed by SIGTERM, so whether tmux carried it out is not known: a window it was making may exist, and list shows it), so the old session on /dev/ttys901 was not closed; a window may exist, named 'Agent : two', which list shows; check that it runs before ending the old session: $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+res=$(ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe refuse-unclosed)
+check "a replacement the spawn refused and could not close is kept, and the line names both" "1|close_made /dev/ttys903|/dev/ttys903|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" OUT)|$(sfield "$res" ERR | grep -cF "rotate: the spawn refused the replacement it made on /dev/ttys903 (claude never started on /dev/ttys903 after 2s) and could not close it, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though it was refused, and its chain entry may be missing; $CHECKED: $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+res=$(ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe refuse-closed)
+check "a replacement the spawn refused and closed ends on the rotation's line, the old session untouched" "1|close_made /dev/ttys903,drop T903|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the spawn refused the replacement it made on /dev/ttys903 (claude never started on /dev/ttys903 after 2s) and closed it; the old session on /dev/ttys901 was not touched, and nothing is left to close")|$(printf '%s' "$res" | grep -c 'Traceback')"
+ORCHESTRATOR_STATE_DIR="$WORK/latestate" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE=/dev/null ORCHESTRATOR_SPAWN_TIMEOUT=2 \
+  "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" pipe-refuse-unclosed "$WORK" 2>"$WORK/pipe-err"
+rc=$?
+check "the spawn's refusal is not lost to a stdout whose reader is gone: the rotation's line, exit 1" "1|1|0|0" \
+  "$rc|$(grep -cF "ERROR: rotate: the spawn refused the replacement it made on /dev/ttys903 (claude never started on /dev/ttys903 after 2s) and could not close it" "$WORK/pipe-err")|$(grep -c 'Exception ignored' "$WORK/pipe-err")|$(grep -c 'BrokenPipeError' "$WORK/pipe-err")"
+# A suite started with SIGINT ignored (in the background, under nohup) proves the same hold.
+res=$( (trap '' INT; PROBE_TMUX="$WORK/group-tmux" TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe group-sigint) )
+check "and so it does when the run inherited SIGINT ignored" "1|1|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $CHECKED: $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A second signal while the rotation turns to its line is held, never a traceback.
+res=$(lprobe second-signal)
+check "a second signal as the rotation writes its line is held: the same line, no traceback" "1|1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close was interrupted by SIGINT before it ended anything; $KEPT; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A hangup the caller ignores (nohup) stays ignored through the rotation.
+res=$(lprobe nohup)
+check "a hangup ignored by the caller stays ignored while the rotation closes" "1|hup=ignored|yes" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" restored)"
+# A spawn option given with no value is refused as the rotation's, nothing spawned.
+cat > "$WORK/tier_probe.py" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+ia.cmd_spawn = lambda *a, **k: print("spawned")
+try:
+    ia.cmd_rotate(["--old-tty", "/dev/ttys901", "--dir", "/x", "--prompt", "p", "--tier"])
+except SystemExit as e:
+    print("exit=%s" % e.code)
+PYEOF
+out=$("$py" "$WORK/tier_probe.py" "$ROOT/skills/iterm-agents/scripts" 2>&1)
+check "rotate --tier with no value is refused on one line, exit 1, nothing spawned" "exit=1|1|0|0" \
+  "$(printf '%s' "$out" | grep '^exit=')|$(printf '%s' "$out" | grep -cxF "ERROR: rotate: refused: the spawn's options cannot be read (argument --tier: expected one argument): nothing was spawned")|$(printf '%s' "$out" | grep -cx 'spawned')|$(printf '%s' "$out" | grep -c 'usage:')"
+# Before the spawn, a process table that cannot be read says nothing of whether the old tab is a
+# home tab: the rotation is refused, never let through as « not one ».
+cat > "$WORK/home_probe.py" <<'PYEOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import iterm_agent as ia
+def through(*a, **k):
+    print("let through")
+    sys.exit(0)
+ia.terminal_for = through
+ia.session_id_on = through
+ia.host_identity = lambda tty: None
+if sys.argv[2] == "refusals":
+    ia.close_refusals("rotate", "/dev/ttys960", "")
+else:
+    ia.old_session("/dev/ttys960", None, "Agent : one", "", "")
+PYEOF
+out=$(ORCHESTRATOR_PS_TABLE="$WORK/no-such-ps-table" "$py" "$WORK/home_probe.py" "$ROOT/skills/iterm-agents/scripts" refusals 2>&1)
+check "rotate's refusals read a home tab strictly: a process table that cannot be read refuses" "0|1" \
+  "$(printf '%s' "$out" | grep -c 'let through')|$(printf '%s' "$out" | grep -cF "ERROR: rotate: refused: whether /dev/ttys960 shows a home server cannot be read (")"
+out=$(ORCHESTRATOR_PS_TABLE="$WORK/no-such-ps-table" "$py" "$WORK/home_probe.py" "$ROOT/skills/iterm-agents/scripts" old 2>&1)
+check "and so does its reading of the old session" "0|1" \
+  "$(printf '%s' "$out" | grep -c 'let through')|$(printf '%s' "$out" | grep -cF "ERROR: rotate: refused: the old session on /dev/ttys960 cannot be read before the spawn (")"
 
 # A home caller still reaches the iTerm2 tabs it did not make as windows (the coordinator's,
 # an auditor's): a command naming a tty that is no pane of the server goes to the app.
@@ -8304,16 +8470,16 @@ check "nor is the successor's own window" "1|0" \
 rm -f "$TR/calls"
 out=$(heir close --tty /dev/ttys900 --expect-title "Orch : home" 2>&1)
 rc=$?
-check "close on window 0 of a home session is refused before anything is killed, and names takeover" "1|1|0|0" \
-  "$(printf '%s' "$out" | grep -c 'close: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title "Orch : home", which also puts its own window at index 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(calls | grep -c '\[move-window\]')"
+check "close on window 0 of a home session is refused before anything is killed, and names takeover" "1|1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c 'close: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title .Orch : home., which also puts its own window at index 0')|$(printf '%s' "$out" | grep -cF -e "--expect-title 'Orch : home',")|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(calls | grep -c '\[move-window\]')"
 # rotate closes the old window only after its replacement has spawned, so a close that refuses
 # window 0 would leave the replacement running with nothing to close: the rotation refuses window
 # 0 first, before anything is spawned or killed, with the refusal close gives and the same command.
 rm -f "$TR/calls"
 out=$(heir rotate --old-tty /dev/ttys900 --expect-title "Orch : home" --dir "$WORK" --title "Agent : rotated" --tier light --prompt p 2>&1)
 rc=$?
-check "rotate on window 0 of a home session is refused before anything is spawned or killed, and names takeover" "1|1|0|0" \
-  "$(printf '%s' "$out" | grep -c 'rotate: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title "Orch : home", which also puts its own window at index 0')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
+check "rotate on window 0 of a home session is refused before anything is spawned or killed, and names takeover" "1|1|1|0|0" \
+  "$(printf '%s' "$out" | grep -c 'rotate: refused: the window on /dev/ttys900 is window 0, the orchestrator.s place in this home session: a successor takes it with takeover --tty /dev/ttys900 --expect-title .Orch : home., which also puts its own window at index 0')|$(printf '%s' "$out" | grep -cF -e "--expect-title 'Orch : home',")|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[new-window\]')|$(calls | grep -c '\[kill-window\]')"
 # The coordinator's pause close is a close on a home tab's tty, which is not a pane of this
 # server: it takes the home server's road, never window 0's refusal, and kills no window. The
 # whole close (tab and server ended) is pinned beside the home close tests.
