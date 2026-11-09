@@ -5063,6 +5063,27 @@ def close_tab(tty, expect):
         chain_drop_tab(closed_id)
 
 
+def close_host_tty(tty):
+    """`(home server, its panes, host tty)` of a close of `tty`. A tab that shows a home
+    session runs no host of its own: the orchestrator runs in window 0 of the server behind
+    it, and that pane is what a close's proof is about."""
+    socket = home_of_tab(tty)
+    listed = home_panes(socket) if socket else None
+    host_tty = tty
+    if listed and listed[0]:
+        host_tty = next((t for index, t in listed[0] if index == "0"), tty)
+    return socket, listed, host_tty
+
+
+def still_runs(host_tty, host):
+    """Whether the host a close was about still runs: by its pid and start time when they
+    were read before the close, else by a fresh read of its tty. A process table that
+    cannot be read says it runs."""
+    if host:
+        return not process_gone(host[0], host[1]) or bool(others_on(host_tty, host[0]))
+    return host_cli_on(host_tty) is not None
+
+
 def cmd_close(argv):
     p = argparse.ArgumentParser(prog="close", add_help=False)
     p.add_argument("--tty", dest="tty")
@@ -5075,13 +5096,7 @@ def cmd_close(argv):
         print("close=%s expect_title=%s" % (args.tty, args.expect))
         return
 
-    # A tab that shows a home session runs no host of its own: the orchestrator runs in window
-    # 0 of the server behind it, and that pane is what the proof below is about.
-    socket = home_of_tab(args.tty)
-    listed = home_panes(socket) if socket else None
-    host_tty = args.tty
-    if listed and listed[0]:
-        host_tty = next((tty for index, tty in listed[0] if index == "0"), args.tty)
+    socket, listed, host_tty = close_host_tty(args.tty)
     # Read BEFORE the close: what the proof below is a proof ABOUT.
     was_running = host_cli_on(host_tty)
     # And the same for the checkout the session works in: once it is gone nothing says where.
@@ -5306,19 +5321,39 @@ def cmd_rotate(argv):
     close_args = ["--tty", args.old_tty, "--keep-checkout"]
     if args.expect:
         close_args += ["--expect-title", args.expect]
+    # The old agent's host, read before the close as the close reads it: a close can fail
+    # after it has ended that host, and the replacement is then the only agent left.
+    _, _, host_tty = close_host_tty(args.old_tty)
+    host = host_identity(host_tty)
     try:
         cmd_close(close_args)
     except SystemExit as exc:
         if not exc.code:
             raise
-        # A refusal only the close could give (a host that outlives its window): the old
-        # session is still there, and so would the replacement be, running beside it. It is
-        # closed by the id its terminal gave it, and the refusal says so.
-        tty = (made or {}).get("tty") or ""
-        closed = bool(made) and close_made(made)
-        die("rotate: the old session on %s was not closed, and the replacement on %s was %s"
-            % (args.old_tty, tty or "its tty",
-               "closed" if closed else "NOT closed: close it with close --tty %s" % tty))
+        late_refusal(args.old_tty, host_tty, host, made, "")
+    except Exception as exc:
+        late_refusal(args.old_tty, host_tty, host, made, str(exc) or type(exc).__name__)
+
+
+def late_refusal(old_tty, host_tty, host, made, error):
+    """A close that failed after the replacement was spawned, by a refusal it printed
+    itself or by `error`. The old agent still running, the replacement would run beside it:
+    it is closed by the id its terminal gave it. The old agent already ended (its window or
+    tab outlived it), closing the replacement would leave no agent: it is kept. Either way
+    the rotation dies, saying which on stderr."""
+    tty = (made or {}).get("tty") or ""
+    cause = " (%s)" % error if error else ""
+    if not still_runs(host_tty, host):
+        die("rotate: the old agent on %s ended, but its window or tab is still there%s; the "
+            "replacement runs on %s and is kept" % (old_tty, cause, tty or "its tty"))
+    if not made:
+        die("rotate: the old session on %s was not closed%s, and the replacement was NOT "
+            "closed: its tty was not recorded; close it with close --tty <the tty the spawn "
+            "printed>" % (old_tty, cause))
+    closed = close_made(made)
+    die("rotate: the old session on %s was not closed%s, and the replacement on %s was %s"
+        % (old_tty, cause, tty or "its tty",
+           "closed" if closed else "NOT closed: close it with close --tty %s" % (tty or "<its tty>")))
 
 
 def cmd_resolve_tier(argv):
