@@ -252,7 +252,9 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     # entry is left for that close)`; its identity never read: `a session titled '…' is on
     # <tty>, and the old one's id could not be read before the spawn (…): close it with close
     # --tty <tty> --expect-title "<old title>", which closes it only while its title holds
-    # the old one's`. Gone with a host still running there, which no command of this tool
+    # the old one's`, then, with its host's pid read before the spawn and that host still
+    # running, `should that close refuse on a title rewritten since, end the old session alone
+    # with kill <pid>, …`. Gone with a host still running there, which no command of this tool
     # ends: `end it with kill <pid>`, then `its window or tab is gone, and its chain entry is
     # left`. Gone with its host: `nothing left to close`. Its tty held by another session:
     # the old host alone, by the pid read before the spawn, and `no close of <tty> is to be

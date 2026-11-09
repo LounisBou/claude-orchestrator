@@ -5729,7 +5729,7 @@ def old_steps(old, reading=None):
                 % (words, tty, old["why"], tty, guard))
     if state in ("same", "untold"):
         if old["host_tty"] == tty:
-            return step
+            return step + (retitled_step(old) if state == "untold" else "")
         return "%s; %s" % (host_reading(old["host_tty"], old["host"])[1], step)
     gone, host = host_reading(old["host_tty"], old["host"])
     if state == "gone":
@@ -5739,6 +5739,29 @@ def old_steps(old, reading=None):
         return "%s; its window or tab is gone, and its chain entry is left" % host
     return ("%s; whether its window or tab is still there could not be read (%s): if it is, close "
             "it with close --tty %s%s; its chain entry is left" % (host, words, tty, guard))
+
+
+def retitled_step(old):
+    """The step that ends a rotation's old session alone whatever its title reads now, after a
+    close guarded on its title: a host that rewrote that title during the spawn makes the close
+    refuse. A kill of the host by the pid read before the spawn, while the process started then
+    still runs; "" when no pid was read or that process has ended."""
+    host = old["host"]
+    if not host:
+        return ""
+    try:
+        state = process_state(host[0])
+    except Exception:
+        state = UNREADABLE
+    if state == UNREADABLE:
+        return ("; should that close refuse on a title rewritten since, whether its host (pid %s) "
+                "read before the spawn still runs is not known (the process table could not be "
+                "read): if it does, end it with kill %s" % (host[0], host[0]))
+    if process_gone(host[0], host[1], state):
+        return ""
+    return ("; should that close refuse on a title rewritten since, end the old session alone "
+            "with kill %s, its host (pid %s) read before the spawn, which still runs"
+            % (host[0], host[0]))
 
 
 def old_host(old):

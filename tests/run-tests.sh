@@ -7800,6 +7800,8 @@ ia.terminal_for = lambda tty: ia.ITERM
 # « read-interrupt » a first read after the spawn interrupted.
 spawned, reads = [], []
 def session_id_on(tty, what):
+    if mode == "renamed":
+        return None
     if not spawned:
         return "S-OLD"
     reads.append(tty)
@@ -7811,8 +7813,13 @@ def session_id_on(tty, what):
         return ""
     return "S-OLD"
 ia.session_id_on = session_id_on
-# The old tab: gone by the close in « vanished » and « sent-gone », there otherwise.
-ia.session_title = lambda tty, what: None if mode in ("sent-gone", "vanished") else "Agent : one"
+# The old tab: gone by the close in « vanished » and « sent-gone », there otherwise, and in
+# « renamed », where the app gives no id for it, retitled by its host during the spawn.
+def session_title(tty, what):
+    if mode in ("sent-gone", "vanished"):
+        return None
+    return "Renamed by its host" if mode == "renamed" and spawned else "Agent : one"
+ia.session_title = session_title
 def close_host_tty(tty):
     if mode == "read-raises":
         raise ia.TmuxError("timed out after 5s")
@@ -7920,6 +7927,13 @@ check "and with its window gone and its host left, the line names the pid and th
 res=$(lprobe raises)
 check "a close that raises keeps the replacement, the error named, never a traceback" "1|cmd_close|0|1|0" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the close of the old session on /dev/ttys901 failed (app gone); $KEPT; $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A tab the app gives no id for is closed only while its title holds the one read before the
+# spawn, and a host that rewrote it during the spawn makes that close refuse: the line keeps the
+# guarded close and names the step that ends the old session alone whatever its title reads, a
+# kill of the host by the pid read before the spawn.
+res=$(lprobe renamed)
+check "a close refused on a title rewritten since the spawn keeps its guarded step and names the old host's kill" "1|cmd_close|0|1|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; a session titled 'Renamed by its host' is on /dev/ttys901, and the old one's id could not be read before the spawn (the app gave no id for it): close it with close --tty /dev/ttys901 --expect-title \"Agent : one\", which closes it only while its title holds the old one's (its chain entry is left for that close); should that close refuse on a title rewritten since, end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs")|$(sfield "$res" ERR | grep -c 'kill 4242')"
 # The old session is read before the spawn, its host and its id: a read that fails then refuses
 # the rotation, nothing spawned and nothing closed.
 res=$(lprobe read-raises)
