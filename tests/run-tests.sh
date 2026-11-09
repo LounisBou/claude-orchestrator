@@ -7802,14 +7802,15 @@ ia.time.sleep = lambda s: None
 ia.CLOSE_TIMEOUT = ia.TERM_GRACE = ia.KILL_GRACE = 0
 # No signal leaves this probe, whatever pid it names.
 ia.os.kill = lambda pid, sig: calls.append("kill %s" % pid)
-ia.close_refusals = lambda what, tty, expect: (None, "Agent : one", "")
+# In « glyphs » the old tab's title is made of the host's activity glyph alone.
+ia.close_refusals = lambda what, tty, expect: (None, "✳" if mode == "glyphs" else "Agent : one", "")
 ia.terminal_for = lambda tty: ia.ITERM
 # The app's id of the session on the old tab: the old one's before the spawn; after it, gone in
 # « vanished » and once the close began in « sent-gone », another's in « stranger », and in
 # « read-interrupt » a first read after the spawn interrupted.
 spawned, reads = [], []
 def session_id_on(tty, what):
-    if mode == "renamed":
+    if mode in ("renamed", "glyphs"):
         return None
     if not spawned:
         return "S-OLD"
@@ -7831,6 +7832,8 @@ ia.session_id_on = session_id_on
 def session_title(tty, what):
     if mode in ("sent-gone", "vanished"):
         return None
+    if mode == "glyphs":
+        return "✳"
     return "Renamed by its host" if mode == "renamed" and spawned else "Agent : one"
 ia.session_title = session_title
 # A home tab in « home-recycled » and « home-same »: its host runs in window 0 of its server, on
@@ -8038,6 +8041,12 @@ check "a close that raises keeps the replacement, the error named, never a trace
 res=$(lprobe renamed)
 check "a close refused on a title rewritten since the spawn keeps its guarded step and names the old host's kill" "1|cmd_close|0|1|1" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; a session titled 'Renamed by its host' is on /dev/ttys901, and the old one's id could not be read before the spawn (the app gave no id for it): close it with close --tty /dev/ttys901 --expect-title \"Agent : one\", which closes it only while its title holds the old one's (its chain entry is left for that close); should that close refuse on a title rewritten since, end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs")|$(sfield "$res" ERR | grep -c 'kill 4242')"
+# A tab the app gives no id for, whose title is made of glyphs alone: that title guards nothing,
+# so it is no identity. No close of its tty is made or named; its host, read before the spawn and
+# still running, is the one thing named, by its kill.
+res=$(lprobe glyphs)
+check "a tab with no id and a title of glyphs alone is never closed, and only its old host's kill is named" "1||0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'close --tty')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: the app gave no id for it before the spawn, and its title holds no word a close could be guarded on; $KEPT; end the old session alone with kill 4242, its host (pid 4242) read before the spawn, which still runs; its tab and its chain entry are left")"
 # The old session is read before the spawn, its host and its id: a read that fails then refuses
 # the rotation, nothing spawned and nothing closed.
 res=$(lprobe read-raises)

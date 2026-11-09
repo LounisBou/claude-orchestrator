@@ -5820,6 +5820,12 @@ def finish_rotation(made, old, after):
             late_refusal(made, old, False, "", reading=reading, lead=(
                 "the old session on %s could not be read after the spawn (%s), so it was not "
                 "closed" % (tty, words)))
+    # A session whose id was never read, and whose title reduces to nothing once its glyphs are
+    # dropped, has no identity a close could be guarded on: it is not closed at all.
+    if untitled(old) and not DRY_RUN:
+        late_refusal(made, old, False, "", lead=(
+            "the old session on %s was not closed: the app gave no id for it before the spawn, "
+            "and its title holds no word a close could be guarded on" % tty))
     # The replacement works in the same checkout: a rotation deletes nothing. A session whose
     # identity was never read is closed only while its title holds the one it had.
     close_args = ["--tty", tty, "--keep-checkout"]
@@ -5883,6 +5889,8 @@ def old_steps(old, reading=None):
     close of the window does not end is read too: the window or tab gone or unread, or a home
     tab, whose host runs in window 0. `reading` is `presence`'s, when it was just taken."""
     tty = old["tty"]
+    if untitled(old) and not DRY_RUN:
+        return untitled_steps(old)
     state, words = reading or presence(old)
     guard = ' --expect-title "%s"' % old["title"] if old["title"] else ""
     if state == "other":
@@ -5914,8 +5922,35 @@ def old_steps(old, reading=None):
             return ("its window or tab and its host are gone: nothing left to close (its chain "
                     "entry is left)%s" % ("; %s" % reading[2] if reading[2] else ""))
         return "%s; its window or tab is gone, and its chain entry is left" % host
+    if not guard:
+        return ("%s; whether its window or tab is still there could not be read (%s), and its title "
+                "holds no word a close could be guarded on: no close of %s is named; its chain "
+                "entry is left" % (host, words, tty))
     return ("%s; whether its window or tab is still there could not be read (%s): if it is, close "
             "it with close --tty %s%s; its chain entry is left" % (host, words, tty, guard))
+
+
+def untitled(old):
+    """Whether a rotation's old session has no identity at all: no window or session id read
+    before the spawn, and a title that reduces to nothing once its glyphs are dropped."""
+    return not (old["window"] or old["session"] or old["title"])
+
+
+def untitled_steps(old):
+    """What is left of an old session with no identity, in the rotation's line: no close of its
+    tty, which nothing tells from another session's; its host alone, by the pid and start time
+    read before the spawn."""
+    left = "its tab and its chain entry are left"
+    host = old["host"]
+    if not host:
+        return "no host of it was read before the spawn, so no kill is named; %s" % left
+    fate = host_fate(host)
+    if fate == "unknown":
+        return "%s; %s" % (host_unknown(host), left)
+    if fate == "ended":
+        return "its host (pid %s) read before the spawn has ended; %s" % (host[0], left)
+    return ("end the old session alone with kill %s, its host (pid %s) read before the spawn, "
+            "which still runs; %s" % (host[0], host[0], left))
 
 
 def retitled_step(old):
