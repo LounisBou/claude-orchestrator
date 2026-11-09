@@ -6754,7 +6754,11 @@ table = os.environ['ORCHESTRATOR_CWD_TABLE']
 ia.host_cli_on = lambda t: '4242'
 ia.wait_gone = lambda t, timeout=None: '4242' if mode == 'survivor' else None
 ia.served_by = (lambda *a, **k: open(table, 'w').close()) if mode == 'vanish' else (lambda *a, **k: None)
-ia.cmd_spawn = lambda argv: None
+ia.cmd_spawn = lambda argv, pair_from='': None
+# The pre-check reads the tab's title: it holds the rotation's words, so the close is reached.
+ia.session_title = lambda tty, what='close': 'T'
+# No host identity: the close's proof is wait_gone's, stubbed above, and no real pid is read.
+ia.host_identity = lambda t: None
 out, err = io.StringIO(), io.StringIO()
 code = 0
 try:
