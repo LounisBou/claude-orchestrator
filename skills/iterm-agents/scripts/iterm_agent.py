@@ -4272,7 +4272,7 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
 def cmd_spawn(argv, pair_from=""):
     """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
     read on the rotated agent's transcript, so the launch says where they came from.
-    Returns `made`, what the terminal recorded of the new session, for `rotate` to close it."""
+    Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
     p = argparse.ArgumentParser(prog="spawn", add_help=False)
     p.add_argument("--dir")
     p.add_argument("--model", default="")
@@ -5045,8 +5045,8 @@ def close_note(tty, was_running):
 
 # The ttys whose close went past its own checks: each close path, home tab, tab and window
 # alike, marks its tty here before its first signal or close. A close that fails after the mark
-# may have ended the session, its window or its host, and nothing read afterwards proves it did
-# not. A rotation closes its replacement only after a failed close that never marked.
+# may have ended the session, its window or its host; one that fails before it refused with the
+# session as it was. The line of a rotation whose close failed says which.
 KILL_SENT = set()
 # The ttys whose close went through: what fails after it fails after the session was closed.
 CLOSE_DONE = set()
@@ -5105,32 +5105,34 @@ def kill_step(pid, tty):
     return "kill <its pid>, which ps -t %s shows" % tty.replace("/dev/", "")
 
 
-def host_clause(host_tty, host):
-    """What became of the host a failed close was about, in the words of the rotation's line,
-    with the step that ends it when it may still run. It decides nothing: the close's own
-    mark does. By its pid and start time when they were read before the close, else by what
-    runs on its tty; a process table that cannot be read says nothing either way."""
+def host_reading(host_tty, host):
+    """What became of the host a rotation's old session ran, `(gone, words)`: gone True, False,
+    or None when it cannot be read, and the words of the rotation's line, with the step that
+    ends the host when it may still run. By its pid and start time when they were read before
+    the close, else by what runs on its tty; a process table that cannot be read says nothing
+    either way."""
     try:
         if host:
             state = process_state(host[0])
             if state == UNREADABLE:
-                return ("whether its host (pid %s) still runs is not known (the process table "
-                        "could not be read): if it does, end it with kill %s" % (host[0], host[0]))
+                return None, ("whether its host (pid %s) still runs is not known (the process "
+                              "table could not be read): if it does, end it with kill %s"
+                              % (host[0], host[0]))
             gone = process_gone(host[0], host[1], state)
             others = others_on(host_tty, host[0]) if gone else []
             if gone and not others:
-                return "its host ended"
+                return True, "its host ended"
             pid = others[0] if gone else host[0]
         else:
             pid = host_cli_on(host_tty)
             if pid is None:
-                return ("no host was identified on %s before the close, and none is listed on "
-                        "it now" % host_tty)
+                return True, "no host is listed on %s" % host_tty
     except Exception:
-        return "whether its host still runs is not known (the process table could not be read)"
-    return ("its host%s still runs on %s, and no command of this tool ends it: end it with %s"
-            % (" (pid %s)" % pid if str(pid).isdigit() else "", host_tty,
-               kill_step(pid, host_tty)))
+        return None, ("whether its host still runs is not known (the process table could not "
+                      "be read)")
+    return False, ("its host%s still runs on %s, and no command of this tool ends it: end it "
+                   "with %s" % (" (pid %s)" % pid if str(pid).isdigit() else "", host_tty,
+                                kill_step(pid, host_tty)))
 
 
 def session_reader(tty, found_on=None):
@@ -5395,10 +5397,10 @@ def cmd_rotate(argv):
     close_args = ["--tty", args.old_tty, "--keep-checkout"]
     if args.expect:
         close_args += ["--expect-title", args.expect]
-    # From here on the replacement runs, and whatever fails ends on a line that names it: the
-    # reads below as much as the close. The old agent's host is read before the close as the
-    # close reads it, and its window or tab as the pre-check reads it, for the words of that
-    # line: what the close did, not what is read afterwards, decides the replacement's fate.
+    # From here on the replacement runs, and it is never closed: whatever fails ends on a line
+    # that names it, the reads below as much as the close. The old agent's host is read before
+    # the close as the close reads it, and its window or tab as the pre-check reads it, for the
+    # words of that line: what is left of the old session, and the step that ends it.
     old = {"tty": args.old_tty, "host_tty": args.old_tty, "host": None, "there": None,
            "closing": False}
     try:
@@ -5417,115 +5419,51 @@ def cmd_rotate(argv):
 
 def late_refusal(made, old, refused, error):
     """A rotation whose old session was not closed after its replacement was spawned, by a
-    refusal its close printed itself (`refused`) or by `error`. Two agents can be recovered
-    by hand, none cannot: the replacement is closed, by the id its terminal gave it, in one
-    case only, the close refused by its own checks before it marked its tty in KILL_SENT,
-    nothing of the old session being ended then. Any other ending keeps it: a close that
-    began ending the old session, a close that went through and failed after, an error, a
-    read after the spawn that failed. Either way the rotation dies with one line on stderr,
-    which names the replacement and the next step the tool accepts."""
-    tty = (made or {}).get("tty") or ""
+    refusal its close printed itself (`refused`) or by `error`. Once spawned, the replacement
+    is never closed, whatever the close did: two agents can be recovered by hand, none cannot.
+    The rotation dies with one line on stderr that names both sessions, what the close of the
+    old one did, and the step the tool accepts to finish by hand. Nothing raised here escapes:
+    each reading of the old session says what it could not read."""
+    tty = (made or {}).get("tty") or "the tty the spawn printed"
     old_tty = old["tty"]
     cause = " (%s)" % error if error else ""
-    if old["closing"] and refused and old_tty not in KILL_SENT:
-        lead = ("rotate: the old session on %s was not closed: its close refused before it "
-                "ended anything%s; the replacement" % (old_tty, cause))
-        if not made:
-            die("%s was NOT closed: its tty was not recorded; close it with close --tty <the "
-                "tty the spawn printed>" % lead)
-        die("%s on %s was %s" % (lead, tty or "its tty", close_replacement(made)))
-    kept = "the replacement runs on %s and is kept" % (tty or "the tty the spawn printed")
+    kept = "the replacement runs on %s and is kept" % tty
     if not old["closing"]:
-        die("rotate: the old session on %s could not be read after the spawn%s, so it was not "
-            "closed; %s; close the old one with close --tty %s if it is still there"
-            % (old_tty, cause, kept, old_tty))
-    if old_tty in CLOSE_DONE:
-        die("rotate: the old session on %s was closed, but what followed failed%s; %s"
-            % (old_tty, cause, kept))
-    window = old["there"]()
-    clauses = []
-    # A host the close of the window does not end: the window or tab gone, or a home tab,
-    # whose host runs in window 0 of its server.
-    if window is not True or old["host_tty"] != old_tty:
-        clauses.append(host_clause(old["host_tty"], old["host"]))
-    if window is True:
-        clauses.append("its window or tab is still there: close it with close --tty %s (its "
-                       "chain entry is left for that close)" % old_tty)
-    elif window is False:
-        clauses.append("its window or tab is gone, and its chain entry is left")
+        lead = ("the old session on %s could not be read after the spawn%s, so it was not closed"
+                % (old_tty, cause))
+    elif old_tty in CLOSE_DONE:
+        die("rotate: the old session on %s was closed, but what followed failed%s; %s; nothing "
+            "left to close" % (old_tty, cause, kept))
+    elif refused and old_tty not in KILL_SENT:
+        lead = ("the old session on %s was not closed: its close refused before it ended "
+                "anything%s" % (old_tty, cause))
     else:
-        clauses.append("whether its window or tab is still there could not be read: if it is, "
-                       "close it with close --tty %s; its chain entry is left" % old_tty)
-    die("rotate: the close of the old session on %s failed%s; %s; %s"
-        % (old_tty, cause, kept, "; ".join(clauses)))
+        lead = "the close of the old session on %s failed%s" % (old_tty, cause)
+    die("rotate: %s; %s; %s" % (lead, kept, old_steps(old)))
 
 
-def close_replacement(made):
-    """The words, after « was », of the close of a rotation's replacement: « closed » only
-    once its host, identified before the close, is read gone after it and its terminal no
-    longer holds its window. Anything less is NOT closed or NOT proved closed, with the step
-    that ends it: a close of its tty while its window is there, its pid and a kill once the
-    window is gone. Its chain entry goes only once it is closed: a replacement that outlived
-    its close is still the agent its chain names. Nothing raised here escapes: the words say
-    how far the close went. A home server is proved by the close of what made it."""
-    tty = made.get("tty") or ""
-    term = made.get("terminal") or terminal()
-    host, step = None, "read"
-    try:
-        if made.get("home"):
-            if close_made(made):
-                return "closed"
-            return "NOT closed: close it with close --tty %s" % tty
-        if not tty:
-            if term.close_made(made):
-                return ("removed by its id, but NOT proved closed: its tty was not recorded, so "
-                        "its host could not be read; find it with list")
-            return ("NOT closed: its tty was not recorded; find it with list and close it with "
-                    "close --tty <its tty>")
-        host = host_identity(tty)
-        step = "close"
-        if not term.close_made(made):
-            return ("NOT closed: its window or tab could not be removed; close it with close "
-                    "--tty %s" % tty)
-        step = "prove"
-        if not host:
-            left = host_cli_on(tty)
-            return ("removed, but NOT proved closed: no host was identified on %s before its "
-                    "close%s" % (tty, "; a host still runs on it: end it with %s"
-                                 % kill_step(left, tty) if left is not None else ""))
-        if not end_host(host[0], host[1], tty, "rotate"):
-            if process_state(host[0]) == UNREADABLE:
-                return ("removed, but NOT proved closed: the process table could not be read "
-                        "for its host (pid %s); if it still runs, end it with kill %s"
-                        % (host[0], host[0]))
-            return ("removed, but NOT closed: its host (pid %s) still runs on %s, and no "
-                    "command of this tool ends it: end it with kill %s" % (host[0], tty, host[0]))
-        others = others_on(tty, host[0])
-        if others:
-            return ("removed, but NOT proved closed: its host ended, and another still runs on "
-                    "%s: end it with %s" % (tty, kill_step(others[0], tty)))
-        if made.get("tab_id") and term.survives(made["tab_id"]):
-            return ("NOT proved closed: its host ended, but its window or tab is still there; "
-                    "close it with close --tty %s" % tty)
-        step = "drop"
-        if made.get("tab_id"):
-            chain_drop_tab(made["tab_id"])
-        return "closed"
-    except (Exception, SystemExit) as exc:
-        why = ("the error above" if isinstance(exc, SystemExit)
-               else str(exc) or type(exc).__name__)
-        pid_step = kill_step(host[0] if host else None, tty)
-        if step == "read":
-            return ("NOT closed: reading its host failed (%s); close it with close --tty %s"
-                    % (why, tty))
-        if step == "close":
-            return ("NOT proved closed: its close failed (%s); if its window or tab is still "
-                    "there, close it with close --tty %s, otherwise end its host with %s"
-                    % (why, tty, pid_step))
-        if step == "prove":
-            return ("removed, but NOT proved closed: proving its end failed (%s); if its host "
-                    "still runs, end it with %s" % (why, pid_step))
-        return "closed, but its chain entry could not be dropped (%s)" % why
+def old_steps(old):
+    """What is left of a rotation's old session after a close that did not go through, in the
+    words of the rotation's line, with the step that ends each part: a close of its tty while
+    its window or tab is there, a kill of its host's pid when no window is left and a host
+    lingers, nothing when both are gone. A host the close of the window does not end is read
+    too: the window or tab gone or unread, or a home tab, whose host runs in window 0."""
+    tty = old["tty"]
+    window = old["there"]() if old["there"] else None
+    close_step = ("its window or tab is still there: close it with close --tty %s (its chain "
+                  "entry is left for that close)" % tty)
+    if window is True and old["host_tty"] == tty:
+        return close_step
+    gone, host = host_reading(old["host_tty"], old["host"])
+    if window is True:
+        return "%s; %s" % (host, close_step)
+    if window is False:
+        if gone is True:
+            return ("its window or tab and its host are gone: nothing left to close (its chain "
+                    "entry is left)")
+        return "%s; its window or tab is gone, and its chain entry is left" % host
+    return ("%s; whether its window or tab is still there could not be read: if it is, close it "
+            "with close --tty %s; its chain entry is left" % (host, tty))
 
 
 def cmd_resolve_tier(argv):
