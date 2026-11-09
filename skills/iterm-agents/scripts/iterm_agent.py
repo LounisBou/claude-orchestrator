@@ -691,8 +691,9 @@ def backend_chain():
     return (asked,)
 
 
-def ps_rows(tty):
+def ps_rows(tty, strict=False):
     """`(pid, command)` for every process on a tty, from `ps` or from the suite's stand-in.
+    A table that cannot be read reads as no process, or with `strict` raises.
 
     ORCHESTRATOR_PS_TABLE names a file that replaces `ps`, one `<tty> [<pid>] <command>`
     line per process; a table written to check a name carries no pid, so the pid is empty
@@ -718,6 +719,8 @@ def ps_rows(tty):
         out = subprocess.run(["ps", "-t", short, "-o", "pid=,command="],
                              capture_output=True, text=True, timeout=10).stdout
     except Exception:
+        if strict:
+            raise
         return []
     rows = []
     for line in out.splitlines():
@@ -3466,10 +3469,11 @@ def cmd_home_watch(argv):
                "ended it)", args.tty)
 
 
-def home_of_tab(tty):
+def home_of_tab(tty, strict=False):
     """The home server whose client runs on the tab `tty`, or "": read from the client's own
-    command line, which names its server with -L."""
-    for _, command in ps_rows(tty):
+    command line, which names its server with -L. With `strict`, a process table that cannot be
+    read raises rather than reading as no server."""
+    for _, command in ps_rows(tty, strict):
         words = command.split()
         if not words or os.path.basename(words[0]) != os.path.basename(TMUX_BIN):
             continue
@@ -5600,10 +5604,18 @@ def settle_stdout():
 def refuse_own_home(what, tty):
     """Refuse the rotation of the tab that shows the caller's own home server: the replacement
     is made as a window of that server, and a close of the tab ends the server, every window
-    of it with the replacement, and the caller in window 0."""
-    socket = home_of_tab(tty)
+    of it with the replacement, and the caller in window 0. A caller in no tmux pane has no
+    server of its own; for one that has, a tab whose processes cannot be read is refused too,
+    for it may be that server's."""
     own = os.path.basename(os.environ.get("TMUX", "").split(",")[0]) if tmux_owner() else ""
-    if socket and socket == own and in_home_session():
+    if not own:
+        return
+    try:
+        socket = home_of_tab(tty, strict=True)
+    except Exception as exc:
+        die("%s: refused: whether %s shows this session's own home server %s cannot be read "
+            "(%s): nothing was spawned" % (what, tty, own, str(exc) or type(exc).__name__))
+    if socket == own:
         die("%s: refused: %s is the tab that shows this session's own home server %s, where the "
             "replacement would be made as a window: the close of that tab ends the server, the "
             "replacement and this session with it" % (what, tty, socket))

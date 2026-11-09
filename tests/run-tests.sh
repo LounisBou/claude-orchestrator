@@ -7770,6 +7770,15 @@ out=$(home rotate --old-tty /dev/ttys960 --dir "$WORK" --title "Agent : rotated"
 rc=$?
 check "rotate of the tab that shows the caller's own home server is refused before anything is spawned or killed" "1|1|0|0" \
   "$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(printf '%s' "$out" | grep -cF "ERROR: rotate: refused: /dev/ttys960 is the tab that shows this session's own home server orch-abcdef12, where the replacement would be made as a window: the close of that tab ends the server, the replacement and this session with it")|$(calls | grep -c '\[new-window\]')|$(calls | grep -c 'kill-')"
+# A process table that cannot be read says nothing of which server the tab shows: the rotation
+# is refused then, never let through as « not the caller's own server ».
+out=$(TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_PS_TABLE="$WORK/no-such-ps-table" "$py" -c "
+import sys; sys.path.insert(0, '$ROOT/skills/iterm-agents/scripts')
+import iterm_agent as ia
+ia.refuse_own_home('rotate', '/dev/ttys960')
+print('let through')" 2>&1)
+check "rotate of a tab whose processes cannot be read is refused, never taken for another server's" "0|1" \
+  "$(printf '%s' "$out" | grep -c 'let through')|$(printf '%s' "$out" | grep -cF "ERROR: rotate: refused: whether /dev/ttys960 shows this session's own home server orch-abcdef12 cannot be read (")"
 TSOCK=$TSOCK_KEPT
 
 # The same rule read on stubs that name pids: whatever the close of the old session did, the
