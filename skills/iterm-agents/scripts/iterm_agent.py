@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
 import sys
 import uuid
@@ -5406,9 +5407,14 @@ def cmd_rotate(argv):
         made = cmd_spawn(rest, pair_from, args.old_tty)
     except AfterSpawn as exc:
         made, after = {"tty": exc.tty}, exc
-    # From here on the replacement runs, and it is never closed: whatever fails ends on one line
-    # that names it.
-    finish_rotation(made, old, after)
+    # From here on the replacement runs, and it is never closed: whatever fails, an interrupt
+    # included, ends on one line that names it.
+    with interrupts_raised():
+        try:
+            finish_rotation(made, old, after)
+        except (KeyboardInterrupt, Interrupted) as exc:
+            name = "SIGINT" if isinstance(exc, KeyboardInterrupt) else str(exc)
+            late_refusal(made, old, False, "interrupted by %s" % name, interrupted=True)
 
 
 class AfterSpawn(Exception):
@@ -5418,6 +5424,47 @@ class AfterSpawn(Exception):
     def __init__(self, tty, runs, why):
         super().__init__(why)
         self.tty, self.runs, self.why = tty, runs, why
+
+
+class Interrupted(BaseException):
+    """SIGTERM or SIGHUP, raised where it lands once a rotation's replacement runs, so that the
+    rotation still writes its line. A BaseException, as KeyboardInterrupt is: no `except
+    Exception` of a close takes it for a failure of its own."""
+
+
+@contextlib.contextmanager
+def interrupts_raised():
+    """SIGTERM and SIGHUP raised as `Interrupted` for the span after a rotation's spawn, SIGINT
+    left to raise its KeyboardInterrupt; the handlers found are put back after, whatever ends
+    the span. Only the main thread can set them: elsewhere nothing is changed."""
+    saved = {}
+    def raise_it(signum, frame):
+        raise Interrupted(signal.Signals(signum).name)
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+            saved[sig] = signal.getsignal(sig)
+        for sig in (signal.SIGTERM, signal.SIGHUP):
+            signal.signal(sig, raise_it)
+    except ValueError:
+        pass
+    try:
+        yield
+    finally:
+        for sig, handler in saved.items():
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, TypeError):
+                pass
+
+
+def hold_signals():
+    """Ignore the interrupts while a rotation's line is read and written: an interrupt then
+    would leave it half-written. `interrupts_raised` puts the handlers back."""
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, signal.SIG_IGN)
+        except ValueError:
+            pass
 
 
 def mute_stdout():
@@ -5564,6 +5611,7 @@ def finish_rotation(made, old, after):
     # old session's tty means that session is no longer on it, and a close of that tty would end
     # the replacement.
     if new_tty and new_tty == tty:
+        hold_signals()
         die("rotate: the replacement was given %s, the tty of the old session on %s: that "
             "session is no longer on it, so nothing was closed, for a close --tty %s would end "
             "the replacement; the replacement runs on %s and is kept, and the chain entry of "
@@ -5612,14 +5660,16 @@ def finish_rotation(made, old, after):
         late_refusal(made, old, False, str(exc) or type(exc).__name__)
 
 
-def late_refusal(made, old, refused, error, lead="", reading=None, kept=""):
+def late_refusal(made, old, refused, error, interrupted=False, lead="", reading=None,
+                 kept=""):
     """A rotation whose old session was not closed after its replacement was spawned, by a
-    refusal its close printed itself (`refused`), by `error`, or for `lead`.
+    refusal its close printed itself (`refused`), by `error`, by an interrupt, or for `lead`.
     Once spawned, the replacement is never closed, whatever the close did: two agents can be
     recovered by hand, none cannot. The rotation dies with one line on stderr that names both
     sessions, what the close of the old one did, and the step the tool accepts to finish by
     hand. Nothing raised here escapes: each reading of the old session says what it could not
-    read."""
+    read, and the interrupts are held until the line is written."""
+    hold_signals()
     tty = (made or {}).get("tty") or "the tty the spawn printed"
     old_tty = old["tty"]
     cause = " (%s)" % error if error else ""
@@ -5627,14 +5677,17 @@ def late_refusal(made, old, refused, error, lead="", reading=None, kept=""):
     if lead:
         pass
     elif not old["closing"]:
-        lead = ("the old session on %s could not be read after the spawn%s, so it was not closed"
+        lead = ("the rotation was %s after the spawn, before the close of the old session on %s, "
+                "so it was not closed" % (error, old_tty) if interrupted else
+                "the old session on %s could not be read after the spawn%s, so it was not closed"
                 % (old_tty, cause))
     elif old_tty in CLOSE_DONE:
         die("rotate: the old session on %s was closed, but what followed failed%s; %s; nothing "
             "left to close" % (old_tty, cause, kept))
-    elif refused and old_tty not in KILL_SENT:
-        lead = ("the old session on %s was not closed: its close refused before it ended "
-                "anything%s" % (old_tty, cause))
+    elif (refused or interrupted) and old_tty not in KILL_SENT:
+        lead = ("the old session on %s was not closed: its close %s before it ended anything%s"
+                % (old_tty, "was %s" % error if interrupted else "refused",
+                   "" if interrupted else cause))
     else:
         lead = "the close of the old session on %s failed%s" % (old_tty, cause)
     die("rotate: %s; %s; %s" % (lead, kept, old_steps(old, reading)))

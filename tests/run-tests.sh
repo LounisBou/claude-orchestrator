@@ -7934,6 +7934,24 @@ check "a broken pipe on the close's « closed » line is no failed close: the ol
 rc=$?
 check "a broken pipe on the « closed » line exits 1 on the rotation's line, with nothing after it" "1|1|0|0" \
   "$rc|$(grep -cF "ERROR: rotate: the old session on /dev/ttys901 was closed, but what followed failed ([Errno 32] Broken pipe); $KEPT; nothing left to close" "$WORK/pipe-err")|$(grep -c 'Exception ignored' "$WORK/pipe-err")|$(grep -c 'BrokenPipeError' "$WORK/pipe-err")"
+# An interrupt once the replacement runs: the keyboard's, SIGTERM or SIGHUP, during the close or
+# during the read before it. It ends on the same one line, exit 1, the replacement kept, and the
+# handlers the rotation found are put back.
+res=$(lprobe interrupt)
+check "an interrupt during the close keeps the replacement and ends on the rotation's line" "1|cmd_close|0|1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close was interrupted by SIGINT before it ended anything; $KEPT; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+for sig in sigterm sighup; do
+  res=$(lprobe $sig)
+  name=$(printf '%s' "$sig" | tr 'a-z' 'A-Z')
+  check "and $name during the close, the same line" "1|cmd_close|1|yes" \
+    "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close was interrupted by $name before it ended anything; $KEPT; $THERE")|$(sfield "$res" restored)"
+done
+res=$(lprobe sent-interrupt)
+check "an interrupt after the close began says the close failed, the old tab's close named" "1|cmd_close|0|1" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(untouched "$res")|$(sfield "$res" ERR | grep -cF "rotate: the close of the old session on /dev/ttys901 failed (interrupted by SIGINT); $KEPT; $THERE")"
+res=$(lprobe read-interrupt)
+check "an interrupt before the close says the old session was not closed" "1||1|yes" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT after the spawn, before the close of the old session on /dev/ttys901, so it was not closed; $KEPT; $THERE")|$(sfield "$res" restored)"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \
