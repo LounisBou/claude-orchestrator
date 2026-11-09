@@ -198,13 +198,22 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     # hold --expect-title, a tab that is no session, a home tab whose window 0 session cannot
     # be read. Nothing is spawned then, and the message reads `rotate: refused: …`. A refusal
     # only the close can give (a host that outlives its window, an error of the close) comes
-    # after the spawn, and the old agent's host decides. Still running: the replacement is
-    # closed by the id its terminal gave it, and the last line says both, `rotate: the old
-    # session on <tty> was not closed, and the replacement on <tty> was closed`, or `… was NOT
-    # closed: close it with close --tty <tty>`. Already ended (its window or tab outlived it):
-    # the replacement is kept, as the only agent left, and the line reads `rotate: the old
-    # agent on <tty> ended, but its window or tab is still there; the replacement runs on
-    # <tty> and is kept`. Either way the line is on stderr and the exit is not 0.
+    # after the spawn, and the old session is read then, its window or tab and its host.
+    # Both still there, the host read running on a readable process table: the replacement
+    # is closed by the id its terminal gave it, and said closed only once its host is proved
+    # gone. The last line says both, `rotate: the old session on <tty> was not closed, and
+    # the replacement on <tty> was closed`, or `… was NOT closed: <pid> is still running on
+    # <tty>, close it with close --tty <tty>` (or `… NOT closed: close it with close --tty
+    # <tty>` when its close was refused). Any other reading keeps the replacement, for
+    # closing it could leave no agent at all: the old window or tab already closed (`… but
+    # its window or tab was closed and its host may linger (pid <pid>)`), its host proved
+    # ended (`rotate: the old agent on <tty> ended, but its window or tab is still there`),
+    # or a doubt (`… whether its host still runs is not known (the process table could not
+    # be read)`, or `(no host was identified on <tty> before the close)`, or `… whether its
+    # window or tab is still there could not be read`). A kept replacement's line ends with
+    # `; the replacement runs on <tty> and is kept; close the old one by hand with close
+    # --tty <old tty> (its chain entry is left for that close)`. Either way the line is on
+    # stderr and the exit is not 0.
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript (pair_source=transcript <path>);
     # a tier, or --model with --effort, is the orchestrator naming the pair (an escalation),
