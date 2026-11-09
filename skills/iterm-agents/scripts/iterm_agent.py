@@ -4275,11 +4275,8 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
         "and effort are its orchestrator's to name")
 
 
-def cmd_spawn(argv, pair_from="", old_tty=""):
-    """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
-    read on the rotated agent's transcript, so the launch says where they came from. `old_tty`
-    is a rotation's too: the session it replaces, named when what follows the verification
-    fails. Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
+def spawn_parser():
+    """The parser of `spawn`'s options, which `rotate` reads its refusals with too."""
     p = argparse.ArgumentParser(prog="spawn", add_help=False)
     p.add_argument("--dir")
     p.add_argument("--model", default="")
@@ -4314,7 +4311,15 @@ def cmd_spawn(argv, pair_from="", old_tty=""):
     p.add_argument("--drop-tool", dest="drop_tool", action="append", default=[])
     p.add_argument("--keep-synced-skills", dest="keep_synced_skills", action="store_true",
                    default=False)
-    args, unknown = p.parse_known_args(argv)
+    return p
+
+
+def cmd_spawn(argv, pair_from="", old_tty=""):
+    """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
+    read on the rotated agent's transcript, so the launch says where they came from. `old_tty`
+    is a rotation's too: the session it replaces, named when what follows the verification
+    fails. Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
+    args, unknown = spawn_parser().parse_known_args(argv)
     if unknown:
         die("spawn: unknown option %s" % unknown[0])
     # A name is read without its surrounding whitespace: padded, it would match no tool of the
@@ -5343,15 +5348,21 @@ def cmd_rotate(argv):
         die("rotate: --old-tty is required")
     # A rotation replaces an agent with a titled agent; none of these are that. A successor
     # is spawned with `spawn --successor`, not smuggled through the replacement a rotation
-    # makes, and neither is an auditor or the coordinator's own successor.
-    for flag in ("--successor", "--auditor", "--coordinator-successor", "--wake", "--open",
-                 "--title-free", "--no-remote-control"):
-        if flag in rest:
+    # makes, and neither is an auditor or the coordinator's own successor. Each is read as the
+    # spawn reads it, by what it sets and not by its spelling: the spawn takes a flag's prefix
+    # for the flag, and a refusal by exact words let --no-ver through as --no-verify.
+    asked, _ = spawn_parser().parse_known_args(rest)
+    for flag, taken in (("--successor", asked.successor), ("--auditor", asked.auditor),
+                        ("--coordinator-successor", asked.coordinator_successor),
+                        ("--wake", asked.wake), ("--open", asked.open_),
+                        ("--title-free", asked.title_free),
+                        ("--no-remote-control", not asked.remote_control)):
+        if taken:
             die("rotate: refused: %s is not a rotation's (a rotation replaces an agent with "
                 "a titled agent; a successor is spawned with spawn --successor)" % flag)
     # The verification is the rotation's whole guarantee: without it the old agent is closed
     # on a replacement nobody saw start, and a replacement that never started leaves none.
-    if "--no-verify" in rest:
+    if not asked.verify:
         die("rotate: refused: --no-verify is not a rotation's (the old agent is closed only "
             "once its replacement is verified running)")
     # Nor is the tab it closes the coordinator's or an auditor's: neither is an agent of the

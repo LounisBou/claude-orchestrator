@@ -4550,6 +4550,10 @@ check "rotate refuses --no-remote-control" "1" \
 # the verification, a replacement that never started leaves no agent at all.
 check "rotate refuses --no-verify, before it spawns anything" "1|0" \
   "$(rot_refuse --no-verify --prompt p | grep -c -- '--no-verify is not a rotation')|$(rot_refuse --no-verify --prompt p | grep -c '^launch=')"
+# A flag is read as the spawn reads it, not by its spelling: the spawn takes a prefix for its
+# flag, and a refusal by exact words let --no-ver reach it as --no-verify.
+check "rotate refuses an abbreviated --no-verify or --successor like the flag, before it spawns anything" "1|1|0" \
+  "$(rot_refuse --no-ver --prompt p | grep -c -- '--no-verify is not a rotation')|$(rot_refuse --succ --prompt p | grep -c -- '--successor is not a rotation')|$(rot_refuse --no-ver --prompt p | grep -c '^launch=')"
 # ...and forwarding is not enough: the refusal has to STOP the rotation. A tier that does
 # not resolve once opened a real tab with no model at all, because the failure was swallowed
 # crossing a shell substitution. The guard reads what comes LAST: an exit code alone would
