@@ -197,10 +197,14 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     # of a home session, a window of another tmux session, a window or a title that does not
     # hold --expect-title, a tab that is no session, a home tab whose window 0 session cannot
     # be read. Nothing is spawned then, and the message reads `rotate: refused: …`. A refusal
-    # only the close can give (a host that outlives its window) comes after the spawn: the
-    # replacement is then closed by the id its terminal gave it, and the last line says both,
-    # `rotate: the old session on <tty> was not closed, and the replacement on <tty> was closed`,
-    # or `… was NOT closed: close it with close --tty <tty>`. Either way the exit is not 0.
+    # only the close can give (a host that outlives its window, an error of the close) comes
+    # after the spawn, and the old agent's host decides. Still running: the replacement is
+    # closed by the id its terminal gave it, and the last line says both, `rotate: the old
+    # session on <tty> was not closed, and the replacement on <tty> was closed`, or `… was NOT
+    # closed: close it with close --tty <tty>`. Already ended (its window or tab outlived it):
+    # the replacement is kept, as the only agent left, and the line reads `rotate: the old
+    # agent on <tty> ended, but its window or tab is still there; the replacement runs on
+    # <tty> and is kept`. Either way the line is on stderr and the exit is not 0.
     # A rotation is a succession: given no pair, the replacement runs on the ROTATED agent's
     # live model and effort, read on that agent's transcript (pair_source=transcript <path>);
     # a tier, or --model with --effort, is the orchestrator naming the pair (an escalation),
