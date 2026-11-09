@@ -7858,7 +7858,8 @@ ia.chain_drop_tab = lambda tab_id: calls.append("drop %s" % tab_id)
 # « verify-interrupt » and « before-create » the spawn is the launcher's own, over a terminal
 # that makes the tab: a SIGTERM lands in the middle of its creation, or the keyboard's interrupt
 # once it is made, while the spawn waits for its host, or a SIGTERM before anything is made.
-rep_tty = {"recycled": "/dev/ttys901", "home-recycled": "/dev/ttys905"}.get(mode, "/dev/ttys903")
+rep_tty = {"recycled": "/dev/ttys901", "pipe-recycled": "/dev/ttys901",
+           "home-recycled": "/dev/ttys905"}.get(mode, "/dev/ttys903")
 class Made(Tab):
     def owner(self, own):
         return "O-ME"
@@ -7922,7 +7923,14 @@ if mode in ("create-sigterm", "verify-interrupt", "before-create", "refuse-inter
         ia.cli_pid_on_tty = lambda tty: None
         ia.find_transcript = lambda dir_, epoch: ""
 elif mode != "group-sigint":
-    ia.cmd_spawn = lambda argv, pair_from="", old_tty="", made=None: (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
+    def spawn(argv, pair_from="", old_tty="", made=None):
+        """The replacement made; in « pipe-recycled » and « pipe-refused » its tty printed on
+        stdout, as the spawn prints it."""
+        spawned.append(1)
+        if mode in ("pipe-recycled", "pipe-refused"):
+            print(rep_tty)
+        return dict(tty=rep_tty, terminal=Tab(), tab_id="T903")
+    ia.cmd_spawn = spawn
 def sent(tty):
     ia.KILL_SENT.add(tty)
     ia.die("close: the request was accepted but 4242 is still running on %s" % tty)
@@ -7966,7 +7974,7 @@ rotate = ["--old-tty", "/dev/ttys901", "--dir", "/x", "--title", "T", "--tier", 
 if len(sys.argv) > 3:
     rotate = ["--old-tty", "/dev/ttys901", "--dir", sys.argv[3], "--title", "Agent : two",
               "--tier", "light", "--prompt", "p"]
-if mode == "pipe-real":
+if mode.startswith("pipe-"):
     # A real stdout whose reader is gone: the process's own exit status and its last words on
     # stderr are what is read, the interpreter's flush at exit included.
     r, w = os.pipe()
@@ -8039,6 +8047,15 @@ check "a broken pipe on the close's « closed » line is no failed close: the ol
 rc=$?
 check "a broken pipe on the « closed » line exits 1 on the rotation's line, with nothing after it" "1|1|0|0" \
   "$rc|$(grep -cF "ERROR: rotate: the old session on /dev/ttys901 was closed, but what followed failed ([Errno 32] Broken pipe); $KEPT; nothing left to close" "$WORK/pipe-err")|$(grep -c 'Exception ignored' "$WORK/pipe-err")|$(grep -c 'BrokenPipeError' "$WORK/pipe-err")"
+# And on the rotation's other lines once the spawn printed its tty: a replacement given the old
+# session's tty, and a close refused. Each exits 1, as every line after the spawn does.
+for m in "pipe-recycled|rotate: the replacement was given /dev/ttys901, the tty of the old session on /dev/ttys901" \
+         "pipe-refused|rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything"; do
+  "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" "${m%%|*}" 2>"$WORK/pipe-err"
+  rc=$?
+  check "a stdout whose reader is gone exits 1 on the line of ${m%%|*}, with nothing after it" "1|1|0|0" \
+    "$rc|$(grep -cF "ERROR: ${m#*|}" "$WORK/pipe-err")|$(grep -c 'Exception ignored' "$WORK/pipe-err")|$(grep -c 'BrokenPipeError' "$WORK/pipe-err")"
+done
 # An interrupt once the replacement runs: the keyboard's, SIGTERM or SIGHUP, during the close or
 # during the read before it. It ends on the same one line, exit 1, the replacement kept, and the
 # handlers the rotation found are put back.

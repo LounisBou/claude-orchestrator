@@ -5472,20 +5472,25 @@ def cmd_rotate(argv):
     # The interrupts are raised from before the replacement is made, and the spawn fills
     # `spawned` as the terminal makes it: from its creation on the replacement is never closed,
     # and whatever fails, an interrupt included, ends on one line that names it.
+    # Whatever ends the span, stdout is settled last: the spawn printed its tty on it, and a
+    # reader gone would make the interpreter's own flush at exit fail and change the exit code.
     made, after, spawned = None, None, {}
     with interrupts_raised():
         try:
             try:
-                made = cmd_spawn(rest, pair_from, args.old_tty, made=spawned)
-            except AfterSpawn as exc:
-                made, after = {"tty": exc.tty}, exc
-            finish_rotation(made, old, after)
-        except (KeyboardInterrupt, Interrupted) as exc:
-            name = "SIGINT" if isinstance(exc, KeyboardInterrupt) else str(exc)
-            if made is None:
-                spawn_interrupted(spawned, old, name)
-            refuse_recycled(made, old, after)
-            late_refusal(made, old, False, "interrupted by %s" % name, interrupted=True)
+                try:
+                    made = cmd_spawn(rest, pair_from, args.old_tty, made=spawned)
+                except AfterSpawn as exc:
+                    made, after = {"tty": exc.tty}, exc
+                finish_rotation(made, old, after)
+            except (KeyboardInterrupt, Interrupted) as exc:
+                name = "SIGINT" if isinstance(exc, KeyboardInterrupt) else str(exc)
+                if made is None:
+                    spawn_interrupted(spawned, old, name)
+                refuse_recycled(made, old, after)
+                late_refusal(made, old, False, "interrupted by %s" % name, interrupted=True)
+        finally:
+            settle_stdout()
 
 
 class AfterSpawn(Exception):
@@ -5581,6 +5586,15 @@ def mute_stdout():
         os.close(null)
     except (OSError, ValueError, AttributeError):
         pass
+
+
+def settle_stdout():
+    """Flush stdout, and mute it when its reader is gone (`mute_stdout`): what it holds then
+    goes to the null device at exit instead of failing a second time."""
+    try:
+        sys.stdout.flush()
+    except (OSError, ValueError):
+        mute_stdout()
 
 
 def refuse_own_home(what, tty):
