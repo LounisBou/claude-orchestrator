@@ -7729,8 +7729,8 @@ check "rotate of window 0 stays refused before anything is spawned, through the 
 reset_home
 out=$(REC_KEEP_WINDOW=1 REC_KEEP_HOST=1 REC_KILL_ERR="server busy" home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
-check "a close whose kill tmux refused keeps the replacement, and names the close of the old window that still stands" "1|1|1|[-u][kill-window][-t][@1]|1|1|/dev/ttys903" \
-  "$(printf '%s' "$err" | grep -c 'ERROR: close: tmux refused kill-window: server busy')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys901 failed; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
+check "a close whose kill tmux refused keeps the replacement, and names the close of the old window that still stands, guarded on its name" "1|1|1|[-u][kill-window][-t][@1]|1|1|/dev/ttys903" \
+  "$(printf '%s' "$err" | grep -c 'ERROR: close: tmux refused kill-window: server busy')|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the close of the old session on /dev/ttys901 failed; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 --expect-title "Agent : one" (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -F '[kill-window]' | paste -sd'|' -)|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
 reset_home
 out=$(REC_KEEP_HOST=1 home rotate --old-tty /dev/ttys901 --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
@@ -7742,8 +7742,8 @@ check "a close that took the old window but not its host keeps the replacement, 
 reset_home
 out=$(REC_RENAME_ON_NEW='@1 Agent : renamed' home rotate --old-tty /dev/ttys901 --expect-title "Agent : one" --dir "$WORK" --title "Agent : rotated" --prompt p 2>"$WORK/rot-err")
 rc=$?; err=$(cat "$WORK/rot-err")
-check "a close refused by its name before any kill keeps the replacement, and names the close of the old window that still stands" "1|1|1|0|1|1|/dev/ttys903" \
-  "$(printf '%s' "$err" | grep -c "ERROR: close: refused: the window on /dev/ttys901 is named 'Agent : renamed'")|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
+check "a close refused by its name before any kill keeps the replacement, and names the close of the old window that still stands, guarded on the name it has now" "1|1|1|0|1|1|/dev/ttys903" \
+  "$(printf '%s' "$err" | grep -c "ERROR: close: refused: the window on /dev/ttys901 is named 'Agent : renamed'")|$(printf '%s' "$err" | grep -cF 'ERROR: rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; the replacement runs on /dev/ttys903 and is kept; its window or tab is still there, the same window @1 as before the spawn: close it with close --tty /dev/ttys901 --expect-title "Agent : renamed" (its chain entry is left for that close)')|$([ "$rc" -ne 0 ] && echo 1 || echo 0)|$(calls | grep -c '\[kill-window\]')|$(chainf | grep -c '@4')|$(chainf | grep -c '@1')|$out"
 # The old window gone during the spawn: it is read by its id before the spawn and looked for
 # again before the close, so nothing is killed; the replacement is kept, and the one line names
 # it and the host left behind.
@@ -8071,6 +8071,11 @@ check "an interrupt once the replacement is made, while the spawn waits for its 
 res=$(rprobe before-create)
 check "and one before the replacement is made says nothing was spawned, the old session left as it was" "1|0||1|yes|0" \
   "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM before its replacement was made: nothing was spawned, and the old session on /dev/ttys901 was left as it was")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+# A home tab still there, its close refused before it ended anything: its close ends the server
+# and window 0's host with it, so that close is the one step named, and no kill.
+res=$(lprobe home-same)
+check "a home tab still there gets its close alone, no kill of window 0's host" "1|cmd_close|0|1|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -c 'kill')|$(sfield "$res" ERR | grep -cF "rotate: the old session on /dev/ttys901 was not closed: its close refused before it ended anything; $KEPT; $THERE")|$(printf '%s' "$res" | grep -c 'Traceback')"
 # An interrupt while the spawn closes the replacement it refused: the line says that close was
 # under way, that whether it went through is not known, and that the old session was not touched.
 res=$(ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe refuse-interrupt)

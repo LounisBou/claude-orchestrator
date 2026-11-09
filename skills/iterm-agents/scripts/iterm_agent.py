@@ -5681,6 +5681,7 @@ def presence(old):
             if pane is None:
                 return "gone", ""
             if pane.window == old["window"]:
+                old["named"] = stable_title(pane.name)
                 return "same", "window %s" % pane.window
             return "other", "window %s, named '%s'" % (pane.window, pane.name)
         if old["session"]:
@@ -5862,15 +5863,22 @@ def old_steps(old, reading=None):
         return ("%s; its window or tab is gone, and its chain entry is left; no close of %s is "
                 "to be made: it would end the session now on it" % (old_host(old), tty))
     if state == "same":
+        # A window keeps the name its spawn gave it, read again with its id just now: the step is
+        # guarded on it, so the tty taken later by another window is refused. A tab's title is
+        # its host's to rewrite, and its step is the bare close of the session read just now.
+        named = (old.get("named") or old["title"]) if old["window"] else ""
         step = ("its window or tab is still there, the same %s as before the spawn: close it with "
-                "close --tty %s (its chain entry is left for that close)" % (words, tty))
+                "close --tty %s%s (its chain entry is left for that close)"
+                % (words, tty, ' --expect-title "%s"' % named if named else ""))
     elif state == "untold":
         step = ("a session titled '%s' is on %s, and the old one's id could not be read before "
                 "the spawn (%s): close it with close --tty %s%s, which closes it only while its "
                 "title holds the old one's (its chain entry is left for that close)"
                 % (words, tty, old["why"], tty, guard))
     if state in ("same", "untold"):
-        if old["host_tty"] == tty:
+        # A home tab's close ends its server and window 0's host with it: the close is its step,
+        # alone, unless that close began and left the host running.
+        if old["host_tty"] == tty or tty not in KILL_SENT:
             return step + (retitled_step(old) if state == "untold" else "")
         return "%s; %s" % (host_words(host_reading(old["host_tty"], old["host"])), step)
     reading = host_reading(old["host_tty"], old["host"])
