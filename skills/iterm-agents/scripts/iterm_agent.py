@@ -5423,6 +5423,11 @@ def close_refusals(what, tty, expect):
         name = None
         if not DRY_RUN:
             name = refuse_home_title(what, tty, expect)
+            # Read with no expected words too: a rotation guards the steps it prints on it.
+            if name is None:
+                name = session_title(tty, what)
+                if name is None:
+                    die("%s: no session found on %s" % (what, tty))
             window0_session(what, socket)
         return None, name, ""
     term = terminal_for(tty)
@@ -5722,7 +5727,8 @@ def old_session(tty, found_on, title, window, expect):
     id of its session or, when the app gives none, by its title, on which its close is then
     guarded. Its host's tty and its host by pid and start time, for the same reason. A reading
     that fails refuses the rotation, nothing spawned, and so does a tab with neither an id nor a
-    title that holds a word: no close of it could be guarded once the replacement runs."""
+    title that holds a word character: no close of it could be guarded once the replacement
+    runs."""
     old = {"tty": tty, "host_tty": tty, "host": None, "closing": False, "term": found_on,
            "window": window, "session": "", "why": "", "expect": expect,
            "title": stable_title(expect or title or "")}
@@ -5746,7 +5752,7 @@ def old_session(tty, found_on, title, window, expect):
         old["session"] = sid
         return old
     old["why"] = old["why"] or "the app gave no id for it"
-    if not old["title"]:
+    if not re.search(r"\w", old["title"]):
         try:
             name = quietly(lambda: session_title(tty, "rotate"))
         except Unread as exc:
@@ -5755,7 +5761,7 @@ def old_session(tty, found_on, title, window, expect):
         if name is None:
             die("rotate: no session found on %s" % tty)
         old["title"] = stable_title(name)
-        if not old["title"]:
+        if not re.search(r"\w", old["title"]):
             die("rotate: refused: the session on %s can be told from another neither by its id "
                 "(%s) nor by its title ('%s'), which holds no word a close could be guarded on: "
                 "nothing was spawned" % (tty, old["why"], name))
