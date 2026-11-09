@@ -2450,6 +2450,7 @@ class ItermTerminal(Terminal):
                 # at its very first place, whatever tab happens to sit there today.
                 win, _, _ = await find_tab(app, place.anchor)
                 if win is None:
+                    made["unmade"] = True
                     die("spawn: no session found on %s" % place.anchor)
                 index = 0
             elif place.at == "beside":
@@ -2457,10 +2458,12 @@ class ItermTerminal(Terminal):
                 # and a window object is a cached copy (§14).
                 win, index = await anchor_position(app, place.anchor, place.side)
                 if win is None:
+                    made["unmade"] = True
                     die("spawn: no session found on %s" % place.anchor)
             else:
                 win = app.current_window
                 if win is None:
+                    made["unmade"] = True
                     die("spawn: iTerm2 has no current window")
             # select=False: the operator is working in another tab, and a spawn that pulls the
             # window to the new one interrupts them every time an agent is launched.
@@ -2864,6 +2867,8 @@ class TmuxTerminal(Terminal):
                     killed = done.returncode == 0
                 except TmuxError:
                     killed = False
+                # Kept for a rotation's line, which the death below leaves to name it.
+                made.update(window=fields[0], window_killed=killed)
                 print("spawn: the window %s %s" % (fields[0], "was killed" if killed else
                                                    "could not be killed"), file=sys.stderr)
             die("spawn: tmux made a window and answered '%s', not its ids and tty"
@@ -4938,6 +4943,7 @@ def cmd_spawn(argv, pair_from="", old_tty="", made=None):
             time.sleep(1)
             waited += 1
         if pid:
+            made["pid"] = pid
             print("spawn: %s running on %s (pid %s)" % (HOST_CLI, new_tty, pid), file=sys.stderr)
         else:
             # The process table is one reading of « it started », not the only one: a session
@@ -5819,9 +5825,11 @@ def spawn_failed(spawned, old, exc):
     """A rotation whose spawn failed by `exc` once its replacement may exist: an error or a death
     inside the creation (a timeout, a client killed, the app's connection lost), the spawn's own
     refusal of what it made, or anything after. A replacement the spawn refused and closed leaves
-    the old session the one agent, untouched. Otherwise the replacement is kept, named by its tty
-    or, before one was known, by the name it was given, and the old session's step is given to
-    take once the replacement is seen running: that start was never verified."""
+    the old session the one agent, untouched, and so does a creation that made nothing or whose
+    window was killed. Otherwise the replacement is kept, named by its tty or, before one was
+    known, by the id or the name it was made with. The old session's step is given only with
+    the replacement's tty, to take once the replacement is seen running: that start was never
+    verified."""
     hold_signals()
     if isinstance(exc, BrokenPipeError):
         mute_stdout()
@@ -5844,28 +5852,50 @@ def spawn_failed(spawned, old, exc):
         kept = ("the replacement made on %s is kept, though %s, and its chain entry may be "
                 "missing" % (tty, "it was refused" if refused else
                              "whether it started was not verified"))
-    else:
-        lead = "the spawn failed while its replacement was being made (%s)" % why
-        kept = ("a window may exist, named %s, which list shows"
-                % shlex.quote(spawned.get("creating") or ""))
-    late_refusal(spawned, old, False, "", lead="%s, so the old session on %s was not closed"
-                 % (lead, old["tty"]), kept=kept, unverified=True)
+        late_refusal(spawned, old, False, "", lead="%s, so the old session on %s was not closed"
+                     % (lead, old["tty"]), kept=kept, unverified=True)
+    # No tty: the replacement, if any, carries the old session's title, and a step taken on what
+    # list shows under it could end the only agent. Nothing that ends the old session is given.
+    if spawned.get("unmade"):
+        die("rotate: the spawn failed before its replacement was made (%s): nothing was made, and "
+            "the old session on %s was left as it was" % (why, old["tty"]))
+    window, tab = spawned.get("window") or "", spawned.get("tab_id") or ""
+    if window and spawned.get("window_killed"):
+        die("rotate: the spawn failed once tmux made the window %s for its replacement (%s), and "
+            "that window was killed: nothing of the replacement is left, and the old session on "
+            "%s was left as it was" % (window, why, old["tty"]))
+    name = shlex.quote(spawned.get("creating") or "")
+    made_one = "the window %s" % window if window else "the tab %s" % tab if tab else ""
+    kept = ("%s it made, named %s, may still run, which list shows" % (made_one, name) if made_one
+            else "a window may exist, named %s, which list shows" % name)
+    die("rotate: the spawn failed while its replacement was being made (%s), so the old session "
+        "on %s was not closed; %s; the old session is left as it was, and no step here ends it "
+        "while no replacement's tty is known" % (why, old["tty"], kept))
 
 
 def refused_interrupted(made, old, name):
     """A rotation interrupted by `name` while its spawn closed the session it had just made and
     refused (it never started, or came up in another mode): that session is no replacement, the
-    close of it was under way, and the old session was never touched."""
+    close of it was under way, and the old session was never touched. An interrupt that lands
+    once that close returned says what it did. The close step printed is guarded on the title
+    the session was made with: the tty may be given to another session once the close went
+    through."""
     hold_signals()
+    if "refused_closed" in made:
+        spawn_failed(made, old, SpawnFailed(made["refusing"]))
     tty = made["tty"]
     why = made["refusing"]
     for prefix in ("spawn: ", "refused: "):
         if why.startswith(prefix):
             why = why[len(prefix):]
+    title = stable_title(made.get("creating") or "")
+    step = ("close it with close --tty %s --expect-title %s --keep-checkout"
+            % (shlex.quote(tty), shlex.quote(title)) if re.search(r"\w", title) else
+            "no close of it is named, for its title holds no word a close could be guarded on")
     die("rotate: the rotation was interrupted by %s while the spawn closed the replacement it "
         "made on %s, which it refused (%s): whether that close went through is not known: if "
-        "list still shows a session on %s, close it with close --tty %s; the old session on %s "
-        "was not touched" % (name, tty, why, tty, shlex.quote(tty), old["tty"]))
+        "list still shows a session on %s, %s; the old session on %s was not touched"
+        % (name, tty, why, tty, step, old["tty"]))
 
 
 def refuse_recycled(made, old, after):
@@ -5976,9 +6006,25 @@ def late_refusal(made, old, refused, error, interrupted=False, lead="", reading=
         lead = "the close of the old session on %s failed%s" % (old_tty, cause)
     steps = old_steps(old, reading)
     if unverified:
-        steps = "check that it runs%s before ending the old session: %s" % (
-            " with verify --tty %s" % shlex.quote(tty) if (made or {}).get("tty") else "", steps)
+        steps = "%s before ending the old session: %s" % (replacement_check(made or {}), steps)
     die("rotate: %s; %s; %s" % (lead, kept, steps))
+
+
+def replacement_check(made):
+    """How to check that a replacement whose start was not verified runs, in the rotation's words:
+    by its host's pid, the spawn's or the one on its tty as the line is written, for a verify of
+    the tty alone passes any host on it, a stranger given that tty included."""
+    tty = made.get("tty") or ""
+    pid = made.get("pid")
+    if not pid:
+        try:
+            pid = next(iter(host_clis_on(tty)), None)
+        except Exception:
+            pid = None
+    if pid:
+        return "check that it runs with verify --tty %s --pid %s" % (shlex.quote(tty), pid)
+    return ("no host was seen on %s as this line was written: check that the replacement runs "
+            "there, which list shows," % tty)
 
 
 def old_steps(old, reading=None):
