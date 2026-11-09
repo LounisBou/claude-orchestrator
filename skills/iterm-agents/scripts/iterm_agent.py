@@ -4270,10 +4270,11 @@ def pair_of_launch(args, auditor_successor, pair_from=""):
         "and effort are its orchestrator's to name")
 
 
-def cmd_spawn(argv, pair_from=""):
+def cmd_spawn(argv, pair_from="", old_tty=""):
     """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
-    read on the rotated agent's transcript, so the launch says where they came from.
-    Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
+    read on the rotated agent's transcript, so the launch says where they came from. `old_tty`
+    is a rotation's too: the session it replaces, named when what follows the verification
+    fails. Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
     p = argparse.ArgumentParser(prog="spawn", add_help=False)
     p.add_argument("--dir")
     p.add_argument("--model", default="")
@@ -4883,8 +4884,23 @@ def cmd_spawn(argv, pair_from=""):
                   file=sys.stderr)
         else:
             print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
-    apply_chain_plan(term, own, new_tty, tab_id, effect, args.resident)
-    print(new_tty)
+    # From here the session runs: whatever fails names it, never on a traceback, and a rotation
+    # (`old_tty`, the session it replaces) leaves that old session as it is.
+    try:
+        apply_chain_plan(term, own, new_tty, tab_id, effect, args.resident)
+        print(new_tty)
+    except (Exception, SystemExit) as exc:
+        if isinstance(exc, SystemExit) and not exc.code:
+            raise
+        why = ("the error above" if isinstance(exc, SystemExit)
+               else str(exc) or type(exc).__name__)
+        runs = "runs on %s%s" % (new_tty, ", verified," if args.verify else "")
+        if old_tty:
+            die("rotate: the replacement %s but what followed its spawn failed (%s), so the old "
+                "session on %s was not closed; the replacement is kept, its chain entry may be "
+                "missing; close the old one with close --tty %s" % (runs, why, old_tty, old_tty))
+        die("spawn: the session %s but what followed its spawn failed (%s); it is kept, its "
+            "chain entry may be missing" % (runs, why))
     if misplaced:
         sys.exit(misplaced)
     return made
@@ -5394,7 +5410,7 @@ def cmd_rotate(argv):
     # The spawn verifies the replacement is RUNNING before anything is closed: a rotation
     # that killed the old agent on a spawn that never started would leave zero agents,
     # which is the one outcome this order exists to prevent.
-    made = cmd_spawn(rest, pair_from)
+    made = cmd_spawn(rest, pair_from, args.old_tty)
     # A tty is handed to another window once its session has let it go: a replacement given
     # the old session's tty means that session is no longer on it, and a close of that tty
     # would end the replacement.
