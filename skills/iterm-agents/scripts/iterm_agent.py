@@ -564,6 +564,14 @@ class Unreachable(Exception):
         self.advice = advice
 
 
+# True while a rotation's replacement is being made: the terminal's own children (the tmux
+# client, the AppleScript runner) are then started in a session of their own, out of the
+# launcher's process group, so that an interrupt sent to that group (a Ctrl-C at the terminal)
+# reaches the launcher alone, which holds it until the creation returns. A client killed with
+# the group after the server made the window would leave a replacement nothing names.
+CHILDREN_APART = False
+
+
 def osascript_run(script, timeout=None):
     """One AppleScript under a deadline THIS process holds.
 
@@ -576,7 +584,8 @@ def osascript_run(script, timeout=None):
     timeout = PROBE_TIMEOUT if timeout is None else timeout
     try:
         proc = subprocess.Popen([OSASCRIPT, "-"], stdin=subprocess.PIPE,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=CHILDREN_APART)
     except OSError as exc:
         return "error", str(exc)
     try:
@@ -2645,7 +2654,7 @@ def tmux_call(args, env=None):
     runnable. `env` replaces the caller's environment, for a call that starts a server."""
     try:
         return subprocess.run([TMUX_BIN, "-u"] + list(args), capture_output=True, text=True,
-                              timeout=PROBE_TIMEOUT, env=env)
+                              timeout=PROBE_TIMEOUT, env=env, start_new_session=CHILDREN_APART)
     except subprocess.TimeoutExpired:
         raise TmuxError("timed out after %ds" % PROBE_TIMEOUT)
     except OSError as exc:
@@ -2666,9 +2675,22 @@ def tmux_out(args, what):
         done = tmux_call(args)
     except TmuxError as exc:
         die("%s: tmux %s: %s" % (what, args[0], exc))
+    if done.returncode < 0:
+        # Killed by a signal, the client says nothing of what the server did with the call.
+        die("%s: the tmux client of %s was killed by %s, so whether tmux carried it out is not "
+            "known: a window it was making may exist, and list shows it"
+            % (what, args[0], signal_name(-done.returncode)))
     if done.returncode != 0:
         die("%s: tmux refused %s: %s" % (what, args[0], tmux_refusal(done)))
     return done.stdout
+
+
+def signal_name(number):
+    """A signal's name, or its number when it has none."""
+    try:
+        return signal.Signals(number).name
+    except ValueError:
+        return "signal %d" % number
 
 
 def in_home_session():
@@ -5507,7 +5529,10 @@ def interrupts_deferred(active):
     """SIGINT, SIGTERM and SIGHUP held back while a rotation's replacement is being made, then
     raised through the handlers found once it is made and its tty known. A span that ends on a
     death drops what it held, the death being what is said. Nothing is held when not `active`,
-    nor outside the main thread."""
+    nor outside the main thread. The terminal's children run apart from the launcher's process
+    group for the span (CHILDREN_APART), so that a signal sent to that group is held here and
+    does not kill them halfway."""
+    global CHILDREN_APART
     saved, pending = {}, []
     if active:
         try:
@@ -5516,9 +5541,12 @@ def interrupts_deferred(active):
                 signal.signal(sig, lambda signum, frame: pending.append(signum))
         except ValueError:
             pass
+    apart = CHILDREN_APART
+    CHILDREN_APART = apart or bool(active)
     try:
         yield
     finally:
+        CHILDREN_APART = apart
         put_back(saved)
     if pending:
         signal.raise_signal(pending[0])

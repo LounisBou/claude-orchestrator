@@ -7882,6 +7882,36 @@ def waits(tty):
     raise KeyboardInterrupt()
 def launch_file(launch, title):
     signal.raise_signal(signal.SIGTERM)
+class TmuxMade(ia.TmuxTerminal):
+    """The tmux terminal as it is, its new-window client the stand-in PROBE_TMUX names."""
+    def session(self):
+        return "$1"
+    def owner(self, own):
+        return "O-ME"
+    def chain_anchor(self, own):
+        return None
+    def can_place(self, anchor, side):
+        return True
+    def create(self, command, title, place, chain, made):
+        spawned.append(1)
+        return ia.TmuxTerminal.create(self, command, title, place, chain, made)
+    def close_made(self, made):
+        calls.append("close_made %s" % made.get("tty"))
+        return True
+if mode == "group-sigint":
+    # The probe leads a process group of its own, so the stand-in's interrupt to its group
+    # reaches the probe and its children alone; with no group of its own, nothing is sent.
+    try:
+        os.setsid()
+    except OSError:
+        pass
+    if os.getpgid(0) == os.getpid():
+        os.environ["PROBE_PGID"] = str(os.getpid())
+    ia.TMUX_BIN = os.environ["PROBE_TMUX"]
+    ia.terminal = lambda *a, **k: TmuxMade()
+    # Never started: a creation whose interrupt was lost ends on the spawn's own refusal.
+    ia.cli_pid_on_tty = lambda tty: None
+    ia.find_transcript = lambda dir_, epoch: ""
 if mode in ("create-sigterm", "verify-interrupt", "before-create", "refuse-interrupt"):
     ia.terminal = lambda *a, **k: Made()
     ia.cli_pid_on_tty = waits
@@ -7891,7 +7921,7 @@ if mode in ("create-sigterm", "verify-interrupt", "before-create", "refuse-inter
         # A replacement that never starts: the spawn refuses it and closes it itself.
         ia.cli_pid_on_tty = lambda tty: None
         ia.find_transcript = lambda dir_, epoch: ""
-else:
+elif mode != "group-sigint":
     ia.cmd_spawn = lambda argv, pair_from="", old_tty="", made=None: (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
 def sent(tty):
     ia.KILL_SENT.add(tty)
@@ -8046,6 +8076,16 @@ check "and one before the replacement is made says nothing was spawned, the old 
 res=$(ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe refuse-interrupt)
 check "an interrupt during the spawn's own close of a refused replacement says so, the old session untouched" "1|1|close_made /dev/ttys903|1|0|0" \
   "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF 'rotate: the rotation was interrupted by SIGINT while the spawn closed the replacement it made on /dev/ttys903, which it refused (claude never started on /dev/ttys903 after 2s): whether that close went through is not known: if list still shows a session on /dev/ttys903, close it with close --tty /dev/ttys903; the old session on /dev/ttys901 was not touched')|$(sfield "$res" ERR | grep -c 'is kept')|$(printf '%s' "$res" | grep -c 'Traceback')"
+# The terminal's own children run apart from the launcher's process group while a rotation's
+# replacement is made: an interrupt sent to the group (a Ctrl-C at the terminal) is held by the
+# launcher until the creation returns, and does not kill the tmux client after the server made
+# the window. The stand-in client interrupts the group, then answers the window it made.
+printf 'import os, signal, sys\nif "new-window" in sys.argv:\n    if os.environ.get("PROBE_PGID"):\n        os.killpg(int(os.environ["PROBE_PGID"]), signal.SIGINT)\n    print("@4 %%4 /dev/ttys903")\n' > "$WORK/group-tmux.py"
+printf '#!/bin/bash\nexec "%s" "%s" "$@"\n' "$py" "$WORK/group-tmux.py" > "$WORK/group-tmux"
+chmod +x "$WORK/group-tmux"
+res=$(PROBE_TMUX="$WORK/group-tmux" TMUX="$TSOCK,4242,1" TMUX_PANE=%0 ORCHESTRATOR_SPAWN_TIMEOUT=2 rprobe group-sigint)
+check "a group interrupt while tmux makes the replacement is held until the window is made, and the line names both" "1|1||1|0|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" ERR | grep -c 'refused new-window')|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \
