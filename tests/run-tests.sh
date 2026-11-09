@@ -6758,7 +6758,7 @@ table = os.environ['ORCHESTRATOR_CWD_TABLE']
 ia.host_cli_on = lambda t: '4242'
 ia.wait_gone = lambda t, timeout=None: '4242' if mode == 'survivor' else None
 ia.served_by = (lambda *a, **k: open(table, 'w').close()) if mode == 'vanish' else (lambda *a, **k: None)
-ia.cmd_spawn = lambda argv, pair_from='', old_tty='': None
+ia.cmd_spawn = lambda argv, pair_from='', old_tty='', made=None: None
 # The pre-check reads the tab's title: it holds the rotation's words, so the close is reached.
 ia.session_title = lambda tty, what='close': 'T'
 # No host identity: the close's proof is wait_gone's, stubbed above, and no real pid is read.
@@ -7836,9 +7836,35 @@ ia.host_cli_on = lambda tty: None if mode == "vanished" else ("4242" if tty == "
 ia.others_on = lambda tty, ended: []
 ia.wait_gone = lambda tty, timeout=None: None
 ia.chain_drop_tab = lambda tab_id: calls.append("drop %s" % tab_id)
-# The replacement, or one handed the tty its old session ran on.
+# The replacement, or one handed the tty its old session ran on. In « create-sigterm »,
+# « verify-interrupt » and « before-create » the spawn is the launcher's own, over a terminal
+# that makes the tab: a SIGTERM lands in the middle of its creation, or the keyboard's interrupt
+# once it is made, while the spawn waits for its host, or a SIGTERM before anything is made.
 rep_tty = "/dev/ttys901" if mode == "recycled" else "/dev/ttys903"
-ia.cmd_spawn = lambda argv, pair_from="", old_tty="": (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
+class Made(Tab):
+    def owner(self, own):
+        return "O-ME"
+    def chain_anchor(self, own):
+        return None
+    def can_place(self, anchor, side):
+        return True
+    def create(self, command, title, place, chain, made):
+        spawned.append(1)
+        made.update(tab_id="T903", session_id="S-NEW")
+        if mode == "create-sigterm":
+            signal.raise_signal(signal.SIGTERM)
+        return rep_tty, "T903"
+def waits(tty):
+    raise KeyboardInterrupt()
+def launch_file(launch, title):
+    signal.raise_signal(signal.SIGTERM)
+if mode in ("create-sigterm", "verify-interrupt", "before-create"):
+    ia.terminal = lambda *a, **k: Made()
+    ia.cli_pid_on_tty = waits
+    if mode == "before-create":
+        ia.write_launch_script = launch_file
+else:
+    ia.cmd_spawn = lambda argv, pair_from="", old_tty="", made=None: (spawned.append(1), dict(tty=rep_tty, terminal=Tab(), tab_id="T903"))[1]
 def sent(tty):
     ia.KILL_SENT.add(tty)
     ia.die("close: the request was accepted but 4242 is still running on %s" % tty)
@@ -7879,6 +7905,9 @@ class Out(io.StringIO):
         if mode == "closed-pipe" and "closed 1 session" in self.getvalue():
             raise BrokenPipeError(32, "Broken pipe")
 rotate = ["--old-tty", "/dev/ttys901", "--dir", "/x", "--title", "T", "--tier", "light"]
+if len(sys.argv) > 3:
+    rotate = ["--old-tty", "/dev/ttys901", "--dir", sys.argv[3], "--title", "Agent : two",
+              "--tier", "light", "--prompt", "p"]
 if mode == "pipe-real":
     # A real stdout whose reader is gone: the process's own exit status and its last words on
     # stderr are what is read, the interpreter's flush at exit included.
@@ -7970,6 +7999,20 @@ check "an interrupt after the close began says the close failed, the old tab's c
 res=$(lprobe read-interrupt)
 check "an interrupt before the close says the old session was not closed" "1||1|yes" \
   "$(sfield "$res" exit)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT after the spawn, before the close of the old session on /dev/ttys901, so it was not closed; $KEPT; $THERE")|$(sfield "$res" restored)"
+# From before the replacement is made: an interrupt that lands while the terminal makes it, or
+# once it is made and the spawn waits for its host, ends on the same one line, the replacement
+# kept and named, the old session's close step given, and the handlers put back.
+rprobe() { ORCHESTRATOR_STATE_DIR="$WORK/latestate" ORCHESTRATOR_SELF_TTY=/dev/ttys900 ORCHESTRATOR_PS_TABLE=/dev/null \
+  "$py" "$WORK/late_probe.py" "$ROOT/skills/iterm-agents/scripts" "$1" "$WORK" 2>&1; }
+res=$(rprobe create-sigterm)
+check "a SIGTERM while the terminal makes the replacement ends on the rotation's line once it is made, both named" "1|1||1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+res=$(rprobe verify-interrupt)
+check "an interrupt once the replacement is made, while the spawn waits for its host, ends on the same line" "1|1||1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGINT during the spawn, once its replacement was made on /dev/ttys903, so the old session on /dev/ttys901 was not closed; the replacement made on /dev/ttys903 is kept, though whether it started was not verified, and its chain entry may be missing; $THERE")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
+res=$(rprobe before-create)
+check "and one before the replacement is made says nothing was spawned, the old session left as it was" "1|0||1|yes|0" \
+  "$(sfield "$res" exit)|$(sfield "$res" spawned)|$(sfield "$res" calls)|$(sfield "$res" ERR | grep -cF "rotate: the rotation was interrupted by SIGTERM before its replacement was made: nothing was spawned, and the old session on /dev/ttys901 was left as it was")|$(sfield "$res" restored)|$(printf '%s' "$res" | grep -c 'Traceback')"
 # A replacement handed the tty its old session ran on: a close of that tty would end it.
 res=$(lprobe recycled)
 check "a replacement given the old session's tty is never closed, and nothing is: the line names both" "1||1|0" \

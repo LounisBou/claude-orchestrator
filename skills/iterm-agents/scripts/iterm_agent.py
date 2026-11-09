@@ -4314,11 +4314,13 @@ def spawn_parser():
     return p
 
 
-def cmd_spawn(argv, pair_from="", old_tty=""):
+def cmd_spawn(argv, pair_from="", old_tty="", made=None):
     """`pair_from` is a rotation's: the source of the model and effort it passes on as flags,
     read on the rotated agent's transcript, so the launch says where they came from. `old_tty`
     is a rotation's too: the session it replaces, named when what follows the verification
-    fails. Returns `made`, what the terminal recorded of the new session, for `rotate` to name."""
+    fails. So is `made`, filled as the terminal makes the new session, so that an interrupt
+    once it exists still knows what to name. Returns `made`, what the terminal recorded of the
+    new session, for `rotate` to name."""
     args, unknown = spawn_parser().parse_known_args(argv)
     if unknown:
         die("spawn: unknown option %s" % unknown[0])
@@ -4818,7 +4820,8 @@ def cmd_spawn(argv, pair_from="", old_tty=""):
                                                     effort or "the host's default", pair_source),
           file=sys.stderr)
 
-    made = {"terminal": term}
+    made = {} if made is None else made
+    made["terminal"] = term
     if anchor == "leftmost":
         place = Place("first", own, side, args.auditor)
     elif anchor:
@@ -4829,32 +4832,35 @@ def cmd_spawn(argv, pair_from="", old_tty=""):
     # Before the tab exists, so no transcript older than this launch can be taken for its.
     launch_epoch = time.time()
     _, resumed_from = transcript_of(args.resume) if args.resume else ("", 0)
-    if home:
-        # The host runs in window 0 and the tab shows the server: what is verified is window
-        # 0's tty, and a refusal ends the server with the tab.
-        pane_tty = make_home(socket, title, args.dir, command, "spawn")
-        if home_no_tab():
-            made = {"terminal": NO_TAB, "home": socket, "tty": pane_tty}
-            print("spawn: home server %s, window 0 on %s, no tab: attach with %s -L %s attach"
-                  % (socket, pane_tty, TMUX_BIN, socket), file=sys.stderr)
+    # A rotation's interrupts wait for the creation to end: one in its middle would leave a
+    # tab or window made whose tty nothing names.
+    with interrupts_deferred(bool(old_tty)):
+        if home:
+            # The host runs in window 0 and the tab shows the server: what is verified is window
+            # 0's tty, and a refusal ends the server with the tab.
+            pane_tty = make_home(socket, title, args.dir, command, "spawn")
+            if home_no_tab():
+                made = {"terminal": NO_TAB, "home": socket, "tty": pane_tty}
+                print("spawn: home server %s, window 0 on %s, no tab: attach with %s -L %s attach"
+                      % (socket, pane_tty, TMUX_BIN, socket), file=sys.stderr)
+            else:
+                tab_tty, made = open_home_tab(socket, title, place.anchor, "spawn")
+                made.update(home=socket, tty=pane_tty)
+                print("spawn: home server %s, window 0 on %s, shown in the tab on %s"
+                      % (socket, pane_tty, tab_tty), file=sys.stderr)
+            new_tty, tab_id = pane_tty, ""
         else:
-            tab_tty, made = open_home_tab(socket, title, place.anchor, "spawn")
-            made.update(home=socket, tty=pane_tty)
-            print("spawn: home server %s, window 0 on %s, shown in the tab on %s"
-                  % (socket, pane_tty, tab_tty), file=sys.stderr)
-        new_tty, tab_id = pane_tty, ""
-    else:
-        # The stable id is written into the chain only once the session is verified running:
-        # a spawn that dies unverified must leave the chain as it found it, and a successor
-        # that never started must not take the predecessor's agents.
-        new_tty, tab_id = term.create(command, title, place,
-                                      effect if own and effect != "none" else "", made)
-    if made.get("error"):
-        refuse_made(made, "spawn: the tab was made, then the terminal failed: %s"
-                    % made["error"])
-    if not new_tty:
-        refuse_made(made, "spawn: the terminal returned no tty for the new tab")
-    made.setdefault("tty", new_tty)
+            # The stable id is written into the chain only once the session is verified running:
+            # a spawn that dies unverified must leave the chain as it found it, and a successor
+            # that never started must not take the predecessor's agents.
+            new_tty, tab_id = term.create(command, title, place,
+                                          effect if own and effect != "none" else "", made)
+        if made.get("error"):
+            refuse_made(made, "spawn: the tab was made, then the terminal failed: %s"
+                        % made["error"])
+        if not new_tty:
+            refuse_made(made, "spawn: the terminal returned no tty for the new tab")
+        made.setdefault("tty", new_tty)
 
     # Before the verification below, which may wait or die: an auditor's place is settled as
     # soon as its tab exists, and said on stdout, where the orchestrator reads the launch.
@@ -4894,6 +4900,7 @@ def cmd_spawn(argv, pair_from="", old_tty=""):
                   file=sys.stderr)
         else:
             print(verify_mode(args.dir, launch_epoch, args.mode, model, made), file=sys.stderr)
+        made["verified"] = True
     # From here the session runs: whatever fails names it, never on a traceback, and a rotation
     # (`old_tty`, the session it replaces) leaves that old session as it is.
     try:
@@ -5413,18 +5420,22 @@ def cmd_rotate(argv):
     # The spawn verifies the replacement is RUNNING before anything is closed: a rotation
     # that killed the old agent on a spawn that never started would leave zero agents,
     # which is the one outcome this order exists to prevent.
-    after = None
-    try:
-        made = cmd_spawn(rest, pair_from, args.old_tty)
-    except AfterSpawn as exc:
-        made, after = {"tty": exc.tty}, exc
-    # From here on the replacement runs, and it is never closed: whatever fails, an interrupt
-    # included, ends on one line that names it.
+    # The interrupts are raised from before the replacement is made, and the spawn fills
+    # `spawned` as the terminal makes it: from its creation on the replacement is never closed,
+    # and whatever fails, an interrupt included, ends on one line that names it.
+    made, after, spawned = None, None, {}
     with interrupts_raised():
         try:
+            try:
+                made = cmd_spawn(rest, pair_from, args.old_tty, made=spawned)
+            except AfterSpawn as exc:
+                made, after = {"tty": exc.tty}, exc
             finish_rotation(made, old, after)
         except (KeyboardInterrupt, Interrupted) as exc:
             name = "SIGINT" if isinstance(exc, KeyboardInterrupt) else str(exc)
+            if made is None:
+                spawn_interrupted(spawned, old, name)
+            refuse_recycled(made, old, after)
             late_refusal(made, old, False, "interrupted by %s" % name, interrupted=True)
 
 
@@ -5445,9 +5456,9 @@ class Interrupted(BaseException):
 
 @contextlib.contextmanager
 def interrupts_raised():
-    """SIGTERM and SIGHUP raised as `Interrupted` for the span after a rotation's spawn, SIGINT
-    left to raise its KeyboardInterrupt; the handlers found are put back after, whatever ends
-    the span. Only the main thread can set them: elsewhere nothing is changed."""
+    """SIGTERM and SIGHUP raised as `Interrupted` for the span of a rotation's spawn and close,
+    SIGINT left to raise its KeyboardInterrupt; the handlers found are put back after, whatever
+    ends the span. Only the main thread can set them: elsewhere nothing is changed."""
     saved = {}
     def raise_it(signum, frame):
         raise Interrupted(signal.Signals(signum).name)
@@ -5461,11 +5472,38 @@ def interrupts_raised():
     try:
         yield
     finally:
-        for sig, handler in saved.items():
-            try:
-                signal.signal(sig, handler)
-            except (ValueError, TypeError):
-                pass
+        put_back(saved)
+
+
+@contextlib.contextmanager
+def interrupts_deferred(active):
+    """SIGINT, SIGTERM and SIGHUP held back while a rotation's replacement is being made, then
+    raised through the handlers found once it is made and its tty known. A span that ends on a
+    death drops what it held, the death being what is said. Nothing is held when not `active`,
+    nor outside the main thread."""
+    saved, pending = {}, []
+    if active:
+        try:
+            for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+                saved[sig] = signal.getsignal(sig)
+                signal.signal(sig, lambda signum, frame: pending.append(signum))
+        except ValueError:
+            pass
+    try:
+        yield
+    finally:
+        put_back(saved)
+    if pending:
+        signal.raise_signal(pending[0])
+
+
+def put_back(saved):
+    """The signal handlers in `saved`, put back; one that cannot be set is left."""
+    for sig, handler in saved.items():
+        try:
+            signal.signal(sig, handler)
+        except (ValueError, TypeError):
+            pass
 
 
 def hold_signals():
@@ -5612,15 +5650,29 @@ def old_identity(old):
     return "window %s" % old["window"] if old["window"] else "session %s" % old["session"]
 
 
-def finish_rotation(made, old, after):
-    """The close of a rotation's old session, once its replacement runs. The replacement is
-    never closed: a recycled tty, a spawn that failed after its verification, an old session no
-    longer on its tty, a close that refuses, fails or raises, each ends on one `rotate:` line."""
+def spawn_interrupted(spawned, old, name):
+    """A rotation interrupted by `name` inside its spawn. Before the replacement was made,
+    nothing was. Once it was, it is kept, verified or not, and the line names both."""
+    tty = spawned.get("tty")
+    if not tty:
+        hold_signals()
+        die("rotate: the rotation was interrupted by %s before its replacement was made: nothing "
+            "was spawned, and the old session on %s was left as it was" % (name, old["tty"]))
+    refuse_recycled(spawned, old, None)
+    late_refusal(spawned, old, False, "", lead=(
+        "the rotation was interrupted by %s during the spawn, once its replacement was made on "
+        "%s, so the old session on %s was not closed" % (name, tty, old["tty"])), kept=(
+        "the replacement runs on %s, verified, and is kept, its chain entry may be missing"
+        if spawned.get("verified") else "the replacement made on %s is kept, though whether it "
+        "started was not verified, and its chain entry may be missing") % tty)
+
+
+def refuse_recycled(made, old, after):
+    """A tty is handed to another session once its own has let it go: a replacement given the
+    old session's tty means that session is no longer on it, and a close of that tty would end
+    the replacement. Nothing is closed then, and the line says why."""
     tty = old["tty"]
     new_tty = (made or {}).get("tty") or ""
-    # A tty is handed to another session once its own has let it go: a replacement given the
-    # old session's tty means that session is no longer on it, and a close of that tty would end
-    # the replacement.
     if new_tty and new_tty == tty:
         hold_signals()
         die("rotate: the replacement was given %s, the tty of the old session on %s: that "
@@ -5629,6 +5681,14 @@ def finish_rotation(made, old, after):
             "the old session is left%s" % ((tty,) * 4 + (
                 "; what followed its spawn failed too (%s): its own chain entry may be missing"
                 % after.why if after else "",)))
+
+
+def finish_rotation(made, old, after):
+    """The close of a rotation's old session, once its replacement runs. The replacement is
+    never closed: a recycled tty, a spawn that failed after its verification, an old session no
+    longer on its tty, a close that refuses, fails or raises, each ends on one `rotate:` line."""
+    tty = old["tty"]
+    refuse_recycled(made, old, after)
     if after:
         late_refusal(made, old, False, "", lead=(
             "the replacement %s but what followed its spawn failed (%s), so the old session on "

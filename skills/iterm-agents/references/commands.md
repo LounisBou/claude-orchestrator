@@ -246,6 +246,15 @@ $SCRIPT rotate --dir <workdir> --old-tty <tty> [--trust] [--tier <tier> | --mode
     #   session on <tty>, so it was not closed; …`, `rotate: the old session on <tty> was not
     #   closed: its close was interrupted by <signal> before it ended anything; …`, or `rotate:
     #   the close of the old session on <tty> failed (interrupted by <signal>); …`
+    # - an interrupt during the spawn, once the terminal has made the replacement (one that
+    #   lands while it makes it waits for the creation to end): `rotate: the rotation was
+    #   interrupted by <signal> during the spawn, once its replacement was made on <tty>, so
+    #   the old session on <old tty> was not closed; the replacement made on <tty> is kept,
+    #   though whether it started was not verified, and its chain entry may be missing; …`
+    #   (`the replacement runs on <tty>, verified, and is kept, …` once it was verified).
+    #   Before it is made: `rotate: the rotation was interrupted by <signal> before its
+    #   replacement was made: nothing was spawned, and the old session on <old tty> was left
+    #   as it was`
     # Each but the `was closed` one ends on what is left of the old session and the step that
     # ends it, and only it. Still there: `its window or tab is still there, the same <window
     # @N | session <id>> as before the spawn: close it with close --tty <old tty> (its chain
